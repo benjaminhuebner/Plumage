@@ -6,8 +6,7 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome", id: "welcome") {
-            Text("Welcome (placeholder)")
-                .frame(minWidth: 480, minHeight: 360)
+            WelcomeView()
         }
         .defaultLaunchBehavior(.presented)
         .environment(recentProjects)
