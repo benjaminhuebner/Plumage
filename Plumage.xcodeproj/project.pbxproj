@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CA46020320030001000000C3 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020220030001000000C3 /* Yams */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		CA46014D2FB2F26900CAD6C3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -62,6 +66,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CA46020320030001000000C3 /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,6 +131,7 @@
 			);
 			name = Plumage;
 			packageProductDependencies = (
+				CA46020220030001000000C3 /* Yams */,
 			);
 			productName = Plumage;
 			productReference = CA46013D2FB2F26800CAD6C3 /* Plumage.app */;
@@ -209,6 +215,9 @@
 			);
 			mainGroup = CA4601342FB2F26800CAD6C3;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CA46020120030001000000C3 /* XCRemoteSwiftPackageReference "Yams" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CA46013E2FB2F26800CAD6C3 /* Products */;
 			projectDirPath = "";
@@ -593,6 +602,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CA46020120030001000000C3 /* XCRemoteSwiftPackageReference "Yams" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jpsim/Yams";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.4.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CA46020220030001000000C3 /* Yams */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA46020120030001000000C3 /* XCRemoteSwiftPackageReference "Yams" */;
+			productName = Yams;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = CA4601352FB2F26800CAD6C3 /* Project object */;
 }
