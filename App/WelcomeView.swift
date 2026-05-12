@@ -12,7 +12,7 @@ struct WelcomeView: View {
                 .frame(width: 460)
             rightPane
         }
-        .frame(minWidth: 780, idealWidth: 860, minHeight: 480, idealHeight: 520)
+        .frame(width: 860, height: 520)
         .background(WindowChromeCustomizer())
     }
 
