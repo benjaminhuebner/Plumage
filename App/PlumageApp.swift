@@ -24,8 +24,10 @@ struct PlumageApp: App {
             if let handle {
                 ProjectWindow(handle: handle)
             } else {
-                Text("No project")
-                    .frame(minWidth: 320, minHeight: 240)
+                EmptyView()
+                    .onAppear {
+                        assertionFailure("Project window opened without a handle")
+                    }
             }
         }
         .commandsRemoved()

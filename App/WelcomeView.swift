@@ -27,7 +27,7 @@ struct WelcomeView: View {
                 Text("Welcome to Plumage")
                     .font(.system(size: 28, weight: .semibold))
                     .multilineTextAlignment(.center)
-                Text("Version \(appVersionString)")
+                Text("Version \(Self.appVersionString)")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
@@ -69,7 +69,7 @@ struct WelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.12))
+        .background(Color.primary.opacity(0.05))
     }
 
     private var emptyState: some View {
@@ -134,12 +134,12 @@ struct WelcomeView: View {
         Image(systemName: "bird.fill")
     }
 
-    private var appVersionString: String {
+    nonisolated static let appVersionString: String = {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
         if build.isEmpty || build == version { return version }
         return "\(version) (\(build))"
-    }
+    }()
 }
 
 private struct RecentRow: View {

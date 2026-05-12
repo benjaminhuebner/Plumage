@@ -10,12 +10,13 @@ struct RecentProjectsTests {
             .appendingPathComponent("recent-\(UUID().uuidString).json")
     }
 
-    @Test func capAtFifty() throws {
+    @Test func capAtMaxItems() throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
         let sut = RecentProjects(storeURL: store)
 
-        for index in 0..<51 {
+        let overflow = RecentProjects.maxItems + 1
+        for index in 0..<overflow {
             sut.add(
                 url: URL(fileURLWithPath: "/tmp/project-\(index)"),
                 name: "P\(index)"
@@ -23,7 +24,7 @@ struct RecentProjectsTests {
         }
 
         #expect(sut.items.count == RecentProjects.maxItems)
-        #expect(sut.items.first?.name == "P50")
+        #expect(sut.items.first?.name == "P\(overflow - 1)")
         #expect(sut.items.contains { $0.name == "P0" } == false)
     }
 
