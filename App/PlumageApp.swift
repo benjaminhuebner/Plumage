@@ -10,6 +10,7 @@ struct PlumageApp: App {
                 .containerBackground(.thickMaterial, for: .window)
         }
         .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
         .defaultPosition(.center)
         .defaultLaunchBehavior(.presented)
         .environment(recentProjects)
