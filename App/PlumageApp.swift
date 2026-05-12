@@ -9,6 +9,7 @@ struct PlumageApp: App {
             WelcomeView()
                 .containerBackground(.thickMaterial, for: .window)
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultPosition(.center)
         .defaultLaunchBehavior(.presented)
         .environment(recentProjects)

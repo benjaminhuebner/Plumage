@@ -10,6 +10,7 @@ struct WelcomeView: View {
         HStack(spacing: 0) {
             leftPane
                 .frame(width: 360)
+            Divider()
             rightPane
         }
         .frame(minWidth: 760, idealWidth: 820, minHeight: 460, idealHeight: 500)
@@ -186,6 +187,7 @@ private struct WindowChromeCustomizer: NSViewRepresentable {
             window.isMovableByWindowBackground = true
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
+            window.titlebarSeparatorStyle = .none
             window.styleMask.insert(.fullSizeContentView)
         }
     }
