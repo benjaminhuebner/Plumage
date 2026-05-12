@@ -1,32 +1,28 @@
-//
-//  PlumageApp.swift
-//  Plumage
-//
-//  Created by Benjamin Hübner on 12.05.26.
-//
-
-import SwiftData
 import SwiftUI
 
 @main
 struct PlumageApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var recentProjects = RecentProjects()
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Window("Welcome", id: "welcome") {
+            Text("Welcome (placeholder)")
+                .frame(minWidth: 480, minHeight: 360)
         }
-        .modelContainer(sharedModelContainer)
+        .defaultLaunchBehavior(.presented)
+        .environment(recentProjects)
+
+        WindowGroup("Project", for: ProjectHandle.self) { $handle in
+            if let handle {
+                Text("Project (placeholder) \(handle.url.path)")
+                    .frame(minWidth: 640, minHeight: 480)
+            } else {
+                Text("No project")
+                    .frame(minWidth: 320, minHeight: 240)
+            }
+        }
+        .commandsRemoved()
+        .restorationBehavior(.disabled)
+        .environment(recentProjects)
     }
 }
