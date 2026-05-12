@@ -1,0 +1,45 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+id_rsa
+id_ed25519
+.netrc
+
+# OS / IDE junk
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xccheckout
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj
+
+# CocoaPods 
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
