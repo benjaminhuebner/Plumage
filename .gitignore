@@ -1,45 +1,99 @@
-# Secrets
-.env
-.env.local
-.env.*.local
-*.key
-*.pem
-id_rsa
-id_ed25519
-.netrc
+# Logs
+*.log
+# Temporary files
+*.tmp
+*~
 
-# OS / IDE junk
+*.bak
+# Environment files (containing secrets, API keys, credentials)
+.env
+*.env
+.env.*
+
+# Local configuration that shouldn't be shared
+*.local
+
+### Macos ###
+# macOS operating system specific files
+
 .DS_Store
 .AppleDouble
 .LSOverride
-Thumbs.db
+Icon
+._*
+
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+
+Temporary Items
+.apdisk
+*.icloud
+.AppleDB/
+.AppleDesktop/
+
+*.AppleDouble
+*.AppleDB
+.Spotlight-V100/
+.Trashes/
+*.swp
+
+Network Trash Folder/
+.DS_Store?
+.Spotlight-V100
+.Trashes
+
+### Xcode ###
+# Xcode IDE files and build settings
 
 # Xcode
-build/
-DerivedData/
-*.xcuserstate
-*.xccheckout
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
 xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
 
-# Swift Package Manager
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+
+*.xcuserstate
+*.xcscmblueprint
+*.xcscheme
+*.xcworkspacedata
+*.xcodeproj/*
+
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+
+*.xcscmblueprint
+.xccheckout
+/*.gcno
+**/xcshareddata/WorkspaceSettings.xcsettings
+
+### Swift_package_manager ###
+# swift_package_manager package manager specific files
+
 .build/
-.swiftpm/
 Packages/
-Package.pins
 Package.resolved
-*.xcodeproj
-
-# CocoaPods 
-Pods/
-
-# Carthage
-Carthage/Build/
-
-# Fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
+.swiftpm/
+.build-cache/
