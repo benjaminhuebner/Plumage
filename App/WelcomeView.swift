@@ -9,61 +9,47 @@ struct WelcomeView: View {
     var body: some View {
         HStack(spacing: 0) {
             leftPane
-                .frame(width: 320)
-            Divider()
+                .frame(width: 360)
             rightPane
         }
-        .frame(minWidth: 760, idealWidth: 820, minHeight: 460, idealHeight: 480)
+        .frame(minWidth: 760, idealWidth: 820, minHeight: 460, idealHeight: 500)
+        .background(WindowChromeCustomizer())
     }
 
     private var leftPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                appIcon
-                    .resizable()
-                    .frame(width: 96, height: 96)
-                    .padding(.bottom, 8)
+        VStack(spacing: 18) {
+            Spacer()
+            appIcon
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 128, height: 128)
+            VStack(spacing: 4) {
                 Text("Welcome to Plumage")
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(.system(size: 28, weight: .semibold))
+                    .multilineTextAlignment(.center)
                 Text("Version \(appVersionString)")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
-            .padding(.top, 36)
-            .padding(.horizontal, 28)
-
-            Spacer(minLength: 24)
-
-            Button {
-                OpenProjectCommand.openWithPicker(
-                    recentProjects: recentProjects,
-                    openWindow: openWindow,
-                    dismissWindow: dismissWindow
-                )
-            } label: {
-                HStack(spacing: 14) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.tint)
-                        .frame(width: 32)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Open a Project…")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("Choose a folder with .plumage/config.json.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
+            Spacer().frame(height: 8)
+            VStack(alignment: .leading, spacing: 8) {
+                actionRow(
+                    systemImage: "folder.badge.plus",
+                    title: "Open a Project…",
+                    subtitle: "Pick a folder with .plumage/config.json"
+                ) {
+                    OpenProjectCommand.openWithPicker(
+                        recentProjects: recentProjects,
+                        openWindow: openWindow,
+                        dismissWindow: dismissWindow
+                    )
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .contentShape(Rectangle())
+                .keyboardShortcut(.defaultAction)
             }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 28)
+            .padding(.horizontal, 28)
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var rightPane: some View {
@@ -74,9 +60,9 @@ struct WelcomeView: View {
                 List(recentProjects.items) { item in
                     RecentRow(item: item)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                        .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
                         .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { open(item) }
+                        .onTapGesture { open(item) }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
@@ -86,7 +72,7 @@ struct WelcomeView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Spacer()
             Image(systemName: "folder")
                 .font(.system(size: 48, weight: .light))
@@ -100,6 +86,38 @@ struct WelcomeView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func actionRow(
+        systemImage: String,
+        title: String,
+        subtitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 22))
+                    .foregroundStyle(.tint)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func open(_ item: RecentItem) {
@@ -129,14 +147,16 @@ private struct RecentRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "folder.fill")
-                .font(.system(size: 22))
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 28, height: 28)
                 .foregroundStyle(.tint)
-                .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .foregroundStyle(.primary)
                 Text((item.url.path as NSString).abbreviatingWithTildeInPath)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -145,7 +165,29 @@ private struct RecentRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct WindowChromeCustomizer: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = ChromeCustomizingView()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class ChromeCustomizingView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+            window.isMovableByWindowBackground = true
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.styleMask.insert(.fullSizeContentView)
+        }
     }
 }
 

@@ -7,6 +7,7 @@ struct PlumageApp: App {
     var body: some Scene {
         Window("Welcome", id: "welcome") {
             WelcomeView()
+                .containerBackground(.thickMaterial, for: .window)
         }
         .defaultPosition(.center)
         .defaultLaunchBehavior(.presented)
