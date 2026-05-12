@@ -5,14 +5,14 @@
 //  Created by Benjamin Hübner on 12.05.26.
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 @main
 struct PlumageApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Item.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
