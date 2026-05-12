@@ -8,6 +8,7 @@ struct PlumageApp: App {
         Window("Welcome", id: "welcome") {
             WelcomeView()
         }
+        .defaultPosition(.center)
         .defaultLaunchBehavior(.presented)
         .environment(recentProjects)
         .commands {
