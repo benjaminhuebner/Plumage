@@ -10,7 +10,6 @@ struct WelcomeView: View {
         HStack(spacing: 0) {
             leftPane
                 .frame(width: 360)
-            Divider()
             rightPane
         }
         .frame(minWidth: 760, idealWidth: 820, minHeight: 460, idealHeight: 500)
@@ -70,6 +69,7 @@ struct WelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.12))
     }
 
     private var emptyState: some View {
