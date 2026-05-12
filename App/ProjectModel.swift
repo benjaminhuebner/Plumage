@@ -11,7 +11,7 @@ final class ProjectModel {
     }
 
     private(set) var state: LoadState = .loading
-    private(set) var issues: [Issue] = []
+    private(set) var issues: [DiscoveredIssue] = []
 
     func reload(at url: URL) async {
         let (newState, newIssues) = await Task.detached(priority: .userInitiated) {
@@ -21,7 +21,7 @@ final class ProjectModel {
         self.issues = newIssues
     }
 
-    private nonisolated static func computeLoad(at url: URL) -> (LoadState, [Issue]) {
+    private nonisolated static func computeLoad(at url: URL) -> (LoadState, [DiscoveredIssue]) {
         do {
             let config = try ConfigLoader.load(at: url)
             let issues = IssueDiscovery.discoverIssues(in: url)

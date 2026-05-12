@@ -1,71 +1,49 @@
 import SwiftUI
 
 struct IssueRowView: View {
-    let issue: Issue
+    let issue: DiscoveredIssue
     let padding: Int
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(paddedId)
-                .font(.body.monospaced())
-                .foregroundStyle(.secondary)
-            Text(issue.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            IssueTypeBadge(type: issue.type)
+        switch issue {
+        case .valid(let value):
+            ValidIssueRowView(issue: value, padding: padding)
+        case .invalid(let folder, let error):
+            InvalidIssueRowView(folder: folder, error: error, padding: padding)
         }
-    }
-
-    private var paddedId: String {
-        String(format: "%0\(max(padding, 1))d", issue.id)
     }
 }
 
 #Preview {
     List {
         IssueRowView(
-            issue: Issue(
-                id: 1,
-                folder: "00001-walking-skeleton",
-                title: "Walking Skeleton",
-                type: .chore,
-                status: .done,
-                created: .now,
-                updated: .now,
-                branch: "issue/00001-walking-skeleton",
-                labels: [],
-                model: nil
+            issue: .valid(
+                Issue(
+                    id: 1,
+                    folder: "00001-walking-skeleton",
+                    title: "Walking Skeleton",
+                    type: .chore,
+                    status: .done,
+                    created: .now,
+                    updated: .now,
+                    branch: "issue/00001-walking-skeleton",
+                    labels: [],
+                    model: nil
+                )
             ),
             padding: 5
         )
         IssueRowView(
-            issue: Issue(
-                id: 2,
-                folder: "00002-open-project",
-                title: "Open Project Flow",
-                type: .feature,
-                status: .done,
-                created: .now,
-                updated: .now,
-                branch: "issue/00002-open-project",
-                labels: ["feature"],
-                model: nil
+            issue: .invalid(
+                folder: URL(filePath: "/tmp/sample/.claude/issues/00042-broken-stuff"),
+                error: .invalidEnumValue(field: "status", value: "aproved")
             ),
             padding: 5
         )
         IssueRowView(
-            issue: Issue(
-                id: 42,
-                folder: "00042-diff-renderer-spike",
-                title: "Investigate diff renderer performance with very long lines",
-                type: .spike,
-                status: .draft,
-                created: .now,
-                updated: .now,
-                branch: "issue/00042-diff-renderer-spike",
-                labels: [],
-                model: nil
+            issue: .invalid(
+                folder: URL(filePath: "/tmp/sample/.claude/issues/no-id-prefix"),
+                error: .missingFrontmatter
             ),
             padding: 5
         )

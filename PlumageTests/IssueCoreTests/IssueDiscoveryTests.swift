@@ -21,24 +21,67 @@ struct IssueDiscoveryTests {
         #expect(IssueDiscovery.discoverIssues(in: project).isEmpty)
     }
 
-    @Test("returns issues sorted by id ascending")
+    @Test("returns valid issues sorted by id ascending")
     func sortsAscending() throws {
         let project = try makeTempProject()
         try writeIssue(in: project, folder: "00010-third", id: 10, type: "feature")
         try writeIssue(in: project, folder: "00002-first", id: 2, type: "chore")
         try writeIssue(in: project, folder: "00005-second", id: 5, type: "spike")
         let issues = IssueDiscovery.discoverIssues(in: project)
-        #expect(issues.map(\.id) == [2, 5, 10])
+        #expect(issueIds(issues) == [2, 5, 10])
     }
 
-    @Test("skips invalid specs silently")
-    func skipsInvalid() throws {
+    @Test("invalid specs land as .invalid in the list, sorted by extracted id")
+    func includesInvalid() throws {
         let project = try makeTempProject()
         try writeIssue(in: project, folder: "00001-valid", id: 1, type: "feature")
         try writeRaw(in: project, folder: "00002-broken", content: "no frontmatter here")
         try writeIssue(in: project, folder: "00003-valid", id: 3, type: "chore")
+
         let issues = IssueDiscovery.discoverIssues(in: project)
-        #expect(issues.map(\.id) == [1, 3])
+        #expect(issues.count == 3)
+        guard case .invalid(let folder, let error) = issues[1] else {
+            Testing.Issue.record("expected .invalid at index 1, got \(issues[1])")
+            return
+        }
+        #expect(folder.lastPathComponent == "00002-broken")
+        #expect(error == .missingFrontmatter)
+    }
+
+    @Test("invalid rows interleave with valid rows by extracted id")
+    func interleavedSorting() throws {
+        let project = try makeTempProject()
+        try writeIssue(in: project, folder: "00001-valid", id: 1, type: "feature")
+        try writeRaw(in: project, folder: "00002-broken", content: "no frontmatter here")
+        try writeIssue(in: project, folder: "00003-valid", id: 3, type: "chore")
+        try writeRaw(in: project, folder: "00004-also-broken", content: "no frontmatter")
+
+        let issues = IssueDiscovery.discoverIssues(in: project)
+        let names = issues.map(folderName(for:))
+        #expect(names == ["00001-valid", "00002-broken", "00003-valid", "00004-also-broken"])
+    }
+
+    @Test("invalid folder without id prefix lands at the end")
+    func nonIdPrefixGoesToEnd() throws {
+        let project = try makeTempProject()
+        try writeIssue(in: project, folder: "00001-valid", id: 1, type: "feature")
+        try writeRaw(in: project, folder: "no-id-prefix", content: "no frontmatter")
+        try writeIssue(in: project, folder: "00005-valid", id: 5, type: "chore")
+
+        let issues = IssueDiscovery.discoverIssues(in: project)
+        let names = issues.map(folderName(for:))
+        #expect(names == ["00001-valid", "00005-valid", "no-id-prefix"])
+    }
+
+    @Test("invalid folder with non-numeric prefix lands at the end")
+    func nonNumericPrefixGoesToEnd() throws {
+        let project = try makeTempProject()
+        try writeIssue(in: project, folder: "00001-valid", id: 1, type: "feature")
+        try writeRaw(in: project, folder: "abc-something", content: "no frontmatter")
+
+        let issues = IssueDiscovery.discoverIssues(in: project)
+        let names = issues.map(folderName(for:))
+        #expect(names == ["00001-valid", "abc-something"])
     }
 
     @Test("ignores archive folder")
@@ -54,7 +97,7 @@ struct IssueDiscoveryTests {
             encoding: .utf8
         )
         let issues = IssueDiscovery.discoverIssues(in: project)
-        #expect(issues.map(\.id) == [1])
+        #expect(issueIds(issues) == [1])
     }
 
     @Test("ignores loose files at .claude/issues root")
@@ -68,7 +111,7 @@ struct IssueDiscoveryTests {
             encoding: .utf8
         )
         let issues = IssueDiscovery.discoverIssues(in: project)
-        #expect(issues.map(\.id) == [1])
+        #expect(issueIds(issues) == [1])
     }
 
     @Test("breaks duplicate-id ties by folder name ascending")
@@ -78,7 +121,73 @@ struct IssueDiscoveryTests {
         try writeIssue(in: project, folder: "00007-alpha", id: 7, type: "chore")
         try writeIssue(in: project, folder: "00007-charlie", id: 7, type: "spike")
         let issues = IssueDiscovery.discoverIssues(in: project)
-        #expect(issues.map(\.type) == [.chore, .feature, .spike])
+        let names = issues.map(folderName(for:))
+        #expect(names == ["00007-alpha", "00007-bravo", "00007-charlie"])
+    }
+
+    @Test("folders without spec.md are skipped")
+    func skipsFoldersWithoutSpec() throws {
+        let project = try makeTempProject()
+        try writeIssue(in: project, folder: "00001-valid", id: 1, type: "feature")
+        let emptyDir = project.appendingPathComponent(".claude/issues/00002-no-spec")
+        try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
+
+        let issues = IssueDiscovery.discoverIssues(in: project)
+        #expect(issues.count == 1)
+        #expect(folderName(for: issues[0]) == "00001-valid")
+    }
+
+    @Suite("extractID")
+    struct ExtractID {
+        @Test("padded id and slug")
+        func paddedIdAndSlug() {
+            let parts = IssueDiscovery.extractID(fromFolderName: "00042-broken-stuff")
+            #expect(parts.id == 42)
+            #expect(parts.slug == "broken-stuff")
+        }
+
+        @Test("non-padded id and slug")
+        func nonPaddedIdAndSlug() {
+            let parts = IssueDiscovery.extractID(fromFolderName: "7-bravo")
+            #expect(parts.id == 7)
+            #expect(parts.slug == "bravo")
+        }
+
+        @Test("missing dash returns full name as slug, nil id")
+        func missingDash() {
+            let parts = IssueDiscovery.extractID(fromFolderName: "no-id-prefix")
+            // first dash is between "no" and "id" — prefix "no" is not Int → falls back
+            #expect(parts.id == nil)
+            #expect(parts.slug == "no-id-prefix")
+        }
+
+        @Test("non-numeric prefix returns full name as slug, nil id")
+        func nonNumericPrefix() {
+            let parts = IssueDiscovery.extractID(fromFolderName: "abc-something")
+            #expect(parts.id == nil)
+            #expect(parts.slug == "abc-something")
+        }
+
+        @Test("no dash at all returns full name as slug, nil id")
+        func noDash() {
+            let parts = IssueDiscovery.extractID(fromFolderName: "loose")
+            #expect(parts.id == nil)
+            #expect(parts.slug == "loose")
+        }
+    }
+
+    private func issueIds(_ issues: [DiscoveredIssue]) -> [Int] {
+        issues.compactMap {
+            if case .valid(let issue) = $0 { return issue.id }
+            return nil
+        }
+    }
+
+    private func folderName(for discovered: DiscoveredIssue) -> String {
+        switch discovered {
+        case .valid(let issue): issue.folder
+        case .invalid(let folder, _): folder.lastPathComponent
+        }
     }
 
     private func makeTempProject() throws -> URL {
