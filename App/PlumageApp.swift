@@ -13,8 +13,7 @@ struct PlumageApp: App {
 
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
-                Text("Project (placeholder) \(handle.url.path)")
-                    .frame(minWidth: 640, minHeight: 480)
+                ProjectWindow(handle: handle)
             } else {
                 Text("No project")
                     .frame(minWidth: 320, minHeight: 240)
