@@ -4,10 +4,9 @@ nonisolated enum IssueDiscovery {
     static func discoverIssues(in projectURL: URL) -> [Issue] {
         let issuesDir = projectURL.appendingPathComponent(".claude/issues", isDirectory: true)
         let fileManager = FileManager.default
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: issuesDir.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return []
-        }
+        let rootIsDir = (try? issuesDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        guard rootIsDir else { return [] }
+
         let entries: [URL]
         do {
             entries = try fileManager.contentsOfDirectory(
@@ -25,19 +24,15 @@ nonisolated enum IssueDiscovery {
                     && (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             }
 
-        let parsed = issueFolders.compactMap { folder -> (folderName: String, issue: Issue)? in
+        let parsed = issueFolders.compactMap { folder -> Issue? in
             let specURL = folder.appendingPathComponent("spec.md")
             guard let content = try? String(contentsOf: specURL, encoding: .utf8) else { return nil }
-            guard let issue = SpecParser.parse(content: content) else { return nil }
-            return (folder.lastPathComponent, issue)
+            return SpecParser.parse(content: content, folder: folder.lastPathComponent)
         }
 
-        return
-            parsed
-            .sorted { lhs, rhs in
-                if lhs.issue.id != rhs.issue.id { return lhs.issue.id < rhs.issue.id }
-                return lhs.folderName < rhs.folderName
-            }
-            .map(\.issue)
+        return parsed.sorted { lhs, rhs in
+            if lhs.id != rhs.id { return lhs.id < rhs.id }
+            return lhs.folder < rhs.folder
+        }
     }
 }

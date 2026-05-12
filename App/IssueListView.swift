@@ -5,7 +5,7 @@ struct IssueListView: View {
     let padding: Int
 
     var body: some View {
-        List(issues) { issue in
+        List(issues, id: \.folder) { issue in
             IssueRowView(issue: issue, padding: padding)
         }
     }
@@ -16,6 +16,7 @@ struct IssueListView: View {
         issues: [
             Issue(
                 id: 1,
+                folder: "00001-walking-skeleton",
                 title: "Walking Skeleton",
                 type: .chore,
                 status: .done,
@@ -27,6 +28,7 @@ struct IssueListView: View {
             ),
             Issue(
                 id: 3,
+                folder: "00003-issue-list",
                 title: "Issue list",
                 type: .feature,
                 status: .inProgress,

@@ -7,8 +7,9 @@ import Testing
 struct SpecParserTests {
     @Test("parses feature fixture")
     func validFeature() throws {
-        let issue = try #require(SpecParser.parse(content: load("valid-feature.md")))
+        let issue = try #require(SpecParser.parse(content: load("valid-feature.md"), folder: "00042-feature"))
         #expect(issue.id == 42)
+        #expect(issue.folder == "00042-feature")
         #expect(issue.title == "Feature Issue")
         #expect(issue.type == .feature)
         #expect(issue.status == .approved)
@@ -21,7 +22,7 @@ struct SpecParserTests {
 
     @Test("parses chore with empty labels and null model")
     func validChore() throws {
-        let issue = try #require(SpecParser.parse(content: load("valid-chore.md")))
+        let issue = try #require(SpecParser.parse(content: load("valid-chore.md"), folder: "00001-chore"))
         #expect(issue.type == .chore)
         #expect(issue.status == .inProgress)
         #expect(issue.labels.isEmpty)
@@ -30,7 +31,7 @@ struct SpecParserTests {
 
     @Test("parses spike with fractional-second updated date")
     func validSpike() throws {
-        let issue = try #require(SpecParser.parse(content: load("valid-spike.md")))
+        let issue = try #require(SpecParser.parse(content: load("valid-spike.md"), folder: "00002-spike"))
         #expect(issue.type == .spike)
         #expect(issue.status == .waitingForReview)
         #expect(issue.updated == isoFractional("2026-05-12T09:15:30.123Z"))
@@ -38,37 +39,37 @@ struct SpecParserTests {
 
     @Test("returns nil for missing frontmatter delimiter")
     func missingFrontmatter() {
-        #expect(SpecParser.parse(content: load("missing-frontmatter.md")) == nil)
+        #expect(SpecParser.parse(content: load("missing-frontmatter.md"), folder: "x") == nil)
     }
 
     @Test("returns nil for empty input")
     func emptyInput() {
-        #expect(SpecParser.parse(content: "") == nil)
+        #expect(SpecParser.parse(content: "", folder: "x") == nil)
     }
 
     @Test("returns nil for broken YAML")
     func brokenYAML() {
-        #expect(SpecParser.parse(content: load("broken-yaml.md")) == nil)
+        #expect(SpecParser.parse(content: load("broken-yaml.md"), folder: "x") == nil)
     }
 
     @Test("returns nil for unknown type value")
     func unknownType() {
-        #expect(SpecParser.parse(content: load("unknown-type.md")) == nil)
+        #expect(SpecParser.parse(content: load("unknown-type.md"), folder: "x") == nil)
     }
 
     @Test("returns nil for unknown status value")
     func unknownStatus() {
-        #expect(SpecParser.parse(content: load("unknown-status.md")) == nil)
+        #expect(SpecParser.parse(content: load("unknown-status.md"), folder: "x") == nil)
     }
 
     @Test("returns nil when id is missing")
     func missingId() {
-        #expect(SpecParser.parse(content: load("missing-id.md")) == nil)
+        #expect(SpecParser.parse(content: load("missing-id.md"), folder: "x") == nil)
     }
 
     @Test("returns nil when title is missing")
     func missingTitle() {
-        #expect(SpecParser.parse(content: load("missing-title.md")) == nil)
+        #expect(SpecParser.parse(content: load("missing-title.md"), folder: "x") == nil)
     }
 
     @Test("returns nil when closing delimiter is missing")
@@ -85,7 +86,7 @@ struct SpecParserTests {
             labels: []
             model: null
             """
-        #expect(SpecParser.parse(content: content) == nil)
+        #expect(SpecParser.parse(content: content, folder: "x") == nil)
     }
 
     private func load(_ name: String, fileID: String = #fileID, filePath: String = #filePath) -> String {

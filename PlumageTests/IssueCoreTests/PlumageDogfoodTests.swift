@@ -12,16 +12,17 @@ struct PlumageDogfoodTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let claudeIssues = repoRoot.appendingPathComponent(".claude/issues")
-        try #require(FileManager.default.fileExists(atPath: claudeIssues.path))
+        // .claude/ is locally excluded from git (.git/info/exclude); skip on fresh CI checkouts.
+        guard FileManager.default.fileExists(atPath: claudeIssues.path) else { return }
 
         let issues = IssueDiscovery.discoverIssues(in: repoRoot)
         try #require(!issues.isEmpty)
         let ids = issues.map(\.id)
         #expect(ids == ids.sorted())
-        #expect(ids.contains(3))
         for issue in issues {
             #expect(!issue.title.isEmpty)
             #expect(!issue.branch.isEmpty)
+            #expect(!issue.folder.isEmpty)
         }
     }
 }

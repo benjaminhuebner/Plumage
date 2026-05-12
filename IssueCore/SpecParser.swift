@@ -2,12 +2,13 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
-    static func parse(content: String) -> Issue? {
+    static func parse(content: String, folder: String) -> Issue? {
         guard let yaml = extractFrontmatter(from: content) else { return nil }
         guard let raw = try? YAMLDecoder().decode(Frontmatter.self, from: yaml) else { return nil }
         guard let created = parseDate(raw.created), let updated = parseDate(raw.updated) else { return nil }
         return Issue(
             id: raw.id,
+            folder: folder,
             title: raw.title,
             type: raw.type,
             status: raw.status,

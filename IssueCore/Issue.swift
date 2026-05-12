@@ -1,7 +1,8 @@
 import Foundation
 
-nonisolated struct Issue: Identifiable, Hashable, Sendable {
+nonisolated struct Issue: Hashable, Sendable {
     let id: Int
+    let folder: String
     let title: String
     let type: IssueType
     let status: IssueStatus

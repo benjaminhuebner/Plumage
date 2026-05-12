@@ -27,6 +27,7 @@ struct IssueRowView: View {
         IssueRowView(
             issue: Issue(
                 id: 1,
+                folder: "00001-walking-skeleton",
                 title: "Walking Skeleton",
                 type: .chore,
                 status: .done,
@@ -41,6 +42,7 @@ struct IssueRowView: View {
         IssueRowView(
             issue: Issue(
                 id: 2,
+                folder: "00002-open-project",
                 title: "Open Project Flow",
                 type: .feature,
                 status: .done,
@@ -55,6 +57,7 @@ struct IssueRowView: View {
         IssueRowView(
             issue: Issue(
                 id: 42,
+                folder: "00042-diff-renderer-spike",
                 title: "Investigate diff renderer performance with very long lines",
                 type: .spike,
                 status: .draft,

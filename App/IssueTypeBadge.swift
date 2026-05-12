@@ -8,8 +8,12 @@ struct IssueTypeBadge: View {
             .font(.caption.monospaced())
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(type.color.opacity(0.25), in: Capsule())
-            .foregroundStyle(type.color)
+            .foregroundStyle(.primary)
+            .background(
+                Capsule()
+                    .fill(type.color.opacity(0.18))
+                    .stroke(type.color.opacity(0.55), lineWidth: 0.5)
+            )
     }
 }
 

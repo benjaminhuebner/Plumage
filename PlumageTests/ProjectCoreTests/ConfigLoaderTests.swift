@@ -92,6 +92,36 @@ struct ConfigLoaderTests {
         }
     }
 
+    @Test func zeroIssueIdPaddingRejected() throws {
+        let folder = try TempProject.make(
+            content: """
+                { "name": "Bad", "schemaVersion": 2, "issueIdPadding": 0 }
+                """)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        #expect {
+            try ConfigLoader.load(at: folder)
+        } throws: { error in
+            guard case ConfigLoader.LoadError.invalidJSON(let message) = error else { return false }
+            return message.contains("issueIdPadding")
+        }
+    }
+
+    @Test func negativeIssueIdPaddingRejected() throws {
+        let folder = try TempProject.make(
+            content: """
+                { "name": "Bad", "schemaVersion": 2, "issueIdPadding": -3 }
+                """)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        #expect {
+            try ConfigLoader.load(at: folder)
+        } throws: { error in
+            guard case ConfigLoader.LoadError.invalidJSON(let message) = error else { return false }
+            return message.contains("issueIdPadding")
+        }
+    }
+
     @Test func unknownFieldsAreIgnored() throws {
         let folder = try TempProject.make(
             content: """
