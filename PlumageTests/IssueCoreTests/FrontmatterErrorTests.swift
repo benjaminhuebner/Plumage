@@ -78,4 +78,61 @@ struct FrontmatterErrorTests {
                 != .invalidEnumValue(field: "type", value: "m")
         )
     }
+
+    @Test("missingFrontmatter summary and description")
+    func missingFrontmatterDisplay() {
+        let err = FrontmatterError.missingFrontmatter
+        #expect(err.summary == "No --- frontmatter block found")
+        #expect(err.description.hasPrefix("No --- frontmatter block found."))
+        #expect(err.description.contains("YAML frontmatter"))
+    }
+
+    @Test("invalidYAML with line uses line in summary and description")
+    func invalidYAMLWithLineDisplay() {
+        let err = FrontmatterError.invalidYAML(line: 7, message: "unclosed quote")
+        #expect(err.summary == "YAML error at line 7")
+        #expect(err.description == "YAML error at line 7: unclosed quote")
+    }
+
+    @Test("invalidYAML without line falls back to generic summary")
+    func invalidYAMLWithoutLineDisplay() {
+        let err = FrontmatterError.invalidYAML(line: nil, message: "boom")
+        #expect(err.summary == "Invalid YAML in frontmatter")
+        #expect(err.description == "Invalid YAML in frontmatter: boom")
+    }
+
+    @Test("missingRequiredField summary and description")
+    func missingRequiredFieldDisplay() {
+        let err = FrontmatterError.missingRequiredField(name: "branch")
+        #expect(err.summary == "Missing required field: branch")
+        #expect(err.description.contains("branch"))
+        #expect(err.description.contains("id, title, type, status, created, updated, branch"))
+    }
+
+    @Test("invalidEnumValue for type lists allowed types")
+    func invalidEnumValueTypeDisplay() {
+        let err = FrontmatterError.invalidEnumValue(field: "type", value: "experiment")
+        #expect(err.summary == "Unknown type: 'experiment'")
+        #expect(err.description.contains("Unknown type: 'experiment'"))
+        #expect(err.description.contains("feature"))
+        #expect(err.description.contains("chore"))
+        #expect(err.description.contains("spike"))
+    }
+
+    @Test("invalidEnumValue for status lists allowed statuses")
+    func invalidEnumValueStatusDisplay() {
+        let err = FrontmatterError.invalidEnumValue(field: "status", value: "aproved")
+        #expect(err.summary == "Unknown status: 'aproved'")
+        #expect(err.description.contains("approved"))
+        #expect(err.description.contains("in-progress"))
+        #expect(err.description.contains("done"))
+    }
+
+    @Test("invalidDate summary and description")
+    func invalidDateDisplay() {
+        let err = FrontmatterError.invalidDate(field: "created", value: "2026-13-99")
+        #expect(err.summary == "Invalid date in created: '2026-13-99'")
+        #expect(err.description.contains("Invalid date in created: '2026-13-99'"))
+        #expect(err.description.contains("ISO-8601"))
+    }
 }
