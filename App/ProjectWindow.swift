@@ -4,6 +4,7 @@ struct ProjectWindow: View {
     let handle: ProjectHandle
 
     @State private var state: LoadState = .loading
+    @State private var issues: [Issue] = []
 
     enum LoadState {
         case loading
@@ -26,15 +27,18 @@ struct ProjectWindow: View {
                 .controlSize(.large)
         case .loaded(let config):
             VStack(alignment: .leading, spacing: 16) {
-                Text(config.name)
-                    .font(.system(size: 32, weight: .semibold))
-                Text(handle.url.path)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(config.name)
+                        .font(.system(size: 32, weight: .semibold))
+                    Text(handle.url.path)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 32)
+                IssueListView(issues: issues, padding: config.issueIdPadding ?? 5)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(32)
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
                 Text("Couldn't open this project.")
@@ -56,10 +60,13 @@ struct ProjectWindow: View {
         do {
             let config = try ConfigLoader.load(at: handle.url)
             state = .loaded(config)
+            issues = IssueDiscovery.discoverIssues(in: handle.url)
         } catch let error as ConfigLoader.LoadError {
             state = .failed(error)
+            issues = []
         } catch {
             state = .failed(.invalidJSON(message: error.localizedDescription))
+            issues = []
         }
     }
 
