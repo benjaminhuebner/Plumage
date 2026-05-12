@@ -10,6 +10,11 @@ struct PlumageApp: App {
         }
         .defaultLaunchBehavior(.presented)
         .environment(recentProjects)
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                OpenProjectMenuButton(recentProjects: recentProjects)
+            }
+        }
 
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {

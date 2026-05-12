@@ -2,9 +2,8 @@ import SwiftUI
 
 struct WelcomeView: View {
     @Environment(RecentProjects.self) private var recentProjects
-
-    var onOpenProject: () -> Void = {}
-    var onOpenRecent: (RecentItem) -> Void = { _ in }
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -27,7 +26,13 @@ struct WelcomeView: View {
     }
 
     private var openSection: some View {
-        Button(action: onOpenProject) {
+        Button {
+            OpenProjectCommand.openWithPicker(
+                recentProjects: recentProjects,
+                openWindow: openWindow,
+                dismissWindow: dismissWindow
+            )
+        } label: {
             Label("Open Project…", systemImage: "folder")
                 .font(.title3.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 56)
@@ -55,7 +60,12 @@ struct WelcomeView: View {
     private var recentList: some View {
         List(recentProjects.items) { item in
             Button {
-                onOpenRecent(item)
+                OpenProjectCommand.openConfirmed(
+                    url: item.url,
+                    recentProjects: recentProjects,
+                    openWindow: openWindow,
+                    dismissWindow: dismissWindow
+                )
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "folder.fill")
