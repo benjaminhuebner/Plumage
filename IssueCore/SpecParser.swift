@@ -2,21 +2,48 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
-    static func parse(content: String, folder: String) -> Issue? {
-        guard let yaml = extractFrontmatter(from: content) else { return nil }
-        guard let raw = try? YAMLDecoder().decode(Frontmatter.self, from: yaml) else { return nil }
-        guard let created = parseDate(raw.created), let updated = parseDate(raw.updated) else { return nil }
-        return Issue(
-            id: raw.id,
-            folder: folder,
-            title: raw.title,
-            type: raw.type,
-            status: raw.status,
-            created: created,
-            updated: updated,
-            branch: raw.branch,
-            labels: raw.labels ?? [],
-            model: raw.model
+    static func parse(content: String, folder: String) -> Result<Issue, FrontmatterError> {
+        guard let yaml = extractFrontmatter(from: content) else {
+            return .failure(.missingFrontmatter)
+        }
+
+        let raw: RawFrontmatter
+        do {
+            raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
+        } catch let yamlError as YamlError {
+            return .failure(mapYamlError(yamlError))
+        } catch let decoding as DecodingError {
+            return .failure(mapDecodingError(decoding))
+        } catch {
+            return .failure(.invalidYAML(line: nil, message: error.localizedDescription))
+        }
+
+        guard let type = IssueType(rawValue: raw.type) else {
+            return .failure(.invalidEnumValue(field: "type", value: raw.type))
+        }
+        guard let status = IssueStatus(rawValue: raw.status) else {
+            return .failure(.invalidEnumValue(field: "status", value: raw.status))
+        }
+        guard let created = parseDate(raw.created) else {
+            return .failure(.invalidDate(field: "created", value: raw.created))
+        }
+        guard let updated = parseDate(raw.updated) else {
+            return .failure(.invalidDate(field: "updated", value: raw.updated))
+        }
+
+        return .success(
+            Issue(
+                id: raw.id,
+                folder: folder,
+                title: raw.title,
+                type: type,
+                status: status,
+                created: created,
+                updated: updated,
+                branch: raw.branch,
+                labels: raw.labels ?? [],
+                model: raw.model
+            )
         )
     }
 
@@ -39,13 +66,44 @@ nonisolated enum SpecParser {
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: string)
     }
+
+    private static func mapYamlError(_ error: YamlError) -> FrontmatterError {
+        switch error {
+        case .scanner(_, let problem, let mark, _),
+            .parser(_, let problem, let mark, _),
+            .composer(_, let problem, let mark, _):
+            .invalidYAML(line: mark.line, message: problem)
+        case .reader(let problem, _, _, _):
+            .invalidYAML(line: nil, message: problem)
+        default:
+            .invalidYAML(line: nil, message: error.localizedDescription)
+        }
+    }
+
+    private static func mapDecodingError(_ error: DecodingError) -> FrontmatterError {
+        switch error {
+        case .keyNotFound(let key, _):
+            .missingRequiredField(name: key.stringValue)
+        case .typeMismatch(_, let context),
+            .valueNotFound(_, let context):
+            .missingRequiredField(name: context.codingPath.last?.stringValue ?? "(unknown)")
+        case .dataCorrupted(let context):
+            if let yamlErr = context.underlyingError as? YamlError {
+                mapYamlError(yamlErr)
+            } else {
+                .invalidYAML(line: nil, message: context.debugDescription)
+            }
+        @unknown default:
+            .invalidYAML(line: nil, message: error.localizedDescription)
+        }
+    }
 }
 
-private nonisolated struct Frontmatter: Decodable {
+private nonisolated struct RawFrontmatter: Decodable {
     let id: Int
     let title: String
-    let type: IssueType
-    let status: IssueStatus
+    let type: String
+    let status: String
     let created: String
     let updated: String
     let branch: String

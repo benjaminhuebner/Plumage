@@ -27,7 +27,7 @@ nonisolated enum IssueDiscovery {
         let parsed = issueFolders.compactMap { folder -> Issue? in
             let specURL = folder.appendingPathComponent("spec.md")
             guard let content = try? String(contentsOf: specURL, encoding: .utf8) else { return nil }
-            return SpecParser.parse(content: content, folder: folder.lastPathComponent)
+            return try? SpecParser.parse(content: content, folder: folder.lastPathComponent).get()
         }
 
         return parsed.sorted { lhs, rhs in
