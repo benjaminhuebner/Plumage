@@ -59,6 +59,11 @@
 			path = ProjectCore;
 			sourceTree = "<group>";
 		};
+		CA46020420030001000000C3 /* IssueCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = IssueCore;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,6 +98,7 @@
 				CA46013F2FB2F26800CAD6C3 /* App */,
 				CA4601A02FB2F26900CAD6C3 /* ClaudeCodeIntegration */,
 				CA4601B02FB2F26900CAD6C3 /* ProjectCore */,
+				CA46020420030001000000C3 /* IssueCore */,
 				CA46014F2FB2F26900CAD6C3 /* PlumageTests */,
 				CA4601592FB2F26900CAD6C3 /* PlumageUITests */,
 				CA46013E2FB2F26800CAD6C3 /* Products */,
@@ -128,6 +134,7 @@
 				CA46013F2FB2F26800CAD6C3 /* App */,
 				CA4601A02FB2F26900CAD6C3 /* ClaudeCodeIntegration */,
 				CA4601B02FB2F26900CAD6C3 /* ProjectCore */,
+				CA46020420030001000000C3 /* IssueCore */,
 			);
 			name = Plumage;
 			packageProductDependencies = (
