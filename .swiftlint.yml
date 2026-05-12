@@ -59,8 +59,6 @@ excluded:
   - .build
   - DerivedData
   - .swiftpm
-  - Modules/.build
-  - Modules/.swiftpm
 
 # --- Rule configuration ---
 
