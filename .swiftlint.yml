@@ -23,7 +23,7 @@ only_rules:
   - empty_parameters
   - empty_parentheses_with_trailing_closure
   - operator_usage_whitespace
-  - redundant_optional_initialization
+  - implicit_optional_initialization
   - redundant_void_return
   - return_arrow_whitespace
   - trailing_newline
@@ -46,12 +46,14 @@ only_rules:
   - overridden_super_call
   - private_over_fileprivate
   - prohibited_super_call
-  - unused_capture_list
   - unused_closure_parameter
   - unused_optional_binding
 
   # --- Async/concurrency hygiene ---
   - convenience_type
+
+  # --- Custom rule plumbing ---
+  - custom_rules
 
 excluded:
   - .build
