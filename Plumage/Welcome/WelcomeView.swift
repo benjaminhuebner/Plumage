@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct WelcomeView: View {
@@ -139,57 +138,6 @@ struct WelcomeView: View {
         if build.isEmpty || build == version { return version }
         return "\(version) (\(build))"
     }()
-}
-
-private struct RecentRow: View {
-    let item: RecentItem
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "folder.fill")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 28, height: 28)
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(.primary)
-                Text((item.url.path as NSString).abbreviatingWithTildeInPath)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct WindowChromeCustomizer: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = ChromeCustomizingView()
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class ChromeCustomizingView: NSView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard let window else { return }
-            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-            window.standardWindowButton(.zoomButton)?.isHidden = true
-            window.isMovableByWindowBackground = true
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.titlebarSeparatorStyle = .none
-            window.styleMask.insert(.fullSizeContentView)
-        }
-    }
 }
 
 #Preview("Empty") {
