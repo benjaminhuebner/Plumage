@@ -29,7 +29,7 @@ struct ProjectWindow: View {
                 }
                 .padding(.horizontal, 32)
                 .padding(.top, 32)
-                IssueListView(issues: model.issues, padding: config.issueIdPadding ?? 5)
+                KanbanView(issues: model.issues, padding: config.issueIdPadding ?? 5)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .failed(let error):
