@@ -108,13 +108,20 @@ struct FlowLayout: Layout {
         -> (frames: [CGRect], bounds: CGSize)
     {
         var frames: [CGRect] = []
+        var rows: [(start: Int, count: Int, height: CGFloat)] = []
+        var rowStart = 0
+        var rowCount = 0
         var rowHeight: CGFloat = 0
         var xCursor: CGFloat = 0
         var yCursor: CGFloat = 0
         var maxX: CGFloat = 0
+
         for view in subviews {
             let size = view.sizeThatFits(.unspecified)
             if xCursor + size.width > width, xCursor > 0 {
+                rows.append((rowStart, rowCount, rowHeight))
+                rowStart += rowCount
+                rowCount = 0
                 xCursor = 0
                 yCursor += rowHeight + spacing
                 rowHeight = 0
@@ -123,7 +130,24 @@ struct FlowLayout: Layout {
             xCursor += size.width + spacing
             maxX = max(maxX, xCursor)
             rowHeight = max(rowHeight, size.height)
+            rowCount += 1
         }
+        if rowCount > 0 {
+            rows.append((rowStart, rowCount, rowHeight))
+        }
+
+        for row in rows {
+            for index in row.start..<(row.start + row.count) {
+                let dy = (row.height - frames[index].height) / 2
+                frames[index] = CGRect(
+                    x: frames[index].minX,
+                    y: frames[index].minY + dy,
+                    width: frames[index].width,
+                    height: frames[index].height
+                )
+            }
+        }
+
         return (frames, CGSize(width: maxX, height: yCursor + rowHeight))
     }
 }
