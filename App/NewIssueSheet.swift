@@ -201,24 +201,6 @@ struct NewIssueSheet: View {
         .background(Color.red.opacity(0.08))
     }
 
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Button("Cancel", role: .cancel) {
-                onDismiss()
-            }
-            .keyboardShortcut(.cancelAction)
-            Button("Create") {
-                submit()
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!input.submitEnabled(existingIssues: existingIssues) || isSubmitting)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
     private func submit() {
         guard !isSubmitting else { return }
         isSubmitting = true
