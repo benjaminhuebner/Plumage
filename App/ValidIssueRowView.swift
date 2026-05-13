@@ -6,7 +6,7 @@ struct ValidIssueRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(paddedId)
+            Text(IssueIDFormatter.padded(issue.id, width: padding))
                 .font(.body.monospaced())
                 .foregroundStyle(.secondary)
             Text(issue.title)
@@ -15,10 +15,6 @@ struct ValidIssueRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             IssueTypeBadge(type: issue.type)
         }
-    }
-
-    private var paddedId: String {
-        String(format: "%0\(max(padding, 1))d", issue.id)
     }
 }
 

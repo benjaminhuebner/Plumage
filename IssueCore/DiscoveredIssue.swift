@@ -13,15 +13,6 @@ nonisolated enum DiscoveredIssue: Identifiable, Sendable {
         }
     }
 
-    var folderURL: URL {
-        switch self {
-        case .valid(let issue):
-            URL(filePath: issue.folder)
-        case .invalid(let folder, _):
-            folder
-        }
-    }
-
     var sortKey: (Int, String) {
         switch self {
         case .valid(let issue):

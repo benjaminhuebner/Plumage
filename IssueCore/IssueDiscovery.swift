@@ -1,6 +1,9 @@
 import Foundation
+import os
 
 nonisolated enum IssueDiscovery {
+    private static let logger = Logger(subsystem: "com.plumage", category: "IssueDiscovery")
+
     static func discoverIssues(in projectURL: URL) -> [DiscoveredIssue] {
         let issuesDir = projectURL.appendingPathComponent(".claude/issues", isDirectory: true)
         let fileManager = FileManager.default
@@ -15,6 +18,8 @@ nonisolated enum IssueDiscovery {
                 options: [.skipsHiddenFiles]
             )
         } catch {
+            logger.error(
+                "Failed to list \(issuesDir.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
         let issueFolders =
@@ -31,7 +36,7 @@ nonisolated enum IssueDiscovery {
             do {
                 content = try String(contentsOf: specURL, encoding: .utf8)
             } catch {
-                return .invalid(folder: folder, error: .missingFrontmatter)
+                return .invalid(folder: folder, error: .unreadable(message: error.localizedDescription))
             }
             switch SpecParser.parse(content: content, folder: folder.lastPathComponent) {
             case .success(let issue):

@@ -14,6 +14,9 @@ final class ProjectModel {
     private(set) var issues: [DiscoveredIssue] = []
 
     func reload(at url: URL) async {
+        // Hop off MainActor: disk I/O (config + spec.md reads) plus YAML parsing
+        // would otherwise block UI. computeLoad is nonisolated; detach is required to
+        // run synchronously on a background executor. See notes.md (#00004-frontmatter-errors).
         let (newState, newIssues) = await Task.detached(priority: .userInitiated) {
             Self.computeLoad(at: url)
         }.value

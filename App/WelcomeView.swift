@@ -44,7 +44,6 @@ struct WelcomeView: View {
                         dismissWindow: dismissWindow
                     )
                 }
-                .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 28)
             Spacer()

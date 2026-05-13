@@ -79,6 +79,35 @@ struct FrontmatterErrorTests {
         )
     }
 
+    @Test("unreadable equality compares message")
+    func unreadableEquality() {
+        #expect(
+            FrontmatterError.unreadable(message: "permission denied")
+                == .unreadable(message: "permission denied")
+        )
+        #expect(
+            FrontmatterError.unreadable(message: "x")
+                != .unreadable(message: "y")
+        )
+        #expect(FrontmatterError.unreadable(message: "x") != .missingFrontmatter)
+    }
+
+    @Test("invalidFieldType equality compares field and message")
+    func invalidFieldTypeEquality() {
+        #expect(
+            FrontmatterError.invalidFieldType(field: "id", message: "m")
+                == .invalidFieldType(field: "id", message: "m")
+        )
+        #expect(
+            FrontmatterError.invalidFieldType(field: "id", message: "m")
+                != .invalidFieldType(field: "title", message: "m")
+        )
+        #expect(
+            FrontmatterError.invalidFieldType(field: "id", message: "m")
+                != .invalidFieldType(field: "id", message: "n")
+        )
+    }
+
     @Test("missingFrontmatter summary and description")
     func missingFrontmatterDisplay() {
         let err = FrontmatterError.missingFrontmatter
@@ -134,5 +163,20 @@ struct FrontmatterErrorTests {
         #expect(err.summary == "Invalid date in created: '2026-13-99'")
         #expect(err.description.contains("Invalid date in created: '2026-13-99'"))
         #expect(err.description.contains("ISO-8601"))
+    }
+
+    @Test("unreadable summary and description")
+    func unreadableDisplay() {
+        let err = FrontmatterError.unreadable(message: "permission denied")
+        #expect(err.summary == "spec.md could not be read")
+        #expect(err.description == "spec.md could not be read: permission denied")
+    }
+
+    @Test("invalidFieldType summary and description")
+    func invalidFieldTypeDisplay() {
+        let err = FrontmatterError.invalidFieldType(field: "id", message: "expected Int")
+        #expect(err.summary == "Invalid type for field: id")
+        #expect(err.description.contains("id"))
+        #expect(err.description.contains("expected Int"))
     }
 }

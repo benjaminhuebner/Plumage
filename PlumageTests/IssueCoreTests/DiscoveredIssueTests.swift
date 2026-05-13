@@ -60,16 +60,6 @@ struct DiscoveredIssueTests {
         #expect(key.1 == "no-id-prefix")
     }
 
-    @Test("folderURL returns the URL for invalid and a folder-string-URL for valid")
-    func folderURL() {
-        let url = URL(filePath: "/x/00042-broken")
-        let invalid = DiscoveredIssue.invalid(folder: url, error: .missingFrontmatter)
-        #expect(invalid.folderURL == url)
-
-        let valid = DiscoveredIssue.valid(sampleIssue(id: 1, folder: "00001-foo"))
-        #expect(valid.folderURL.lastPathComponent == "00001-foo")
-    }
-
     private func sampleIssue(id: Int, folder: String) -> Plumage.Issue {
         Plumage.Issue(
             id: id,

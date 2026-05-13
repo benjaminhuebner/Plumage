@@ -10,7 +10,7 @@ struct InvalidIssueRowView: View {
     var body: some View {
         let parts = IssueDiscovery.extractID(fromFolderName: folder.lastPathComponent)
         HStack(spacing: 12) {
-            Text(idText(parts.id))
+            Text(IssueIDFormatter.paddedOrPlaceholder(parts.id, width: padding))
                 .font(.body.monospaced())
                 .foregroundStyle(.secondary)
             Text(parts.slug)
@@ -45,13 +45,6 @@ struct InvalidIssueRowView: View {
             .frame(maxWidth: 360, alignment: .leading)
         }
         .accessibilityLabel("Invalid issue: \(error.summary)")
-    }
-
-    private func idText(_ id: Int?) -> String {
-        if let id {
-            return String(format: "%0\(max(padding, 1))d", id)
-        }
-        return String(repeating: "?", count: max(padding, 1))
     }
 }
 

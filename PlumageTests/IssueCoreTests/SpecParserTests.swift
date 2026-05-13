@@ -155,6 +155,25 @@ struct SpecParserTests {
         )
     }
 
+    @Test("empty frontmatter body reports a missing required field")
+    func emptyFrontmatter() {
+        #expect(
+            SpecParser.parse(content: load("empty-frontmatter.md"), folder: "x")
+                == .failure(.missingRequiredField(name: "id"))
+        )
+    }
+
+    @Test("wrong type for id returns .invalidFieldType")
+    func wrongTypeForId() {
+        let result = SpecParser.parse(content: load("wrong-type-id.md"), folder: "x")
+        guard case .failure(.invalidFieldType(let field, let message)) = result else {
+            Testing.Issue.record("expected .invalidFieldType, got \(result)")
+            return
+        }
+        #expect(field == "id")
+        #expect(!message.isEmpty)
+    }
+
     private func requireSuccess(
         _ result: Result<Plumage.Issue, FrontmatterError>
     ) throws -> Plumage.Issue {

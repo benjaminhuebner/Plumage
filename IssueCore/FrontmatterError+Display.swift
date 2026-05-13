@@ -5,12 +5,16 @@ extension FrontmatterError {
         switch self {
         case .missingFrontmatter:
             "No --- frontmatter block found"
+        case .unreadable:
+            "spec.md could not be read"
         case .invalidYAML(let line?, _):
             "YAML error at line \(line)"
         case .invalidYAML(nil, _):
             "Invalid YAML in frontmatter"
         case .missingRequiredField(let name):
             "Missing required field: \(name)"
+        case .invalidFieldType(let field, _):
+            "Invalid type for field: \(field)"
         case .invalidEnumValue(let field, let value):
             "Unknown \(field): '\(value)'"
         case .invalidDate(let field, let value):
@@ -26,12 +30,16 @@ extension FrontmatterError {
             spec.md must start with a YAML frontmatter delimited by --- on its own line, \
             and a closing --- before the body.
             """
+        case .unreadable(let message):
+            "spec.md could not be read: \(message)"
         case .invalidYAML(let line?, let message):
             "YAML error at line \(line): \(message)"
         case .invalidYAML(nil, let message):
             "Invalid YAML in frontmatter: \(message)"
         case .missingRequiredField(let name):
             "Missing required field: \(name)\nRequired: id, title, type, status, created, updated, branch."
+        case .invalidFieldType(let field, let message):
+            "Invalid type for field '\(field)': \(message)"
         case .invalidEnumValue(let field, let value):
             "Unknown \(field): '\(value)'\nAllowed: \(allowedValues(for: field))"
         case .invalidDate(let field, let value):

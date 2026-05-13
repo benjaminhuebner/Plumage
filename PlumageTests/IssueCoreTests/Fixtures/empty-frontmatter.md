@@ -1,0 +1,4 @@
+---
+---
+
+Body without frontmatter content.

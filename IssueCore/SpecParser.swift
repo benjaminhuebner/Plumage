@@ -6,6 +6,9 @@ nonisolated enum SpecParser {
         guard let yaml = extractFrontmatter(from: content) else {
             return .failure(.missingFrontmatter)
         }
+        if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .failure(.missingRequiredField(name: "id"))
+        }
 
         let raw: RawFrontmatter
         do {
@@ -54,8 +57,7 @@ nonisolated enum SpecParser {
         guard let closingIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
             return nil
         }
-        let body = lines[..<closingIndex].joined(separator: "\n")
-        return body.isEmpty ? nil : body
+        return lines[..<closingIndex].joined(separator: "\n")
     }
 
     private static func parseDate(_ string: String) -> Date? {
@@ -84,10 +86,16 @@ nonisolated enum SpecParser {
         switch error {
         case .keyNotFound(let key, _):
             .missingRequiredField(name: key.stringValue)
-        case .typeMismatch(_, let context),
-            .valueNotFound(_, let context):
+        case .valueNotFound(_, let context):
             .missingRequiredField(name: context.codingPath.last?.stringValue ?? "(unknown)")
+        case .typeMismatch(_, let context):
+            .invalidFieldType(
+                field: context.codingPath.last?.stringValue ?? "(unknown)",
+                message: context.debugDescription
+            )
         case .dataCorrupted(let context):
+            // Yams 5.4 wraps its own scanner/parser/composer errors as DecodingError.dataCorrupted —
+            // unwrap once to recover line/column. See notes.md (#00004-frontmatter-errors).
             if let yamlErr = context.underlyingError as? YamlError {
                 mapYamlError(yamlErr)
             } else {
