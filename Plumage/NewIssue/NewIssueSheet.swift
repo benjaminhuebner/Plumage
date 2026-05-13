@@ -1,49 +1,5 @@
 import SwiftUI
 
-@Observable
-final class NewIssueInput {
-    var title: String = ""
-    var slug: String = ""
-    var slugTouched: Bool = false
-    var type: IssueType = .feature
-    var labels: [String] = []
-    var labelDraft: String = ""
-
-    func onTitleChange(_ new: String) {
-        title = new
-        if !slugTouched {
-            slug = NextIssueAllocator.slugify(new)
-        }
-    }
-
-    func onSlugEdit(_ new: String) {
-        slug = new
-        slugTouched = true
-    }
-
-    var slugValid: Bool {
-        NextIssueAllocator.isValidSlug(slug)
-    }
-
-    var titleValid: Bool {
-        !title.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    func collidingFolder(in existingIssues: [DiscoveredIssue]) -> String? {
-        guard !slug.isEmpty else { return nil }
-        let suffix = "-\(slug)"
-        for issue in existingIssues where issue.id.hasSuffix(suffix) {
-            return issue.id
-        }
-        return nil
-    }
-
-    func submitEnabled(existingIssues: [DiscoveredIssue]) -> Bool {
-        guard titleValid, slugValid else { return false }
-        return collidingFolder(in: existingIssues) == nil
-    }
-}
-
 struct NewIssueSheet: View {
     let projectURL: URL
     let existingIssues: [DiscoveredIssue]
@@ -54,10 +10,13 @@ struct NewIssueSheet: View {
     @State private var input = NewIssueInput()
     @State private var allocationError: String?
     @State private var isSubmitting: Bool = false
-    @FocusState private var focusTitle: Bool
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable { case title, slug }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        @Bindable var input = input
+        return VStack(alignment: .leading, spacing: 16) {
             Text("New Issue")
                 .font(.title2)
 
@@ -68,7 +27,7 @@ struct NewIssueSheet: View {
                 errorBanner(message: error)
             }
 
-            grid
+            grid(input: input)
 
             HStack {
                 Spacer()
@@ -77,7 +36,7 @@ struct NewIssueSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Button("Create") {
-                    submit()
+                    Task { await submit() }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
@@ -86,27 +45,38 @@ struct NewIssueSheet: View {
         }
         .padding(24)
         .frame(width: 520)
+        .onChange(of: input.title) {
+            input.handleTitleChanged()
+        }
+        .onChange(of: input.slug) {
+            // Distinguish user edits from auto-sync writes by checking which field
+            // has focus. SwiftUI commits focusedField changes before value onChange
+            // callbacks fire, so focus is current here. Holds as long as nothing
+            // mutates input.slug from outside the slug TextField while the slug
+            // field is focused — there is no such caller today.
+            if focusedField == .slug {
+                input.slugTouched = true
+            }
+        }
         .task {
             // `.onAppear` fires before the sheet finishes presenting and the focus
             // assignment is dropped intermittently. A short async hop after the
             // sheet is on screen makes the title field reliably take first focus.
             try? await Task.sleep(for: .milliseconds(50))
-            focusTitle = true
+            focusedField = .title
         }
     }
 
-    private var grid: some View {
+    @ViewBuilder
+    private func grid(input: NewIssueInput) -> some View {
+        @Bindable var input = input
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
             GridRow {
                 fieldLabel("Title")
                 bordered(error: false) {
-                    TextField(
-                        "",
-                        text: Binding(
-                            get: { input.title }, set: { input.onTitleChange($0) })
-                    )
-                    .textFieldStyle(.plain)
-                    .focused($focusTitle)
+                    TextField("", text: $input.title)
+                        .textFieldStyle(.plain)
+                        .focused($focusedField, equals: .title)
                 }
             }
 
@@ -115,13 +85,10 @@ struct NewIssueSheet: View {
                     .padding(.top, 6)
                 VStack(alignment: .leading, spacing: 4) {
                     bordered(error: !input.slug.isEmpty && !input.slugValid) {
-                        TextField(
-                            "",
-                            text: Binding(
-                                get: { input.slug }, set: { input.onSlugEdit($0) })
-                        )
-                        .textFieldStyle(.plain)
-                        .fontDesign(.monospaced)
+                        TextField("", text: $input.slug)
+                            .textFieldStyle(.plain)
+                            .fontDesign(.monospaced)
+                            .focused($focusedField, equals: .slug)
                     }
                     if !input.slug.isEmpty && !input.slugValid {
                         Text(
@@ -205,29 +172,19 @@ struct NewIssueSheet: View {
         .background(Color.red.opacity(0.08))
     }
 
-    private func submit() {
+    private func submit() async {
         guard !isSubmitting else { return }
         isSubmitting = true
         allocationError = nil
-        Task {
-            let allocator = NextIssueAllocator(projectURL: projectURL)
-            do {
-                let url = try allocator.allocate(
-                    slug: input.slug,
-                    title: input.title.trimmingCharacters(in: .whitespaces),
-                    type: input.type,
-                    labels: input.labels
-                )
-                onCreate(url)
-            } catch let NextIssueAllocatorError.slugCollision(folder) {
-                onCollision(folder)
-            } catch let NextIssueAllocatorError.templateMissing(url) {
-                allocationError = "Template missing at \(url.path)"
-            } catch {
-                allocationError = "\(error)"
-            }
-            isSubmitting = false
+        switch await input.submit(projectURL: projectURL) {
+        case .created(let url):
+            onCreate(url)
+        case .collision(let folder):
+            onCollision(folder)
+        case .failed(let reason):
+            allocationError = reason
         }
+        isSubmitting = false
     }
 }
 

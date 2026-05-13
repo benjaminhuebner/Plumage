@@ -9,17 +9,21 @@ struct NewIssueSheetTests {
     @Test("Slug auto-derives from title until first manual slug edit, then sticks")
     func slugAutoDeriveSticky() {
         let input = NewIssueInput()
-        input.onTitleChange("Add Labels")
+        input.title = "Add Labels"
+        input.handleTitleChanged()
         #expect(input.slug == "add-labels")
 
-        input.onTitleChange("Add Labels Support")
+        input.title = "Add Labels Support"
+        input.handleTitleChanged()
         #expect(input.slug == "add-labels-support")
 
-        input.onSlugEdit("custom-slug")
+        input.slug = "custom-slug"
+        input.slugTouched = true
         #expect(input.slug == "custom-slug")
         #expect(input.slugTouched)
 
-        input.onTitleChange("Add Labels Support v2")
+        input.title = "Add Labels Support v2"
+        input.handleTitleChanged()
         #expect(input.slug == "custom-slug")
     }
 
@@ -37,7 +41,8 @@ struct NewIssueSheetTests {
         ]
         for (slug, expected) in cases {
             let input = NewIssueInput()
-            input.onSlugEdit(slug)
+            input.slug = slug
+            input.slugTouched = true
             #expect(input.slugValid == expected, "slug=\(slug)")
         }
     }
@@ -47,13 +52,15 @@ struct NewIssueSheetTests {
         let input = NewIssueInput()
         #expect(!input.submitEnabled(existingIssues: []))
 
-        input.onTitleChange("X")
+        input.title = "X"
+        input.handleTitleChanged()
         #expect(input.submitEnabled(existingIssues: []))
 
-        input.onSlugEdit("Invalid Slug")
+        input.slug = "Invalid Slug"
+        input.slugTouched = true
         #expect(!input.submitEnabled(existingIssues: []))
 
-        input.onSlugEdit("valid-slug")
+        input.slug = "valid-slug"
         #expect(input.submitEnabled(existingIssues: []))
     }
 
@@ -76,12 +83,14 @@ struct NewIssueSheetTests {
             )
         ]
         let input = NewIssueInput()
-        input.onTitleChange("Foo")
-        input.onSlugEdit("foo")
+        input.title = "Foo"
+        input.handleTitleChanged()
+        input.slug = "foo"
+        input.slugTouched = true
         #expect(input.collidingFolder(in: existing) == "00003-foo")
         #expect(!input.submitEnabled(existingIssues: existing))
 
-        input.onSlugEdit("bar")
+        input.slug = "bar"
         #expect(input.collidingFolder(in: existing) == nil)
         #expect(input.submitEnabled(existingIssues: existing))
     }
