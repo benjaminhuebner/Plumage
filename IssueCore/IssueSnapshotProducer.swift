@@ -8,6 +8,7 @@ actor IssueSnapshotProducer {
     private let watcher: IssueWatcher
     private var lastSnapshot: [DiscoveredIssue]?
     private var pumpTask: Task<Void, Never>?
+    private(set) var hasStopped: Bool = false
 
     init(
         projectURL: URL,
@@ -64,6 +65,7 @@ actor IssueSnapshotProducer {
         pumpTask?.cancel()
         pumpTask = nil
         continuation.finish()
+        hasStopped = true
     }
 
     deinit {
