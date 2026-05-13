@@ -48,9 +48,16 @@ enum OpenProjectCommand {
     private static func presentAlert(for error: ConfigLoader.LoadError) {
         let alert = NSAlert()
         switch error {
-        case .noConfigFile(let folder):
+        case .noBundle(let folder):
             alert.messageText = "Not a Plumage project"
-            alert.informativeText = "No .plumage/config.json found at \(folder.path)."
+            alert.informativeText = "No .plumage bundle found at \(folder.path)."
+        case .noConfigFile(let bundle):
+            alert.messageText = "Plumage bundle is missing config.json"
+            alert.informativeText = "Bundle at \(bundle.path) has no config.json."
+        case .multipleBundles(let urls):
+            alert.messageText = "Multiple Plumage bundles found"
+            let names = urls.map { $0.lastPathComponent }.joined(separator: ", ")
+            alert.informativeText = "Found: \(names). Plumage expects exactly one."
         case .schemaTooNew(let version, let supportedUpTo):
             alert.messageText = "This project needs a newer Plumage"
             alert.informativeText =

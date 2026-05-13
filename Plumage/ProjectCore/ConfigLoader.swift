@@ -3,17 +3,27 @@ import Foundation
 nonisolated enum ConfigLoader {
     enum LoadError: Error, Equatable, Sendable {
         case noConfigFile(folder: URL)
+        case noBundle(folder: URL)
+        case multipleBundles(found: [URL])
         case schemaTooNew(version: Int, supportedUpTo: Int)
         case invalidJSON(message: String)
     }
 
-    static let configRelativePath = ".plumage/config.json"
+    static let configFileName = "config.json"
 
-    static func load(at folder: URL) throws -> ProjectConfig {
-        let configURL = folder.appendingPathComponent(configRelativePath)
+    static func load(at projectRoot: URL) throws -> ProjectConfig {
+        let bundle: URL
+        do {
+            bundle = try BundleResolver.findBundle(in: projectRoot)
+        } catch BundleResolver.ResolveError.noBundle(let folder) {
+            throw LoadError.noBundle(folder: folder)
+        } catch BundleResolver.ResolveError.multipleBundles(let urls) {
+            throw LoadError.multipleBundles(found: urls)
+        }
+        let configURL = bundle.appendingPathComponent(configFileName)
         let fm = FileManager.default
         guard fm.fileExists(atPath: configURL.path) else {
-            throw LoadError.noConfigFile(folder: folder)
+            throw LoadError.noConfigFile(folder: bundle)
         }
         let data: Data
         do {
