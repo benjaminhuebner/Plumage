@@ -88,17 +88,23 @@ struct SpecEditorView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { saveTask() }
         }
-        .alert(item: $pendingSaveAlert) { alert in
-            Alert(
-                title: Text("Failed to save"),
-                message: Text(alert.message),
-                primaryButton: .default(Text("Try again")) {
-                    Task { await attemptPop() }
-                },
-                secondaryButton: .destructive(Text("Discard changes")) {
-                    dismiss()
-                }
-            )
+        .alert(
+            "Failed to save",
+            isPresented: Binding(
+                get: { pendingSaveAlert != nil },
+                set: { if !$0 { pendingSaveAlert = nil } }
+            ),
+            presenting: pendingSaveAlert
+        ) { alert in
+            switch alert.kind {
+            case .pop:
+                Button("Try again") { Task { await attemptPop() } }
+                Button("Discard changes", role: .destructive) { dismiss() }
+            case .saveOnly:
+                Button("OK", role: .cancel) {}
+            }
+        } message: { alert in
+            Text(alert.message)
         }
     }
 
@@ -139,7 +145,7 @@ struct SpecEditorView: View {
             do {
                 try await model.saveIfDirty()
             } catch {
-                pendingSaveAlert = SaveAlert(message: error.localizedDescription)
+                pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
         }
     }
@@ -149,7 +155,7 @@ struct SpecEditorView: View {
             try await model.saveIfDirty()
             dismiss()
         } catch {
-            pendingSaveAlert = SaveAlert(message: error.localizedDescription)
+            pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .pop)
         }
     }
 
@@ -158,7 +164,7 @@ struct SpecEditorView: View {
             do {
                 try await model.resolveConflictSaveAndRecreate()
             } catch {
-                pendingSaveAlert = SaveAlert(message: error.localizedDescription)
+                pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
         }
     }
@@ -182,6 +188,12 @@ struct SpecEditorView: View {
 private struct SaveAlert: Identifiable {
     let id = UUID()
     let message: String
+    let kind: Kind
+
+    enum Kind {
+        case pop
+        case saveOnly
+    }
 }
 
 extension FocusedValues {
