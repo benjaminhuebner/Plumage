@@ -31,7 +31,9 @@ struct PlumageApp: App {
                     }
             }
         }
-        .commandsRemoved()
+        .commands {
+            NewIssueCommand()
+        }
         .restorationBehavior(.disabled)
         .environment(recentProjects)
     }

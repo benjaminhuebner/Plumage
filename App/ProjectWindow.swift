@@ -5,11 +5,35 @@ struct ProjectWindow: View {
 
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
+    @State private var showsNewIssueSheet = false
 
     var body: some View {
         content
             .frame(minWidth: 720, minHeight: 480)
             .navigationTitle(displayTitle)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showsNewIssueSheet = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .help("New Issue (⌘N)")
+                }
+            }
+            .focusedSceneValue(\.newIssueSheetIsPresented, $showsNewIssueSheet)
+            .sheet(isPresented: $showsNewIssueSheet) {
+                NewIssueSheet(
+                    projectURL: handle.url,
+                    existingIssues: kanban.issues,
+                    onCreate: { _ in showsNewIssueSheet = false },
+                    onCollision: { folder in
+                        showsNewIssueSheet = false
+                        kanban.highlight(folderName: folder)
+                    },
+                    onDismiss: { showsNewIssueSheet = false }
+                )
+            }
             .task(id: handle.url) {
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
