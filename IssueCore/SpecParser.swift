@@ -79,23 +79,13 @@ nonisolated enum SpecParser {
         return nil
     }
 
-    // ISO8601DateFormatter is thread-safe for reading once configured; the
-    // closures here run once, after which `formatOptions` is never mutated.
-    nonisolated(unsafe) private static let plainDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    nonisolated(unsafe) private static let fractionalDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
     private static func parseDate(_ string: String) -> Date? {
-        if let date = plainDateFormatter.date(from: string) { return date }
-        return fractionalDateFormatter.date(from: string)
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: string) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: string)
     }
 
     private static func mapYamlError(_ error: YamlError) -> FrontmatterError {

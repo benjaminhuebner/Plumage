@@ -124,15 +124,10 @@ nonisolated struct NextIssueAllocator: Sendable {
         return max(configured, 1)
     }
 
-    // ISO8601DateFormatter is thread-safe once configured; the closure runs once.
-    nonisolated(unsafe) private static let iso8601Formatter: ISO8601DateFormatter = {
+    private static func iso8601(from date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    private static func iso8601(from date: Date) -> String {
-        iso8601Formatter.string(from: date)
+        return formatter.string(from: date)
     }
 
     static func slugify(_ input: String) -> String {
