@@ -49,8 +49,11 @@ struct NewIssueSheet: View {
             input.handleTitleChanged()
         }
         .onChange(of: input.slug) {
-            // Only treat slug changes as user edits when the slug field has focus —
-            // otherwise this fires from handleTitleChanged()'s auto-sync.
+            // Distinguish user edits from auto-sync writes by checking which field
+            // has focus. SwiftUI commits focusedField changes before value onChange
+            // callbacks fire, so focus is current here. Holds as long as nothing
+            // mutates input.slug from outside the slug TextField while the slug
+            // field is focused — there is no such caller today.
             if focusedField == .slug {
                 input.slugTouched = true
             }
