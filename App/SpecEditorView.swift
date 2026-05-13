@@ -216,5 +216,6 @@ extension FocusedValues {
             folderName: "00001-walking-skeleton"
         )
     }
+    .environment(ProjectKanbanModel())
     .frame(width: 800, height: 600)
 }
