@@ -1,8 +1,11 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 enum OpenProjectCommand {
+    static let plumageProjectUTI = "com.benjaminhuebner.plumage.project"
+
     static func openWithPicker(
         recentProjects: RecentProjects,
         openWindow: OpenWindowAction,
@@ -73,6 +76,11 @@ enum OpenProjectCommand {
         panel.title = "Open Plumage Project"
         panel.message = "Pick a .plumage bundle or its parent folder."
         panel.prompt = "Open"
+        var allowed: [UTType] = [.folder]
+        if let bundleType = UTType(plumageProjectUTI) {
+            allowed.append(bundleType)
+        }
+        panel.allowedContentTypes = allowed
         return panel.runModal() == .OK ? panel.url : nil
     }
 
