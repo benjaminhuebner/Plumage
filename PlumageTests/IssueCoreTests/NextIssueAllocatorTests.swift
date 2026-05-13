@@ -112,3 +112,195 @@ struct NextIssueAllocatorPureTests {
         #expect(rendered.contains("labels: []"))
     }
 }
+
+@Suite("NextIssueAllocator.allocate")
+struct NextIssueAllocatorAllocateTests {
+    @Test("allocates next ID, writes spec with type/labels, returns spec URL")
+    func happyPath() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeConfig(padding: 5)
+        try fixture.writeSpec(folder: "00001-foo", id: 1)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-05-13T07:00:00Z"))
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .chore, labels: ["chore", "v0.1"], now: now
+        )
+
+        #expect(url.path.hasSuffix(".claude/issues/00002-bar/spec.md"))
+        let content = try String(contentsOf: url, encoding: .utf8)
+        #expect(content.contains("id: 2\n"))
+        #expect(content.contains("title: Bar\n"))
+        #expect(content.contains("type: chore\n"))
+        #expect(content.contains("status: draft\n"))
+        #expect(content.contains("branch: issue/00002-bar\n"))
+        #expect(content.contains("labels: [chore, v0.1]\n"))
+        #expect(content.contains("created: 2026-05-13T07:00:00Z\n"))
+        #expect(content.contains("updated: 2026-05-13T07:00:00Z\n"))
+    }
+
+    @Test("active collision throws .slugCollision and writes nothing")
+    func collisionActive() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeSpec(folder: "00001-foo", id: 1)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        #expect(throws: NextIssueAllocatorError.slugCollision(existingFolder: "00001-foo")) {
+            try allocator.allocate(slug: "foo", title: "X", type: .feature, labels: [])
+        }
+        let issuesDir = fixture.root.appendingPathComponent(".claude/issues")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: issuesDir.path).sorted()
+        #expect(entries == ["00001-foo", "_TEMPLATE.md"])
+    }
+
+    @Test("archive collision throws .slugCollision")
+    func collisionArchive() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeSpec(folder: "archive/00001-foo", id: 1)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        #expect(throws: NextIssueAllocatorError.slugCollision(existingFolder: "00001-foo")) {
+            try allocator.allocate(slug: "foo", title: "X", type: .feature, labels: [])
+        }
+    }
+
+    @Test("empty repo creates the folder and starts at ID 1")
+    func emptyRepo() throws {
+        let fixture = try Fixture(prepareIssuesDir: false)
+        try fixture.writeTemplate(at: fixture.root.appendingPathComponent(".claude/issues/_TEMPLATE.md"))
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [])
+        #expect(url.path.hasSuffix(".claude/issues/00001-bar/spec.md"))
+    }
+
+    @Test("invalid slug throws .invalidSlug as defense-in-depth")
+    func invalidSlug() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        #expect(throws: NextIssueAllocatorError.invalidSlug) {
+            try allocator.allocate(slug: "Foo Bar", title: "X", type: .feature, labels: [])
+        }
+    }
+
+    @Test("padding grows organically when next ID exceeds configured width")
+    func paddingGrows() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeConfig(padding: 3)
+        try fixture.writeSpec(folder: "999-foo", id: 999)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [])
+        #expect(url.path.hasSuffix(".claude/issues/1000-bar/spec.md"))
+    }
+
+    @Test("missing _TEMPLATE.md throws .templateMissing")
+    func templateMissing() throws {
+        let fixture = try Fixture()
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        do {
+            _ = try allocator.allocate(
+                slug: "bar", title: "X", type: .feature, labels: [])
+            Issue.record("expected throw")
+        } catch let NextIssueAllocatorError.templateMissing(url) {
+            #expect(url.lastPathComponent == "_TEMPLATE.md")
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test("ID search includes archive folders")
+    func idFromArchive() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeSpec(folder: "archive/00005-foo", id: 5)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [])
+        #expect(url.path.hasSuffix(".claude/issues/00006-bar/spec.md"))
+    }
+}
+
+private struct Fixture {
+    let root: URL
+
+    init(prepareIssuesDir: Bool = true) throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PlumageNextIssueAllocator-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        self.root = tmp
+        if prepareIssuesDir {
+            try FileManager.default.createDirectory(
+                at: tmp.appendingPathComponent(".claude/issues"),
+                withIntermediateDirectories: true
+            )
+        }
+    }
+
+    func writeTemplate(at url: URL? = nil) throws {
+        let target =
+            url
+            ?? root.appendingPathComponent(".claude/issues/_TEMPLATE.md")
+        let body = """
+            ---
+            id: <<<ID>>>
+            title: <<<TITLE>>>
+            type: feature
+            status: draft
+            created: <<<CREATED>>>
+            updated: <<<CREATED>>>
+            branch: issue/<<<ID_PADDED>>>-<<<SLUG>>>
+            labels: []
+            model: null
+            ---
+
+            # Issue <<<ID_PADDED>>>: <<<TITLE>>>
+            """
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try body.write(to: target, atomically: true, encoding: .utf8)
+    }
+
+    func writeConfig(padding: Int) throws {
+        let dir = root.appendingPathComponent(".plumage")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let json = """
+            {
+              "name": "Test",
+              "schemaVersion": 1,
+              "issueIdPadding": \(padding)
+            }
+            """
+        try json.write(
+            to: dir.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
+    }
+
+    func writeSpec(folder: String, id: Int) throws {
+        let dir = root.appendingPathComponent(".claude/issues/\(folder)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let body = """
+            ---
+            id: \(id)
+            title: T
+            type: feature
+            status: draft
+            created: 2026-01-01T00:00:00Z
+            updated: 2026-01-01T00:00:00Z
+            branch: issue/\(folder)
+            labels: []
+            model: null
+            ---
+            """
+        try body.write(
+            to: dir.appendingPathComponent("spec.md"), atomically: true, encoding: .utf8)
+    }
+}
