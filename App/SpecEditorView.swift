@@ -57,6 +57,7 @@ struct SpecEditorView: View {
         .navigationTitle(folderName)
         .focusedSceneValue(\.specEditorIsActive, true)
         .focusedSceneValue(\.specEditorSave, attemptSave)
+        .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
         .task(id: model.specURL) {
             do {
                 try model.load()
@@ -170,6 +171,7 @@ private struct SaveAlert: Identifiable {
 extension FocusedValues {
     @Entry var specEditorIsActive: Bool?
     @Entry var specEditorSave: (() -> Void)?
+    @Entry var specEditorClose: (() -> Void)?
 }
 
 #Preview {
