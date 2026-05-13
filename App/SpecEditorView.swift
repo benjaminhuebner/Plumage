@@ -196,7 +196,7 @@ struct SpecEditorView: View {
         let fresh = await Task.detached(priority: .utility) {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
-        if let fresh, fresh == model.loadedContent { return }
+        if let fresh, fresh == model.loadedContent || fresh == model.lastWrittenContent { return }
         model.handleExternalChange(diskContent: fresh)
     }
 }

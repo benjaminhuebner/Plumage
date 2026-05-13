@@ -17,6 +17,7 @@ final class SpecEditorModel {
     private(set) var conflict: ConflictState?
     private(set) var initialCursorOffset: Int?
     private(set) var lastSeenIssue: DiscoveredIssue?
+    private(set) var lastWrittenContent: String?
 
     private nonisolated let writer: SpecWriting
 
@@ -56,6 +57,7 @@ final class SpecEditorModel {
         guard isDirty else { return }
         let snapshot = buffer
         try await writeOffActor(snapshot)
+        lastWrittenContent = snapshot
         loadedContent = snapshot
         evaluateFrontmatterError()
     }
@@ -90,6 +92,7 @@ final class SpecEditorModel {
     func resolveConflictSaveAndRecreate() async throws {
         let snapshot = buffer
         try await writeOffActor(snapshot)
+        lastWrittenContent = snapshot
         loadedContent = snapshot
         evaluateFrontmatterError()
         conflict = nil
