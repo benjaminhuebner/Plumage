@@ -25,26 +25,18 @@ struct BundleResolverTests {
         #expect(found.standardizedFileURL == bundle.standardizedFileURL)
     }
 
-    @Test func findBundleAcceptsLegacyDotfile() throws {
+    @Test func findBundleIgnoresLegacyDotfile() throws {
         let root = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let dotfile = root.appendingPathComponent(".plumage", isDirectory: true)
         try mkdir(dotfile)
 
-        let found = try BundleResolver.findBundle(in: root)
-        #expect(found.standardizedFileURL == dotfile.standardizedFileURL)
-    }
-
-    @Test func bundleWinsWhenBothPresent() throws {
-        let root = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let dotfile = root.appendingPathComponent(".plumage", isDirectory: true)
-        let bundle = root.appendingPathComponent("MyProject.plumage", isDirectory: true)
-        try mkdir(dotfile)
-        try mkdir(bundle)
-
-        let found = try BundleResolver.findBundle(in: root)
-        #expect(found.standardizedFileURL == bundle.standardizedFileURL)
+        #expect {
+            try BundleResolver.findBundle(in: root)
+        } throws: { error in
+            guard case BundleResolver.ResolveError.noBundle = error else { return false }
+            return true
+        }
     }
 
     @Test func findBundleThrowsWhenNothingMatches() throws {

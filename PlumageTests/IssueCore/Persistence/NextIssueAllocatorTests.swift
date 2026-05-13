@@ -271,8 +271,8 @@ private struct Fixture {
     }
 
     func writeConfig(padding: Int) throws {
-        let dir = root.appendingPathComponent(".plumage")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let bundle = root.appendingPathComponent("Test.plumage")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let json = """
             {
               "name": "Test",
@@ -281,7 +281,7 @@ private struct Fixture {
             }
             """
         try json.write(
-            to: dir.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
+            to: bundle.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
     }
 
     func writeSpec(folder: String, id: Int) throws {

@@ -2,7 +2,6 @@ import Foundation
 
 nonisolated enum BundleResolver {
     static let bundleExtension = "plumage"
-    static let legacyDotfileName = ".plumage"
 
     enum ResolveError: Error, Equatable, Sendable {
         case noBundle(folder: URL)
@@ -36,13 +35,6 @@ nonisolated enum BundleResolver {
         if let only = bundles.first {
             return only
         }
-
-        let legacy = projectRoot.appendingPathComponent(legacyDotfileName, isDirectory: true)
-        var isDir: ObjCBool = false
-        if fm.fileExists(atPath: legacy.path, isDirectory: &isDir), isDir.boolValue {
-            return legacy
-        }
-
         throw ResolveError.noBundle(folder: projectRoot)
     }
 }
