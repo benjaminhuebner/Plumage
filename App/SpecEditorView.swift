@@ -22,12 +22,7 @@ struct SpecEditorView: View {
     init(projectURL: URL, folderName: String) {
         self.projectURL = projectURL
         self.folderName = folderName
-        let specURL =
-            projectURL
-            .appendingPathComponent(".claude")
-            .appendingPathComponent("issues")
-            .appendingPathComponent(folderName)
-            .appendingPathComponent("spec.md")
+        let specURL = IssueLayout.specURL(in: projectURL, folderName: folderName)
         _model = State(initialValue: SpecEditorModel(specURL: specURL, folderName: folderName))
     }
 
