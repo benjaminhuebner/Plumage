@@ -7,14 +7,22 @@ import SwiftUI
 final class ProjectKanbanModel {
     private(set) var issues: [DiscoveredIssue] = []
     private(set) var groupedIssues: [IssueColumn: [DiscoveredIssue]] = [:]
+    private(set) var highlightedIssueID: String?
     private let producerFactory: @Sendable (URL) -> IssueSnapshotProducer
+    private let highlightClock: any Clock<Duration>
+    private let highlightDuration: Duration
+    private var highlightTask: Task<Void, Never>?
 
     init(
         producerFactory: @escaping @Sendable (URL) -> IssueSnapshotProducer = {
             IssueSnapshotProducer(projectURL: $0)
-        }
+        },
+        clock: any Clock<Duration> = ContinuousClock(),
+        highlightDuration: Duration = .seconds(1)
     ) {
         self.producerFactory = producerFactory
+        self.highlightClock = clock
+        self.highlightDuration = highlightDuration
     }
 
     func run(projectURL: URL) async {
@@ -28,6 +36,20 @@ final class ProjectKanbanModel {
             }
         }
         await producer.stop()
+    }
+
+    func highlight(folderName: String) {
+        highlightTask?.cancel()
+        highlightedIssueID = folderName
+        let clock = highlightClock
+        let duration = highlightDuration
+        highlightTask = Task { [weak self] in
+            try? await clock.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.highlightedIssueID = nil
+            }
+        }
     }
 
     private static func group(
