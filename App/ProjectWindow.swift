@@ -6,39 +6,48 @@ struct ProjectWindow: View {
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
     @State private var showsNewIssueSheet = false
+    @State private var navigationPath = NavigationPath()
 
     var body: some View {
-        content
-            .frame(minWidth: 720, minHeight: 480)
-            .navigationTitle(displayTitle)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showsNewIssueSheet = true
-                    } label: {
-                        Image(systemName: "plus")
+        NavigationStack(path: $navigationPath) {
+            content
+                .navigationDestination(for: SpecRoute.self) { route in
+                    switch route {
+                    case .spec(let folderName):
+                        SpecRouteDestinationStub(folderName: folderName)
                     }
-                    .help("New Issue (⌘N)")
                 }
+        }
+        .frame(minWidth: 720, minHeight: 480)
+        .navigationTitle(displayTitle)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showsNewIssueSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("New Issue (⌘N)")
             }
-            .focusedSceneValue(\.newIssueSheetIsPresented, $showsNewIssueSheet)
-            .sheet(isPresented: $showsNewIssueSheet) {
-                NewIssueSheet(
-                    projectURL: handle.url,
-                    existingIssues: kanban.issues,
-                    onCreate: { _ in showsNewIssueSheet = false },
-                    onCollision: { folder in
-                        showsNewIssueSheet = false
-                        kanban.highlight(folderName: folder)
-                    },
-                    onDismiss: { showsNewIssueSheet = false }
-                )
-            }
-            .task(id: handle.url) {
-                async let reload: Void = model.reload(at: handle.url)
-                async let run: Void = kanban.run(projectURL: handle.url)
-                _ = await (reload, run)
-            }
+        }
+        .focusedSceneValue(\.newIssueSheetIsPresented, $showsNewIssueSheet)
+        .sheet(isPresented: $showsNewIssueSheet) {
+            NewIssueSheet(
+                projectURL: handle.url,
+                existingIssues: kanban.issues,
+                onCreate: { _ in showsNewIssueSheet = false },
+                onCollision: { folder in
+                    showsNewIssueSheet = false
+                    kanban.highlight(folderName: folder)
+                },
+                onDismiss: { showsNewIssueSheet = false }
+            )
+        }
+        .task(id: handle.url) {
+            async let reload: Void = model.reload(at: handle.url)
+            async let run: Void = kanban.run(projectURL: handle.url)
+            _ = await (reload, run)
+        }
     }
 
     @ViewBuilder
@@ -89,6 +98,22 @@ struct ProjectWindow: View {
         case .invalidJSON(let message):
             return "This Plumage config is invalid: \(message)"
         }
+    }
+}
+
+// Placeholder destination until Task 6 wires the real SpecEditorView.
+private struct SpecRouteDestinationStub: View {
+    let folderName: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Spec Editor")
+                .font(.title)
+            Text(folderName)
+                .font(.callout.monospaced())
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
