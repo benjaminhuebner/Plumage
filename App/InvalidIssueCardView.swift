@@ -6,9 +6,16 @@ struct InvalidIssueCardView: View {
     let padding: Int
 
     @State private var showPopover = false
+    @Environment(\.kanbanHighlightedID) private var highlightedID: String?
+
+    private var folderName: String { folder.lastPathComponent }
+
+    private var isHighlighted: Bool {
+        highlightedID == folderName
+    }
 
     var body: some View {
-        let parts = IssueDiscovery.extractID(fromFolderName: folder.lastPathComponent)
+        let parts = IssueDiscovery.extractID(fromFolderName: folderName)
         VStack(alignment: .leading, spacing: 6) {
             Text(parts.slug)
                 .font(.headline)
@@ -32,6 +39,12 @@ struct InvalidIssueCardView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.red, lineWidth: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(isHighlighted ? 1.0 : 0.0)
+                .animation(.easeOut(duration: 1.0), value: isHighlighted)
         )
         .contentShape(Rectangle())
         .help(error.summary)

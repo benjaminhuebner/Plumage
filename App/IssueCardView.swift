@@ -4,7 +4,13 @@ struct IssueCardView: View {
     let issue: Issue
     let padding: Int
 
+    @Environment(\.kanbanHighlightedID) private var highlightedID: String?
+
     private let maxVisibleLabels = 4
+
+    private var isHighlighted: Bool {
+        highlightedID == issue.folderName
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -45,6 +51,12 @@ struct IssueCardView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(.separator, lineWidth: 0.5)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(isHighlighted ? 1.0 : 0.0)
+                .animation(.easeOut(duration: 1.0), value: isHighlighted)
         )
     }
 }

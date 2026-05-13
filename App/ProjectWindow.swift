@@ -35,6 +35,7 @@ struct ProjectWindow: View {
                 .padding(.horizontal, 32)
                 .padding(.top, 32)
                 KanbanView(grouped: kanban.groupedIssues, padding: config.issueIdPadding ?? 5)
+                    .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .failed(let error):
