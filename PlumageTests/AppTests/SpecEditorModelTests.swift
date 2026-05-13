@@ -193,6 +193,23 @@ struct SpecEditorModelTests {
         #expect(selection.location >= 0)
     }
 
+    @Test("initialCursor offset matches FrontmatterMessageMap location")
+    func initialCursorOffset() throws {
+        let url = try makeSpec(content: brokenYAMLSpec)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let model = SpecEditorModel(specURL: url, folderName: "00001-broken")
+
+        try model.load()
+
+        let error = try #require(model.frontmatterError)
+        let location = FrontmatterMessageMap.location(for: error)
+        let expectedOffset = TextOffset.offset(
+            ofLine: location.line, column: location.column, in: model.buffer)
+        let selection = try #require(model.initialCursor?.selections.first)
+        #expect(selection.location == expectedOffset)
+        #expect(selection.length == 0)
+    }
+
     @Test("initialCursor is nil for valid content")
     func initialCursorOnValid() throws {
         let url = try makeSpec(content: validSpec)
