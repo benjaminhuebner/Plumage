@@ -50,7 +50,8 @@ struct SpecEditorView: View {
             CodeEditor(
                 text: bufferBinding,
                 position: $editorPosition,
-                messages: $editorMessages
+                messages: $editorMessages,
+                language: .markdown()
             )
             .focused($editorFocused)
         }
