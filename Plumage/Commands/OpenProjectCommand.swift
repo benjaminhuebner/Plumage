@@ -8,9 +8,9 @@ enum OpenProjectCommand {
         openWindow: OpenWindowAction,
         dismissWindow: DismissWindowAction
     ) {
-        guard let url = pickFolder() else { return }
-        openConfirmed(
-            url: url,
+        guard let url = pickProject() else { return }
+        openFromBundleURL(
+            url,
             recentProjects: recentProjects,
             openWindow: openWindow,
             dismissWindow: dismissWindow
@@ -62,12 +62,14 @@ enum OpenProjectCommand {
         )
     }
 
-    private static func pickFolder() -> URL? {
+    private static func pickProject() -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
+        panel.treatsFilePackagesAsDirectories = false
         panel.allowsMultipleSelection = false
         panel.title = "Open Plumage Project"
+        panel.message = "Pick a .plumage bundle or its parent folder."
         panel.prompt = "Open"
         return panel.runModal() == .OK ? panel.url : nil
     }
