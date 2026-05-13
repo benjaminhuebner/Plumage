@@ -10,18 +10,6 @@ final class NewIssueInput {
     var labels: [String] = []
     var labelDraft: String = ""
 
-    func onTitleChange(_ new: String) {
-        title = new
-        if !slugTouched {
-            slug = NextIssueAllocator.slugify(new)
-        }
-    }
-
-    func onSlugEdit(_ new: String) {
-        slug = new
-        slugTouched = true
-    }
-
     func handleTitleChanged() {
         if !slugTouched {
             slug = NextIssueAllocator.slugify(title)
