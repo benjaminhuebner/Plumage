@@ -2,25 +2,33 @@ import AppKit
 import SwiftUI
 
 struct WindowChromeCustomizer: NSViewRepresentable {
-    var hiddenOnFirstShow: Bool = false
+    var windowAlphaHidden: Bool = false
 
     func makeNSView(context: Context) -> NSView {
-        ChromeCustomizingView(hiddenOnFirstShow: hiddenOnFirstShow)
+        ChromeCustomizingView(windowAlphaHidden: windowAlphaHidden)
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? ChromeCustomizingView else { return }
+        view.applyWindowAlphaHidden(windowAlphaHidden)
+    }
 
     private final class ChromeCustomizingView: NSView {
-        private let hiddenOnFirstShow: Bool
+        private var windowAlphaHidden: Bool
 
-        init(hiddenOnFirstShow: Bool) {
-            self.hiddenOnFirstShow = hiddenOnFirstShow
+        init(windowAlphaHidden: Bool) {
+            self.windowAlphaHidden = windowAlphaHidden
             super.init(frame: .zero)
         }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) {
             fatalError("init(coder:) unavailable")
+        }
+
+        func applyWindowAlphaHidden(_ hidden: Bool) {
+            windowAlphaHidden = hidden
+            window?.alphaValue = hidden ? 0 : 1
         }
 
         override func viewDidMoveToWindow() {
@@ -33,9 +41,7 @@ struct WindowChromeCustomizer: NSViewRepresentable {
             window.titleVisibility = .hidden
             window.titlebarSeparatorStyle = .none
             window.styleMask.insert(.fullSizeContentView)
-            if hiddenOnFirstShow {
-                window.alphaValue = 0
-            }
+            window.alphaValue = windowAlphaHidden ? 0 : 1
         }
     }
 }

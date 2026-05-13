@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct WelcomeView: View {
-    var hiddenOnFirstShow: Bool = false
+    var windowAlphaHidden: Bool = false
 
     @Environment(RecentProjects.self) private var recentProjects
     @Environment(\.openWindow) private var openWindow
@@ -14,7 +14,7 @@ struct WelcomeView: View {
             rightPane
         }
         .frame(width: 860, height: 520)
-        .background(WindowChromeCustomizer(hiddenOnFirstShow: hiddenOnFirstShow))
+        .background(WindowChromeCustomizer(windowAlphaHidden: windowAlphaHidden))
     }
 
     private var leftPane: some View {

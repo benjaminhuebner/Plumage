@@ -10,7 +10,7 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome", id: "welcome") {
-            WelcomeView(hiddenOnFirstShow: !appDelegate.pendingURLs.isEmpty)
+            WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
                 .containerBackground(.thickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
