@@ -14,7 +14,7 @@ struct ProjectWindow: View {
                 .navigationDestination(for: SpecRoute.self) { route in
                     switch route {
                     case .spec(let folderName):
-                        SpecRouteDestinationStub(folderName: folderName)
+                        SpecEditorView(projectURL: handle.url, folderName: folderName)
                     }
                 }
         }
@@ -98,22 +98,6 @@ struct ProjectWindow: View {
         case .invalidJSON(let message):
             return "This Plumage config is invalid: \(message)"
         }
-    }
-}
-
-// Placeholder destination until Task 6 wires the real SpecEditorView.
-private struct SpecRouteDestinationStub: View {
-    let folderName: String
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Spec Editor")
-                .font(.title)
-            Text(folderName)
-                .font(.callout.monospaced())
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
