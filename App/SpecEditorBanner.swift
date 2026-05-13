@@ -55,7 +55,8 @@ struct SpecEditorBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.15))
+        .background(Color.red.opacity(0.28))
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(.red.opacity(0.5)), alignment: .bottom)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Frontmatter error: \(error.summary)")
     }
@@ -75,7 +76,8 @@ struct SpecEditorBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.18))
+        .background(Color.orange.opacity(0.3))
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(.orange.opacity(0.55)), alignment: .bottom)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Disk version changed externally")
     }
@@ -95,7 +97,8 @@ struct SpecEditorBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.2))
+        .background(Color.red.opacity(0.32))
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(.red.opacity(0.55)), alignment: .bottom)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("File deleted from disk")
     }
