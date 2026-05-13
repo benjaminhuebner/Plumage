@@ -13,6 +13,8 @@ struct SpecEditorView: View {
     @State private var loadFailed: String?
     @State private var pendingSaveAlert: SaveAlert?
 
+    private let markdownLanguage = LanguageConfiguration.markdown()
+
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(ProjectKanbanModel.self) private var kanban
@@ -51,7 +53,7 @@ struct SpecEditorView: View {
                 text: bufferBinding,
                 position: $editorPosition,
                 messages: $editorMessages,
-                language: .markdown()
+                language: markdownLanguage
             )
             .focused($editorFocused)
         }
