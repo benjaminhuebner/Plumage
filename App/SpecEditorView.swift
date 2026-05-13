@@ -101,7 +101,7 @@ struct SpecEditorView: View {
     private var bufferBinding: Binding<String> {
         Binding(
             get: { model.buffer },
-            set: { model.updateBuffer($0) }
+            set: { model.buffer = $0 }
         )
     }
 

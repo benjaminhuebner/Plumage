@@ -11,7 +11,7 @@ final class SpecEditorModel {
     let specURL: URL
     let folderName: String
 
-    private(set) var buffer: String = ""
+    var buffer: String = ""
     private(set) var loadedContent: String = ""
     private(set) var frontmatterError: FrontmatterError?
     private(set) var conflict: ConflictState?
@@ -27,10 +27,6 @@ final class SpecEditorModel {
         self.specURL = specURL
         self.folderName = folderName
         self.writer = writer
-    }
-
-    func updateBuffer(_ newValue: String) {
-        buffer = newValue
     }
 
     func noteSeenIssue(_ issue: DiscoveredIssue?) {

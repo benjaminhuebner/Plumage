@@ -32,7 +32,7 @@ struct SpecEditorExternalChangeIntegrationTests {
 
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
         try await model.load()
-        model.updateBuffer("my edit")
+        model.buffer = "my edit"
         #expect(model.isDirty)
 
         try "external edit".write(to: url, atomically: true, encoding: .utf8)
@@ -54,7 +54,7 @@ struct SpecEditorExternalChangeIntegrationTests {
 
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
         try await model.load()
-        model.updateBuffer("user edit")
+        model.buffer = "user edit"
 
         try FileManager.default.removeItem(at: url)
         model.handleExternalChange(diskContent: nil)

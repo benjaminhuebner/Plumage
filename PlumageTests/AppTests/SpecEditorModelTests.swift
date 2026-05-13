@@ -43,7 +43,7 @@ struct SpecEditorModelTests {
         try await model.load()
         #expect(!model.isDirty)
 
-        model.updateBuffer(validSpec + "\nedit")
+        model.buffer = validSpec + "\nedit"
         #expect(model.isDirty)
     }
 
@@ -67,7 +67,7 @@ struct SpecEditorModelTests {
         let writer = RecordingWriter()
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: writer)
         try await model.load()
-        model.updateBuffer(validSpec + "\n\nedit")
+        model.buffer = validSpec + "\n\nedit"
 
         try await model.saveIfDirty()
 
@@ -83,7 +83,7 @@ struct SpecEditorModelTests {
         let writer = ThrowingWriter()
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: writer)
         try await model.load()
-        model.updateBuffer(validSpec + "\nedit")
+        model.buffer = validSpec + "\nedit"
 
         do {
             try await model.saveIfDirty()
@@ -118,7 +118,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
         try await model.load()
-        model.updateBuffer(validSpec + "\nuser edit")
+        model.buffer = validSpec + "\nuser edit"
         let diskUpdate = validSpec + "\nexternal edit"
 
         model.handleExternalChange(diskContent: diskUpdate)
@@ -138,7 +138,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
         try await model.load()
-        model.updateBuffer(validSpec + "\nuser edit")
+        model.buffer = validSpec + "\nuser edit"
 
         model.handleExternalChange(diskContent: validSpec)
 
@@ -152,7 +152,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
         try await model.load()
-        model.updateBuffer(validSpec + "\nuser edit")
+        model.buffer = validSpec + "\nuser edit"
 
         model.handleExternalChange(diskContent: nil)
 
@@ -165,7 +165,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
         try await model.load()
-        model.updateBuffer("user edit")
+        model.buffer = "user edit"
         model.handleExternalChange(diskContent: "disk edit")
 
         model.resolveConflictReload()
@@ -181,7 +181,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
         try await model.load()
-        model.updateBuffer("user edit")
+        model.buffer = "user edit"
         model.handleExternalChange(diskContent: "disk edit")
 
         model.resolveConflictKeep()
@@ -197,7 +197,7 @@ struct SpecEditorModelTests {
         let writer = RecordingWriter()
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: writer)
         try await model.load()
-        model.updateBuffer("recreated")
+        model.buffer = "recreated"
         model.handleExternalChange(diskContent: nil)
 
         try await model.resolveConflictSaveAndRecreate()
@@ -214,7 +214,7 @@ struct SpecEditorModelTests {
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: RecordingWriter())
         try await model.load()
         #expect(model.frontmatterError == nil)
-        model.updateBuffer("recreated — no frontmatter here")
+        model.buffer = "recreated — no frontmatter here"
         model.handleExternalChange(diskContent: nil)
 
         try await model.resolveConflictSaveAndRecreate()
@@ -230,7 +230,7 @@ struct SpecEditorModelTests {
         try await model.load()
         #expect(model.lastWrittenContent == nil)
         let edited = validSpec + "\n\nedit"
-        model.updateBuffer(edited)
+        model.buffer = edited
 
         try await model.saveIfDirty()
 
