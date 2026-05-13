@@ -35,7 +35,7 @@ struct WelcomeView: View {
                 actionRow(
                     systemImage: "folder.badge.plus",
                     title: "Open a Project…",
-                    subtitle: "Pick a folder with .plumage/config.json"
+                    subtitle: "Pick a folder that contains a .plumage bundle"
                 ) {
                     OpenProjectCommand.openWithPicker(
                         recentProjects: recentProjects,

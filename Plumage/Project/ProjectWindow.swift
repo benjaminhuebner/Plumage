@@ -115,8 +115,8 @@ struct ProjectWindow: View {
 private func previewProjectURL() -> URL {
     let dir = FileManager.default.temporaryDirectory
         .appendingPathComponent("PlumagePreview-\(UUID().uuidString)")
-    let plumage = dir.appendingPathComponent(".plumage")
-    try? FileManager.default.createDirectory(at: plumage, withIntermediateDirectories: true)
+    let bundle = dir.appendingPathComponent("Preview.plumage")
+    try? FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
     let config = """
         {
           "name": "Plumage",
@@ -125,7 +125,7 @@ private func previewProjectURL() -> URL {
         }
         """
     try? config.write(
-        to: plumage.appendingPathComponent("config.json"),
+        to: bundle.appendingPathComponent("config.json"),
         atomically: true,
         encoding: .utf8
     )
