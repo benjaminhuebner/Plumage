@@ -11,6 +11,7 @@ struct SpecEditorView: View {
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var loadFailed: String?
     @State private var pendingSaveAlert: SaveAlert?
+    @State private var saveAlertVisible: Bool = false
 
     private let markdownLanguage = LanguageConfiguration.markdown()
 
@@ -27,7 +28,8 @@ struct SpecEditorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        @Bindable var model = model
+        return VStack(spacing: 0) {
             SpecEditorBanner(
                 frontmatterError: model.frontmatterError,
                 conflict: model.conflict,
@@ -44,7 +46,7 @@ struct SpecEditorView: View {
                     .padding(16)
             }
             CodeEditor(
-                text: bufferBinding,
+                text: $model.buffer,
                 position: $editorPosition,
                 messages: $editorMessages,
                 language: markdownLanguage
@@ -70,7 +72,8 @@ struct SpecEditorView: View {
             refreshMessages()
         }
         .onChange(of: kanban.issues) { _, _ in
-            Task { await applyExternalChange() }
+            let current = kanban.issues.first { $0.id == folderName }
+            Task { await model.observeExternalChange(currentIssue: current) }
         }
         .onChange(of: editorFocused) { _, focused in
             if !focused { saveTask() }
@@ -80,10 +83,7 @@ struct SpecEditorView: View {
         }
         .alert(
             "Failed to save",
-            isPresented: Binding(
-                get: { pendingSaveAlert != nil },
-                set: { if !$0 { pendingSaveAlert = nil } }
-            ),
+            isPresented: $saveAlertVisible,
             presenting: pendingSaveAlert
         ) { alert in
             switch alert.kind {
@@ -96,13 +96,6 @@ struct SpecEditorView: View {
         } message: { alert in
             Text(alert.message)
         }
-    }
-
-    private var bufferBinding: Binding<String> {
-        Binding(
-            get: { model.buffer },
-            set: { model.buffer = $0 }
-        )
     }
 
     private func refreshMessages() {
@@ -129,12 +122,17 @@ struct SpecEditorView: View {
         editorPosition.selections = [NSRange(location: offset, length: 0)]
     }
 
+    private func presentSaveAlert(message: String, kind: SaveAlert.Kind) {
+        pendingSaveAlert = SaveAlert(message: message, kind: kind)
+        saveAlertVisible = true
+    }
+
     private func saveTask() {
         Task {
             do {
                 try await model.saveIfDirty()
             } catch {
-                pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
         }
     }
@@ -144,7 +142,7 @@ struct SpecEditorView: View {
             do {
                 try await model.saveIfDirty()
             } catch {
-                pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
         }
     }
@@ -154,7 +152,7 @@ struct SpecEditorView: View {
             try await model.saveIfDirty()
             dismiss()
         } catch {
-            pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .pop)
+            presentSaveAlert(message: error.localizedDescription, kind: .pop)
         }
     }
 
@@ -163,41 +161,13 @@ struct SpecEditorView: View {
             do {
                 try await model.resolveConflictSaveAndRecreate()
             } catch {
-                pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
         }
     }
 
     private func discardAndPop() {
         dismiss()
-    }
-
-    private func applyExternalChange() async {
-        let current = kanban.issues.first { $0.id == folderName }
-        guard let current else {
-            model.noteSeenIssue(nil)
-            model.handleExternalChange(diskContent: nil)
-            return
-        }
-        if current == model.lastSeenIssue { return }
-        model.noteSeenIssue(current)
-        let url = model.specURL
-        let fresh = await Task.detached(priority: .utility) {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        if let fresh, fresh == model.loadedContent || fresh == model.lastWrittenContent { return }
-        model.handleExternalChange(diskContent: fresh)
-    }
-}
-
-private struct SaveAlert: Identifiable {
-    let id = UUID()
-    let message: String
-    let kind: Kind
-
-    enum Kind {
-        case pop
-        case saveOnly
     }
 }
 

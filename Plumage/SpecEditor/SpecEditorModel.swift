@@ -61,6 +61,22 @@ final class SpecEditorModel {
         evaluateFrontmatterError()
     }
 
+    func observeExternalChange(currentIssue: DiscoveredIssue?) async {
+        guard let currentIssue else {
+            noteSeenIssue(nil)
+            handleExternalChange(diskContent: nil)
+            return
+        }
+        if currentIssue == lastSeenIssue { return }
+        noteSeenIssue(currentIssue)
+        let url = specURL
+        let fresh = await Task.detached(priority: .utility) {
+            try? String(contentsOf: url, encoding: .utf8)
+        }.value
+        if let fresh, fresh == loadedContent || fresh == lastWrittenContent { return }
+        handleExternalChange(diskContent: fresh)
+    }
+
     func handleExternalChange(diskContent: String?) {
         guard let diskContent else {
             conflict = .fileDeleted
