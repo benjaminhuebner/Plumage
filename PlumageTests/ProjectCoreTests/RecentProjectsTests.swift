@@ -10,7 +10,7 @@ struct RecentProjectsTests {
             .appendingPathComponent("recent-\(UUID().uuidString).json")
     }
 
-    @Test func capAtMaxItems() throws {
+    @Test func capAtMaxItems() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
         let sut = RecentProjects(storeURL: store)
@@ -28,7 +28,7 @@ struct RecentProjectsTests {
         #expect(sut.items.contains { $0.name == "P0" } == false)
     }
 
-    @Test func duplicateAddMovesEntryToFront() throws {
+    @Test func duplicateAddMovesEntryToFront() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
         let sut = RecentProjects(storeURL: store)
@@ -44,7 +44,7 @@ struct RecentProjectsTests {
         #expect(sut.items[1].url == beta)
     }
 
-    @Test func roundTripPersistence() throws {
+    @Test func roundTripPersistence() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
 
@@ -53,24 +53,27 @@ struct RecentProjectsTests {
         writer.add(url: URL(fileURLWithPath: "/tmp/y"), name: "Y")
 
         let reader = RecentProjects(storeURL: store)
+        await reader.load()
         #expect(reader.items.count == 2)
         #expect(reader.items[0].name == "Y")
         #expect(reader.items[1].name == "X")
     }
 
-    @Test func emptyStoreYieldsEmptyItems() throws {
+    @Test func emptyStoreYieldsEmptyItems() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
         let sut = RecentProjects(storeURL: store)
+        await sut.load()
         #expect(sut.items.isEmpty)
     }
 
-    @Test func brokenStoreRecoversSilently() throws {
+    @Test func brokenStoreRecoversSilently() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
         try Data("not valid json".utf8).write(to: store)
 
         let sut = RecentProjects(storeURL: store)
+        await sut.load()
         #expect(sut.items.isEmpty)
     }
 }

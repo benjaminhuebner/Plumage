@@ -2,7 +2,7 @@ import Foundation
 
 nonisolated struct Issue: Hashable, Sendable {
     let id: Int
-    let folder: String
+    let folderName: String
     let title: String
     let type: IssueType
     let status: IssueStatus

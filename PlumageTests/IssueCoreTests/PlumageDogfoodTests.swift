@@ -27,7 +27,7 @@ struct PlumageDogfoodTests {
         for issue in validIssues {
             #expect(!issue.title.isEmpty)
             #expect(!issue.branch.isEmpty)
-            #expect(!issue.folder.isEmpty)
+            #expect(!issue.folderName.isEmpty)
         }
     }
 }

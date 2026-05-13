@@ -38,7 +38,7 @@ nonisolated enum IssueDiscovery {
             } catch {
                 return .invalid(folder: folder, error: .unreadable(message: error.localizedDescription))
             }
-            switch SpecParser.parse(content: content, folder: folder.lastPathComponent) {
+            switch SpecParser.parse(content: content, folderName: folder.lastPathComponent) {
             case .success(let issue):
                 return .valid(issue)
             case .failure(let err):

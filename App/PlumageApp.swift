@@ -8,6 +8,7 @@ struct PlumageApp: App {
         Window("Welcome", id: "welcome") {
             WelcomeView()
                 .containerBackground(.thickMaterial, for: .window)
+                .task { await recentProjects.load() }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
