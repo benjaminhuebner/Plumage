@@ -35,6 +35,33 @@ enum OpenProjectCommand {
         }
     }
 
+    static func openFromBundleURL(
+        _ url: URL,
+        recentProjects: RecentProjects,
+        openWindow: OpenWindowAction,
+        dismissWindow: DismissWindowAction
+    ) {
+        let root: URL
+        do {
+            root = try BundleResolver.resolve(from: url).root
+        } catch BundleResolver.ResolveError.noBundle(let folder) {
+            presentAlert(for: .noBundle(folder: folder))
+            return
+        } catch BundleResolver.ResolveError.multipleBundles(let urls) {
+            presentAlert(for: .multipleBundles(found: urls))
+            return
+        } catch {
+            presentAlert(for: .invalidJSON(message: error.localizedDescription))
+            return
+        }
+        openConfirmed(
+            url: root,
+            recentProjects: recentProjects,
+            openWindow: openWindow,
+            dismissWindow: dismissWindow
+        )
+    }
+
     private static func pickFolder() -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true

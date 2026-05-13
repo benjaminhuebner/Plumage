@@ -3,12 +3,15 @@ import SwiftUI
 @main
 struct PlumageApp: App {
     @State private var recentProjects = RecentProjects()
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some Scene {
         Window("Welcome", id: "welcome") {
             WelcomeView()
                 .containerBackground(.thickMaterial, for: .window)
                 .task { await recentProjects.load() }
+                .onOpenURL(perform: handleOpenURL)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
@@ -24,6 +27,7 @@ struct PlumageApp: App {
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
                 ProjectWindow(handle: handle)
+                    .onOpenURL(perform: handleOpenURL)
             } else {
                 EmptyView()
                     .onAppear {
@@ -37,5 +41,14 @@ struct PlumageApp: App {
         }
         .restorationBehavior(.disabled)
         .environment(recentProjects)
+    }
+
+    private func handleOpenURL(_ url: URL) {
+        OpenProjectCommand.openFromBundleURL(
+            url,
+            recentProjects: recentProjects,
+            openWindow: openWindow,
+            dismissWindow: dismissWindow
+        )
     }
 }
