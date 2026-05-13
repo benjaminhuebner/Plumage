@@ -42,4 +42,14 @@ struct TextOffsetTests {
         #expect(TextOffset.offset(ofLine: 0, column: 0, in: text) == 0)
         #expect(TextOffset.offset(ofLine: -5, column: -5, in: text) == 0)
     }
+
+    @Test("offset uses UTF-16 units, stable across surrogate pairs")
+    func utf16Stability() {
+        // "😀" (U+1F600) is one Character but two UTF-16 code units.
+        let text = "😀x\nnext"
+        // line 1 column 3 → past both surrogate units → offset 2.
+        #expect(TextOffset.offset(ofLine: 1, column: 3, in: text) == 2)
+        // line 2 column 1 → past "😀x\n" = 4 UTF-16 units.
+        #expect(TextOffset.offset(ofLine: 2, column: 1, in: text) == 4)
+    }
 }
