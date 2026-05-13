@@ -38,7 +38,7 @@ struct LabelTagInput: View {
     @Binding var draft: String
 
     var body: some View {
-        FlowLayout(spacing: 4) {
+        FlowLayout(spacing: 6) {
             ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
                 LabelChip(text: label) {
                     labels.remove(at: index)
@@ -55,7 +55,7 @@ struct LabelTagInput: View {
                 )
             )
             .textFieldStyle(.plain)
-            .frame(minWidth: 80)
+            .frame(minWidth: 120)
             .onSubmit {
                 LabelTagInputLogic.commit(draft: &draft, into: &labels)
             }
@@ -68,6 +68,17 @@ struct LabelTagInput: View {
                 return .ignored
             }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(minHeight: 28)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color(NSColor.textBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+        )
     }
 }
 

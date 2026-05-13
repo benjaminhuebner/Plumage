@@ -72,7 +72,7 @@ struct NewIssueSheet: View {
             Divider()
             footer
         }
-        .frame(minWidth: 480, idealWidth: 520)
+        .frame(minWidth: 560, idealWidth: 600)
         .onAppear { focusTitle = true }
     }
 
@@ -80,55 +80,68 @@ struct NewIssueSheet: View {
         HStack {
             Text("New Issue")
                 .font(.title2)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
             Spacer()
         }
     }
 
     private var form: some View {
         Form {
-            TextField(
-                "Title",
-                text: Binding(
-                    get: { input.title }, set: { input.onTitleChange($0) })
-            )
-            .font(.headline)
-            .focused($focusTitle)
-
-            VStack(alignment: .leading, spacing: 4) {
+            LabeledContent("Title") {
                 TextField(
-                    "Slug",
+                    "",
                     text: Binding(
-                        get: { input.slug }, set: { input.onSlugEdit($0) })
+                        get: { input.title }, set: { input.onTitleChange($0) })
                 )
-                .font(.body.monospaced())
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(
-                            input.slug.isEmpty || input.slugValid ? Color.clear : Color.red,
-                            lineWidth: 0.5)
-                )
-                if !input.slug.isEmpty && !input.slugValid {
-                    Text("Lowercase letters, digits, hyphens. Must start with letter or digit.")
+                .textFieldStyle(.roundedBorder)
+                .focused($focusTitle)
+            }
+
+            LabeledContent("Slug") {
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField(
+                        "",
+                        text: Binding(
+                            get: { input.slug }, set: { input.onSlugEdit($0) })
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(
+                                input.slug.isEmpty || input.slugValid
+                                    ? Color.clear : Color.red,
+                                lineWidth: 0.5)
+                    )
+                    if !input.slug.isEmpty && !input.slugValid {
+                        Text(
+                            "Lowercase letters, digits, hyphens. Must start with letter or digit."
+                        )
                         .font(.caption)
                         .foregroundStyle(.red)
+                    }
                 }
             }
 
-            Picker("Type", selection: $input.type) {
-                ForEach(IssueType.allCases, id: \.self) { type in
-                    Text(type.rawValue).tag(type)
+            LabeledContent("Type") {
+                Picker("", selection: $input.type) {
+                    ForEach(IssueType.allCases, id: \.self) { type in
+                        Text(type.rawValue).tag(type)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .pickerStyle(.menu)
 
             LabeledContent("Labels") {
                 LabelTagInput(labels: $input.labels, draft: $input.labelDraft)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
     }
 
     private func collisionBanner(folder: String) -> some View {

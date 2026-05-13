@@ -31,20 +31,20 @@ struct LabelChip: View {
         if let onRemove {
             HStack(spacing: 4) {
                 Text(text)
-                    .font(.caption.monospaced())
+                    .font(.body.monospaced())
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(.primary)
                 Button(action: onRemove) {
                     Image(systemName: "xmark.circle.fill")
-                        .imageScale(.small)
+                        .imageScale(.medium)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Remove \(text)")
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
             .background(backgroundColor, in: Capsule())
         } else {
             Text(text)
