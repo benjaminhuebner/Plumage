@@ -62,13 +62,21 @@ nonisolated enum SpecParser {
     }
 
     private static func extractFrontmatter(from content: String) -> String? {
-        var lines = content.components(separatedBy: "\n")
-        guard let first = lines.first, first.trimmingCharacters(in: .whitespaces) == "---" else { return nil }
-        lines.removeFirst()
-        guard let closingIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
-            return nil
+        var collected: [Substring] = []
+        var sawOpener = false
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !sawOpener {
+                guard trimmed == "---" else { return nil }
+                sawOpener = true
+                continue
+            }
+            if trimmed == "---" {
+                return collected.joined(separator: "\n")
+            }
+            collected.append(line)
         }
-        return lines[..<closingIndex].joined(separator: "\n")
+        return nil
     }
 
     // ISO8601DateFormatter is thread-safe for reading once configured; the
