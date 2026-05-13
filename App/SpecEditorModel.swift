@@ -17,7 +17,7 @@ final class SpecEditorModel {
     private(set) var conflict: ConflictState?
     private(set) var initialCursorOffset: Int?
 
-    private let writer: SpecWriting
+    private nonisolated let writer: SpecWriting
 
     var isDirty: Bool { buffer != loadedContent }
 
@@ -31,8 +31,11 @@ final class SpecEditorModel {
         buffer = newValue
     }
 
-    func load() throws {
-        let content = try String(contentsOf: specURL, encoding: .utf8)
+    func load() async throws {
+        let url = specURL
+        let content = try await Task.detached(priority: .userInitiated) {
+            try String(contentsOf: url, encoding: .utf8)
+        }.value
         loadedContent = content
         buffer = content
         evaluateFrontmatterError()
@@ -46,8 +49,9 @@ final class SpecEditorModel {
 
     func saveIfDirty() async throws {
         guard isDirty else { return }
-        try writer.write(buffer, to: specURL)
-        loadedContent = buffer
+        let snapshot = buffer
+        try await writeOffActor(snapshot)
+        loadedContent = snapshot
         evaluateFrontmatterError()
     }
 
@@ -79,10 +83,19 @@ final class SpecEditorModel {
     }
 
     func resolveConflictSaveAndRecreate() async throws {
-        try writer.write(buffer, to: specURL)
-        loadedContent = buffer
+        let snapshot = buffer
+        try await writeOffActor(snapshot)
+        loadedContent = snapshot
         evaluateFrontmatterError()
         conflict = nil
+    }
+
+    private func writeOffActor(_ content: String) async throws {
+        let url = specURL
+        let writer = self.writer
+        try await Task.detached(priority: .utility) {
+            try writer.write(content, to: url)
+        }.value
     }
 
     private func evaluateFrontmatterError() {
@@ -90,11 +103,11 @@ final class SpecEditorModel {
     }
 }
 
-protocol SpecWriting: Sendable {
+nonisolated protocol SpecWriting: Sendable {
     func write(_ content: String, to url: URL) throws
 }
 
-struct DefaultSpecWriter: SpecWriting {
+nonisolated struct DefaultSpecWriter: SpecWriting {
     func write(_ content: String, to url: URL) throws {
         try SpecWriter.write(content, to: url)
     }

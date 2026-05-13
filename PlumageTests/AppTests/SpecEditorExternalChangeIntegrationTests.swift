@@ -7,12 +7,12 @@ import Testing
 @MainActor
 struct SpecEditorExternalChangeIntegrationTests {
     @Test("Clean buffer silently reloads when disk content changes")
-    func cleanReload() throws {
+    func cleanReload() async throws {
         let url = try makeSpec(content: "version one")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         #expect(!model.isDirty)
 
         // External writes "version two"
@@ -26,12 +26,12 @@ struct SpecEditorExternalChangeIntegrationTests {
     }
 
     @Test("Dirty buffer surfaces externalChange conflict")
-    func dirtyConflict() throws {
+    func dirtyConflict() async throws {
         let url = try makeSpec(content: "version one")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         model.updateBuffer("my edit")
         #expect(model.isDirty)
 
@@ -48,12 +48,12 @@ struct SpecEditorExternalChangeIntegrationTests {
     }
 
     @Test("Folder removal yields fileDeleted")
-    func removedFileDeleted() throws {
+    func removedFileDeleted() async throws {
         let url = try makeSpec(content: "version one")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         model.updateBuffer("user edit")
 
         try FileManager.default.removeItem(at: url)

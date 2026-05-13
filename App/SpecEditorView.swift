@@ -63,7 +63,7 @@ struct SpecEditorView: View {
         .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
         .task(id: model.specURL) {
             do {
-                try model.load()
+                try await model.load()
                 applyInitialCursor()
                 refreshMessages()
             } catch {
@@ -74,7 +74,7 @@ struct SpecEditorView: View {
             refreshMessages()
         }
         .onChange(of: kanban.issues) { _, _ in
-            applyExternalChange()
+            Task { await applyExternalChange() }
         }
         .onChange(of: editorFocused) { _, focused in
             if !focused { saveTask() }
@@ -177,7 +177,7 @@ struct SpecEditorView: View {
         dismiss()
     }
 
-    private func applyExternalChange() {
+    private func applyExternalChange() async {
         let current = kanban.issues.first { $0.id == folderName }
         guard let current else {
             lastSeenIssue = nil
@@ -186,7 +186,10 @@ struct SpecEditorView: View {
         }
         if current == lastSeenIssue { return }
         lastSeenIssue = current
-        let fresh = try? String(contentsOf: model.specURL, encoding: .utf8)
+        let url = model.specURL
+        let fresh = await Task.detached(priority: .utility) {
+            try? String(contentsOf: url, encoding: .utf8)
+        }.value
         if let fresh, fresh == model.loadedContent { return }
         model.handleExternalChange(diskContent: fresh)
     }

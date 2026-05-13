@@ -7,12 +7,12 @@ import Testing
 @MainActor
 struct SpecEditorModelTests {
     @Test("load reads file content into buffer and loadedContent")
-    func loadHappy() throws {
+    func loadHappy() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
 
         #expect(model.buffer == validSpec)
         #expect(model.loadedContent == validSpec)
@@ -21,12 +21,12 @@ struct SpecEditorModelTests {
     }
 
     @Test("isDirty flips when buffer is mutated")
-    func isDirtyFlips() throws {
+    func isDirtyFlips() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         #expect(!model.isDirty)
 
         model.updateBuffer(validSpec + "\nedit")
@@ -39,7 +39,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let writer = RecordingWriter()
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: writer)
-        try model.load()
+        try await model.load()
 
         try await model.saveIfDirty()
 
@@ -52,7 +52,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let writer = RecordingWriter()
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: writer)
-        try model.load()
+        try await model.load()
         model.updateBuffer(validSpec + "\n\nedit")
 
         try await model.saveIfDirty()
@@ -68,7 +68,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let writer = ThrowingWriter()
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: writer)
-        try model.load()
+        try await model.load()
         model.updateBuffer(validSpec + "\nedit")
 
         do {
@@ -82,11 +82,11 @@ struct SpecEditorModelTests {
     }
 
     @Test("handleExternalChange on clean buffer silently reloads")
-    func externalChangeWhenClean() throws {
+    func externalChangeWhenClean() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
 
         let updated = validSpec.replacingOccurrences(of: "Feature Issue", with: "Renamed")
         model.handleExternalChange(diskContent: updated)
@@ -97,11 +97,11 @@ struct SpecEditorModelTests {
     }
 
     @Test("handleExternalChange on dirty buffer raises externalChange conflict")
-    func externalChangeWhenDirty() throws {
+    func externalChangeWhenDirty() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         model.updateBuffer(validSpec + "\nuser edit")
         let diskUpdate = validSpec + "\nexternal edit"
 
@@ -117,11 +117,11 @@ struct SpecEditorModelTests {
     }
 
     @Test("handleExternalChange with nil disk content yields fileDeleted")
-    func externalChangeFileDeleted() throws {
+    func externalChangeFileDeleted() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         model.updateBuffer(validSpec + "\nuser edit")
 
         model.handleExternalChange(diskContent: nil)
@@ -130,11 +130,11 @@ struct SpecEditorModelTests {
     }
 
     @Test("resolveConflictReload replaces buffer with disk content and clears conflict")
-    func resolveReload() throws {
+    func resolveReload() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         model.updateBuffer("user edit")
         model.handleExternalChange(diskContent: "disk edit")
 
@@ -146,11 +146,11 @@ struct SpecEditorModelTests {
     }
 
     @Test("resolveConflictKeep clears conflict but keeps buffer")
-    func resolveKeep() throws {
+    func resolveKeep() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
-        try model.load()
+        try await model.load()
         model.updateBuffer("user edit")
         model.handleExternalChange(diskContent: "disk edit")
 
@@ -166,7 +166,7 @@ struct SpecEditorModelTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let writer = RecordingWriter()
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: writer)
-        try model.load()
+        try await model.load()
         model.updateBuffer("recreated")
         model.handleExternalChange(diskContent: nil)
 
@@ -178,12 +178,12 @@ struct SpecEditorModelTests {
     }
 
     @Test("initialCursorOffset is set when loaded content has frontmatter error")
-    func initialCursorOnError() throws {
+    func initialCursorOnError() async throws {
         let url = try makeSpec(content: brokenYAMLSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
 
-        try model.load()
+        try await model.load()
 
         #expect(model.frontmatterError != nil)
         let offset = try #require(model.initialCursorOffset)
@@ -191,12 +191,12 @@ struct SpecEditorModelTests {
     }
 
     @Test("initialCursorOffset matches FrontmatterMessageMap location")
-    func initialCursorOffset() throws {
+    func initialCursorOffset() async throws {
         let url = try makeSpec(content: brokenYAMLSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00001-broken")
 
-        try model.load()
+        try await model.load()
 
         let error = try #require(model.frontmatterError)
         let location = FrontmatterMessageMap.location(for: error)
@@ -206,12 +206,12 @@ struct SpecEditorModelTests {
     }
 
     @Test("initialCursorOffset is nil for valid content")
-    func initialCursorOnValid() throws {
+    func initialCursorOnValid() async throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
 
-        try model.load()
+        try await model.load()
 
         #expect(model.frontmatterError == nil)
         #expect(model.initialCursorOffset == nil)
@@ -257,7 +257,7 @@ struct SpecEditorModelTests {
         """
 }
 
-final class RecordingWriter: SpecWriting, @unchecked Sendable {
+nonisolated final class RecordingWriter: SpecWriting, @unchecked Sendable {
     private let lock = NSLock()
     private var count: Int = 0
 
@@ -268,7 +268,7 @@ final class RecordingWriter: SpecWriting, @unchecked Sendable {
     }
 }
 
-struct ThrowingWriter: SpecWriting {
+nonisolated struct ThrowingWriter: SpecWriting {
     struct WriteFailure: Error {}
     func write(_ content: String, to url: URL) throws {
         throw WriteFailure()
