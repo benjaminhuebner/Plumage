@@ -5,9 +5,9 @@ import Testing
 
 @Suite("IssueType")
 struct IssueTypeTests {
-    @Test("has exactly three cases")
+    @Test("has exactly four cases")
     func allCasesCount() {
-        #expect(IssueType.allCases.count == 3)
+        #expect(IssueType.allCases.count == 4)
     }
 
     @Test("feature maps to green")
@@ -25,10 +25,16 @@ struct IssueTypeTests {
         #expect(IssueType.spike.color == Color.orange)
     }
 
+    @Test("refactor maps to cyan")
+    func refactorColor() {
+        #expect(IssueType.refactor.color == Color.cyan)
+    }
+
     @Test("rawValue is lowercase case name")
     func rawValues() {
         #expect(IssueType.feature.rawValue == "feature")
         #expect(IssueType.chore.rawValue == "chore")
         #expect(IssueType.spike.rawValue == "spike")
+        #expect(IssueType.refactor.rawValue == "refactor")
     }
 }
