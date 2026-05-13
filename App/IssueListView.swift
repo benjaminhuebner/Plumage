@@ -6,7 +6,7 @@ struct IssueListView: View {
 
     var body: some View {
         List(issues) { item in
-            IssueRowView(issue: item, padding: padding)
+            IssueCardSwitch(issue: item, padding: padding)
         }
     }
 }

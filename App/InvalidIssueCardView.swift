@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct InvalidIssueRowView: View {
+struct InvalidIssueCardView: View {
     let folder: URL
     let error: FrontmatterError
     let padding: Int
@@ -9,20 +9,28 @@ struct InvalidIssueRowView: View {
 
     var body: some View {
         let parts = IssueDiscovery.extractID(fromFolderName: folder.lastPathComponent)
-        HStack(spacing: 12) {
-            Text(IssueIDFormatter.paddedOrPlaceholder(parts.id, width: padding))
-                .font(.body.monospaced())
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
             Text(parts.slug)
-                .lineLimit(1)
+                .font(.headline)
+                .lineLimit(2)
                 .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+
+            HStack(spacing: 6) {
+                Text(IssueIDFormatter.paddedOrPlaceholder(parts.id, width: padding))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+            }
         }
-        .padding(.vertical, 2)
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.red, lineWidth: 1)
         )
         .contentShape(Rectangle())
@@ -49,16 +57,18 @@ struct InvalidIssueRowView: View {
 }
 
 #Preview {
-    List {
-        InvalidIssueRowView(
+    VStack(spacing: 8) {
+        InvalidIssueCardView(
             folder: URL(filePath: "/tmp/sample/.claude/issues/00042-broken-stuff"),
             error: .invalidEnumValue(field: "status", value: "aproved"),
             padding: 5
         )
-        InvalidIssueRowView(
+        InvalidIssueCardView(
             folder: URL(filePath: "/tmp/sample/.claude/issues/no-id-prefix"),
             error: .missingRequiredField(name: "branch"),
             padding: 5
         )
     }
+    .padding()
+    .frame(width: 260)
 }
