@@ -8,11 +8,11 @@ nonisolated final class IssueWatcher: Sendable {
         clock: some Clock<Duration> = ContinuousClock(),
         window: Duration = .milliseconds(250)
     ) {
-        let source = FSEventSource(
-            directory: projectURL.appending(path: ".claude/issues")
-        )
         let (rawSignals, rawCont) = AsyncStream<Void>.makeStream()
-        source.onChange = { rawCont.yield(()) }
+        let source = FSEventSource(
+            directory: projectURL.appending(path: ".claude/issues"),
+            onChange: { rawCont.yield(()) }
+        )
         source.start()
 
         self.init(
@@ -61,7 +61,6 @@ nonisolated final class IssueWatcher: Sendable {
             signaler.cancel()
             pump.cancel()
             onTeardown()
-            Task { await debouncer.finish() }
         }
     }
 }

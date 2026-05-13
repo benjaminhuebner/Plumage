@@ -11,10 +11,11 @@ nonisolated final class FSEventSource: @unchecked Sendable {
     private let directory: URL
     private var stream: FSEventStreamRef?
     private let queue: DispatchQueue
-    var onChange: (@Sendable () -> Void)?
+    private let onChange: @Sendable () -> Void
 
-    init(directory: URL) {
+    init(directory: URL, onChange: @escaping @Sendable () -> Void) {
         self.directory = directory
+        self.onChange = onChange
         self.queue = DispatchQueue(
             label: "com.plumage.fsevents.\(directory.lastPathComponent)"
         )
@@ -32,7 +33,7 @@ nonisolated final class FSEventSource: @unchecked Sendable {
         let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
             guard let info else { return }
             let source = Unmanaged<FSEventSource>.fromOpaque(info).takeUnretainedValue()
-            source.onChange?()
+            source.onChange()
         }
         let flags = UInt32(
             kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer

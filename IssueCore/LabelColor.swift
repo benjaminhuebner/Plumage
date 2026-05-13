@@ -3,7 +3,6 @@ import SwiftUI
 nonisolated enum LabelColor {
     static let paletteNames: [String] = (1...8).map { "Label\($0)" }
 
-    @MainActor
     static func color(for label: String) -> Color {
         Color(paletteNames[Int(stableHash(label) % UInt32(paletteNames.count))])
     }

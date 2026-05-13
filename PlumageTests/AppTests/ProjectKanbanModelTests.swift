@@ -115,26 +115,3 @@ struct ProjectKanbanModelTests {
         )
     }
 }
-
-private final class SnapshotSource: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: [DiscoveredIssue]
-
-    init(value: [DiscoveredIssue]) {
-        self.value = value
-    }
-
-    func setNext(_ snapshot: [DiscoveredIssue]) {
-        lock.lock()
-        defer { lock.unlock() }
-        value = snapshot
-    }
-
-    var discover: @Sendable (URL) -> [DiscoveredIssue] {
-        { [self] _ in
-            lock.lock()
-            defer { lock.unlock() }
-            return value
-        }
-    }
-}

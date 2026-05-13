@@ -10,8 +10,11 @@ struct ProjectWindow: View {
         content
             .frame(minWidth: 720, minHeight: 480)
             .navigationTitle(displayTitle)
-            .task(id: handle.url) { await model.reload(at: handle.url) }
-            .task(id: handle.url) { await kanban.run(projectURL: handle.url) }
+            .task(id: handle.url) {
+                async let reload: Void = model.reload(at: handle.url)
+                async let run: Void = kanban.run(projectURL: handle.url)
+                _ = await (reload, run)
+            }
     }
 
     @ViewBuilder
@@ -31,7 +34,7 @@ struct ProjectWindow: View {
                 }
                 .padding(.horizontal, 32)
                 .padding(.top, 32)
-                KanbanView(issues: kanban.issues, padding: config.issueIdPadding ?? 5)
+                KanbanView(grouped: kanban.groupedIssues, padding: config.issueIdPadding ?? 5)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .failed(let error):

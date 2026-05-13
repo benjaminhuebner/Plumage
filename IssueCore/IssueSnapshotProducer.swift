@@ -69,6 +69,7 @@ actor IssueSnapshotProducer {
     }
 
     deinit {
+        pumpTask?.cancel()
         continuation.finish()
     }
 }

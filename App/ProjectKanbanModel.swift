@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class ProjectKanbanModel {
     private(set) var issues: [DiscoveredIssue] = []
+    private(set) var groupedIssues: [IssueColumn: [DiscoveredIssue]] = [:]
     private let producerFactory: @Sendable (URL) -> IssueSnapshotProducer
 
     init(
@@ -19,12 +20,19 @@ final class ProjectKanbanModel {
     func run(projectURL: URL) async {
         let producer = producerFactory(projectURL)
         await producer.start()
-        await withTaskCancellationHandler {
-            for await snapshot in producer.snapshots {
-                withAnimation(.smooth(duration: 0.4)) { self.issues = snapshot }
+        for await snapshot in producer.snapshots {
+            let groups = Self.group(snapshot)
+            withAnimation(.smooth(duration: 0.4)) {
+                self.issues = snapshot
+                self.groupedIssues = groups
             }
-        } onCancel: {
-            Task { await producer.stop() }
         }
+        await producer.stop()
+    }
+
+    private static func group(
+        _ issues: [DiscoveredIssue]
+    ) -> [IssueColumn: [DiscoveredIssue]] {
+        Dictionary(grouping: issues, by: \.column)
     }
 }

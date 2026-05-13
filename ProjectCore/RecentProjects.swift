@@ -16,7 +16,10 @@ final class RecentProjects {
     private(set) var items: [RecentItem]
     private let storeURL: URL
 
-    private static let logger = Logger(subsystem: "dev.plumage", category: "RecentProjects")
+    nonisolated private static let logger = Logger(
+        subsystem: "dev.plumage",
+        category: "RecentProjects"
+    )
 
     init(storeURL: URL? = nil) {
         let resolvedStore: URL
@@ -34,7 +37,15 @@ final class RecentProjects {
             }
         }
         self.storeURL = resolvedStore
-        self.items = Self.loadFromDisk(at: resolvedStore)
+        self.items = []
+    }
+
+    func load() async {
+        let url = storeURL
+        let loaded = await Task.detached(priority: .userInitiated) {
+            Self.loadFromDisk(at: url)
+        }.value
+        items = loaded
     }
 
     func add(url: URL, name: String) {
@@ -63,7 +74,7 @@ final class RecentProjects {
         }
     }
 
-    private static func loadFromDisk(at url: URL) -> [RecentItem] {
+    nonisolated private static func loadFromDisk(at url: URL) -> [RecentItem] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
         do {
             let data = try Data(contentsOf: url)

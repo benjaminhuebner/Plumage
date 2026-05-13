@@ -29,6 +29,9 @@ struct IssueWatcherIntegrationTests {
 
         consumer.cancel()
         _ = await consumer.value
+        // Allow the continuation's onTermination to drain (FSEvent stop +
+        // dispatch queue flush) before the deferred cleanup deletes the dir.
+        try? await Task.sleep(for: .milliseconds(50))
     }
 }
 

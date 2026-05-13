@@ -197,7 +197,8 @@ private struct WindowChromeCustomizer: NSViewRepresentable {
         .environment(RecentProjects(storeURL: previewStoreURL()))
 }
 
-#Preview("Populated") {
+@MainActor
+private func populatedRecents() -> RecentProjects {
     let recents = RecentProjects(storeURL: previewStoreURL())
     recents.add(url: URL(fileURLWithPath: "/Users/dev/Plumage"), name: "Plumage")
     recents.add(
@@ -205,8 +206,12 @@ private struct WindowChromeCustomizer: NSViewRepresentable {
         name: "Another Sample Project"
     )
     recents.add(url: URL(fileURLWithPath: "/Users/dev/Third"), name: "Third")
-    return WelcomeView()
-        .environment(recents)
+    return recents
+}
+
+#Preview("Populated") {
+    WelcomeView()
+        .environment(populatedRecents())
 }
 
 @MainActor

@@ -72,18 +72,26 @@ struct DebouncerTests {
         await consumer.value
     }
 
-    @Test("consumer task cancellation stops iteration")
-    func consumerCancellationStopsIteration() async {
+    @Test("signal arriving after consumer cancel delivers no event")
+    func cancelledConsumerReceivesNoEvent() async throws {
         let clock = ManualClock()
         let debouncer = Debouncer(window: .milliseconds(250), clock: clock)
+        let collector = EventCollector()
 
-        let consumer = Task { [events = debouncer.events] () -> String in
-            for await _ in events {}
-            return "done"
+        let consumer = Task { [events = debouncer.events] in
+            for await _ in events { await collector.increment() }
         }
         consumer.cancel()
-        let result = await consumer.value
-        #expect(result == "done")
+        _ = await consumer.value
+
+        await debouncer.signal()
+        // Advance well past the debounce window; nothing should reach the
+        // already-terminated consumer.
+        clock.advance(by: .milliseconds(500))
+        try? await Task.sleep(for: .milliseconds(50))
+
+        let count = await collector.count
+        #expect(count == 0)
         await debouncer.finish()
     }
 
