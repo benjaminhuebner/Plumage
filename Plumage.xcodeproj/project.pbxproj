@@ -50,11 +50,6 @@
 			path = PlumageUITests;
 			sourceTree = "<group>";
 		};
-		CA4601A02FB2F26900CAD6C3 /* ClaudeCodeIntegration */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ClaudeCodeIntegration;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -88,7 +83,6 @@
 			isa = PBXGroup;
 			children = (
 				A7843CAE865FBF88DA94DFF0 /* Plumage */,
-				CA4601A02FB2F26900CAD6C3 /* ClaudeCodeIntegration */,
 				CA46014F2FB2F26900CAD6C3 /* PlumageTests */,
 				CA4601592FB2F26900CAD6C3 /* PlumageUITests */,
 				CA46013E2FB2F26800CAD6C3 /* Products */,
@@ -122,7 +116,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A7843CAE865FBF88DA94DFF0 /* Plumage */,
-				CA4601A02FB2F26900CAD6C3 /* ClaudeCodeIntegration */,
 			);
 			name = Plumage;
 			packageProductDependencies = (
