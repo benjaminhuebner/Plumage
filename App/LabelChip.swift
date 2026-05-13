@@ -3,15 +3,24 @@ import SwiftUI
 struct LabelChip: View {
     private let text: String
     private let backgroundColor: Color
+    private let onRemove: (() -> Void)?
 
     init(text: String) {
         self.text = text
         self.backgroundColor = LabelColor.color(for: text)
+        self.onRemove = nil
+    }
+
+    init(text: String, onRemove: @escaping () -> Void) {
+        self.text = text
+        self.backgroundColor = LabelColor.color(for: text)
+        self.onRemove = onRemove
     }
 
     private init(text: String, color: Color) {
         self.text = text
         self.backgroundColor = color
+        self.onRemove = nil
     }
 
     static func overflow(count: Int) -> LabelChip {
@@ -19,15 +28,35 @@ struct LabelChip: View {
     }
 
     var body: some View {
-        Text(text)
-            .font(.caption.monospaced())
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .foregroundStyle(.primary)
+        if let onRemove {
+            HStack(spacing: 4) {
+                Text(text)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.primary)
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(text)")
+            }
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(backgroundColor, in: Capsule())
-            .frame(maxWidth: 80, alignment: .leading)
+        } else {
+            Text(text)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(backgroundColor, in: Capsule())
+                .frame(maxWidth: 80, alignment: .leading)
+        }
     }
 }
 
@@ -51,6 +80,11 @@ struct LabelChip: View {
             LabelChip(text: "v0.1")
             LabelChip(text: "bootstrap")
             LabelChip.overflow(count: 3)
+        }
+        HStack(spacing: 4) {
+            LabelChip(text: "feature", onRemove: {})
+            LabelChip(text: "v0.1", onRemove: {})
+            LabelChip(text: "bootstrap", onRemove: {})
         }
     }
     .padding()
