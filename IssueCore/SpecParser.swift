@@ -2,6 +2,17 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
+    // Returns the frontmatter error if parsing fails, otherwise nil. Used
+    // by callers that only need validation, not the parsed Issue value —
+    // avoids the Issue allocation that `parse(content:folderName:)` does
+    // on the success path.
+    static func validate(content: String) -> FrontmatterError? {
+        switch parse(content: content, folderName: "") {
+        case .success: nil
+        case .failure(let error): error
+        }
+    }
+
     static func parse(content: String, folderName: String) -> Result<Issue, FrontmatterError> {
         guard let yaml = extractFrontmatter(from: content) else {
             return .failure(.missingFrontmatter)

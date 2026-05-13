@@ -86,12 +86,7 @@ final class SpecEditorModel {
     }
 
     private func evaluateFrontmatterError() {
-        switch SpecParser.parse(content: buffer, folderName: folderName) {
-        case .success:
-            frontmatterError = nil
-        case .failure(let error):
-            frontmatterError = error
-        }
+        frontmatterError = SpecParser.validate(content: buffer)
     }
 }
 

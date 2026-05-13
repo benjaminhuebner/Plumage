@@ -204,6 +204,19 @@ struct SpecParserTests {
         #expect(!message.isEmpty)
     }
 
+    @Test("validate returns nil for valid content")
+    func validateValid() {
+        #expect(SpecParser.validate(content: load("valid-feature.md")) == nil)
+    }
+
+    @Test("validate returns the parse failure for invalid content")
+    func validateInvalid() {
+        #expect(SpecParser.validate(content: load("missing-frontmatter.md")) == .missingFrontmatter)
+        #expect(
+            SpecParser.validate(content: load("unknown-type.md"))
+                == .invalidEnumValue(field: "type", value: "experiment"))
+    }
+
     private func requireSuccess(
         _ result: Result<Plumage.Issue, FrontmatterError>
     ) throws -> Plumage.Issue {
