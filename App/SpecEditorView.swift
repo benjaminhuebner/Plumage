@@ -61,6 +61,7 @@ struct SpecEditorView: View {
         .focusedSceneValue(\.specEditorSave, attemptSave)
         .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
         .task(id: model.specURL) {
+            loadFailed = nil
             do {
                 try await model.load()
                 applyInitialCursor()
