@@ -1,6 +1,4 @@
-import CodeEditorView
 import Foundation
-import LanguageSupport
 
 @MainActor
 @Observable
@@ -17,7 +15,7 @@ final class SpecEditorModel {
     private(set) var loadedContent: String = ""
     private(set) var frontmatterError: FrontmatterError?
     private(set) var conflict: ConflictState?
-    var initialCursor: CodeEditor.Position?
+    private(set) var initialCursorOffset: Int?
 
     private let writer: SpecWriting
 
@@ -40,13 +38,9 @@ final class SpecEditorModel {
         evaluateFrontmatterError()
         if let error = frontmatterError {
             let loc = FrontmatterMessageMap.location(for: error)
-            let offset = TextOffset.offset(ofLine: loc.line, column: loc.column, in: buffer)
-            initialCursor = CodeEditor.Position(
-                selections: [NSRange(location: offset, length: 0)],
-                verticalScrollPosition: 0
-            )
+            initialCursorOffset = TextOffset.offset(ofLine: loc.line, column: loc.column, in: buffer)
         } else {
-            initialCursor = nil
+            initialCursorOffset = nil
         }
     }
 

@@ -1,4 +1,3 @@
-import CodeEditorView
 import Foundation
 import Testing
 
@@ -178,7 +177,7 @@ struct SpecEditorModelTests {
         #expect(model.loadedContent == "recreated")
     }
 
-    @Test("initialCursor is set when loaded content has frontmatter error")
+    @Test("initialCursorOffset is set when loaded content has frontmatter error")
     func initialCursorOnError() throws {
         let url = try makeSpec(content: brokenYAMLSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -187,13 +186,11 @@ struct SpecEditorModelTests {
         try model.load()
 
         #expect(model.frontmatterError != nil)
-        #expect(model.initialCursor != nil)
-        let selection = try #require(model.initialCursor?.selections.first)
-        #expect(selection.length == 0)
-        #expect(selection.location >= 0)
+        let offset = try #require(model.initialCursorOffset)
+        #expect(offset >= 0)
     }
 
-    @Test("initialCursor offset matches FrontmatterMessageMap location")
+    @Test("initialCursorOffset matches FrontmatterMessageMap location")
     func initialCursorOffset() throws {
         let url = try makeSpec(content: brokenYAMLSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -205,12 +202,10 @@ struct SpecEditorModelTests {
         let location = FrontmatterMessageMap.location(for: error)
         let expectedOffset = TextOffset.offset(
             ofLine: location.line, column: location.column, in: model.buffer)
-        let selection = try #require(model.initialCursor?.selections.first)
-        #expect(selection.location == expectedOffset)
-        #expect(selection.length == 0)
+        #expect(model.initialCursorOffset == expectedOffset)
     }
 
-    @Test("initialCursor is nil for valid content")
+    @Test("initialCursorOffset is nil for valid content")
     func initialCursorOnValid() throws {
         let url = try makeSpec(content: validSpec)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -219,7 +214,7 @@ struct SpecEditorModelTests {
         try model.load()
 
         #expect(model.frontmatterError == nil)
-        #expect(model.initialCursor == nil)
+        #expect(model.initialCursorOffset == nil)
     }
 
     private func makeSpec(content: String) throws -> URL {

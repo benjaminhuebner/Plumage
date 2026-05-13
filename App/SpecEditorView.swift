@@ -124,8 +124,11 @@ struct SpecEditorView: View {
     }
 
     private func applyInitialCursor() {
-        if let cursor = model.initialCursor {
-            editorPosition = cursor
+        if let offset = model.initialCursorOffset {
+            editorPosition = CodeEditor.Position(
+                selections: [NSRange(location: offset, length: 0)],
+                verticalScrollPosition: 0
+            )
         }
     }
 
