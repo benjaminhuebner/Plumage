@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Plumage
@@ -257,14 +258,13 @@ struct SpecEditorModelTests {
         """
 }
 
-nonisolated final class RecordingWriter: SpecWriting, @unchecked Sendable {
-    private let lock = NSLock()
-    private var count: Int = 0
+nonisolated final class RecordingWriter: SpecWriting {
+    private let count = Mutex<Int>(0)
 
-    var writeCount: Int { lock.withLock { count } }
+    var writeCount: Int { count.withLock { $0 } }
 
     func write(_ content: String, to url: URL) throws {
-        lock.withLock { count += 1 }
+        count.withLock { $0 += 1 }
     }
 }
 
