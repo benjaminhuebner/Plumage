@@ -39,9 +39,11 @@ struct LabelTagInput: View {
 
     var body: some View {
         FlowLayout(spacing: 6) {
-            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+            // Labels are deduplicated on insert, so the value is a stable identity —
+            // removing a middle pill diffs as a remove instead of a content shift.
+            ForEach(labels, id: \.self) { label in
                 LabelChip(text: label) {
-                    labels.remove(at: index)
+                    labels.removeAll { $0 == label }
                 }
             }
             TextField(
