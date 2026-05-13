@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 @main
@@ -58,11 +57,12 @@ struct PlumageApp: App {
     }
 }
 
+@Observable
 @MainActor
-final class PlumageAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
-    @Published private(set) var hasPendingLaunchURL = false
-    private var pendingURLs: [URL] = []
-    private var handler: ((URL) -> Void)?
+final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
+    private(set) var hasPendingLaunchURL = false
+    @ObservationIgnored private var pendingURLs: [URL] = []
+    @ObservationIgnored private var handler: ((URL) -> Void)?
 
     func application(_ application: NSApplication, open urls: [URL]) {
         if let handler {
