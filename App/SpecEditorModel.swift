@@ -39,9 +39,12 @@ final class SpecEditorModel {
 
     func load() async throws {
         let url = specURL
-        let content = try await Task.detached(priority: .userInitiated) {
+        let raw = try await Task.detached(priority: .userInitiated) {
             try String(contentsOf: url, encoding: .utf8)
         }.value
+        // Normalize to LF so that round-tripping a CRLF spec.md from a Windows-tooled
+        // collaborator doesn't produce a noisy line-ending-only diff on first save.
+        let content = raw.replacingOccurrences(of: "\r\n", with: "\n")
         loadedContent = content
         buffer = content
         evaluateFrontmatterError()

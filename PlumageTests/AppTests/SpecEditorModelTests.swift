@@ -7,6 +7,19 @@ import Testing
 @Suite("SpecEditorModel")
 @MainActor
 struct SpecEditorModelTests {
+    @Test("load normalizes CRLF line endings to LF")
+    func loadNormalizesCRLF() async throws {
+        let crlf = validSpec.replacingOccurrences(of: "\n", with: "\r\n")
+        let url = try makeSpec(content: crlf)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
+        try await model.load()
+
+        #expect(!model.buffer.contains("\r"))
+        #expect(model.loadedContent == validSpec)
+    }
+
     @Test("load reads file content into buffer and loadedContent")
     func loadHappy() async throws {
         let url = try makeSpec(content: validSpec)
