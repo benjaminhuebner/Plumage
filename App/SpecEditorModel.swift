@@ -16,6 +16,7 @@ final class SpecEditorModel {
     private(set) var frontmatterError: FrontmatterError?
     private(set) var conflict: ConflictState?
     private(set) var initialCursorOffset: Int?
+    private(set) var lastSeenIssue: DiscoveredIssue?
 
     private nonisolated let writer: SpecWriting
 
@@ -29,6 +30,10 @@ final class SpecEditorModel {
 
     func updateBuffer(_ newValue: String) {
         buffer = newValue
+    }
+
+    func noteSeenIssue(_ issue: DiscoveredIssue?) {
+        lastSeenIssue = issue
     }
 
     func load() async throws {
