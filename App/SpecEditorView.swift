@@ -141,7 +141,13 @@ struct SpecEditorView: View {
     }
 
     private func saveTask() {
-        Task { try? await model.saveIfDirty() }
+        Task {
+            do {
+                try await model.saveIfDirty()
+            } catch {
+                pendingSaveAlert = SaveAlert(message: error.localizedDescription, kind: .saveOnly)
+            }
+        }
     }
 
     private func attemptSave() {
