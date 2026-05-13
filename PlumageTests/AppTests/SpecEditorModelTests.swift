@@ -88,8 +88,10 @@ struct SpecEditorModelTests {
         do {
             try await model.saveIfDirty()
             Issue.record("expected throw")
-        } catch {
+        } catch is ThrowingWriter.WriteFailure {
             // expected
+        } catch {
+            Issue.record("unexpected error type: \(error)")
         }
         #expect(model.loadedContent == validSpec)
         #expect(model.isDirty)
