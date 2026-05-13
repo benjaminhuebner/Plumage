@@ -3,38 +3,35 @@ import SwiftUI
 struct ProjectWindow: View {
     let handle: ProjectHandle
 
-    @State private var state: LoadState = .loading
-
-    enum LoadState {
-        case loading
-        case loaded(ProjectConfig)
-        case failed(ConfigLoader.LoadError)
-    }
+    @State private var model = ProjectModel()
 
     var body: some View {
         content
             .frame(minWidth: 720, minHeight: 480)
             .navigationTitle(displayTitle)
-            .task(id: handle.url) { reload() }
+            .task(id: handle.url) { await model.reload(at: handle.url) }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch state {
+        switch model.state {
         case .loading:
             ProgressView()
                 .controlSize(.large)
         case .loaded(let config):
             VStack(alignment: .leading, spacing: 16) {
-                Text(config.name)
-                    .font(.system(size: 32, weight: .semibold))
-                Text(handle.url.path)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(config.name)
+                        .font(.system(size: 32, weight: .semibold))
+                    Text(handle.url.path)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 32)
+                IssueListView(issues: model.issues, padding: config.issueIdPadding ?? 5)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(32)
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
                 Text("Couldn't open this project.")
@@ -48,19 +45,8 @@ struct ProjectWindow: View {
     }
 
     private var displayTitle: String {
-        if case .loaded(let config) = state { return config.name }
+        if case .loaded(let config) = model.state { return config.name }
         return handle.url.lastPathComponent
-    }
-
-    private func reload() {
-        do {
-            let config = try ConfigLoader.load(at: handle.url)
-            state = .loaded(config)
-        } catch let error as ConfigLoader.LoadError {
-            state = .failed(error)
-        } catch {
-            state = .failed(.invalidJSON(message: error.localizedDescription))
-        }
     }
 
     static func message(for error: ConfigLoader.LoadError) -> String {

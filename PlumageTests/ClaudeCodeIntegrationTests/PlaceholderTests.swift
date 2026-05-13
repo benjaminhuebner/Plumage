@@ -1,8 +1,3 @@
-//
-//  PlaceholderTests.swift
-//  ClaudeCodeIntegrationTests
-//
-
 import Testing
 
 struct PlaceholderTests {

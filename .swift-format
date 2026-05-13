@@ -26,7 +26,7 @@
     "FullyIndirectEnum": true,
     "GroupNumericLiterals": true,
     "IdentifiersMustBeASCII": true,
-    "NeverForceUnwrap": false,
+    "NeverForceUnwrap": true,
     "NeverUseForceTry": true,
     "NeverUseImplicitlyUnwrappedOptionals": false,
     "NoAccessLevelOnExtensionDeclaration": true,

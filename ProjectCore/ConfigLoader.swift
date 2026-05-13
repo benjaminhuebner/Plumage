@@ -33,18 +33,21 @@ nonisolated enum ConfigLoader {
                 supportedUpTo: SchemaVersion.current
             )
         }
+        if let padding = config.issueIdPadding, padding < 1 {
+            throw LoadError.invalidJSON(message: "issueIdPadding must be >= 1, got \(padding)")
+        }
         return config
     }
 
     private static func describe(_ error: Error) -> String {
         if let decoding = error as? DecodingError {
             switch decoding {
-            case .keyNotFound(let key, _):
-                return "missing field '\(key.stringValue)'"
+            case .keyNotFound(let key, let ctx):
+                return "missing field '\(pathString(ctx.codingPath + [key]))'"
             case .typeMismatch(_, let ctx):
-                return "type mismatch at \(Self.pathString(ctx.codingPath)): \(ctx.debugDescription)"
+                return "type mismatch at \(pathString(ctx.codingPath)): \(ctx.debugDescription)"
             case .valueNotFound(_, let ctx):
-                return "missing value at \(Self.pathString(ctx.codingPath))"
+                return "missing value at \(pathString(ctx.codingPath))"
             case .dataCorrupted(let ctx):
                 return "malformed JSON: \(ctx.debugDescription)"
             @unknown default:
