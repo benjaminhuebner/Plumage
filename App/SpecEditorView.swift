@@ -1,4 +1,3 @@
-import AppKit
 import CodeEditorView
 import LanguageSupport
 import SwiftUI
@@ -80,13 +79,6 @@ struct SpecEditorView: View {
         }
         .onChange(of: editorFocused) { _, focused in
             if !focused { saveTask() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
-            saveTask()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) {
-            _ in
-            saveTask()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { saveTask() }
