@@ -123,7 +123,9 @@ struct NewIssueSheet: View {
             }
             .pickerStyle(.menu)
 
-            LabelTagInput(labels: $input.labels, draft: $input.labelDraft)
+            LabeledContent("Labels") {
+                LabelTagInput(labels: $input.labels, draft: $input.labelDraft)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
