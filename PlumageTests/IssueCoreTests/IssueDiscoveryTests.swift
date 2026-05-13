@@ -185,7 +185,7 @@ struct IssueDiscoveryTests {
 
     private func folderName(for discovered: DiscoveredIssue) -> String {
         switch discovered {
-        case .valid(let issue): issue.folder
+        case .valid(let issue): issue.folderName
         case .invalid(let folder, _): folder.lastPathComponent
         }
     }

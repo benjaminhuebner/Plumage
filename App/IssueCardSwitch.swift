@@ -20,7 +20,7 @@ struct IssueCardSwitch: View {
             issue: .valid(
                 Issue(
                     id: 1,
-                    folder: "00001-walking-skeleton",
+                    folderName: "00001-walking-skeleton",
                     title: "Walking Skeleton",
                     type: .chore,
                     status: .done,

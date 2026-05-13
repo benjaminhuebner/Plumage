@@ -2,7 +2,7 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
-    static func parse(content: String, folder: String) -> Result<Issue, FrontmatterError> {
+    static func parse(content: String, folderName: String) -> Result<Issue, FrontmatterError> {
         guard let yaml = extractFrontmatter(from: content) else {
             return .failure(.missingFrontmatter)
         }
@@ -37,7 +37,7 @@ nonisolated enum SpecParser {
         return .success(
             Issue(
                 id: raw.id,
-                folder: folder,
+                folderName: folderName,
                 title: raw.title,
                 type: type,
                 status: status,

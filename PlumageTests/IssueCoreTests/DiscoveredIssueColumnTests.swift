@@ -44,7 +44,7 @@ struct DiscoveredIssueColumnTests {
     private func sample(status: IssueStatus) -> Plumage.Issue {
         Plumage.Issue(
             id: 1,
-            folder: "00001-foo",
+            folderName: "00001-foo",
             title: "Title",
             type: .feature,
             status: status,

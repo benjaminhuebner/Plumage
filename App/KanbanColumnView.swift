@@ -39,7 +39,7 @@ struct KanbanColumnView: View {
                 .valid(
                     Issue(
                         id: 1,
-                        folder: "00001-walking-skeleton",
+                        folderName: "00001-walking-skeleton",
                         title: "Walking Skeleton",
                         type: .chore,
                         status: .approved,
@@ -53,7 +53,7 @@ struct KanbanColumnView: View {
                 .valid(
                     Issue(
                         id: 7,
-                        folder: "00007-blocked-thing",
+                        folderName: "00007-blocked-thing",
                         title: "Something blocked by another team",
                         type: .feature,
                         status: .blocked,

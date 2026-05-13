@@ -44,7 +44,7 @@ struct KanbanGroupingTests {
     private func sample(id: Int, folder: String, status: IssueStatus) -> Plumage.Issue {
         Plumage.Issue(
             id: id,
-            folder: folder,
+            folderName: folder,
             title: "Title \(id)",
             type: .feature,
             status: status,
@@ -58,7 +58,7 @@ struct KanbanGroupingTests {
 
     private func folderOf(_ item: DiscoveredIssue) -> String {
         switch item {
-        case .valid(let issue): return issue.folder
+        case .valid(let issue): return issue.folderName
         case .invalid(let folder, _): return folder.lastPathComponent
         }
     }

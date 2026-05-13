@@ -54,7 +54,7 @@ struct IssueCardView: View {
         IssueCardView(
             issue: Issue(
                 id: 1,
-                folder: "00001-walking-skeleton",
+                folderName: "00001-walking-skeleton",
                 title: "Walking Skeleton",
                 type: .chore,
                 status: .done,
@@ -69,7 +69,7 @@ struct IssueCardView: View {
         IssueCardView(
             issue: Issue(
                 id: 5,
-                folder: "00005-kanban",
+                folderName: "00005-kanban",
                 title: "Kanban grouping with label chips and a long title that wraps",
                 type: .feature,
                 status: .inProgress,
@@ -84,7 +84,7 @@ struct IssueCardView: View {
         IssueCardView(
             issue: Issue(
                 id: 12,
-                folder: "00012-many-labels",
+                folderName: "00012-many-labels",
                 title: "Issue with more labels than the card can show inline",
                 type: .feature,
                 status: .approved,
@@ -99,7 +99,7 @@ struct IssueCardView: View {
         IssueCardView(
             issue: Issue(
                 id: 42,
-                folder: "00042-blocked",
+                folderName: "00042-blocked",
                 title: "Blocked card shows a lock symbol",
                 type: .feature,
                 status: .blocked,

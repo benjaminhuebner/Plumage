@@ -9,7 +9,7 @@ nonisolated enum DiscoveredIssue: Identifiable, Equatable, Sendable {
     var id: String {
         switch self {
         case .valid(let issue):
-            issue.folder
+            issue.folderName
         case .invalid(let folder, _):
             folder.lastPathComponent
         }
@@ -18,7 +18,7 @@ nonisolated enum DiscoveredIssue: Identifiable, Equatable, Sendable {
     var sortKey: (Int, String) {
         switch self {
         case .valid(let issue):
-            return (issue.id, issue.folder.lowercased())
+            return (issue.id, issue.folderName.lowercased())
         case .invalid(let folder, _):
             let parts = IssueDiscovery.extractID(fromFolderName: folder.lastPathComponent)
             return (parts.id ?? .max, folder.lastPathComponent.lowercased())

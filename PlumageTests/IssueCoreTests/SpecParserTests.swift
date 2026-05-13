@@ -7,9 +7,9 @@ import Testing
 struct SpecParserTests {
     @Test("parses feature fixture")
     func validFeature() throws {
-        let issue = try requireSuccess(SpecParser.parse(content: load("valid-feature.md"), folder: "00042-feature"))
+        let issue = try requireSuccess(SpecParser.parse(content: load("valid-feature.md"), folderName: "00042-feature"))
         #expect(issue.id == 42)
-        #expect(issue.folder == "00042-feature")
+        #expect(issue.folderName == "00042-feature")
         #expect(issue.title == "Feature Issue")
         #expect(issue.type == .feature)
         #expect(issue.status == .approved)
@@ -22,7 +22,7 @@ struct SpecParserTests {
 
     @Test("parses chore with empty labels and null model")
     func validChore() throws {
-        let issue = try requireSuccess(SpecParser.parse(content: load("valid-chore.md"), folder: "00001-chore"))
+        let issue = try requireSuccess(SpecParser.parse(content: load("valid-chore.md"), folderName: "00001-chore"))
         #expect(issue.type == .chore)
         #expect(issue.status == .inProgress)
         #expect(issue.labels.isEmpty)
@@ -31,7 +31,7 @@ struct SpecParserTests {
 
     @Test("parses spike with fractional-second updated date")
     func validSpike() throws {
-        let issue = try requireSuccess(SpecParser.parse(content: load("valid-spike.md"), folder: "00002-spike"))
+        let issue = try requireSuccess(SpecParser.parse(content: load("valid-spike.md"), folderName: "00002-spike"))
         #expect(issue.type == .spike)
         #expect(issue.status == .waitingForReview)
         #expect(issue.updated == isoFractional("2026-05-12T09:15:30.123Z"))
@@ -39,12 +39,13 @@ struct SpecParserTests {
 
     @Test("missing frontmatter delimiter is .missingFrontmatter")
     func missingFrontmatter() {
-        #expect(SpecParser.parse(content: load("missing-frontmatter.md"), folder: "x") == .failure(.missingFrontmatter))
+        #expect(
+            SpecParser.parse(content: load("missing-frontmatter.md"), folderName: "x") == .failure(.missingFrontmatter))
     }
 
     @Test("empty input is .missingFrontmatter")
     func emptyInput() {
-        #expect(SpecParser.parse(content: "", folder: "x") == .failure(.missingFrontmatter))
+        #expect(SpecParser.parse(content: "", folderName: "x") == .failure(.missingFrontmatter))
     }
 
     @Test("missing closing delimiter is .missingFrontmatter")
@@ -61,12 +62,12 @@ struct SpecParserTests {
             labels: []
             model: null
             """
-        #expect(SpecParser.parse(content: content, folder: "x") == .failure(.missingFrontmatter))
+        #expect(SpecParser.parse(content: content, folderName: "x") == .failure(.missingFrontmatter))
     }
 
     @Test("broken YAML returns .invalidYAML with line info")
     func brokenYAML() throws {
-        let result = SpecParser.parse(content: load("broken-yaml.md"), folder: "x")
+        let result = SpecParser.parse(content: load("broken-yaml.md"), folderName: "x")
         guard case .failure(.invalidYAML(let line, let message)) = result else {
             Testing.Issue.record("expected .invalidYAML, got \(result)")
             return
@@ -78,7 +79,7 @@ struct SpecParserTests {
     @Test("unknown type returns .invalidEnumValue")
     func unknownType() {
         #expect(
-            SpecParser.parse(content: load("unknown-type.md"), folder: "x")
+            SpecParser.parse(content: load("unknown-type.md"), folderName: "x")
                 == .failure(.invalidEnumValue(field: "type", value: "experiment"))
         )
     }
@@ -86,7 +87,7 @@ struct SpecParserTests {
     @Test("unknown status returns .invalidEnumValue")
     func unknownStatus() {
         #expect(
-            SpecParser.parse(content: load("unknown-status.md"), folder: "x")
+            SpecParser.parse(content: load("unknown-status.md"), folderName: "x")
                 == .failure(.invalidEnumValue(field: "status", value: "parked"))
         )
     }
@@ -94,7 +95,7 @@ struct SpecParserTests {
     @Test("missing id returns .missingRequiredField(\"id\")")
     func missingId() {
         #expect(
-            SpecParser.parse(content: load("missing-id.md"), folder: "x")
+            SpecParser.parse(content: load("missing-id.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "id"))
         )
     }
@@ -102,7 +103,7 @@ struct SpecParserTests {
     @Test("missing title returns .missingRequiredField(\"title\")")
     func missingTitle() {
         #expect(
-            SpecParser.parse(content: load("missing-title.md"), folder: "x")
+            SpecParser.parse(content: load("missing-title.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "title"))
         )
     }
@@ -110,7 +111,7 @@ struct SpecParserTests {
     @Test("missing type returns .missingRequiredField(\"type\")")
     func missingType() {
         #expect(
-            SpecParser.parse(content: load("missing-type.md"), folder: "x")
+            SpecParser.parse(content: load("missing-type.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "type"))
         )
     }
@@ -118,7 +119,7 @@ struct SpecParserTests {
     @Test("missing status returns .missingRequiredField(\"status\")")
     func missingStatus() {
         #expect(
-            SpecParser.parse(content: load("missing-status.md"), folder: "x")
+            SpecParser.parse(content: load("missing-status.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "status"))
         )
     }
@@ -126,7 +127,7 @@ struct SpecParserTests {
     @Test("missing created returns .missingRequiredField(\"created\")")
     func missingCreated() {
         #expect(
-            SpecParser.parse(content: load("missing-created.md"), folder: "x")
+            SpecParser.parse(content: load("missing-created.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "created"))
         )
     }
@@ -134,7 +135,7 @@ struct SpecParserTests {
     @Test("missing updated returns .missingRequiredField(\"updated\")")
     func missingUpdated() {
         #expect(
-            SpecParser.parse(content: load("missing-updated.md"), folder: "x")
+            SpecParser.parse(content: load("missing-updated.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "updated"))
         )
     }
@@ -142,7 +143,7 @@ struct SpecParserTests {
     @Test("missing branch returns .missingRequiredField(\"branch\")")
     func missingBranch() {
         #expect(
-            SpecParser.parse(content: load("missing-branch.md"), folder: "x")
+            SpecParser.parse(content: load("missing-branch.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "branch"))
         )
     }
@@ -150,7 +151,7 @@ struct SpecParserTests {
     @Test("invalid date returns .invalidDate")
     func invalidDate() {
         #expect(
-            SpecParser.parse(content: load("invalid-date.md"), folder: "x")
+            SpecParser.parse(content: load("invalid-date.md"), folderName: "x")
                 == .failure(.invalidDate(field: "created", value: "2026-13-99T99:99:99Z"))
         )
     }
@@ -158,14 +159,14 @@ struct SpecParserTests {
     @Test("empty frontmatter body reports a missing required field")
     func emptyFrontmatter() {
         #expect(
-            SpecParser.parse(content: load("empty-frontmatter.md"), folder: "x")
+            SpecParser.parse(content: load("empty-frontmatter.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "id"))
         )
     }
 
     @Test("wrong type for id returns .invalidFieldType")
     func wrongTypeForId() {
-        let result = SpecParser.parse(content: load("wrong-type-id.md"), folder: "x")
+        let result = SpecParser.parse(content: load("wrong-type-id.md"), folderName: "x")
         guard case .failure(.invalidFieldType(let field, let message)) = result else {
             Testing.Issue.record("expected .invalidFieldType, got \(result)")
             return

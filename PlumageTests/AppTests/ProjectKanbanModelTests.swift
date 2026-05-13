@@ -102,7 +102,7 @@ struct ProjectKanbanModelTests {
         .valid(
             Plumage.Issue(
                 id: 1,
-                folder: folder,
+                folderName: folder,
                 title: "T",
                 type: .feature,
                 status: .approved,
