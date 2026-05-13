@@ -42,10 +42,10 @@ struct SpecWriterTests {
         #expect((attrs[.size] as? Int) == 0)
     }
 
-    @Test("write to non-existent directory throws")
+    @Test("write to non-existent directory throws SpecWriterError.parentDirectoryMissing")
     func throwsOnMissingDirectory() {
         let bogus = URL(filePath: "/nonexistent-dir-\(UUID().uuidString)/spec.md")
-        #expect(throws: (any Error).self) {
+        #expect(throws: SpecWriterError.parentDirectoryMissing(bogus.deletingLastPathComponent())) {
             try SpecWriter.write("x", to: bogus)
         }
     }
