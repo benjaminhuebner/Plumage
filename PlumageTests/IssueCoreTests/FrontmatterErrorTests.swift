@@ -10,23 +10,27 @@ struct FrontmatterErrorTests {
         #expect(FrontmatterError.missingFrontmatter == .missingFrontmatter)
     }
 
-    @Test("invalidYAML equality compares line and message")
+    @Test("invalidYAML equality compares line, column, and message")
     func invalidYAMLEquality() {
         #expect(
-            FrontmatterError.invalidYAML(line: 3, message: "x")
-                == .invalidYAML(line: 3, message: "x")
+            FrontmatterError.invalidYAML(line: 3, column: 5, message: "x")
+                == .invalidYAML(line: 3, column: 5, message: "x")
         )
         #expect(
-            FrontmatterError.invalidYAML(line: 3, message: "x")
-                != .invalidYAML(line: 4, message: "x")
+            FrontmatterError.invalidYAML(line: 3, column: 5, message: "x")
+                != .invalidYAML(line: 4, column: 5, message: "x")
         )
         #expect(
-            FrontmatterError.invalidYAML(line: 3, message: "x")
-                != .invalidYAML(line: 3, message: "y")
+            FrontmatterError.invalidYAML(line: 3, column: 5, message: "x")
+                != .invalidYAML(line: 3, column: 6, message: "x")
         )
         #expect(
-            FrontmatterError.invalidYAML(line: nil, message: "x")
-                == .invalidYAML(line: nil, message: "x")
+            FrontmatterError.invalidYAML(line: 3, column: 5, message: "x")
+                != .invalidYAML(line: 3, column: 5, message: "y")
+        )
+        #expect(
+            FrontmatterError.invalidYAML(line: nil, column: nil, message: "x")
+                == .invalidYAML(line: nil, column: nil, message: "x")
         )
     }
 
@@ -74,7 +78,7 @@ struct FrontmatterErrorTests {
     func crossCaseInequality() {
         #expect(FrontmatterError.missingFrontmatter != .missingRequiredField(name: "id"))
         #expect(
-            FrontmatterError.invalidYAML(line: 1, message: "m")
+            FrontmatterError.invalidYAML(line: 1, column: 1, message: "m")
                 != .invalidEnumValue(field: "type", value: "m")
         )
     }
@@ -116,18 +120,31 @@ struct FrontmatterErrorTests {
         #expect(err.description.contains("YAML frontmatter"))
     }
 
-    @Test("invalidYAML with line uses line in summary and description")
-    func invalidYAMLWithLineDisplay() {
-        let err = FrontmatterError.invalidYAML(line: 7, message: "unclosed quote")
+    @Test("invalidYAML with line and column uses both in summary and description")
+    func invalidYAMLWithLineAndColumnDisplay() {
+        let err = FrontmatterError.invalidYAML(line: 7, column: 12, message: "unclosed quote")
+        #expect(err.summary == "YAML error at line 7, column 12")
+        #expect(err.description == "YAML error at line 7, column 12: unclosed quote")
+    }
+
+    @Test("invalidYAML with line but no column uses line-only summary")
+    func invalidYAMLWithLineOnlyDisplay() {
+        let err = FrontmatterError.invalidYAML(line: 7, column: nil, message: "unclosed quote")
         #expect(err.summary == "YAML error at line 7")
         #expect(err.description == "YAML error at line 7: unclosed quote")
     }
 
     @Test("invalidYAML without line falls back to generic summary")
     func invalidYAMLWithoutLineDisplay() {
-        let err = FrontmatterError.invalidYAML(line: nil, message: "boom")
+        let err = FrontmatterError.invalidYAML(line: nil, column: nil, message: "boom")
         #expect(err.summary == "Invalid YAML in frontmatter")
         #expect(err.description == "Invalid YAML in frontmatter: boom")
+    }
+
+    @Test("invalidYAML with column but no line still falls back to generic summary")
+    func invalidYAMLWithColumnNoLineDisplay() {
+        let err = FrontmatterError.invalidYAML(line: nil, column: 5, message: "boom")
+        #expect(err.summary == "Invalid YAML in frontmatter")
     }
 
     @Test("missingRequiredField summary and description")

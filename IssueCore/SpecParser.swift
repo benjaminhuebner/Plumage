@@ -18,7 +18,7 @@ nonisolated enum SpecParser {
         } catch let decoding as DecodingError {
             return .failure(mapDecodingError(decoding))
         } catch {
-            return .failure(.invalidYAML(line: nil, message: error.localizedDescription))
+            return .failure(.invalidYAML(line: nil, column: nil, message: error.localizedDescription))
         }
 
         guard let type = IssueType(rawValue: raw.type) else {
@@ -84,11 +84,11 @@ nonisolated enum SpecParser {
         case .scanner(_, let problem, let mark, _),
             .parser(_, let problem, let mark, _),
             .composer(_, let problem, let mark, _):
-            .invalidYAML(line: mark.line, message: problem)
+            .invalidYAML(line: mark.line, column: mark.column, message: problem)
         case .reader(let problem, _, _, _):
-            .invalidYAML(line: nil, message: problem)
+            .invalidYAML(line: nil, column: nil, message: problem)
         default:
-            .invalidYAML(line: nil, message: error.localizedDescription)
+            .invalidYAML(line: nil, column: nil, message: error.localizedDescription)
         }
     }
 
@@ -109,10 +109,10 @@ nonisolated enum SpecParser {
             if let yamlErr = context.underlyingError as? YamlError {
                 mapYamlError(yamlErr)
             } else {
-                .invalidYAML(line: nil, message: context.debugDescription)
+                .invalidYAML(line: nil, column: nil, message: context.debugDescription)
             }
         @unknown default:
-            .invalidYAML(line: nil, message: error.localizedDescription)
+            .invalidYAML(line: nil, column: nil, message: error.localizedDescription)
         }
     }
 }
