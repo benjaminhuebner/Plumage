@@ -40,11 +40,6 @@
 			path = Plumage;
 			sourceTree = "<group>";
 		};
-		CA46013F2FB2F26800CAD6C3 /* App */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = App;
-			sourceTree = "<group>";
-		};
 		CA46014F2FB2F26900CAD6C3 /* PlumageTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PlumageTests;
@@ -103,7 +98,6 @@
 			isa = PBXGroup;
 			children = (
 				A7843CAE865FBF88DA94DFF0 /* Plumage */,
-				CA46013F2FB2F26800CAD6C3 /* App */,
 				CA4601A02FB2F26900CAD6C3 /* ClaudeCodeIntegration */,
 				CA4601B02FB2F26900CAD6C3 /* ProjectCore */,
 				CA46020420030001000000C3 /* IssueCore */,
@@ -140,7 +134,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A7843CAE865FBF88DA94DFF0 /* Plumage */,
-				CA46013F2FB2F26800CAD6C3 /* App */,
 				CA4601A02FB2F26900CAD6C3 /* ClaudeCodeIntegration */,
 				CA4601B02FB2F26900CAD6C3 /* ProjectCore */,
 				CA46020420030001000000C3 /* IssueCore */,
