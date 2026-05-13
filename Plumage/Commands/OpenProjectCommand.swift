@@ -44,14 +44,16 @@ enum OpenProjectCommand {
         let root: URL
         do {
             root = try BundleResolver.resolve(from: url).root
-        } catch BundleResolver.ResolveError.noBundle(let folder) {
-            presentAlert(for: .noBundle(folder: folder))
-            return
-        } catch BundleResolver.ResolveError.multipleBundles(let urls) {
-            presentAlert(for: .multipleBundles(found: urls))
+        } catch let error as BundleResolver.ResolveError {
+            switch error {
+            case .noBundle(let folder):
+                presentAlert(for: .noBundle(folder: folder))
+            case .multipleBundles(let urls):
+                presentAlert(for: .multipleBundles(found: urls))
+            }
             return
         } catch {
-            presentAlert(for: .invalidJSON(message: error.localizedDescription))
+            assertionFailure("BundleResolver.resolve threw non-ResolveError: \(error)")
             return
         }
         openConfirmed(
