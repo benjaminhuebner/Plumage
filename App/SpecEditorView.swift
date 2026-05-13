@@ -15,6 +15,7 @@ struct SpecEditorView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
+    @Environment(ProjectKanbanModel.self) private var kanban
     @FocusState private var editorFocused: Bool
 
     init(projectURL: URL, folderName: String) {
@@ -69,6 +70,9 @@ struct SpecEditorView: View {
         }
         .onChange(of: model.frontmatterError) { _, _ in
             refreshMessages()
+        }
+        .onChange(of: kanban.issues) { _, _ in
+            applyExternalChange()
         }
         .onChange(of: editorFocused) { _, focused in
             if !focused { saveTask() }
@@ -160,6 +164,17 @@ struct SpecEditorView: View {
 
     private func discardAndPop() {
         dismiss()
+    }
+
+    private func applyExternalChange() {
+        let hasFolder = kanban.issues.contains { $0.id == folderName }
+        if !hasFolder {
+            model.handleExternalChange(diskContent: nil)
+            return
+        }
+        let fresh = try? String(contentsOf: model.specURL, encoding: .utf8)
+        if let fresh, fresh == model.loadedContent { return }
+        model.handleExternalChange(diskContent: fresh)
     }
 }
 

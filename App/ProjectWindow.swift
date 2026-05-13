@@ -18,6 +18,7 @@ struct ProjectWindow: View {
                     }
                 }
         }
+        .environment(kanban)
         .frame(minWidth: 720, minHeight: 480)
         .navigationTitle(displayTitle)
         .toolbar {
