@@ -26,6 +26,9 @@ struct BundleResolverTests {
     }
 
     @Test func findBundleIgnoresLegacyDotfile() throws {
+        // Foundation's URL/NSString treats leading-dot filenames as having no
+        // extension, so `.plumage` has pathExtension "" — the legacy dotfile
+        // cannot match the bundle filter even by accident.
         let root = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let dotfile = root.appendingPathComponent(".plumage", isDirectory: true)
