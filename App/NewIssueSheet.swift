@@ -31,11 +31,9 @@ final class NewIssueInput {
 
     func collidingFolder(in existingIssues: [DiscoveredIssue]) -> String? {
         guard !slug.isEmpty else { return nil }
-        for issue in existingIssues {
-            let folder = issue.id
-            if folder.hasSuffix("-\(slug)") || folder == slug {
-                return folder
-            }
+        let suffix = "-\(slug)"
+        for issue in existingIssues where issue.id.hasSuffix(suffix) {
+            return issue.id
         }
         return nil
     }
