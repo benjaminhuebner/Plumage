@@ -28,8 +28,7 @@ struct IssueCardView: View {
 
             if !issue.labels.isEmpty {
                 HStack(spacing: 4) {
-                    let visible = issue.labels.prefix(maxVisibleLabels)
-                    ForEach(Array(visible), id: \.self) { label in
+                    ForEach(issue.labels.prefix(maxVisibleLabels), id: \.self) { label in
                         LabelChip(text: label)
                     }
                     if issue.labels.count > maxVisibleLabels {

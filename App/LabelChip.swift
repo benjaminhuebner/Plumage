@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct LabelChip: View {
-    let text: String
-    let backgroundColor: Color
+    private let text: String
+    private let backgroundColor: Color
 
     init(text: String) {
         self.text = text

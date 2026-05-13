@@ -1,20 +1,18 @@
 extension DiscoveredIssue {
     var column: IssueColumn {
         switch self {
-        case .invalid:
-            return .todo
+        case .invalid: .todo
         case .valid(let issue):
             switch issue.status {
-            case .draft, .approved, .blocked: return .todo
-            case .inProgress: return .inProgress
-            case .waitingForReview: return .waitingForReview
-            case .done: return .done
+            case .draft, .approved, .blocked: .todo
+            case .inProgress: .inProgress
+            case .waitingForReview: .waitingForReview
+            case .done: .done
             }
         }
     }
 
     var isBlocked: Bool {
-        if case .valid(let issue) = self { return issue.status == .blocked }
-        return false
+        if case .valid(let issue) = self { issue.status == .blocked } else { false }
     }
 }
