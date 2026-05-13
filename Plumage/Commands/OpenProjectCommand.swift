@@ -26,16 +26,23 @@ enum OpenProjectCommand {
         openWindow: OpenWindowAction,
         dismissWindow: DismissWindowAction
     ) {
+        let bundle: URL
         do {
-            let config = try ConfigLoader.load(at: url)
-            recentProjects.add(url: url, name: config.name)
-            openWindow(value: ProjectHandle(url: url))
-            dismissWindow(id: "welcome")
-        } catch let error as ConfigLoader.LoadError {
-            presentAlert(for: error)
+            bundle = try BundleResolver.findBundle(in: url)
+        } catch let error as BundleResolver.ResolveError {
+            presentAlertForResolverError(error)
+            return
         } catch {
-            presentAlert(for: .invalidJSON(message: error.localizedDescription))
+            assertionFailure("BundleResolver.findBundle threw non-ResolveError: \(error)")
+            return
         }
+        completeOpen(
+            root: url,
+            bundle: bundle,
+            recentProjects: recentProjects,
+            openWindow: openWindow,
+            dismissWindow: dismissWindow
+        )
     }
 
     static func openFromBundleURL(
@@ -44,27 +51,51 @@ enum OpenProjectCommand {
         openWindow: OpenWindowAction,
         dismissWindow: DismissWindowAction
     ) {
-        let root: URL
+        let resolved: (root: URL, bundle: URL)
         do {
-            root = try BundleResolver.resolve(from: url).root
+            resolved = try BundleResolver.resolve(from: url)
         } catch let error as BundleResolver.ResolveError {
-            switch error {
-            case .noBundle(let folder):
-                presentAlert(for: .noBundle(folder: folder))
-            case .multipleBundles(let urls):
-                presentAlert(for: .multipleBundles(found: urls))
-            }
+            presentAlertForResolverError(error)
             return
         } catch {
             assertionFailure("BundleResolver.resolve threw non-ResolveError: \(error)")
             return
         }
-        openConfirmed(
-            url: root,
+        completeOpen(
+            root: resolved.root,
+            bundle: resolved.bundle,
             recentProjects: recentProjects,
             openWindow: openWindow,
             dismissWindow: dismissWindow
         )
+    }
+
+    private static func presentAlertForResolverError(_ error: BundleResolver.ResolveError) {
+        switch error {
+        case .noBundle(let folder):
+            presentAlert(for: .noBundle(folder: folder))
+        case .multipleBundles(let urls):
+            presentAlert(for: .multipleBundles(found: urls))
+        }
+    }
+
+    private static func completeOpen(
+        root: URL,
+        bundle: URL,
+        recentProjects: RecentProjects,
+        openWindow: OpenWindowAction,
+        dismissWindow: DismissWindowAction
+    ) {
+        do {
+            let config = try ConfigLoader.load(atBundle: bundle)
+            recentProjects.add(url: root, name: config.name)
+            openWindow(value: ProjectHandle(url: root))
+            dismissWindow(id: "welcome")
+        } catch let error as ConfigLoader.LoadError {
+            presentAlert(for: error)
+        } catch {
+            presentAlert(for: .invalidJSON(message: error.localizedDescription))
+        }
     }
 
     private static func pickProject() -> URL? {

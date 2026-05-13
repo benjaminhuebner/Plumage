@@ -20,6 +20,10 @@ nonisolated enum ConfigLoader {
         } catch BundleResolver.ResolveError.multipleBundles(let urls) {
             throw LoadError.multipleBundles(found: urls)
         }
+        return try load(atBundle: bundle)
+    }
+
+    static func load(atBundle bundle: URL) throws -> ProjectConfig {
         let configURL = bundle.appendingPathComponent(configFileName)
         let fm = FileManager.default
         guard fm.fileExists(atPath: configURL.path) else {
