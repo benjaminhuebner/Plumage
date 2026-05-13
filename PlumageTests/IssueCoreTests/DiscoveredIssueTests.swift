@@ -5,14 +5,16 @@ import Testing
 
 @Suite("DiscoveredIssue")
 struct DiscoveredIssueTests {
-    @Test("id distinguishes valid from invalid for the same folder name")
-    func idDistinguishesValidFromInvalid() {
-        let valid = DiscoveredIssue.valid(sampleIssue(id: 1, folder: "00001-foo"))
-        let invalid = DiscoveredIssue.invalid(
-            folder: URL(filePath: "/tmp/x/.claude/issues/00001-foo"),
-            error: .missingFrontmatter
-        )
-        #expect(valid.id != invalid.id)
+    @Test("id is the folder name and is stable across valid↔invalid flips")
+    func idStableAcrossValidInvalidFlip() {
+        let folder = "00001-foo"
+        let url = URL(filePath: "/tmp/x/.claude/issues/\(folder)")
+        let valid = DiscoveredIssue.valid(sampleIssue(id: 1, folder: folder))
+        let invalid = DiscoveredIssue.invalid(folder: url, error: .missingFrontmatter)
+
+        #expect(valid.id == folder)
+        #expect(invalid.id == folder)
+        #expect(valid.id == invalid.id)
     }
 
     @Test("id is stable per case")
@@ -28,6 +30,42 @@ struct DiscoveredIssueTests {
             error: .invalidEnumValue(field: "status", value: "x")
         )
         #expect(invalid1.id == invalid2.id)
+    }
+
+    @Test("Equatable: same case and payload compares equal")
+    func equatableSame() {
+        let lhs = DiscoveredIssue.valid(sampleIssue(id: 1, folder: "00001-foo"))
+        let rhs = DiscoveredIssue.valid(sampleIssue(id: 1, folder: "00001-foo"))
+        #expect(lhs == rhs)
+
+        let url = URL(filePath: "/tmp/x/.claude/issues/00002-bar")
+        let invalidLhs = DiscoveredIssue.invalid(folder: url, error: .missingFrontmatter)
+        let invalidRhs = DiscoveredIssue.invalid(folder: url, error: .missingFrontmatter)
+        #expect(invalidLhs == invalidRhs)
+    }
+
+    @Test("Equatable: differing payload compares unequal")
+    func equatableDiffering() {
+        let lhs = DiscoveredIssue.valid(sampleIssue(id: 1, folder: "00001-foo"))
+        let rhs = DiscoveredIssue.valid(sampleIssue(id: 1, folder: "00001-foo", title: "Other"))
+        #expect(lhs != rhs)
+
+        let url = URL(filePath: "/tmp/x/.claude/issues/00002-bar")
+        let invalidLhs = DiscoveredIssue.invalid(folder: url, error: .missingFrontmatter)
+        let invalidRhs = DiscoveredIssue.invalid(
+            folder: url,
+            error: .invalidEnumValue(field: "status", value: "x")
+        )
+        #expect(invalidLhs != invalidRhs)
+    }
+
+    @Test("Equatable: valid vs invalid for the same folder are unequal despite matching id")
+    func equatableValidVsInvalidSameFolder() {
+        let folder = "00001-foo"
+        let url = URL(filePath: "/tmp/x/.claude/issues/\(folder)")
+        let valid = DiscoveredIssue.valid(sampleIssue(id: 1, folder: folder))
+        let invalid = DiscoveredIssue.invalid(folder: url, error: .missingFrontmatter)
+        #expect(valid != invalid)
     }
 
     @Test("sortKey for valid uses issue id and folder name")
@@ -60,11 +98,15 @@ struct DiscoveredIssueTests {
         #expect(key.1 == "no-id-prefix")
     }
 
-    private func sampleIssue(id: Int, folder: String) -> Plumage.Issue {
+    private func sampleIssue(
+        id: Int,
+        folder: String,
+        title: String? = nil
+    ) -> Plumage.Issue {
         Plumage.Issue(
             id: id,
             folder: folder,
-            title: "Title \(id)",
+            title: title ?? "Title \(id)",
             type: .feature,
             status: .approved,
             created: .distantPast,
