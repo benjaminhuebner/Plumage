@@ -5,7 +5,6 @@ struct InvalidIssueCardView: View {
     let error: FrontmatterError
     let padding: Int
 
-    @State private var showPopover = false
     @Environment(\.kanbanHighlightedID) private var highlightedID: String?
 
     private var folderName: String { folder.lastPathComponent }
@@ -48,23 +47,6 @@ struct InvalidIssueCardView: View {
         )
         .contentShape(Rectangle())
         .help(error.summary)
-        .onTapGesture { showPopover.toggle() }
-        .popover(isPresented: $showPopover) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(error.summary)
-                    .font(.headline)
-                Text(error.description)
-                    .font(.body)
-                    .fixedSize(horizontal: false, vertical: true)
-                Divider()
-                Text(folder.path)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            .padding(12)
-            .frame(maxWidth: 360, alignment: .leading)
-        }
         .accessibilityLabel("Invalid issue: \(error.summary)")
     }
 }

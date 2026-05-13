@@ -10,7 +10,7 @@ nonisolated final class IssueWatcher: Sendable {
     ) {
         let (rawSignals, rawCont) = AsyncStream<Void>.makeStream()
         let source = FSEventSource(
-            directory: projectURL.appending(path: ".claude/issues"),
+            directory: IssueLayout.issuesDirectory(in: projectURL),
             onChange: { rawCont.yield(()) }
         )
         source.start()

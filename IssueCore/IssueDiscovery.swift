@@ -5,7 +5,7 @@ nonisolated enum IssueDiscovery {
     private static let logger = Logger(subsystem: "com.plumage", category: "IssueDiscovery")
 
     static func discoverIssues(in projectURL: URL) -> [DiscoveredIssue] {
-        let issuesDir = projectURL.appendingPathComponent(".claude/issues", isDirectory: true)
+        let issuesDir = IssueLayout.issuesDirectory(in: projectURL)
         let fileManager = FileManager.default
         let rootIsDir = (try? issuesDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         guard rootIsDir else { return [] }

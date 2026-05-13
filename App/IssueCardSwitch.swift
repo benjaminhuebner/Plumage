@@ -5,42 +5,47 @@ struct IssueCardSwitch: View {
     let padding: Int
 
     var body: some View {
-        switch issue {
-        case .valid(let value):
-            IssueCardView(issue: value, padding: padding)
-        case .invalid(let folder, let error):
-            InvalidIssueCardView(folder: folder, error: error, padding: padding)
+        NavigationLink(value: SpecRoute.spec(folderName: issue.id)) {
+            switch issue {
+            case .valid(let value):
+                IssueCardView(issue: value, padding: padding)
+            case .invalid(let folder, let error):
+                InvalidIssueCardView(folder: folder, error: error, padding: padding)
+            }
         }
+        .buttonStyle(.plain)
     }
 }
 
 #Preview {
-    VStack(spacing: 8) {
-        IssueCardSwitch(
-            issue: .valid(
-                Issue(
-                    id: 1,
-                    folderName: "00001-walking-skeleton",
-                    title: "Walking Skeleton",
-                    type: .chore,
-                    status: .done,
-                    created: .distantPast,
-                    updated: .distantPast,
-                    branch: "issue/00001-walking-skeleton",
-                    labels: ["bootstrap"],
-                    model: nil
-                )
-            ),
-            padding: 5
-        )
-        IssueCardSwitch(
-            issue: .invalid(
-                folder: URL(filePath: "/tmp/sample/.claude/issues/00042-broken-stuff"),
-                error: .invalidEnumValue(field: "status", value: "aproved")
-            ),
-            padding: 5
-        )
+    NavigationStack {
+        VStack(spacing: 8) {
+            IssueCardSwitch(
+                issue: .valid(
+                    Issue(
+                        id: 1,
+                        folderName: "00001-walking-skeleton",
+                        title: "Walking Skeleton",
+                        type: .chore,
+                        status: .done,
+                        created: .distantPast,
+                        updated: .distantPast,
+                        branch: "issue/00001-walking-skeleton",
+                        labels: ["bootstrap"],
+                        model: nil
+                    )
+                ),
+                padding: 5
+            )
+            IssueCardSwitch(
+                issue: .invalid(
+                    folder: URL(filePath: "/tmp/sample/.claude/issues/00042-broken-stuff"),
+                    error: .invalidEnumValue(field: "status", value: "aproved")
+                ),
+                padding: 5
+            )
+        }
+        .padding()
+        .frame(width: 260)
     }
-    .padding()
-    .frame(width: 260)
 }

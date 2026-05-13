@@ -7,7 +7,8 @@ import Testing
 struct SpecParserTests {
     @Test("parses feature fixture")
     func validFeature() throws {
-        let issue = try requireSuccess(SpecParser.parse(content: load("valid-feature.md"), folderName: "00042-feature"))
+        let issue = try requireSuccess(
+            SpecParser.parse(content: try load("valid-feature.md"), folderName: "00042-feature"))
         #expect(issue.id == 42)
         #expect(issue.folderName == "00042-feature")
         #expect(issue.title == "Feature Issue")
@@ -22,7 +23,7 @@ struct SpecParserTests {
 
     @Test("parses chore with empty labels and null model")
     func validChore() throws {
-        let issue = try requireSuccess(SpecParser.parse(content: load("valid-chore.md"), folderName: "00001-chore"))
+        let issue = try requireSuccess(SpecParser.parse(content: try load("valid-chore.md"), folderName: "00001-chore"))
         #expect(issue.type == .chore)
         #expect(issue.status == .inProgress)
         #expect(issue.labels.isEmpty)
@@ -31,25 +32,26 @@ struct SpecParserTests {
 
     @Test("parses spike with fractional-second updated date")
     func validSpike() throws {
-        let issue = try requireSuccess(SpecParser.parse(content: load("valid-spike.md"), folderName: "00002-spike"))
+        let issue = try requireSuccess(SpecParser.parse(content: try load("valid-spike.md"), folderName: "00002-spike"))
         #expect(issue.type == .spike)
         #expect(issue.status == .waitingForReview)
         #expect(issue.updated == isoFractional("2026-05-12T09:15:30.123Z"))
     }
 
     @Test("missing frontmatter delimiter is .missingFrontmatter")
-    func missingFrontmatter() {
+    func missingFrontmatter() throws {
         #expect(
-            SpecParser.parse(content: load("missing-frontmatter.md"), folderName: "x") == .failure(.missingFrontmatter))
+            SpecParser.parse(content: try load("missing-frontmatter.md"), folderName: "x")
+                == .failure(.missingFrontmatter))
     }
 
     @Test("empty input is .missingFrontmatter")
-    func emptyInput() {
+    func emptyInput() throws {
         #expect(SpecParser.parse(content: "", folderName: "x") == .failure(.missingFrontmatter))
     }
 
     @Test("missing closing delimiter is .missingFrontmatter")
-    func missingClosingDelimiter() {
+    func missingClosingDelimiter() throws {
         let content = """
             ---
             id: 1
@@ -65,114 +67,146 @@ struct SpecParserTests {
         #expect(SpecParser.parse(content: content, folderName: "x") == .failure(.missingFrontmatter))
     }
 
-    @Test("broken YAML returns .invalidYAML with line info")
+    @Test("broken YAML returns .invalidYAML with line and column info")
     func brokenYAML() throws {
-        let result = SpecParser.parse(content: load("broken-yaml.md"), folderName: "x")
-        guard case .failure(.invalidYAML(let line, let message)) = result else {
+        let result = SpecParser.parse(content: try load("broken-yaml.md"), folderName: "x")
+        guard case .failure(.invalidYAML(let line, let column, let message)) = result else {
             Testing.Issue.record("expected .invalidYAML, got \(result)")
             return
         }
         #expect(line != nil)
+        #expect(column != nil)
         #expect(!message.isEmpty)
     }
 
+    @Test("broken YAML returns specific column from Yams mark")
+    func brokenYAMLColumn() throws {
+        // Fixture broken-yaml.md has an unclosed quote on line 3 (1-based): `title: "Broken with unclosed quote`
+        // Yams reports line/column on the closing-newline / next-token position.
+        let result = SpecParser.parse(content: try load("broken-yaml.md"), folderName: "x")
+        guard case .failure(.invalidYAML(let line?, let column?, _)) = result else {
+            Testing.Issue.record("expected .invalidYAML with line+column, got \(result)")
+            return
+        }
+        #expect(line >= 1)
+        #expect(column >= 1)
+    }
+
+    // Coverage gap (non-blocking): the .dataCorrupted-without-underlying-YamlError branch in
+    // SpecParser.mapDecodingError is not exercised by any input we could craft with Yams 5.4 —
+    // Yams always wraps its own scanner/parser/composer errors as YamlError. Left untested
+    // until a future Yams version produces a bare .dataCorrupted.
+
     @Test("unknown type returns .invalidEnumValue")
-    func unknownType() {
+    func unknownType() throws {
         #expect(
-            SpecParser.parse(content: load("unknown-type.md"), folderName: "x")
+            SpecParser.parse(content: try load("unknown-type.md"), folderName: "x")
                 == .failure(.invalidEnumValue(field: "type", value: "experiment"))
         )
     }
 
     @Test("unknown status returns .invalidEnumValue")
-    func unknownStatus() {
+    func unknownStatus() throws {
         #expect(
-            SpecParser.parse(content: load("unknown-status.md"), folderName: "x")
+            SpecParser.parse(content: try load("unknown-status.md"), folderName: "x")
                 == .failure(.invalidEnumValue(field: "status", value: "parked"))
         )
     }
 
     @Test("missing id returns .missingRequiredField(\"id\")")
-    func missingId() {
+    func missingId() throws {
         #expect(
-            SpecParser.parse(content: load("missing-id.md"), folderName: "x")
+            SpecParser.parse(content: try load("missing-id.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "id"))
         )
     }
 
     @Test("missing title returns .missingRequiredField(\"title\")")
-    func missingTitle() {
+    func missingTitle() throws {
         #expect(
-            SpecParser.parse(content: load("missing-title.md"), folderName: "x")
+            SpecParser.parse(content: try load("missing-title.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "title"))
         )
     }
 
     @Test("missing type returns .missingRequiredField(\"type\")")
-    func missingType() {
+    func missingType() throws {
         #expect(
-            SpecParser.parse(content: load("missing-type.md"), folderName: "x")
+            SpecParser.parse(content: try load("missing-type.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "type"))
         )
     }
 
     @Test("missing status returns .missingRequiredField(\"status\")")
-    func missingStatus() {
+    func missingStatus() throws {
         #expect(
-            SpecParser.parse(content: load("missing-status.md"), folderName: "x")
+            SpecParser.parse(content: try load("missing-status.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "status"))
         )
     }
 
     @Test("missing created returns .missingRequiredField(\"created\")")
-    func missingCreated() {
+    func missingCreated() throws {
         #expect(
-            SpecParser.parse(content: load("missing-created.md"), folderName: "x")
+            SpecParser.parse(content: try load("missing-created.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "created"))
         )
     }
 
     @Test("missing updated returns .missingRequiredField(\"updated\")")
-    func missingUpdated() {
+    func missingUpdated() throws {
         #expect(
-            SpecParser.parse(content: load("missing-updated.md"), folderName: "x")
+            SpecParser.parse(content: try load("missing-updated.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "updated"))
         )
     }
 
     @Test("missing branch returns .missingRequiredField(\"branch\")")
-    func missingBranch() {
+    func missingBranch() throws {
         #expect(
-            SpecParser.parse(content: load("missing-branch.md"), folderName: "x")
+            SpecParser.parse(content: try load("missing-branch.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "branch"))
         )
     }
 
     @Test("invalid date returns .invalidDate")
-    func invalidDate() {
+    func invalidDate() throws {
         #expect(
-            SpecParser.parse(content: load("invalid-date.md"), folderName: "x")
+            SpecParser.parse(content: try load("invalid-date.md"), folderName: "x")
                 == .failure(.invalidDate(field: "created", value: "2026-13-99T99:99:99Z"))
         )
     }
 
     @Test("empty frontmatter body reports a missing required field")
-    func emptyFrontmatter() {
+    func emptyFrontmatter() throws {
         #expect(
-            SpecParser.parse(content: load("empty-frontmatter.md"), folderName: "x")
+            SpecParser.parse(content: try load("empty-frontmatter.md"), folderName: "x")
                 == .failure(.missingRequiredField(name: "id"))
         )
     }
 
     @Test("wrong type for id returns .invalidFieldType")
-    func wrongTypeForId() {
-        let result = SpecParser.parse(content: load("wrong-type-id.md"), folderName: "x")
+    func wrongTypeForId() throws {
+        let result = SpecParser.parse(content: try load("wrong-type-id.md"), folderName: "x")
         guard case .failure(.invalidFieldType(let field, let message)) = result else {
             Testing.Issue.record("expected .invalidFieldType, got \(result)")
             return
         }
         #expect(field == "id")
         #expect(!message.isEmpty)
+    }
+
+    @Test("validate returns nil for valid content")
+    func validateValid() throws {
+        #expect(SpecParser.validate(content: try load("valid-feature.md")) == nil)
+    }
+
+    @Test("validate returns the parse failure for invalid content")
+    func validateInvalid() throws {
+        #expect(SpecParser.validate(content: try load("missing-frontmatter.md")) == .missingFrontmatter)
+        #expect(
+            SpecParser.validate(content: try load("unknown-type.md"))
+                == .invalidEnumValue(field: "type", value: "experiment"))
     }
 
     private func requireSuccess(
@@ -190,12 +224,12 @@ struct SpecParserTests {
         var description: String { message }
     }
 
-    private func load(_ name: String, fileID: String = #fileID, filePath: String = #filePath) -> String {
+    private func load(_ name: String, filePath: String = #filePath) throws -> String {
         let url = URL(filePath: filePath)
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures")
             .appendingPathComponent(name)
-        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return try String(contentsOf: url, encoding: .utf8)
     }
 
     private func iso(_ string: String) -> Date {

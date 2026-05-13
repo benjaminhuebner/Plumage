@@ -7,9 +7,11 @@ extension FrontmatterError {
             "No --- frontmatter block found"
         case .unreadable:
             "spec.md could not be read"
-        case .invalidYAML(let line?, _):
+        case .invalidYAML(let line?, let column?, _):
+            "YAML error at line \(line), column \(column)"
+        case .invalidYAML(let line?, nil, _):
             "YAML error at line \(line)"
-        case .invalidYAML(nil, _):
+        case .invalidYAML(nil, _, _):
             "Invalid YAML in frontmatter"
         case .missingRequiredField(let name):
             "Missing required field: \(name)"
@@ -32,9 +34,11 @@ extension FrontmatterError {
             """
         case .unreadable(let message):
             "spec.md could not be read: \(message)"
-        case .invalidYAML(let line?, let message):
+        case .invalidYAML(let line?, let column?, let message):
+            "YAML error at line \(line), column \(column): \(message)"
+        case .invalidYAML(let line?, nil, let message):
             "YAML error at line \(line): \(message)"
-        case .invalidYAML(nil, let message):
+        case .invalidYAML(nil, _, let message):
             "Invalid YAML in frontmatter: \(message)"
         case .missingRequiredField(let name):
             "Missing required field: \(name)\nRequired: id, title, type, status, created, updated, branch."

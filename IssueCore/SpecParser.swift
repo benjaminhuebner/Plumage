@@ -2,6 +2,17 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
+    // Returns the frontmatter error if parsing fails, otherwise nil. Used
+    // by callers that only need validation, not the parsed Issue value —
+    // avoids the Issue allocation that `parse(content:folderName:)` does
+    // on the success path.
+    static func validate(content: String) -> FrontmatterError? {
+        switch parse(content: content, folderName: "") {
+        case .success: nil
+        case .failure(let error): error
+        }
+    }
+
     static func parse(content: String, folderName: String) -> Result<Issue, FrontmatterError> {
         guard let yaml = extractFrontmatter(from: content) else {
             return .failure(.missingFrontmatter)
@@ -18,7 +29,7 @@ nonisolated enum SpecParser {
         } catch let decoding as DecodingError {
             return .failure(mapDecodingError(decoding))
         } catch {
-            return .failure(.invalidYAML(line: nil, message: error.localizedDescription))
+            return .failure(.invalidYAML(line: nil, column: nil, message: error.localizedDescription))
         }
 
         guard let type = IssueType(rawValue: raw.type) else {
@@ -51,32 +62,30 @@ nonisolated enum SpecParser {
     }
 
     private static func extractFrontmatter(from content: String) -> String? {
-        var lines = content.components(separatedBy: "\n")
-        guard let first = lines.first, first.trimmingCharacters(in: .whitespaces) == "---" else { return nil }
-        lines.removeFirst()
-        guard let closingIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
-            return nil
+        var collected: [Substring] = []
+        var sawOpener = false
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !sawOpener {
+                guard trimmed == "---" else { return nil }
+                sawOpener = true
+                continue
+            }
+            if trimmed == "---" {
+                return collected.joined(separator: "\n")
+            }
+            collected.append(line)
         }
-        return lines[..<closingIndex].joined(separator: "\n")
+        return nil
     }
 
-    // ISO8601DateFormatter is thread-safe for reading once configured; the
-    // closures here run once, after which `formatOptions` is never mutated.
-    nonisolated(unsafe) private static let plainDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    nonisolated(unsafe) private static let fractionalDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
     private static func parseDate(_ string: String) -> Date? {
-        if let date = plainDateFormatter.date(from: string) { return date }
-        return fractionalDateFormatter.date(from: string)
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: string) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: string)
     }
 
     private static func mapYamlError(_ error: YamlError) -> FrontmatterError {
@@ -84,11 +93,11 @@ nonisolated enum SpecParser {
         case .scanner(_, let problem, let mark, _),
             .parser(_, let problem, let mark, _),
             .composer(_, let problem, let mark, _):
-            .invalidYAML(line: mark.line, message: problem)
+            .invalidYAML(line: mark.line, column: mark.column, message: problem)
         case .reader(let problem, _, _, _):
-            .invalidYAML(line: nil, message: problem)
+            .invalidYAML(line: nil, column: nil, message: problem)
         default:
-            .invalidYAML(line: nil, message: error.localizedDescription)
+            .invalidYAML(line: nil, column: nil, message: error.localizedDescription)
         }
     }
 
@@ -109,10 +118,10 @@ nonisolated enum SpecParser {
             if let yamlErr = context.underlyingError as? YamlError {
                 mapYamlError(yamlErr)
             } else {
-                .invalidYAML(line: nil, message: context.debugDescription)
+                .invalidYAML(line: nil, column: nil, message: context.debugDescription)
             }
         @unknown default:
-            .invalidYAML(line: nil, message: error.localizedDescription)
+            .invalidYAML(line: nil, column: nil, message: error.localizedDescription)
         }
     }
 }

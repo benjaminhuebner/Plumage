@@ -33,6 +33,7 @@ struct PlumageApp: App {
         }
         .commands {
             NewIssueCommand()
+            SpecEditorCommands()
         }
         .restorationBehavior(.disabled)
         .environment(recentProjects)

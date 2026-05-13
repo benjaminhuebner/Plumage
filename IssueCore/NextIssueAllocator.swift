@@ -30,7 +30,7 @@ nonisolated struct NextIssueAllocator: Sendable {
         let padding = paddingWidth()
         let padded = Self.paddedID(nextID, padding: padding)
 
-        let templateURL = projectURL.appendingPathComponent(".claude/issues/_TEMPLATE.md")
+        let templateURL = IssueLayout.templateURL(in: projectURL)
         guard let templateData = fileManager.contents(atPath: templateURL.path),
             let template = String(data: templateData, encoding: .utf8)
         else {
@@ -50,8 +50,8 @@ nonisolated struct NextIssueAllocator: Sendable {
         )
 
         let folderName = "\(padded)-\(slug)"
-        let folderURL = projectURL.appendingPathComponent(".claude/issues/\(folderName)", isDirectory: true)
-        let specURL = folderURL.appendingPathComponent("spec.md")
+        let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
+        let specURL = IssueLayout.specURL(in: projectURL, folderName: folderName)
 
         do {
             try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
@@ -68,8 +68,8 @@ nonisolated struct NextIssueAllocator: Sendable {
     }
 
     private func findCollidingFolder(slug: String) -> String? {
-        let issuesDir = projectURL.appendingPathComponent(".claude/issues", isDirectory: true)
-        let archiveDir = issuesDir.appendingPathComponent("archive", isDirectory: true)
+        let issuesDir = IssueLayout.issuesDirectory(in: projectURL)
+        let archiveDir = IssueLayout.archiveDirectory(in: projectURL)
         for dir in [issuesDir, archiveDir] {
             guard let entries = try? fileManager.contentsOfDirectory(atPath: dir.path) else { continue }
             for name in entries where name.hasSuffix("-\(slug)") {
@@ -81,7 +81,7 @@ nonisolated struct NextIssueAllocator: Sendable {
     }
 
     private func highestExistingID() -> Int {
-        let issuesDir = projectURL.appendingPathComponent(".claude/issues", isDirectory: true)
+        let issuesDir = IssueLayout.issuesDirectory(in: projectURL)
         guard
             let enumerator = fileManager.enumerator(
                 at: issuesDir,
@@ -124,15 +124,10 @@ nonisolated struct NextIssueAllocator: Sendable {
         return max(configured, 1)
     }
 
-    // ISO8601DateFormatter is thread-safe once configured; the closure runs once.
-    nonisolated(unsafe) private static let iso8601Formatter: ISO8601DateFormatter = {
+    private static func iso8601(from date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    private static func iso8601(from date: Date) -> String {
-        iso8601Formatter.string(from: date)
+        return formatter.string(from: date)
     }
 
     static func slugify(_ input: String) -> String {
