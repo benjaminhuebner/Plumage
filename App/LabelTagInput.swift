@@ -68,16 +68,16 @@ struct LabelTagInput: View {
                 return .ignored
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(minHeight: 28)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .frame(minHeight: 30)
         .background(
             RoundedRectangle(cornerRadius: 5)
                 .fill(Color(NSColor.textBackgroundColor))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 5)
-                .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+                .stroke(Color.secondary.opacity(0.35), lineWidth: 0.5)
         )
     }
 }

@@ -59,61 +59,66 @@ struct NewIssueSheet: View {
     @FocusState private var focusTitle: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
+        VStack(alignment: .leading, spacing: 16) {
+            Text("New Issue")
+                .font(.title2)
+
             if let collision = input.collidingFolder(in: existingIssues) {
                 collisionBanner(folder: collision)
             }
             if let error = allocationError {
                 errorBanner(message: error)
             }
-            form
-            Divider()
-            footer
+
+            grid
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    onDismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Create") {
+                    submit()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!input.submitEnabled(existingIssues: existingIssues) || isSubmitting)
+            }
         }
-        .frame(minWidth: 560, idealWidth: 600)
+        .padding(24)
+        .frame(width: 520)
         .onAppear { focusTitle = true }
     }
 
-    private var header: some View {
-        HStack {
-            Text("New Issue")
-                .font(.title2)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-            Spacer()
-        }
-    }
-
-    private var form: some View {
-        Form {
-            LabeledContent("Title") {
-                TextField(
-                    "",
-                    text: Binding(
-                        get: { input.title }, set: { input.onTitleChange($0) })
-                )
-                .textFieldStyle(.roundedBorder)
-                .focused($focusTitle)
-            }
-
-            LabeledContent("Slug") {
-                VStack(alignment: .leading, spacing: 4) {
+    private var grid: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
+            GridRow {
+                fieldLabel("Title")
+                bordered(error: false) {
                     TextField(
                         "",
                         text: Binding(
-                            get: { input.slug }, set: { input.onSlugEdit($0) })
+                            get: { input.title }, set: { input.onTitleChange($0) })
                     )
-                    .textFieldStyle(.roundedBorder)
-                    .font(.body.monospaced())
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(
-                                input.slug.isEmpty || input.slugValid
-                                    ? Color.clear : Color.red,
-                                lineWidth: 0.5)
-                    )
+                    .textFieldStyle(.plain)
+                    .focused($focusTitle)
+                }
+            }
+
+            GridRow(alignment: .top) {
+                fieldLabel("Slug")
+                    .padding(.top, 6)
+                VStack(alignment: .leading, spacing: 4) {
+                    bordered(error: !input.slug.isEmpty && !input.slugValid) {
+                        TextField(
+                            "",
+                            text: Binding(
+                                get: { input.slug }, set: { input.onSlugEdit($0) })
+                        )
+                        .textFieldStyle(.plain)
+                        .fontDesign(.monospaced)
+                    }
                     if !input.slug.isEmpty && !input.slugValid {
                         Text(
                             "Lowercase letters, digits, hyphens. Must start with letter or digit."
@@ -124,7 +129,8 @@ struct NewIssueSheet: View {
                 }
             }
 
-            LabeledContent("Type") {
+            GridRow {
+                fieldLabel("Type")
                 Picker("", selection: $input.type) {
                     ForEach(IssueType.allCases, id: \.self) { type in
                         Text(type.rawValue).tag(type)
@@ -132,16 +138,42 @@ struct NewIssueSheet: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 160, alignment: .leading)
             }
 
-            LabeledContent("Labels") {
+            GridRow(alignment: .top) {
+                fieldLabel("Labels")
+                    .padding(.top, 6)
                 LabelTagInput(labels: $input.labels, draft: $input.labelDraft)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+    }
+
+    @ViewBuilder
+    private func bordered<Content: View>(
+        error: Bool, @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color(NSColor.textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(
+                        error ? Color.red : Color.secondary.opacity(0.35),
+                        lineWidth: error ? 1 : 0.5
+                    )
+            )
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(.secondary)
+            .gridColumnAlignment(.trailing)
+            .frame(minWidth: 60, alignment: .trailing)
     }
 
     private func collisionBanner(folder: String) -> some View {
