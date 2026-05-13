@@ -132,6 +132,20 @@ struct SpecEditorModelTests {
         #expect(model.buffer == validSpec + "\nuser edit")
     }
 
+    @Test("handleExternalChange with same disk content as loadedContent is a no-op")
+    func externalChangeWhenDirtySameDisk() async throws {
+        let url = try makeSpec(content: validSpec)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
+        try await model.load()
+        model.updateBuffer(validSpec + "\nuser edit")
+
+        model.handleExternalChange(diskContent: validSpec)
+
+        #expect(model.conflict == nil)
+        #expect(model.buffer == validSpec + "\nuser edit")
+    }
+
     @Test("handleExternalChange with nil disk content yields fileDeleted")
     func externalChangeFileDeleted() async throws {
         let url = try makeSpec(content: validSpec)
@@ -191,6 +205,36 @@ struct SpecEditorModelTests {
         #expect(writer.writeCount == 1)
         #expect(model.conflict == nil)
         #expect(model.loadedContent == "recreated")
+    }
+
+    @Test("resolveConflictSaveAndRecreate re-evaluates frontmatterError from recreated buffer")
+    func resolveSaveAndRecreateUpdatesFrontmatter() async throws {
+        let url = try makeSpec(content: validSpec)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: RecordingWriter())
+        try await model.load()
+        #expect(model.frontmatterError == nil)
+        model.updateBuffer("recreated — no frontmatter here")
+        model.handleExternalChange(diskContent: nil)
+
+        try await model.resolveConflictSaveAndRecreate()
+
+        #expect(model.frontmatterError == .missingFrontmatter)
+    }
+
+    @Test("saveIfDirty stamps lastWrittenContent")
+    func saveIfDirtyStampsLastWritten() async throws {
+        let url = try makeSpec(content: validSpec)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let model = SpecEditorModel(specURL: url, folderName: "00042-feature", writer: RecordingWriter())
+        try await model.load()
+        #expect(model.lastWrittenContent == nil)
+        let edited = validSpec + "\n\nedit"
+        model.updateBuffer(edited)
+
+        try await model.saveIfDirty()
+
+        #expect(model.lastWrittenContent == edited)
     }
 
     @Test("initialCursorOffset is set when loaded content has frontmatter error")
