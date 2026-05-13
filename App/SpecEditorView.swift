@@ -12,6 +12,7 @@ struct SpecEditorView: View {
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var loadFailed: String?
     @State private var pendingSaveAlert: SaveAlert?
+    @State private var lastSeenIssue: DiscoveredIssue?
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
@@ -177,11 +178,14 @@ struct SpecEditorView: View {
     }
 
     private func applyExternalChange() {
-        let hasFolder = kanban.issues.contains { $0.id == folderName }
-        if !hasFolder {
+        let current = kanban.issues.first { $0.id == folderName }
+        guard let current else {
+            lastSeenIssue = nil
             model.handleExternalChange(diskContent: nil)
             return
         }
+        if current == lastSeenIssue { return }
+        lastSeenIssue = current
         let fresh = try? String(contentsOf: model.specURL, encoding: .utf8)
         if let fresh, fresh == model.loadedContent { return }
         model.handleExternalChange(diskContent: fresh)
