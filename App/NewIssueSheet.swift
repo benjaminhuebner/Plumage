@@ -86,7 +86,13 @@ struct NewIssueSheet: View {
         }
         .padding(24)
         .frame(width: 520)
-        .onAppear { focusTitle = true }
+        .task {
+            // `.onAppear` fires before the sheet finishes presenting and the focus
+            // assignment is dropped intermittently. A short async hop after the
+            // sheet is on screen makes the title field reliably take first focus.
+            try? await Task.sleep(for: .milliseconds(50))
+            focusTitle = true
+        }
     }
 
     private var grid: some View {
