@@ -10,11 +10,14 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome", id: "welcome") {
-            WelcomeView(hiddenOnFirstShow: appDelegate.hasPendingLaunchURL)
+            WelcomeView(hiddenOnFirstShow: !appDelegate.pendingURLs.isEmpty)
                 .containerBackground(.thickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
-                    appDelegate.attachHandler(handleOpenURL)
+                    drainPendingURLs()
+                }
+                .onChange(of: appDelegate.pendingURLs) { _, _ in
+                    drainPendingURLs()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -31,7 +34,9 @@ struct PlumageApp: App {
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
                 ProjectWindow(handle: handle)
-                    .task { appDelegate.attachHandler(handleOpenURL) }
+                    .onChange(of: appDelegate.pendingURLs) { _, _ in
+                        drainPendingURLs()
+                    }
             } else {
                 EmptyView()
                     .onAppear {
@@ -47,38 +52,30 @@ struct PlumageApp: App {
         .environment(recentProjects)
     }
 
-    private func handleOpenURL(_ url: URL) {
-        OpenProjectCommand.openFromBundleURL(
-            url,
-            recentProjects: recentProjects,
-            openWindow: openWindow,
-            dismissWindow: dismissWindow
-        )
+    private func drainPendingURLs() {
+        for url in appDelegate.consumePendingURLs() {
+            OpenProjectCommand.openFromBundleURL(
+                url,
+                recentProjects: recentProjects,
+                openWindow: openWindow,
+                dismissWindow: dismissWindow
+            )
+        }
     }
 }
 
 @Observable
 @MainActor
 final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
-    private(set) var hasPendingLaunchURL = false
-    @ObservationIgnored private var pendingURLs: [URL] = []
-    @ObservationIgnored private var handler: ((URL) -> Void)?
+    private(set) var pendingURLs: [URL] = []
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let handler {
-            urls.forEach(handler)
-            return
-        }
         pendingURLs.append(contentsOf: urls)
-        hasPendingLaunchURL = true
     }
 
-    func attachHandler(_ handler: @escaping (URL) -> Void) {
-        self.handler = handler
-        guard !pendingURLs.isEmpty else { return }
-        let pending = pendingURLs
+    func consumePendingURLs() -> [URL] {
+        let urls = pendingURLs
         pendingURLs = []
-        hasPendingLaunchURL = false
-        pending.forEach(handler)
+        return urls
     }
 }
