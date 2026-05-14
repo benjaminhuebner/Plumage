@@ -10,9 +10,13 @@ struct KanbanView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var cardFrames: [String: CGRect] = [:]
     @State private var columnFrames: [IssueColumn: CGRect] = [:]
+    @State private var kanbanFrame: CGRect = .zero
     @State private var kanbanDrag = KanbanDragController()
+    @State private var autoScroll = KanbanAutoScroll()
 
     var body: some View {
+        @Bindable var autoScroll = autoScroll
+
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(IssueColumn.allCases) { column in
@@ -20,15 +24,22 @@ struct KanbanView: View {
                         column: column,
                         issues: grouped[column] ?? [],
                         padding: padding,
-                        projectURL: projectURL
+                        projectURL: projectURL,
+                        scrollPosition: columnScrollBinding(for: column)
                     )
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
+        .scrollPosition($autoScroll.horizontalScroll)
         .scrollDisabled(kanbanDrag.state != nil)
         .coordinateSpace(name: KanbanCoordinateSpace.name)
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            kanbanFrame = CGRect(origin: .zero, size: size)
+        }
         .overlay(alignment: .topLeading) {
             floatingDragCard
         }
@@ -41,6 +52,12 @@ struct KanbanView: View {
         }
         .onChange(of: kanbanDrag.state?.cursorLocation) { _, _ in
             updateResolvedTarget()
+            updateAutoScroll()
+        }
+        .onChange(of: kanbanDrag.state != nil) { _, active in
+            if !active {
+                autoScroll.stop()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase != .active {
@@ -53,6 +70,26 @@ struct KanbanView: View {
         .task(id: kanbanDrag.state != nil) {
             await monitorEscape()
         }
+    }
+
+    private func columnScrollBinding(for column: IssueColumn) -> Binding<ScrollPosition> {
+        Binding(
+            get: { autoScroll.columnPosition(column) },
+            set: { autoScroll.setColumnPosition(column, to: $0) }
+        )
+    }
+
+    private func updateAutoScroll() {
+        guard let drag = kanbanDrag.state else {
+            autoScroll.stop()
+            return
+        }
+        autoScroll.update(
+            active: drag.status == .dragging || drag.status == .lifting,
+            cursor: drag.cursorLocation,
+            kanbanFrame: kanbanFrame,
+            columnFrames: columnFrames
+        )
     }
 
     @ViewBuilder

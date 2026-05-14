@@ -5,6 +5,7 @@ struct KanbanColumnView: View {
     let issues: [DiscoveredIssue]
     let padding: Int
     let projectURL: URL
+    @Binding var scrollPosition: ScrollPosition
 
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
     @Environment(ProjectKanbanModel.self) private var kanban
@@ -46,6 +47,7 @@ struct KanbanColumnView: View {
                     .padding(.horizontal, 4)
                     .animation(.smooth(duration: 0.18), value: placeholderIndex)
                 }
+                .scrollPosition($scrollPosition)
                 .scrollDisabled(kanbanDrag.state != nil)
             }
         }
@@ -92,6 +94,8 @@ struct KanbanColumnView: View {
 }
 
 #Preview {
+    @Previewable @State var todoScroll = ScrollPosition()
+    @Previewable @State var doneScroll = ScrollPosition()
     HStack(alignment: .top, spacing: 12) {
         KanbanColumnView(
             column: .todo,
@@ -132,13 +136,15 @@ struct KanbanColumnView: View {
                 ),
             ],
             padding: 5,
-            projectURL: URL(filePath: "/tmp/sample")
+            projectURL: URL(filePath: "/tmp/sample"),
+            scrollPosition: $todoScroll
         )
         KanbanColumnView(
             column: .done,
             issues: [],
             padding: 5,
-            projectURL: URL(filePath: "/tmp/sample")
+            projectURL: URL(filePath: "/tmp/sample"),
+            scrollPosition: $doneScroll
         )
     }
     .padding()
