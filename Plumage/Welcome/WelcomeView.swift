@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct WelcomeView: View {
+    private static let leftPaneWidth: CGFloat = 473
+    private static let windowWidth: CGFloat = 710
+    private static let windowHeight: CGFloat = 429
+
+    let windowAlphaHidden: Bool
+
     @Environment(RecentProjects.self) private var recentProjects
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -8,11 +14,11 @@ struct WelcomeView: View {
     var body: some View {
         HStack(spacing: 0) {
             leftPane
-                .frame(width: 460)
+                .frame(width: Self.leftPaneWidth)
             rightPane
         }
-        .frame(width: 860, height: 520)
-        .background(WindowChromeCustomizer())
+        .frame(width: Self.windowWidth, height: Self.windowHeight)
+        .background(WindowChromeCustomizer(windowAlphaHidden: windowAlphaHidden))
     }
 
     private var leftPane: some View {
@@ -35,7 +41,7 @@ struct WelcomeView: View {
                 actionRow(
                     systemImage: "folder.badge.plus",
                     title: "Open a Project…",
-                    subtitle: "Pick a folder with .plumage/config.json"
+                    subtitle: "Pick a .plumage bundle or its parent folder"
                 ) {
                     OpenProjectCommand.openWithPicker(
                         recentProjects: recentProjects,
@@ -141,7 +147,7 @@ struct WelcomeView: View {
 }
 
 #Preview("Empty") {
-    WelcomeView()
+    WelcomeView(windowAlphaHidden: false)
         .environment(RecentProjects(storeURL: previewStoreURL()))
 }
 
@@ -158,7 +164,7 @@ private func populatedRecents() -> RecentProjects {
 }
 
 #Preview("Populated") {
-    WelcomeView()
+    WelcomeView(windowAlphaHidden: false)
         .environment(populatedRecents())
 }
 

@@ -91,8 +91,13 @@ struct ProjectWindow: View {
 
     static func message(for error: ConfigLoader.LoadError) -> String {
         switch error {
-        case .noConfigFile(let folder):
-            return "No Plumage project at \(folder.path)."
+        case .noBundle(let folder):
+            return "No Plumage bundle at \(folder.path)."
+        case .noConfigFile(let bundle):
+            return "Plumage bundle at \(bundle.path) has no config.json."
+        case .multipleBundles(let urls):
+            let names = urls.map { $0.lastPathComponent }.joined(separator: ", ")
+            return "Multiple Plumage bundles found: \(names). Expected exactly one."
         case .schemaTooNew(let version, let supportedUpTo):
             return
                 "This project needs a newer Plumage (config schemaVersion \(version), this build supports up to \(supportedUpTo))."
@@ -110,8 +115,8 @@ struct ProjectWindow: View {
 private func previewProjectURL() -> URL {
     let dir = FileManager.default.temporaryDirectory
         .appendingPathComponent("PlumagePreview-\(UUID().uuidString)")
-    let plumage = dir.appendingPathComponent(".plumage")
-    try? FileManager.default.createDirectory(at: plumage, withIntermediateDirectories: true)
+    let bundle = dir.appendingPathComponent("Preview.plumage")
+    try? FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
     let config = """
         {
           "name": "Plumage",
@@ -120,7 +125,7 @@ private func previewProjectURL() -> URL {
         }
         """
     try? config.write(
-        to: plumage.appendingPathComponent("config.json"),
+        to: bundle.appendingPathComponent("config.json"),
         atomically: true,
         encoding: .utf8
     )

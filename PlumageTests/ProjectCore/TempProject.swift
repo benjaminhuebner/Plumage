@@ -6,9 +6,9 @@ enum TempProject {
             .appendingPathComponent("PlumageTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         if let content {
-            let plumage = base.appendingPathComponent(".plumage", isDirectory: true)
-            try FileManager.default.createDirectory(at: plumage, withIntermediateDirectories: true)
-            let configURL = plumage.appendingPathComponent("config.json")
+            let bundle = base.appendingPathComponent("Test.plumage", isDirectory: true)
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+            let configURL = bundle.appendingPathComponent("config.json")
             try content.write(to: configURL, atomically: true, encoding: .utf8)
         }
         return base

@@ -21,15 +21,31 @@ struct ConfigLoaderTests {
         #expect(config.issueIdPadding == 5)
     }
 
-    @Test func missingFileThrowsNoConfigFile() throws {
+    @Test func missingBundleThrowsNoBundle() throws {
         let folder = try TempProject.make(content: nil)
         defer { try? FileManager.default.removeItem(at: folder) }
 
         #expect {
             try ConfigLoader.load(at: folder)
         } throws: { error in
-            guard case ConfigLoader.LoadError.noConfigFile(let reported) = error else { return false }
-            return reported == folder
+            guard case ConfigLoader.LoadError.noBundle(let reported) = error else { return false }
+            return reported.standardizedFileURL == folder.standardizedFileURL
+        }
+    }
+
+    @Test func bundleWithoutConfigThrowsNoConfigFile() throws {
+        let folder = try TempProject.make(content: nil)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let bundle = folder.appendingPathComponent("Empty.plumage", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+
+        #expect {
+            try ConfigLoader.load(at: folder)
+        } throws: { error in
+            guard case ConfigLoader.LoadError.noConfigFile(let reported) = error else {
+                return false
+            }
+            return reported.standardizedFileURL == bundle.standardizedFileURL
         }
     }
 
