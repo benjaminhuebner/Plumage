@@ -39,7 +39,14 @@ struct ProjectWindow: View {
                 .disabled(!isLoaded)
             }
         }
-        .focusedSceneValue(\.newIssueSheetIsPresented, isLoaded ? $showsNewIssueSheet : nil)
+        .focusedSceneValue(
+            \.createIssueInDefaultColumn,
+            isLoaded
+                ? {
+                    navigationPath.append(SpecRoute.createIssue(initialStatus: .draft))
+                }
+                : nil
+        )
         .sheet(isPresented: $showsNewIssueSheet) {
             NewIssueSheet(
                 projectURL: handle.url,
