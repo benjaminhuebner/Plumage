@@ -6,58 +6,55 @@ struct IssueCardView: View {
 
     @Environment(\.kanbanHighlightedID) private var highlightedID: String?
 
-    private let maxVisibleLabels = 4
-
     private var isHighlighted: Bool {
         highlightedID == issue.folderName
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                IssueTypePill(type: issue.type)
+                Spacer()
+                Image("FeatherGlyph")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(.tertiary)
+            }
+
             Text(issue.title)
-                .font(.headline)
+                .font(.title3.weight(.semibold))
                 .lineLimit(2)
                 .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 6) {
-                Text(IssueIDFormatter.padded(issue.id, width: padding))
-                    .font(.caption.monospaced())
+            if let goal = issue.goal, !goal.isEmpty {
+                Text(goal)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Spacer()
-                if issue.status == .blocked {
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(.secondary)
-                        .help("Blocked")
-                }
-                IssueTypePill(type: issue.type)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if !issue.labels.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(issue.labels.prefix(maxVisibleLabels), id: \.self) { label in
-                        LabelChip(text: label)
-                    }
-                    if issue.labels.count > maxVisibleLabels {
-                        LabelChip.overflow(count: issue.labels.count - maxVisibleLabels)
-                    }
-                }
+            HStack {
+                Text(IssueIDFormatter.padded(issue.id, width: padding))
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Text(issue.status.label)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
+        .cardContainer(tint: issue.type.color)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(.separator, lineWidth: 0.5)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.accentColor, lineWidth: 2)
                 .opacity(isHighlighted ? 1.0 : 0.0)
                 .animation(.easeOut(duration: 1.0), value: isHighlighted)
         )
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -74,7 +71,8 @@ struct IssueCardView: View {
                 updated: .distantPast,
                 branch: "issue/00001-walking-skeleton",
                 labels: [],
-                model: nil
+                model: nil,
+                goal: nil
             ),
             padding: 5
         )
@@ -82,29 +80,35 @@ struct IssueCardView: View {
             issue: Issue(
                 id: 5,
                 folderName: "00005-kanban",
-                title: "Kanban grouping with label chips and a long title that wraps",
+                title: "Kanban grouping with a long title that wraps onto a second line",
                 type: .feature,
                 status: .inProgress,
                 created: .distantPast,
                 updated: .distantPast,
                 branch: "issue/00005-kanban",
-                labels: ["feature", "v0.1", "ui"],
-                model: nil
+                labels: ["feature", "v0.1"],
+                model: nil,
+                goal: "Bring Kanban columns to life with type-tinted pills and a goal subtitle."
             ),
             padding: 5
         )
         IssueCardView(
             issue: Issue(
                 id: 12,
-                folderName: "00012-many-labels",
-                title: "Issue with more labels than the card can show inline",
-                type: .feature,
+                folderName: "00012-long-goal",
+                title: "Long-goal card",
+                type: .spike,
                 status: .approved,
                 created: .distantPast,
                 updated: .distantPast,
-                branch: "issue/00012-many-labels",
-                labels: ["a", "b", "c", "d", "e", "f"],
-                model: nil
+                branch: "issue/00012-long-goal",
+                labels: [],
+                model: nil,
+                goal: String(
+                    repeating:
+                        "Lots of context to flow across multiple visible lines so the truncation logic kicks in. ",
+                    count: 4
+                )
             ),
             padding: 5
         )
@@ -112,18 +116,19 @@ struct IssueCardView: View {
             issue: Issue(
                 id: 42,
                 folderName: "00042-blocked",
-                title: "Blocked card shows a lock symbol",
-                type: .feature,
+                title: "Blocked card",
+                type: .refactor,
                 status: .blocked,
                 created: .distantPast,
                 updated: .distantPast,
                 branch: "issue/00042-blocked",
-                labels: ["bootstrap"],
-                model: nil
+                labels: [],
+                model: nil,
+                goal: "Stuck on an external decision."
             ),
             padding: 5
         )
     }
     .padding()
-    .frame(width: 260)
+    .frame(width: 280)
 }
