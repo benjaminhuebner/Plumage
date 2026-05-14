@@ -66,7 +66,7 @@ struct InvalidIssueCardView: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 1.0), value: isHighlighted)
         )
         .contentShape(Rectangle())
-        .help(error.summary)
+        .help("Fix the frontmatter to enable drag & drop — \(error.summary)")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Invalid issue: \(error.summary)")
     }
