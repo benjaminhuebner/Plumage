@@ -6,48 +6,82 @@ struct InvalidIssueCardView: View {
     let padding: Int
 
     @Environment(\.kanbanHighlightedID) private var highlightedID: String?
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var folderName: String { folder.lastPathComponent }
+
+    private var parts: (id: Int?, slug: String) {
+        IssueDiscovery.extractID(fromFolderName: folderName)
+    }
 
     private var isHighlighted: Bool {
         highlightedID == folderName
     }
 
     var body: some View {
-        let parts = IssueDiscovery.extractID(fromFolderName: folderName)
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                invalidPill
+                Spacer()
+                Image("FeatherGlyph")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+
             Text(parts.slug)
-                .font(.headline)
+                .font(.title3.weight(.semibold))
                 .lineLimit(2)
                 .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 6) {
+            HStack {
                 Text(IssueIDFormatter.paddedOrPlaceholder(parts.id, width: padding))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
                 Spacer()
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
+                HStack(spacing: 3) {
+                    if differentiateWithoutColor {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.caption2)
+                    }
+                    Text("Invalid")
+                        .font(.caption2.weight(.medium))
+                }
+                .foregroundStyle(.red)
             }
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
+        .cardContainer(tint: .red)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.red, lineWidth: 1)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.accentColor, lineWidth: 2)
                 .opacity(isHighlighted ? 1.0 : 0.0)
-                .animation(.easeOut(duration: 1.0), value: isHighlighted)
+                .animation(reduceMotion ? nil : .easeOut(duration: 1.0), value: isHighlighted)
         )
         .contentShape(Rectangle())
         .help(error.summary)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("Invalid issue: \(error.summary)")
+    }
+
+    private var invalidPill: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption2.weight(.semibold))
+            Text("Invalid")
+                .font(.caption2.weight(.semibold))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .foregroundStyle(.white)
+        .background(Color.red, in: Capsule())
     }
 }
 
@@ -65,5 +99,5 @@ struct InvalidIssueCardView: View {
         )
     }
     .padding()
-    .frame(width: 260)
+    .frame(width: 280)
 }

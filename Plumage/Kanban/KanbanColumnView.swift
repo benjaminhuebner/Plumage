@@ -5,10 +5,11 @@ struct KanbanColumnView: View {
     let issues: [DiscoveredIssue]
     let padding: Int
 
+    @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(column.name)
-                .font(.headline)
+            header
                 .padding(.horizontal, 4)
 
             if issues.isEmpty {
@@ -29,6 +30,31 @@ struct KanbanColumnView: View {
         }
         .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
     }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(column.name)
+                .font(.title3.weight(.semibold))
+            Text("\(issues.count)")
+                .font(.title3)
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+                .accessibilityLabel("\(issues.count) issues")
+            Spacer()
+            Button {
+                newIssueSheetIsPresented?.wrappedValue = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(newIssueSheetIsPresented == nil)
+            .help("New issue")
+            .accessibilityLabel("New issue in \(column.name)")
+        }
+    }
 }
 
 #Preview {
@@ -46,8 +72,9 @@ struct KanbanColumnView: View {
                         created: .distantPast,
                         updated: .distantPast,
                         branch: "issue/00001-walking-skeleton",
-                        labels: ["bootstrap"],
-                        model: nil
+                        labels: [],
+                        model: nil,
+                        goal: "Get a Plumage shell building, signing, launching."
                     )
                 ),
                 .valid(
@@ -60,8 +87,9 @@ struct KanbanColumnView: View {
                         created: .distantPast,
                         updated: .distantPast,
                         branch: "issue/00007-blocked-thing",
-                        labels: ["feature", "v0.1"],
-                        model: nil
+                        labels: [],
+                        model: nil,
+                        goal: nil
                     )
                 ),
                 .invalid(
