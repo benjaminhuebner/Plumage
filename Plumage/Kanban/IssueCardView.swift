@@ -65,7 +65,7 @@ struct IssueCardView: View {
         // space, so a card with no goal is the same height as one with a
         // long goal.
         .frame(height: KanbanLayout.cardContentHeight, alignment: .top)
-        .cardContainer(tint: issue.type.color)
+        .cardSurface(tint: issue.type.color)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.accentColor, lineWidth: 2)

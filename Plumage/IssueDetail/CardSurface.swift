@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct CardContainerModifier: ViewModifier {
+struct CardSurfaceModifier: ViewModifier {
     let tintColor: Color
 
     func body(content: Content) -> some View {
@@ -38,8 +38,8 @@ struct CardContainerModifier: ViewModifier {
 }
 
 extension View {
-    func cardContainer(tint: Color) -> some View {
-        modifier(CardContainerModifier(tintColor: tint))
+    func cardSurface(tint: Color) -> some View {
+        modifier(CardSurfaceModifier(tintColor: tint))
     }
 }
 
@@ -47,13 +47,13 @@ extension View {
     VStack(spacing: 12) {
         Text("Green tint")
             .frame(maxWidth: .infinity, alignment: .leading)
-            .cardContainer(tint: .green)
+            .cardSurface(tint: .green)
         Text("Yellow tint")
             .frame(maxWidth: .infinity, alignment: .leading)
-            .cardContainer(tint: .yellow)
+            .cardSurface(tint: .yellow)
         Text("Red tint")
             .frame(maxWidth: .infinity, alignment: .leading)
-            .cardContainer(tint: .red)
+            .cardSurface(tint: .red)
     }
     .padding()
     .frame(width: 280)
