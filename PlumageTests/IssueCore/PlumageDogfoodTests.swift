@@ -12,8 +12,16 @@ struct PlumageDogfoodTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let claudeIssues = repoRoot.appendingPathComponent(".claude/issues")
-        // .claude/ is locally excluded from git (.git/info/exclude); skip on fresh CI checkouts.
-        guard FileManager.default.fileExists(atPath: claudeIssues.path) else { return }
+        // .claude/ is locally excluded from git (.git/info/exclude); a plain
+        // `return` would mark this test as passing on a fresh CI checkout
+        // without a single assertion running. withKnownIssue makes the skip
+        // explicit in the test report.
+        guard FileManager.default.fileExists(atPath: claudeIssues.path) else {
+            withKnownIssue(".claude/issues not present in this checkout") {
+                Issue.record("dogfood fixtures missing")
+            }
+            return
+        }
 
         let discovered = IssueDiscovery.discoverIssues(in: repoRoot)
         try #require(!discovered.isEmpty)

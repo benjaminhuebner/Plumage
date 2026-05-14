@@ -16,15 +16,27 @@ final class ProjectKanbanModel {
         case apply(newStatus: IssueStatus, newOrder: SetValue<Double?>)
     }
 
+    // Self-documenting pending-drop snapshot. Replaces the previous
+    // `(String?, IssueStatus?, SetValue<Double?>?)` triple where the
+    // double-Optional on order was ambiguous — `.none` and `.some(.keep)`
+    // both meant "no order change", but only one was reachable per call site.
+    nonisolated struct PendingDrop: Equatable, Sendable {
+        let folderName: String
+        let expectedStatus: IssueStatus?
+        let expectedOrder: SetValue<Double?>
+    }
+
     typealias Mutator = @Sendable (URL, IssueStatus?, SetValue<Double?>, Date) throws -> Void
 
     private(set) var issues: [DiscoveredIssue] = []
     private(set) var groupedIssues: [IssueColumn: [DiscoveredIssue]] = [:]
     private(set) var highlightedIssueID: String?
     private(set) var lastDropError: String?
-    private(set) var pendingDropFolderName: String?
-    private(set) var pendingDropExpectedStatus: IssueStatus?
-    private(set) var pendingDropExpectedOrder: SetValue<Double?>?
+    private(set) var pendingDrop: PendingDrop?
+
+    var pendingDropFolderName: String? { pendingDrop?.folderName }
+    var pendingDropExpectedStatus: IssueStatus? { pendingDrop?.expectedStatus }
+    var pendingDropExpectedOrder: SetValue<Double?>? { pendingDrop?.expectedOrder }
 
     private let producerFactory: @Sendable (URL) -> IssueSnapshotProducer
     private let highlightClock: any Clock<Duration>
@@ -54,12 +66,7 @@ final class ProjectKanbanModel {
         let producer = producerFactory(projectURL)
         await producer.start()
         for await snapshot in producer.snapshots {
-            let reconciled = Self.reconcile(
-                incoming: snapshot,
-                pending: pendingDropFolderName,
-                expectedStatus: pendingDropExpectedStatus,
-                expectedOrder: pendingDropExpectedOrder
-            )
+            let reconciled = Self.reconcile(incoming: snapshot, pending: pendingDrop)
             let groups = Self.group(reconciled.snapshot)
             if reconciled.pendingCleared {
                 // FSEvent confirms our own pending drop — the layout is
@@ -70,9 +77,7 @@ final class ProjectKanbanModel {
                 // LazyVStack. Apply directly without animation.
                 self.issues = reconciled.snapshot
                 self.groupedIssues = groups
-                pendingDropFolderName = nil
-                pendingDropExpectedStatus = nil
-                pendingDropExpectedOrder = nil
+                pendingDrop = nil
             } else {
                 withAnimation(.smooth(duration: 0.4)) {
                     self.issues = reconciled.snapshot
@@ -140,9 +145,11 @@ final class ProjectKanbanModel {
         let priorIssues = issues
         let updated = makeOptimisticUpdate(
             issue: issue, newStatus: newStatus, newOrder: newOrder)
-        pendingDropFolderName = issue.folderName
-        pendingDropExpectedStatus = newStatus
-        pendingDropExpectedOrder = newOrder
+        pendingDrop = PendingDrop(
+            folderName: issue.folderName,
+            expectedStatus: newStatus,
+            expectedOrder: newOrder
+        )
         // Apply the optimistic update WITHOUT withAnimation: the layout
         // transition would otherwise animate the source from its collapsed
         // drag-source state (height 0, opacity 0) at the OLD index to its
@@ -167,6 +174,13 @@ final class ProjectKanbanModel {
                     try mutatorFn(specURL, newStatus, newOrder, Date())
                 }.value
             } catch {
+                // If the parent Task was cancelled (a newer drop has taken
+                // over the dropTask slot), the cancel cascades into
+                // Task.detached's await and we land here. Do NOT roll back
+                // in that case — priorIssues is stale relative to the
+                // newer drop's optimistic update, and writing it back
+                // would overwrite the newer state with our old snapshot.
+                guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticDrop(
                     to: priorIssues, error: error.localizedDescription)
             }
@@ -179,7 +193,11 @@ final class ProjectKanbanModel {
         projectURL: URL
     ) async {
         applyOptimisticDrop(payload, to: target, projectURL: projectURL)
-        await dropTask?.value
+        // Snapshot the task before awaiting — a concurrent dispatchDrop on
+        // the next main-actor turn would otherwise replace `dropTask` and
+        // we'd accidentally await the wrong work.
+        let task = dropTask
+        await task?.value
     }
 
     private func rollbackOptimisticDrop(to prior: [DiscoveredIssue], error: String) {
@@ -187,42 +205,38 @@ final class ProjectKanbanModel {
             issues = prior
             groupedIssues = Self.group(prior)
         }
-        pendingDropFolderName = nil
-        pendingDropExpectedStatus = nil
-        pendingDropExpectedOrder = nil
+        pendingDrop = nil
         lastDropError = error
     }
 
     nonisolated static func reconcile(
         incoming: [DiscoveredIssue],
-        pending: String?,
-        expectedStatus: IssueStatus?,
-        expectedOrder: SetValue<Double?>?
+        pending: PendingDrop?
     ) -> (snapshot: [DiscoveredIssue], pendingCleared: Bool) {
         guard let pending else { return (incoming, false) }
-        guard let idx = incoming.firstIndex(where: { $0.id == pending }) else {
+        guard let idx = incoming.firstIndex(where: { $0.id == pending.folderName }) else {
             return (incoming, true)
         }
         guard case .valid(let item) = incoming[idx] else {
             return (incoming, false)
         }
-        let statusMatch = expectedStatus == nil || item.status == expectedStatus
+        let statusMatch = pending.expectedStatus == nil || item.status == pending.expectedStatus
         let orderMatch: Bool
-        switch expectedOrder {
-        case .none, .some(.keep):
+        switch pending.expectedOrder {
+        case .keep:
             orderMatch = true
-        case .some(.set(let expected)):
+        case .set(let expected):
             orderMatch = item.order == expected
         }
         if statusMatch && orderMatch {
             return (incoming, true)
         }
-        let patchedStatus = expectedStatus ?? item.status
+        let patchedStatus = pending.expectedStatus ?? item.status
         let patchedOrder: Double?
-        switch expectedOrder {
-        case .none, .some(.keep):
+        switch pending.expectedOrder {
+        case .keep:
             patchedOrder = item.order
-        case .some(.set(let value)):
+        case .set(let value):
             patchedOrder = value
         }
         let patched = Issue(

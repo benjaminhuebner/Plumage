@@ -14,10 +14,11 @@ final class KanbanAutoScroll {
     }
 
     var horizontalScroll = ScrollPosition()
-    var todoScroll = ScrollPosition()
-    var inProgressScroll = ScrollPosition()
-    var waitingForReviewScroll = ScrollPosition()
-    var doneScroll = ScrollPosition()
+    // One slot per IssueColumn. Adding a column then automatically gets
+    // a backing position via the lazy default on read.
+    var columnScrollPositions: [IssueColumn: ScrollPosition] = Dictionary(
+        uniqueKeysWithValues: IssueColumn.allCases.map { ($0, ScrollPosition()) }
+    )
 
     private(set) var activeTrigger: ScrollTrigger?
     private var tickTask: Task<Void, Never>?
@@ -98,20 +99,22 @@ final class KanbanAutoScroll {
     }
 
     func columnPosition(_ column: IssueColumn) -> ScrollPosition {
-        switch column {
-        case .todo: todoScroll
-        case .inProgress: inProgressScroll
-        case .waitingForReview: waitingForReviewScroll
-        case .done: doneScroll
-        }
+        columnScrollPositions[column] ?? ScrollPosition()
     }
 
     func setColumnPosition(_ column: IssueColumn, to value: ScrollPosition) {
-        switch column {
-        case .todo: todoScroll = value
-        case .inProgress: inProgressScroll = value
-        case .waitingForReview: waitingForReviewScroll = value
-        case .done: doneScroll = value
-        }
+        columnScrollPositions[column] = value
+    }
+
+    // Produces a Binding rooted in `columnScrollPositions[column]` via the
+    // get/set methods. Callers are expected to construct this once per
+    // column (e.g. when building KanbanColumnView). Wrapping the dict
+    // subscript by hand avoids the `Binding<ScrollPosition?>` shape that
+    // `@Bindable`-projected dict subscripts produce.
+    func columnBinding(for column: IssueColumn) -> Binding<ScrollPosition> {
+        Binding(
+            get: { [weak self] in self?.columnPosition(column) ?? ScrollPosition() },
+            set: { [weak self] value in self?.setColumnPosition(column, to: value) }
+        )
     }
 }

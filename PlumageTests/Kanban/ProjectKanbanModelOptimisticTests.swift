@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct OptimisticDropTests {
     @Test("optimistic update applies locally before mutator returns")
-    func successPathSetsPending() async {
+    func successPathSetsPending() async throws {
         let model = ProjectKanbanModel(mutator: { _, _, _, _ in })
         let initial = Self.makeIssue(id: 1, folder: "00001-a", status: .approved)
         model._setIssuesForTesting([.valid(initial)])
@@ -21,15 +21,16 @@ struct OptimisticDropTests {
         #expect(model.pendingDropFolderName == "00001-a")
         #expect(model.pendingDropExpectedStatus == .inProgress)
         #expect(model.lastDropError == nil)
-        if case .valid(let updated) = model.issues.first(where: { $0.id == "00001-a" }) {
-            #expect(updated.status == .inProgress)
-        } else {
-            #expect(Bool(false), "expected optimistic update to keep issue valid")
+        let match = try #require(model.issues.first(where: { $0.id == "00001-a" }))
+        guard case .valid(let updated) = match else {
+            Issue.record("expected .valid, got \(match)")
+            return
         }
+        #expect(updated.status == .inProgress)
     }
 
     @Test("mutator throw rolls back optimistic update and clears pending")
-    func failurePathRolledBack() async {
+    func failurePathRolledBack() async throws {
         struct DummyError: Error, LocalizedError {
             var errorDescription: String? { "disk full" }
         }
@@ -45,12 +46,13 @@ struct OptimisticDropTests {
 
         #expect(model.pendingDropFolderName == nil)
         #expect(model.lastDropError == "disk full")
-        if case .valid(let after) = model.issues.first(where: { $0.id == "00001-a" }) {
-            #expect(after.status == .approved)
-            #expect(after.order == 10)
-        } else {
-            #expect(Bool(false), "expected rollback to restore valid issue")
+        let match = try #require(model.issues.first(where: { $0.id == "00001-a" }))
+        guard case .valid(let after) = match else {
+            Issue.record("expected .valid (rolled back), got \(match)")
+            return
         }
+        #expect(after.status == .approved)
+        #expect(after.order == 10)
     }
 
     @Test("no-op drop neither updates locally nor sets pending")
@@ -92,48 +94,54 @@ struct ReconcileTests {
         let issue = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
         let result = ProjectKanbanModel.reconcile(
             incoming: [.valid(issue)],
-            pending: nil,
-            expectedStatus: nil,
-            expectedOrder: nil
+            pending: nil
         )
         #expect(result.snapshot.count == 1)
         #expect(result.pendingCleared == false)
     }
 
     @Test("disk matches expected clears pending")
-    func diskMatchesExpected() {
+    func diskMatchesExpected() throws {
         let issue = OptimisticDropTests.makeIssue(
             id: 1, folder: "00001-a", status: .inProgress, order: 15)
         let result = ProjectKanbanModel.reconcile(
             incoming: [.valid(issue)],
-            pending: "00001-a",
-            expectedStatus: .inProgress,
-            expectedOrder: .set(15)
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(15)
+            )
         )
         #expect(result.pendingCleared == true)
-        if case .valid(let after) = result.snapshot.first {
-            #expect(after.status == .inProgress)
-            #expect(after.order == 15)
+        let first = try #require(result.snapshot.first)
+        guard case .valid(let after) = first else {
+            Issue.record("expected .valid, got \(first)")
+            return
         }
+        #expect(after.status == .inProgress)
+        #expect(after.order == 15)
     }
 
     @Test("pre-write disk content keeps pending and patches snapshot")
-    func preWriteContentKeepsPending() {
+    func preWriteContentKeepsPending() throws {
         let issue = OptimisticDropTests.makeIssue(
             id: 1, folder: "00001-a", status: .approved, order: 10)
         let result = ProjectKanbanModel.reconcile(
             incoming: [.valid(issue)],
-            pending: "00001-a",
-            expectedStatus: .inProgress,
-            expectedOrder: .set(20)
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(20)
+            )
         )
         #expect(result.pendingCleared == false)
-        if case .valid(let patched) = result.snapshot.first {
-            #expect(patched.status == .inProgress)
-            #expect(patched.order == 20)
-        } else {
-            #expect(Bool(false), "expected patched valid entry")
+        let first = try #require(result.snapshot.first)
+        guard case .valid(let patched) = first else {
+            Issue.record("expected patched .valid, got \(first)")
+            return
         }
+        #expect(patched.status == .inProgress)
+        #expect(patched.order == 20)
     }
 
     @Test("pending issue absent from disk clears pending")
@@ -141,9 +149,11 @@ struct ReconcileTests {
         let other = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .approved)
         let result = ProjectKanbanModel.reconcile(
             incoming: [.valid(other)],
-            pending: "00001-a",
-            expectedStatus: .inProgress,
-            expectedOrder: .set(20)
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(20)
+            )
         )
         #expect(result.pendingCleared == true)
         #expect(result.snapshot.count == 1)
@@ -158,26 +168,45 @@ struct ReconcileTests {
                     error: .invalidEnumValue(field: "status", value: "????")
                 )
             ],
-            pending: "00001-a",
-            expectedStatus: .inProgress,
-            expectedOrder: .set(20)
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(20)
+            )
         )
         #expect(result.pendingCleared == false)
     }
-}
 
-private final class LockedBox<T>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: T
-    init(value: T) { stored = value }
-    var value: T {
-        lock.lock()
-        defer { lock.unlock() }
-        return stored
-    }
-    func mutate(_ block: (inout T) -> Void) {
-        lock.lock()
-        block(&stored)
-        lock.unlock()
+    // Guarantees that .invalid entries for issues OTHER than the pending
+    // one survive reconcile untouched. Without this, a future change to
+    // reconcile that drops or rewrites unrelated invalid entries would
+    // pass every other test in this suite.
+    @Test("unrelated invalid entries pass through alongside a pending valid match")
+    func unrelatedInvalidPassThrough() throws {
+        let pending = OptimisticDropTests.makeIssue(
+            id: 1, folder: "00001-a", status: .inProgress, order: 15)
+        let otherInvalidURL = URL(filePath: "/tmp/00099-z")
+        let result = ProjectKanbanModel.reconcile(
+            incoming: [
+                .valid(pending),
+                .invalid(
+                    folder: otherInvalidURL,
+                    error: .invalidEnumValue(field: "type", value: "ghost")
+                ),
+            ],
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(15)
+            )
+        )
+        #expect(result.pendingCleared == true)
+        #expect(result.snapshot.count == 2)
+        let invalid = try #require(result.snapshot.last)
+        guard case .invalid(let folder, _) = invalid else {
+            Issue.record("expected pass-through .invalid, got \(invalid)")
+            return
+        }
+        #expect(folder == otherInvalidURL)
     }
 }

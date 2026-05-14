@@ -198,19 +198,3 @@ struct PerformDropTests {
         )
     }
 }
-
-private final class LockedBox<T>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: T
-    init(value: T) { stored = value }
-    var value: T {
-        lock.lock()
-        defer { lock.unlock() }
-        return stored
-    }
-    func mutate(_ block: (inout T) -> Void) {
-        lock.lock()
-        block(&stored)
-        lock.unlock()
-    }
-}

@@ -43,16 +43,34 @@ final class KanbanDragController {
     private(set) var isActive: Bool = false
     private(set) var payload: IssueDragPayload?
     private(set) var sourceFolderName: String?
+    // Cached at lift time so FloatingDragCard does not have to scan
+    // ProjectKanbanModel.issues every cursor frame and so it does not
+    // pull an Observable dependency on the full issues array.
+    private(set) var sourceIssue: Issue?
     private(set) var sourceFrame: CGRect = .zero
     private(set) var cursorLocation: CGPoint = .zero
     private(set) var translation: CGSize = .zero
     private(set) var target: ResolvedDropTarget?
     private(set) var status: DragStatus = .lifting
 
-    func startLift(payload: IssueDragPayload, sourceFolderName: String, sourceFrame: CGRect) {
+    // Owns the post-gesture animation delay. Cancelled when a new lift
+    // begins or `clear()` runs; [weak self] in the body lets the Task
+    // self-terminate when this controller deallocates without needing a
+    // MainActor-isolated deinit.
+    private var settleTask: Task<Void, Never>?
+
+    func startLift(
+        payload: IssueDragPayload,
+        sourceFolderName: String,
+        sourceIssue: Issue,
+        sourceFrame: CGRect
+    ) {
         guard !isActive else { return }
+        settleTask?.cancel()
+        settleTask = nil
         self.payload = payload
         self.sourceFolderName = sourceFolderName
+        self.sourceIssue = sourceIssue
         self.sourceFrame = sourceFrame
         self.cursorLocation = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
         self.translation = .zero
@@ -88,10 +106,25 @@ final class KanbanDragController {
     }
 
     func clear() {
+        settleTask?.cancel()
+        settleTask = nil
         isActive = false
         payload = nil
         sourceFolderName = nil
+        sourceIssue = nil
         target = nil
+    }
+
+    // Owns the post-gesture animation delay so the UI layer does not have
+    // to spawn fire-and-forget Tasks. Cancels any prior pending settle
+    // before scheduling a new one, and is cancelled in deinit / clear.
+    func scheduleSettle(after duration: Duration) {
+        settleTask?.cancel()
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.clear()
+        }
     }
 }
 

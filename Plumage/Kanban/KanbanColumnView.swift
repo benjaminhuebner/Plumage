@@ -5,62 +5,29 @@ struct KanbanColumnView: View {
     let issues: [DiscoveredIssue]
     let padding: Int
     let projectURL: URL
-    @Binding var scrollPosition: ScrollPosition
+    let autoScroll: KanbanAutoScroll
 
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
-    @Environment(ProjectKanbanModel.self) private var kanban
-    @Environment(KanbanDragController.self) private var kanbanDrag
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
 
     var body: some View {
-        // Keep ALL issues in the ForEach — even the source. Removing the
-        // source IssueCardSwitch from the array would destroy its view, and
-        // the attached DragGesture would die mid-drag. IssueCardSwitch
-        // collapses to height 0 + opacity 0 while it is the drag source, so
-        // its view identity (and the gesture) survives the drag.
-        let dragSource = kanbanDrag.sourceFolderName
-        let placeholderIndex = computePlaceholderIndex(
-            dragTarget: kanbanDrag.target?.target,
-            column: column,
-            visibleIssues: issues
-        )
-
+        // Keep KanbanDragController OUT of this body — the drag-aware bits
+        // (placeholder slot, isDragSource flag) live in DraggableColumnBody,
+        // which observes the controller in isolation. Without this split,
+        // every cursor frame that resolves a new ResolvedDropTarget rebuilds
+        // all four column bodies, including their header and ForEach.
         VStack(alignment: .leading, spacing: KanbanLayout.cardSpacing) {
             header
                 .padding(.horizontal, 4)
 
-            if issues.isEmpty && placeholderIndex == nil {
-                Text("No issues")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: KanbanLayout.cardSpacing) {
-                        ForEach(Array(issues.enumerated()), id: \.element.id) { idx, item in
-                            if placeholderIndex == idx {
-                                placeholderSlot
-                            }
-                            IssueCardSwitch(
-                                issue: item,
-                                padding: padding,
-                                projectURL: projectURL,
-                                isDragSource: item.id == dragSource
-                            )
-                        }
-                        if placeholderIndex == issues.count {
-                            placeholderSlot
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-                .scrollPosition($scrollPosition)
-                .scrollDisabled(kanbanDrag.isActive)
-            }
+            DraggableColumnBody(
+                column: column,
+                issues: issues,
+                padding: padding,
+                projectURL: projectURL,
+                autoScroll: autoScroll
+            )
         }
-        // Pin every column to a fixed width so empty columns and full
-        // columns match. `maxHeight: .infinity` lets the column stretch to
-        // fill the kanban's vertical space.
         .frame(
             minWidth: KanbanLayout.columnWidth,
             idealWidth: KanbanLayout.columnWidth,
@@ -69,12 +36,6 @@ struct KanbanColumnView: View {
         )
         .contentShape(Rectangle())
         .reportColumnFrame(column: column, registry: frameRegistry)
-    }
-
-    private var placeholderSlot: some View {
-        Color.clear
-            .frame(height: KanbanLayout.cardHeight)
-            .accessibilityHidden(true)
     }
 
     private var header: some View {
@@ -108,9 +69,76 @@ struct KanbanColumnView: View {
     }
 }
 
+// Drag-aware body. Reads KanbanDragController so that target / drag-source
+// changes only invalidate THIS view, not the parent column header or its
+// surrounding frame/coordinate-space modifiers.
+private struct DraggableColumnBody: View {
+    let column: IssueColumn
+    let issues: [DiscoveredIssue]
+    let padding: Int
+    let projectURL: URL
+    let autoScroll: KanbanAutoScroll
+
+    @Environment(KanbanDragController.self) private var kanbanDrag
+
+    var body: some View {
+        // Keep ALL issues in the ForEach — even the source. Removing the
+        // source IssueCardSwitch from the array would destroy its view, and
+        // the attached DragGesture would die mid-drag. IssueCardSwitch
+        // collapses to height 0 + opacity 0 while it is the drag source, so
+        // its view identity (and the gesture) survives the drag.
+        let dragSource = kanbanDrag.sourceFolderName
+        let placeholderIndex = computePlaceholderIndex(
+            dragTarget: kanbanDrag.target?.target,
+            column: column,
+            visibleIssues: issues
+        )
+
+        if issues.isEmpty && placeholderIndex == nil {
+            Text("No issues")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 24)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: KanbanLayout.cardSpacing) {
+                    ForEach(Array(issues.enumerated()), id: \.element.id) { idx, item in
+                        if placeholderIndex == idx {
+                            placeholderSlot
+                        }
+                        IssueCardSwitch(
+                            issue: item,
+                            padding: padding,
+                            projectURL: projectURL,
+                            isDragSource: item.id == dragSource
+                        )
+                        // Anchor the card's view identity to the folder
+                        // name (which survives the .valid/.invalid case
+                        // flip in DiscoveredIssue). Without this, a card
+                        // transitioning between cases mid-edit destroys
+                        // its subtree and any in-flight DragGesture along
+                        // with it.
+                        .id(item.id)
+                    }
+                    if placeholderIndex == issues.count {
+                        placeholderSlot
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+            .scrollPosition(autoScroll.columnBinding(for: column))
+            .scrollDisabled(kanbanDrag.isActive)
+        }
+    }
+
+    private var placeholderSlot: some View {
+        Color.clear
+            .frame(height: KanbanLayout.cardHeight)
+            .accessibilityHidden(true)
+    }
+}
+
 #Preview {
-    @Previewable @State var todoScroll = ScrollPosition()
-    @Previewable @State var doneScroll = ScrollPosition()
     HStack(alignment: .top, spacing: 12) {
         KanbanColumnView(
             column: .todo,
@@ -152,14 +180,14 @@ struct KanbanColumnView: View {
             ],
             padding: 5,
             projectURL: URL(filePath: "/tmp/sample"),
-            scrollPosition: $todoScroll
+            autoScroll: KanbanAutoScroll()
         )
         KanbanColumnView(
             column: .done,
             issues: [],
             padding: 5,
             projectURL: URL(filePath: "/tmp/sample"),
-            scrollPosition: $doneScroll
+            autoScroll: KanbanAutoScroll()
         )
     }
     .padding()

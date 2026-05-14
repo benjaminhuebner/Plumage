@@ -11,7 +11,6 @@ struct IssueCardSwitch: View {
     @Environment(\.openSpec) private var openSpec
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
-    @State private var sourceFrameInKanban: CGRect = .zero
 
     var body: some View {
         switch issue {
@@ -43,12 +42,12 @@ struct IssueCardSwitch: View {
             .clipped()
             .contentShape(Rectangle())
             .help(isLocked ? "Card has unsaved edits in the editor" : "")
+            // Single geometry observer: the frame registry is the source of
+            // truth for both the drop-target resolver and the drag-source
+            // frame at lift time. A previous version kept a parallel
+            // @State copy and a second onGeometryChange, doubling the
+            // layout-pass cost per card.
             .reportCardFrame(folderName: value.folderName, registry: frameRegistry)
-            .onGeometryChange(for: CGRect.self) { proxy in
-                proxy.frame(in: .named(KanbanCoordinateSpace.name))
-            } action: { frame in
-                sourceFrameInKanban = frame
-            }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
             .accessibilityActions {
@@ -63,7 +62,10 @@ struct IssueCardSwitch: View {
                 CardInteraction(
                     enabled: !isLocked,
                     payload: payload,
-                    sourceFrameProvider: { sourceFrameInKanban },
+                    sourceIssue: value,
+                    sourceFrameProvider: { [frameRegistry] in
+                        frameRegistry.cards[value.folderName] ?? .zero
+                    },
                     onTap: { openSpec(value.folderName) },
                     onDispatch: { dispatchedPayload, target in
                         kanban.applyOptimisticDrop(
@@ -77,6 +79,7 @@ struct IssueCardSwitch: View {
 private struct CardInteraction: ViewModifier {
     let enabled: Bool
     let payload: IssueDragPayload
+    let sourceIssue: Issue
     let sourceFrameProvider: () -> CGRect
     let onTap: () -> Void
     let onDispatch: (IssueDragPayload, ProjectKanbanModel.DropTarget) -> Void
@@ -116,6 +119,7 @@ private struct CardInteraction: ViewModifier {
                     controller.startLift(
                         payload: payload,
                         sourceFolderName: payload.folderName,
+                        sourceIssue: sourceIssue,
                         sourceFrame: sourceFrameProvider()
                     )
                 }
@@ -135,25 +139,20 @@ private struct CardInteraction: ViewModifier {
                         controller.beginDrop(finalTranslation: dropTranslation)
                     }
                     let target = resolved.target
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(dropDelayMs))
-                        // applyOptimisticDrop runs synchronously and mutates
-                        // the issues array before we clear, so when clear
-                        // hands the source back to the column layout it is
-                        // already in its final slot — no animation, no
-                        // "lands wrong then re-sorts".
-                        onDispatch(payload, target)
-                        controller.clear()
-                    }
+                    // Dispatch the optimistic update synchronously here so
+                    // the issues array is at its final layout before the
+                    // floating overlay clears. The controller owns the
+                    // post-animation clear() via scheduleSettle, so we no
+                    // longer fire and forget an unstructured Task — clear
+                    // is cancellable through the controller's lifetime.
+                    onDispatch(payload, target)
+                    controller.scheduleSettle(after: .milliseconds(dropDelayMs))
                 } else {
                     let cancelDelayMs = reduceMotion ? 50 : 300
                     withAnimation(KanbanAnimations.cancel(reduceMotion: reduceMotion)) {
                         controller.beginCancel()
                     }
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(cancelDelayMs))
-                        controller.clear()
-                    }
+                    controller.scheduleSettle(after: .milliseconds(cancelDelayMs))
                 }
             }
     }

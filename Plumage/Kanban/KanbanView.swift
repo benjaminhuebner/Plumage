@@ -25,7 +25,7 @@ struct KanbanView: View {
                         issues: grouped[column] ?? [],
                         padding: padding,
                         projectURL: projectURL,
-                        scrollPosition: columnScrollBinding(for: column)
+                        autoScroll: autoScroll
                     )
                 }
             }
@@ -35,10 +35,14 @@ struct KanbanView: View {
         .scrollPosition($autoScroll.horizontalScroll)
         .scrollDisabled(kanbanDrag.isActive)
         .coordinateSpace(name: KanbanCoordinateSpace.name)
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { size in
-            kanbanFrame = CGRect(origin: .zero, size: size)
+        // Read the rect in the same coordinate space the column and card
+        // frames are recorded in, so auto-scroll edge math compares
+        // apples-to-apples rather than relying on the modifier landing on
+        // the ScrollView's own bounds.
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named(KanbanCoordinateSpace.name))
+        } action: { frame in
+            kanbanFrame = frame
         }
         .overlay(alignment: .topLeading) {
             FloatingDragCard(padding: padding)
@@ -59,19 +63,25 @@ struct KanbanView: View {
                 cancelDrag()
             }
         }
+        .onChange(of: grouped) { _, newGrouped in
+            // Drop stale card frames as soon as the issue list changes,
+            // otherwise the registry accumulates entries for closed/deleted
+            // issues across a long session and resolveDropTarget iterates
+            // ghost rects.
+            var live: Set<String> = []
+            for items in newGrouped.values {
+                for item in items {
+                    live.insert(item.id)
+                }
+            }
+            frames.pruneCards(keeping: live)
+        }
         // .onKeyPress(.escape) does not reliably fire while a mouse drag holds
         // the responder chain; a local NSEvent monitor catches the keystroke
         // regardless of focus and lets us cancel the drag mid-gesture.
         .task(id: kanbanDrag.isActive) {
             await monitorEscape()
         }
-    }
-
-    private func columnScrollBinding(for column: IssueColumn) -> Binding<ScrollPosition> {
-        Binding(
-            get: { autoScroll.columnPosition(column) },
-            set: { autoScroll.setColumnPosition(column, to: $0) }
-        )
     }
 
     private func updateAutoScroll() {
@@ -93,15 +103,15 @@ struct KanbanView: View {
         withAnimation(KanbanAnimations.cancel(reduceMotion: reduceMotion)) {
             kanbanDrag.beginCancel()
         }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 50 : 300))
-            kanbanDrag.clear()
-        }
+        // Hand the post-animation clear to the controller so its lifetime
+        // governs the cleanup, instead of a fire-and-forget Task that
+        // outlives the view.
+        kanbanDrag.scheduleSettle(after: .milliseconds(reduceMotion ? 50 : 300))
     }
 
     private func monitorEscape() async {
         guard kanbanDrag.isActive else { return }
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { @Sendable event in
             if event.keyCode == 53 {
                 Task { @MainActor in cancelDrag() }
                 return nil
@@ -113,8 +123,15 @@ struct KanbanView: View {
                 NSEvent.removeMonitor(monitor)
             }
         }
+        // try (no `?`) so a cooperative cancellation from .task(id:) exits
+        // the loop promptly via CancellationError instead of being silently
+        // swallowed and leaving the monitor running past drag-end.
         while !Task.isCancelled, kanbanDrag.isActive {
-            try? await Task.sleep(for: .milliseconds(100))
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                break
+            }
         }
     }
 
@@ -143,17 +160,16 @@ struct KanbanView: View {
 }
 
 // Hoisted into its own view so it observes only the controller properties it
-// needs (translation, sourceFrame, status, sourceFolderName). KanbanView's body
-// no longer re-evaluates on every cursor frame.
+// needs (translation, sourceFrame, status, sourceFolderName, sourceIssue).
+// KanbanView's body no longer re-evaluates on every cursor frame, and the
+// floating card no longer depends on the full ProjectKanbanModel.issues
+// array — the source issue is cached at lift time on the controller.
 private struct FloatingDragCard: View {
     let padding: Int
     @Environment(KanbanDragController.self) private var kanbanDrag
-    @Environment(ProjectKanbanModel.self) private var kanban
 
     var body: some View {
-        if kanbanDrag.isActive, let folderName = kanbanDrag.sourceFolderName,
-            let issue = lookup(folderName: folderName)
-        {
+        if kanbanDrag.isActive, let issue = kanbanDrag.sourceIssue {
             let frame = kanbanDrag.sourceFrame
             let translation = kanbanDrag.translation
             IssueCardView(issue: issue, padding: padding)
@@ -167,15 +183,6 @@ private struct FloatingDragCard: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-    }
-
-    private func lookup(folderName: String) -> Issue? {
-        for item in kanban.issues {
-            if case .valid(let issue) = item, issue.folderName == folderName {
-                return issue
-            }
-        }
-        return nil
     }
 }
 
