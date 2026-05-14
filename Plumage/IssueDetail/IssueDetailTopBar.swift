@@ -27,9 +27,7 @@ struct IssueDetailTopBar: View {
                 .help("Copy folder name to clipboard")
             Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
                 .help("Show this issue's folder in Finder")
-            Button("Save", action: onSave)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+            Button("Save", systemImage: "square.and.arrow.down", action: onSave)
                 .help("Save changes (⌘S)")
         }
         .buttonStyle(.borderless)
