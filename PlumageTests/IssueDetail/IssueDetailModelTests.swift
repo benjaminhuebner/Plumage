@@ -135,6 +135,45 @@ struct IssueDetailModelTests {
         #expect(IssueDetailModel.extractBody(from: content) == "# Body\n\ntext")
     }
 
+    @Test("observeExternalChange skips disk read when issue snapshot unchanged")
+    func observeExternalChangeDedup() async throws {
+        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        let issue = try #require(model.issue)
+        let discovered = DiscoveredIssue.valid(issue)
+        await model.observeExternalChange(currentIssue: discovered)
+        // Mutate disk after the first observe: a second observe with the
+        // same DiscoveredIssue must not cause a reload (lastSeenIssue dedup).
+        try Self.baseSpec(status: "blocked", body: "Disk-changed.")
+            .write(to: env.specURL, atomically: true, encoding: .utf8)
+        await model.observeExternalChange(currentIssue: discovered)
+        #expect(model.issue?.status == .approved)
+        #expect(!model.loadedBodyContent.contains("Disk-changed."))
+    }
+
+    @Test("observeExternalChange triggers reload when issue snapshot changes")
+    func observeExternalChangeReloads() async throws {
+        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        try Self.baseSpec(status: "blocked", body: "Disk-changed.")
+            .write(to: env.specURL, atomically: true, encoding: .utf8)
+        // A NEW snapshot with status=blocked from kanban triggers a fresh
+        // disk read; the model picks up the external change silently.
+        let discovered = DiscoveredIssue.valid(
+            Issue(
+                id: 1, folderName: "00001-test", title: "Sample", type: .feature,
+                status: .blocked, created: .distantPast, updated: .distantPast,
+                branch: "issue/00001-x", labels: [], model: nil
+            )
+        )
+        await model.observeExternalChange(currentIssue: discovered)
+        #expect(model.issue?.status == .blocked)
+        #expect(model.loadedBodyContent.contains("Disk-changed."))
+        #expect(model.conflict == nil)
+    }
+
     @Test("replaceBody preserves frontmatter")
     func replaceBodyPreserves() {
         let content = """
