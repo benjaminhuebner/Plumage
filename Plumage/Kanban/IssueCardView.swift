@@ -20,6 +20,7 @@ struct IssueCardView: View {
                     .scaledToFit()
                     .frame(width: 16, height: 16)
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
             }
 
             Text(issue.title)
