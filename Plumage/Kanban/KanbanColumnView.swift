@@ -4,6 +4,7 @@ struct KanbanColumnView: View {
     let column: IssueColumn
     let issues: [DiscoveredIssue]
     let padding: Int
+    let projectURL: URL
 
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
 
@@ -97,12 +98,14 @@ struct KanbanColumnView: View {
                     error: .invalidEnumValue(field: "status", value: "aproved")
                 ),
             ],
-            padding: 5
+            padding: 5,
+            projectURL: URL(filePath: "/tmp/sample")
         )
         KanbanColumnView(
             column: .done,
             issues: [],
-            padding: 5
+            padding: 5,
+            projectURL: URL(filePath: "/tmp/sample")
         )
     }
     .padding()

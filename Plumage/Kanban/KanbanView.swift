@@ -3,6 +3,7 @@ import SwiftUI
 struct KanbanView: View {
     let grouped: [IssueColumn: [DiscoveredIssue]]
     let padding: Int
+    let projectURL: URL
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -11,7 +12,8 @@ struct KanbanView: View {
                     KanbanColumnView(
                         column: column,
                         issues: grouped[column] ?? [],
-                        padding: padding
+                        padding: padding,
+                        projectURL: projectURL
                     )
                 }
             }
@@ -72,7 +74,8 @@ private func kanbanPreviewIssues() -> [DiscoveredIssue] {
 #Preview {
     KanbanView(
         grouped: Dictionary(grouping: kanbanPreviewIssues(), by: \.column),
-        padding: 5
+        padding: 5,
+        projectURL: URL(filePath: "/tmp/sample")
     )
     .frame(width: 1100, height: 600)
 }
