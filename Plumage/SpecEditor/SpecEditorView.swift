@@ -12,6 +12,7 @@ struct SpecEditorView: View {
     @State private var loadFailed: String?
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
+    @State private var observeTask: Task<Void, Never>?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
 
@@ -77,7 +78,8 @@ struct SpecEditorView: View {
         }
         .onChange(of: kanban.issues) { _, _ in
             let current = kanban.issues.first { $0.id == folderName }
-            Task { await model.observeExternalChange(currentIssue: current) }
+            observeTask?.cancel()
+            observeTask = Task { await model.observeExternalChange(currentIssue: current) }
         }
         .onChange(of: editorFocused) { _, focused in
             if !focused { saveTask() }
