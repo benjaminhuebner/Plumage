@@ -100,6 +100,24 @@ struct SpecParserGoalTests {
         #expect(goal.count == 241)
     }
 
+    @Test("unclosed HTML comment is preserved as literal text")
+    func unclosedHTMLCommentPreserved() throws {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Goal
+
+            Real goal text. <!-- forgot to close
+
+            ## Scope
+            """
+        let goal = try #require(SpecParser.extractGoal(from: content))
+        #expect(goal.contains("Real goal text."))
+        #expect(goal.contains("<!--"))
+    }
+
     @Test("Goal extraction strips inline HTML comments")
     func stripsInlineComment() {
         let content = """

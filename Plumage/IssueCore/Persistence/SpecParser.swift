@@ -114,11 +114,13 @@ nonisolated enum SpecParser {
                 break
             }
             result += input[index..<openRange.lowerBound]
-            if let closeRange = input.range(of: "-->", range: openRange.upperBound..<input.endIndex) {
-                index = closeRange.upperBound
-            } else {
-                index = input.endIndex
+            guard let closeRange = input.range(of: "-->", range: openRange.upperBound..<input.endIndex) else {
+                // Unclosed comment: keep the literal text so the typo is visible
+                // to the author rather than silently swallowing the rest of the section.
+                result += input[openRange.lowerBound..<input.endIndex]
+                break
             }
+            index = closeRange.upperBound
         }
         return result
     }
