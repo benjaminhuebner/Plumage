@@ -8,6 +8,7 @@ struct IssueCardSwitch: View {
     @Environment(ProjectKanbanModel.self) private var kanban
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
     @State private var dropEdge: DropEdge?
+    @State private var measuredHeight: CGFloat = 0
 
     private enum DropEdge { case above, below }
 
@@ -40,11 +41,17 @@ struct IssueCardSwitch: View {
         .overlay(alignment: .bottom) {
             if dropEdge == .below { DropIndicator() }
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            measuredHeight = height
+        }
         .modifier(ConditionalDraggable(payload: payload, enabled: !isLocked))
         .dropDestination(for: IssueDragPayload.self) { items, location in
             dropEdge = nil
             guard let dropped = items.first else { return false }
-            let edge: DropEdge = location.y < cardHeight / 2 ? .above : .below
+            let pivot = measuredHeight > 0 ? measuredHeight / 2 : cardHeightFallback / 2
+            let edge: DropEdge = location.y < pivot ? .above : .below
             let target: ProjectKanbanModel.DropTarget =
                 edge == .above
                 ? .aboveCard(folderName: value.folderName, column: value.column)
@@ -60,7 +67,9 @@ struct IssueCardSwitch: View {
         }
     }
 
-    private let cardHeight: CGFloat = 120
+    // Used only on the first drop hover before .onGeometryChange has fired
+    // once. After that, `measuredHeight` reflects the rendered card.
+    private let cardHeightFallback: CGFloat = 120
 }
 
 private struct ConditionalDraggable: ViewModifier {
