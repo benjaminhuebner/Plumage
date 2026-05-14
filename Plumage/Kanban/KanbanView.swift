@@ -34,7 +34,7 @@ struct KanbanView: View {
             .padding(.vertical, 8)
         }
         .scrollPosition($autoScroll.horizontalScroll)
-        .scrollDisabled(kanbanDrag.state != nil)
+        .scrollDisabled(kanbanDrag.isActive)
         .coordinateSpace(name: KanbanCoordinateSpace.name)
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
@@ -42,7 +42,7 @@ struct KanbanView: View {
             kanbanFrame = CGRect(origin: .zero, size: size)
         }
         .overlay(alignment: .topLeading) {
-            floatingDragCard
+            FloatingDragCard(padding: padding)
         }
         .environment(kanbanDrag)
         .onPreferenceChange(CardFramesPreferenceKey.self) { frames in
@@ -51,11 +51,11 @@ struct KanbanView: View {
         .onPreferenceChange(ColumnFramesPreferenceKey.self) { frames in
             columnFrames = frames
         }
-        .onChange(of: kanbanDrag.state?.cursorLocation) { _, _ in
+        .onChange(of: kanbanDrag.cursorLocation) { _, _ in
             updateResolvedTarget()
             updateAutoScroll()
         }
-        .onChange(of: kanbanDrag.state != nil) { _, active in
+        .onChange(of: kanbanDrag.isActive) { _, active in
             if !active {
                 autoScroll.stop()
             }
@@ -68,7 +68,7 @@ struct KanbanView: View {
         // .onKeyPress(.escape) does not reliably fire while a mouse drag holds
         // the responder chain; a local NSEvent monitor catches the keystroke
         // regardless of focus and lets us cancel the drag mid-gesture.
-        .task(id: kanbanDrag.state != nil) {
+        .task(id: kanbanDrag.isActive) {
             await monitorEscape()
         }
     }
@@ -81,45 +81,21 @@ struct KanbanView: View {
     }
 
     private func updateAutoScroll() {
-        guard let drag = kanbanDrag.state else {
+        guard kanbanDrag.isActive else {
             autoScroll.stop()
             return
         }
+        let status = kanbanDrag.status
         autoScroll.update(
-            active: drag.status == .dragging || drag.status == .lifting,
-            cursor: drag.cursorLocation,
+            active: status == .dragging || status == .lifting,
+            cursor: kanbanDrag.cursorLocation,
             kanbanFrame: kanbanFrame,
             columnFrames: columnFrames
         )
     }
 
-    @ViewBuilder
-    private var floatingDragCard: some View {
-        if let drag = kanbanDrag.state, let issue = floatingIssue(drag.sourceFolderName) {
-            IssueCardView(issue: issue, padding: padding)
-                .frame(width: drag.sourceFrame.width, height: drag.sourceFrame.height)
-                .scaleEffect(drag.status == .cancelling ? 1.0 : 1.04)
-                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
-                .offset(
-                    x: drag.sourceFrame.minX + drag.translation.width,
-                    y: drag.sourceFrame.minY + drag.translation.height
-                )
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private func floatingIssue(_ folderName: String) -> Issue? {
-        for item in kanban.issues {
-            if case .valid(let issue) = item, issue.folderName == folderName {
-                return issue
-            }
-        }
-        return nil
-    }
-
     private func cancelDrag() {
-        guard kanbanDrag.state != nil else { return }
+        guard kanbanDrag.isActive else { return }
         withAnimation(KanbanAnimations.cancel(reduceMotion: reduceMotion)) {
             kanbanDrag.beginCancel()
         }
@@ -130,7 +106,7 @@ struct KanbanView: View {
     }
 
     private func monitorEscape() async {
-        guard kanbanDrag.state != nil else { return }
+        guard kanbanDrag.isActive else { return }
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
                 Task { @MainActor in cancelDrag() }
@@ -143,25 +119,59 @@ struct KanbanView: View {
                 NSEvent.removeMonitor(monitor)
             }
         }
-        while !Task.isCancelled, kanbanDrag.state != nil {
+        while !Task.isCancelled, kanbanDrag.isActive {
             try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
     private func updateResolvedTarget() {
-        guard let drag = kanbanDrag.state else { return }
+        guard kanbanDrag.isActive, let source = kanbanDrag.sourceFolderName else { return }
         let resolved = resolveDropTarget(
-            cursor: drag.cursorLocation,
+            cursor: kanbanDrag.cursorLocation,
             cardFrames: cardFrames,
             columnFrames: columnFrames,
             sortedIssues: grouped,
-            sourceFolderName: drag.sourceFolderName
+            sourceFolderName: source
         )
-        if drag.target != resolved {
-            withAnimation(KanbanAnimations.placeholder(reduceMotion: reduceMotion)) {
-                kanbanDrag.setTarget(resolved)
+        guard kanbanDrag.target != resolved else { return }
+        kanbanDrag.setTarget(resolved)
+    }
+}
+
+// Hoisted into its own view so it observes only the controller properties it
+// needs (translation, sourceFrame, status, sourceFolderName). KanbanView's body
+// no longer re-evaluates on every cursor frame.
+private struct FloatingDragCard: View {
+    let padding: Int
+    @Environment(KanbanDragController.self) private var kanbanDrag
+    @Environment(ProjectKanbanModel.self) private var kanban
+
+    var body: some View {
+        if kanbanDrag.isActive, let folderName = kanbanDrag.sourceFolderName,
+            let issue = lookup(folderName: folderName)
+        {
+            let frame = kanbanDrag.sourceFrame
+            let translation = kanbanDrag.translation
+            IssueCardView(issue: issue, padding: padding)
+                .frame(width: frame.width, height: frame.height)
+                .scaleEffect(kanbanDrag.status == .cancelling ? 1.0 : 1.04)
+                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
+                .offset(
+                    x: frame.minX + translation.width,
+                    y: frame.minY + translation.height
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func lookup(folderName: String) -> Issue? {
+        for item in kanban.issues {
+            if case .valid(let issue) = item, issue.folderName == folderName {
+                return issue
             }
         }
+        return nil
     }
 }
 

@@ -13,14 +13,14 @@ struct KanbanColumnView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let dragSource = kanbanDrag.state?.sourceFolderName
-        let visibleIssues = issues.filter { $0.id != dragSource }
+        let dragSource = kanbanDrag.sourceFolderName
+        let visibleIssues = dragSource == nil ? issues : issues.filter { $0.id != dragSource }
         let placeholderIndex = computePlaceholderIndex(
-            dragTarget: kanbanDrag.state?.target?.target,
+            dragTarget: kanbanDrag.target?.target,
             column: column,
             visibleIssues: visibleIssues
         )
-        let placeholderHeight = kanbanDrag.state?.sourceFrame.height ?? 100
+        let placeholderHeight = kanbanDrag.isActive ? kanbanDrag.sourceFrame.height : 100
 
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -51,7 +51,7 @@ struct KanbanColumnView: View {
                         value: placeholderIndex)
                 }
                 .scrollPosition($scrollPosition)
-                .scrollDisabled(kanbanDrag.state != nil)
+                .scrollDisabled(kanbanDrag.isActive)
             }
         }
         .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)

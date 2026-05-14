@@ -102,17 +102,17 @@ private struct ConditionalDragGesture: ViewModifier {
                 }
             }
             .onEnded { _ in
-                guard let state = controller.state else { return }
-                if let resolved = state.target {
+                guard controller.isActive, let payload = controller.payload else { return }
+                if let resolved = controller.target {
+                    let sourceFrame = controller.sourceFrame
                     let dropTranslation = CGSize(
-                        width: resolved.insertionFrame.minX - state.sourceFrame.minX,
-                        height: resolved.insertionFrame.minY - state.sourceFrame.minY
+                        width: resolved.insertionFrame.minX - sourceFrame.minX,
+                        height: resolved.insertionFrame.minY - sourceFrame.minY
                     )
                     let dropDelayMs = reduceMotion ? 50 : 180
                     withAnimation(KanbanAnimations.drop(reduceMotion: reduceMotion)) {
                         controller.beginDrop(finalTranslation: dropTranslation)
                     }
-                    let payload = state.payload
                     let target = resolved.target
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(dropDelayMs))

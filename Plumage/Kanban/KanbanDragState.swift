@@ -46,56 +46,67 @@ nonisolated struct KanbanDragState: Equatable, Sendable {
     var status: DragStatus
 }
 
+// Flat properties so Observation invalidates narrowly: cursor moves only
+// invalidate cursor/translation readers, not isActive/target/sourceFolderName.
+// Storing the drag as a single `KanbanDragState?` causes every reader of
+// `state` (e.g. `.scrollDisabled(state != nil)`, columns reading
+// `state?.sourceFolderName`) to re-evaluate on every cursor frame, which
+// cascades into the full KanbanView body and stalls the gesture.
 @Observable
 @MainActor
 final class KanbanDragController {
-    private(set) var state: KanbanDragState?
+    private(set) var isActive: Bool = false
+    private(set) var payload: IssueDragPayload?
+    private(set) var sourceFolderName: String?
+    private(set) var sourceFrame: CGRect = .zero
+    private(set) var cursorLocation: CGPoint = .zero
+    private(set) var translation: CGSize = .zero
+    private(set) var target: ResolvedDropTarget?
+    private(set) var status: DragStatus = .lifting
 
     func startLift(payload: IssueDragPayload, sourceFolderName: String, sourceFrame: CGRect) {
-        guard state == nil else { return }
-        state = KanbanDragState(
-            payload: payload,
-            sourceFolderName: sourceFolderName,
-            sourceFrame: sourceFrame,
-            cursorLocation: CGPoint(x: sourceFrame.midX, y: sourceFrame.midY),
-            translation: .zero,
-            target: nil,
-            status: .lifting
-        )
+        guard !isActive else { return }
+        self.payload = payload
+        self.sourceFolderName = sourceFolderName
+        self.sourceFrame = sourceFrame
+        self.cursorLocation = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+        self.translation = .zero
+        self.target = nil
+        self.status = .lifting
+        self.isActive = true
     }
 
     func updateCursor(location: CGPoint, translation: CGSize) {
-        guard var current = state else { return }
-        current.cursorLocation = location
-        current.translation = translation
-        if current.status == .lifting {
-            current.status = .dragging
+        guard isActive else { return }
+        self.cursorLocation = location
+        self.translation = translation
+        if status == .lifting {
+            status = .dragging
         }
-        state = current
     }
 
     func setTarget(_ target: ResolvedDropTarget?) {
-        guard var current = state else { return }
-        current.target = target
-        state = current
+        guard isActive else { return }
+        self.target = target
     }
 
     func beginDrop(finalTranslation: CGSize) {
-        guard var current = state else { return }
-        current.status = .dropping
-        current.translation = finalTranslation
-        state = current
+        guard isActive else { return }
+        status = .dropping
+        translation = finalTranslation
     }
 
     func beginCancel() {
-        guard var current = state else { return }
-        current.status = .cancelling
-        current.translation = .zero
-        state = current
+        guard isActive else { return }
+        status = .cancelling
+        translation = .zero
     }
 
     func clear() {
-        state = nil
+        isActive = false
+        payload = nil
+        sourceFolderName = nil
+        target = nil
     }
 }
 
