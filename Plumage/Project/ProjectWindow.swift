@@ -17,6 +17,7 @@ struct ProjectWindow: View {
                         IssueDetailView(projectURL: handle.url, folderName: folderName)
                     case .rawEditor(let folderName):
                         SpecEditorView(projectURL: handle.url, folderName: folderName)
+                            .navigationTitle("Raw: \(folderName)")
                     }
                 }
         }
