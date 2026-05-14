@@ -7,6 +7,8 @@ struct KanbanColumnView: View {
     let projectURL: URL
 
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
+    @Environment(ProjectKanbanModel.self) private var kanban
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -30,6 +32,25 @@ struct KanbanColumnView: View {
             }
         }
         .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
+        .contentShape(Rectangle())
+        .dropDestination(for: IssueDragPayload.self) { items, _ in
+            guard let payload = items.first else { return false }
+            let columnSnapshot = column
+            let urlSnapshot = projectURL
+            Task { @MainActor in
+                await kanban.performDrop(
+                    payload, to: .column(columnSnapshot), projectURL: urlSnapshot)
+            }
+            return true
+        } isTargeted: { targeted in
+            isDropTargeted = targeted
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(isDropTargeted ? 0.6 : 0.0)
+                .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+        )
     }
 
     private var header: some View {
@@ -110,4 +131,5 @@ struct KanbanColumnView: View {
     }
     .padding()
     .frame(height: 480)
+    .environment(ProjectKanbanModel())
 }
