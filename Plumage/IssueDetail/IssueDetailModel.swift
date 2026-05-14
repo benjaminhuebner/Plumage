@@ -147,6 +147,13 @@ final class IssueDetailModel {
         switch SpecParser.parse(content: content, folderName: resolvedFolderName) {
         case .success(let parsed):
             issue = parsed
+            // Mirror parsed values into drafts so the view can read the same
+            // sources of truth in both modes (creating uses drafts directly,
+            // loaded uses drafts that are kept in sync with disk).
+            titleDraft = parsed.title
+            typeDraft = parsed.type
+            statusDraft = parsed.status
+            labelsDraft = parsed.labels
             frontmatterError = nil
         case .failure(let error):
             issue = nil

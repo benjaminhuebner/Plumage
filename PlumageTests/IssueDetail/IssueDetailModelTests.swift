@@ -248,6 +248,19 @@ struct IssueDetailModelTests {
         #expect(model.loadedBodyContent.contains("Raw replacement."))
     }
 
+    @Test("load mirrors parsed issue into drafts so the view has one source of truth")
+    func loadSyncsDrafts() async throws {
+        let env = try makeEnvironment(
+            spec: Self.baseSpec(status: "in-progress", body: "Body."))
+        let model = env.makeModel()
+        await model.load()
+        let issue = try #require(model.issue)
+        #expect(model.titleDraft == issue.title)
+        #expect(model.typeDraft == issue.type)
+        #expect(model.statusDraft == issue.status)
+        #expect(model.labelsDraft == issue.labels)
+    }
+
     @Test("creating-mode init pre-populates statusDraft and skips disk load")
     func creatingInitDefaults() async throws {
         let projectURL = URL(filePath: "/tmp/fake-project-\(UUID().uuidString)")

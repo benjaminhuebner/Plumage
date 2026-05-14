@@ -7,7 +7,6 @@ struct IssueDetailView: View {
     let projectURL: URL
 
     @State private var model: IssueDetailModel
-    @State private var titleDraft: String = ""
     @State private var rawDraft: String = ""
     @State private var displayMode: DisplayMode = .detail
     @State private var editorPosition = CodeEditor.Position()
@@ -75,16 +74,8 @@ struct IssueDetailView: View {
         .task(id: model.specURL) {
             guard !model.isCreating else { return }
             await model.load()
-            if let issue = model.issue {
-                titleDraft = issue.title
-            }
             rawDraft = model.loadedSpecContent
             refreshEditorMessages()
-        }
-        .onChange(of: model.issue?.title) { _, newTitle in
-            if let newTitle, newTitle != titleDraft {
-                titleDraft = newTitle
-            }
         }
         .onChange(of: model.loadedSpecContent) { _, newContent in
             // Keep raw buffer in sync after silent reloads / form writes.
@@ -109,7 +100,9 @@ struct IssueDetailView: View {
         .onChange(of: displayMode) { _, newMode in
             // Switching INTO raw should snapshot the current disk content as
             // the buffer's baseline, so the user starts from a clean view.
-            if newMode == .raw {
+            // In creating mode the raw view shows a synthesized preview,
+            // computed on the fly via `synthesizedRawPreview`; no snapshot.
+            if newMode == .raw && !model.isCreating {
                 rawDraft = model.loadedSpecContent
             }
         }
@@ -154,10 +147,8 @@ struct IssueDetailView: View {
                     .padding(32)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loaded:
-                if model.isCreating {
-                    creatingContent()
-                } else if let issue = model.issue {
-                    loadedContent(issue: issue)
+                if model.isCreating || model.issue != nil {
+                    renderedDetail()
                 } else {
                     Text("Issue could not be parsed.")
                         .foregroundStyle(.secondary)
@@ -168,24 +159,28 @@ struct IssueDetailView: View {
         }
     }
 
+    // Single render path for both creating and loaded modes. The mode-specific
+    // bits flow through the `current*`/`on*` helpers below so this layout
+    // (TopBar → Hero → FormRows → Body editor, or TopBar → Raw editor) stays
+    // identical regardless of whether the issue is on disk yet.
     @ViewBuilder
-    private func loadedContent(issue: Issue) -> some View {
+    private func renderedDetail() -> some View {
         VStack(alignment: .leading, spacing: 16) {
             IssueDetailTopBar(
-                paddedID: "#" + IssueIDFormatter.padded(issue.id, width: 5),
-                branch: issue.branch,
+                paddedID: paddedID,
+                branch: branch,
                 displayMode: $displayMode,
                 showsDisplayModeToggle: true,
-                showsCopyID: true,
-                showsRevealInFinder: true,
-                saveDisabled: false,
+                showsCopyID: !model.isCreating,
+                showsRevealInFinder: !model.isCreating,
+                saveDisabled: saveDisabled,
                 onCopyID: copyID,
                 onRevealInFinder: revealInFinder,
                 onSave: attemptSave
             )
             switch displayMode {
             case .detail:
-                detailBody(issue: issue)
+                detailBody
             case .raw:
                 rawBody
             }
@@ -194,95 +189,31 @@ struct IssueDetailView: View {
     }
 
     @ViewBuilder
-    private func creatingContent() -> some View {
-        @Bindable var model = model
-        VStack(alignment: .leading, spacing: 16) {
-            IssueDetailTopBar(
-                paddedID: nil,
-                branch: nil,
-                displayMode: $displayMode,
-                showsDisplayModeToggle: false,
-                showsCopyID: false,
-                showsRevealInFinder: false,
-                saveDisabled: !model.canSaveInCreatingMode,
-                onCopyID: {},
-                onRevealInFinder: {},
-                onSave: attemptSave
-            )
-            IssueDetailHero(
-                status: model.statusDraft,
-                type: model.typeDraft,
-                labels: model.labelsDraft,
-                titleDraft: $model.titleDraft,
-                titlePlaceholder: "Issue title",
-                autoFocusTitle: true,
-                onCommitTitle: {},
-                onAddLabel: { newLabel in
-                    if !model.labelsDraft.contains(newLabel) {
-                        model.labelsDraft.append(newLabel)
-                    }
-                },
-                onRemoveLabel: { label in
-                    model.labelsDraft.removeAll { $0 == label }
-                },
-                isDisabled: false
-            )
-            Divider()
-            IssueDetailFormRows(
-                type: model.typeDraft,
-                status: model.statusDraft,
-                dates: nil,
-                onSelectType: { newType in model.typeDraft = newType },
-                onSelectStatus: { newStatus in model.statusDraft = newStatus },
-                isDisabled: false
-            )
-            Divider()
-            CodeEditor(
-                text: $model.bodyDraft,
-                position: $editorPosition,
-                messages: $editorMessages,
-                language: markdownLanguage
-            )
-            .environment(\.codeEditorLayoutConfiguration, editorLayout)
-            .frame(minHeight: 240)
-        }
-        .padding(24)
-    }
-
-    @ViewBuilder
-    private func detailBody(issue: Issue) -> some View {
+    private var detailBody: some View {
         IssueDetailHero(
-            status: issue.status,
-            type: issue.type,
-            labels: issue.labels,
-            titleDraft: $titleDraft,
-            titlePlaceholder: "Title",
-            autoFocusTitle: false,
-            onCommitTitle: commitTitle,
-            onAddLabel: { newLabel in
-                let next = issue.labels + [newLabel]
-                runFormCommit { try await model.commitLabels(next) }
-            },
-            onRemoveLabel: { label in
-                let next = issue.labels.filter { $0 != label }
-                runFormCommit { try await model.commitLabels(next) }
-            },
-            isDisabled: model.frontmatterError != nil
+            status: currentStatus,
+            type: currentType,
+            labels: currentLabels,
+            titleDraft: titleBinding,
+            titlePlaceholder: model.isCreating ? "Issue title" : "Title",
+            autoFocusTitle: model.isCreating,
+            onCommitTitle: onCommitTitle,
+            onAddLabel: onAddLabel,
+            onRemoveLabel: onRemoveLabel,
+            isDisabled: detailFieldsDisabled
         )
         Divider()
         IssueDetailFormRows(
-            type: issue.type,
-            status: issue.status,
-            dates: .init(created: issue.created, updated: issue.updated),
-            onSelectType: { newType in runFormCommit { try await model.commitType(newType) } },
-            onSelectStatus: { newStatus in
-                runFormCommit { try await model.commitStatus(newStatus) }
-            },
-            isDisabled: model.frontmatterError != nil
+            type: currentType,
+            status: currentStatus,
+            dates: formDates,
+            onSelectType: onSelectType,
+            onSelectStatus: onSelectStatus,
+            isDisabled: detailFieldsDisabled
         )
         Divider()
         CodeEditor(
-            text: $model.bodyDraft,
+            text: bodyBinding,
             position: $editorPosition,
             messages: $editorMessages,
             language: markdownLanguage
@@ -294,17 +225,20 @@ struct IssueDetailView: View {
     @ViewBuilder
     private var rawBody: some View {
         CodeEditor(
-            text: $rawDraft,
+            text: rawBinding,
             position: $editorPosition,
             messages: $editorMessages,
             language: markdownLanguage
         )
         .environment(\.codeEditorLayoutConfiguration, editorLayout)
         .frame(minHeight: 240)
+        // Creating mode has no on-disk spec yet: the raw view shows a live
+        // preview of what would be written on save, but isn't editable.
+        .disabled(model.isCreating)
     }
 
     private var backgroundTint: some View {
-        let color = model.issue?.type.color ?? .gray
+        let color = currentType.color
         return LinearGradient(
             colors: [
                 color.opacity(0.10),
@@ -314,6 +248,96 @@ struct IssueDetailView: View {
             endPoint: .bottom
         )
         .ignoresSafeArea()
+    }
+
+    // MARK: - Mode-aware data sources
+
+    private var currentStatus: IssueStatus {
+        if model.isCreating { return model.statusDraft }
+        return model.issue?.status ?? model.statusDraft
+    }
+
+    private var currentType: IssueType {
+        if model.isCreating { return model.typeDraft }
+        return model.issue?.type ?? model.typeDraft
+    }
+
+    private var currentLabels: [String] {
+        if model.isCreating { return model.labelsDraft }
+        return model.issue?.labels ?? []
+    }
+
+    private var formDates: IssueDetailFormRows.Dates? {
+        guard !model.isCreating, let issue = model.issue else { return nil }
+        return .init(created: issue.created, updated: issue.updated)
+    }
+
+    private var paddedID: String? {
+        guard !model.isCreating, let issue = model.issue else { return nil }
+        return "#" + IssueIDFormatter.padded(issue.id, width: 5)
+    }
+
+    private var branch: String? {
+        guard !model.isCreating, let issue = model.issue else { return nil }
+        return issue.branch
+    }
+
+    private var titleBinding: Binding<String> {
+        Binding(
+            get: { model.titleDraft },
+            set: { model.titleDraft = $0 }
+        )
+    }
+
+    private var bodyBinding: Binding<String> {
+        Binding(
+            get: { model.bodyDraft },
+            set: { model.bodyDraft = $0 }
+        )
+    }
+
+    private var rawBinding: Binding<String> {
+        if model.isCreating {
+            // Read-only synthesized preview; the setter is a no-op because
+            // the editor is .disabled() in creating mode.
+            return Binding(
+                get: { synthesizedRawPreview },
+                set: { _ in }
+            )
+        }
+        return Binding(
+            get: { rawDraft },
+            set: { rawDraft = $0 }
+        )
+    }
+
+    private var synthesizedRawPreview: String {
+        let labels = FrontmatterMutator.formatLabels(model.labelsDraft)
+        let title =
+            model.titleDraft.isEmpty
+            ? ""
+            : FrontmatterMutator.formatTitleValue(model.titleDraft)
+        return """
+            ---
+            id: <pending>
+            title: \(title)
+            type: \(model.typeDraft.rawValue)
+            status: \(model.statusDraft.rawValue)
+            labels: \(labels)
+            ---
+
+            \(model.bodyDraft)
+            """
+    }
+
+    private var saveDisabled: Bool {
+        if model.isCreating { return !model.canSaveInCreatingMode }
+        return false
+    }
+
+    private var detailFieldsDisabled: Bool {
+        if model.isCreating { return false }
+        return model.frontmatterError != nil
     }
 
     private var isRawDirty: Bool {
@@ -340,12 +364,56 @@ struct IssueDetailView: View {
         return model.folderName
     }
 
-    private func refreshEditorMessages() {
-        editorMessages = []
+    // MARK: - Mode-aware callbacks
+
+    private func onCommitTitle() {
+        // In creating mode, the title lives entirely in `model.titleDraft`
+        // until save; no per-keystroke commit. In loaded mode, on-blur
+        // writes through to disk.
+        guard !model.isCreating else { return }
+        runFormCommit { try await model.commitTitle(model.titleDraft) }
     }
 
-    private func commitTitle() {
-        runFormCommit { try await model.commitTitle(titleDraft) }
+    private func onAddLabel(_ newLabel: String) {
+        if model.isCreating {
+            if !model.labelsDraft.contains(newLabel) {
+                model.labelsDraft.append(newLabel)
+            }
+            return
+        }
+        guard let issue = model.issue else { return }
+        let next = issue.labels + [newLabel]
+        runFormCommit { try await model.commitLabels(next) }
+    }
+
+    private func onRemoveLabel(_ label: String) {
+        if model.isCreating {
+            model.labelsDraft.removeAll { $0 == label }
+            return
+        }
+        guard let issue = model.issue else { return }
+        let next = issue.labels.filter { $0 != label }
+        runFormCommit { try await model.commitLabels(next) }
+    }
+
+    private func onSelectType(_ newType: IssueType) {
+        if model.isCreating {
+            model.typeDraft = newType
+            return
+        }
+        runFormCommit { try await model.commitType(newType) }
+    }
+
+    private func onSelectStatus(_ newStatus: IssueStatus) {
+        if model.isCreating {
+            model.statusDraft = newStatus
+            return
+        }
+        runFormCommit { try await model.commitStatus(newStatus) }
+    }
+
+    private func refreshEditorMessages() {
+        editorMessages = []
     }
 
     private func runFormCommit(_ work: @escaping () async throws -> Void) {
