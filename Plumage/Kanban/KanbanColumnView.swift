@@ -10,6 +10,7 @@ struct KanbanColumnView: View {
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(KanbanDragController.self) private var kanbanDrag
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let dragSource = kanbanDrag.state?.sourceFolderName
@@ -45,7 +46,9 @@ struct KanbanColumnView: View {
                         }
                     }
                     .padding(.horizontal, 4)
-                    .animation(.smooth(duration: 0.18), value: placeholderIndex)
+                    .animation(
+                        KanbanAnimations.placeholder(reduceMotion: reduceMotion),
+                        value: placeholderIndex)
                 }
                 .scrollPosition($scrollPosition)
                 .scrollDisabled(kanbanDrag.state != nil)

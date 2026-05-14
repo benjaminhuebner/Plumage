@@ -8,6 +8,7 @@ struct KanbanView: View {
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var cardFrames: [String: CGRect] = [:]
     @State private var columnFrames: [IssueColumn: CGRect] = [:]
     @State private var kanbanFrame: CGRect = .zero
@@ -119,11 +120,11 @@ struct KanbanView: View {
 
     private func cancelDrag() {
         guard kanbanDrag.state != nil else { return }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+        withAnimation(KanbanAnimations.cancel(reduceMotion: reduceMotion)) {
             kanbanDrag.beginCancel()
         }
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 50 : 300))
             kanbanDrag.clear()
         }
     }
@@ -157,7 +158,7 @@ struct KanbanView: View {
             sourceFolderName: drag.sourceFolderName
         )
         if drag.target != resolved {
-            withAnimation(.smooth(duration: 0.18)) {
+            withAnimation(KanbanAnimations.placeholder(reduceMotion: reduceMotion)) {
                 kanbanDrag.setTarget(resolved)
             }
         }

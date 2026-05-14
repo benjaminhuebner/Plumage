@@ -67,6 +67,7 @@ private struct ConditionalDragGesture: ViewModifier {
     let onDispatch: (IssueDragPayload, ProjectKanbanModel.DropTarget) -> Void
 
     @Environment(KanbanDragController.self) private var controller
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         if enabled {
@@ -84,7 +85,7 @@ private struct ConditionalDragGesture: ViewModifier {
                 switch value {
                 case .first(true):
                     let frame = sourceFrameProvider()
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                    withAnimation(KanbanAnimations.lift(reduceMotion: reduceMotion)) {
                         controller.startLift(
                             payload: payload,
                             sourceFolderName: payload.folderName,
@@ -107,22 +108,24 @@ private struct ConditionalDragGesture: ViewModifier {
                         width: resolved.insertionFrame.minX - state.sourceFrame.minX,
                         height: resolved.insertionFrame.minY - state.sourceFrame.minY
                     )
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    let dropDelayMs = reduceMotion ? 50 : 180
+                    withAnimation(KanbanAnimations.drop(reduceMotion: reduceMotion)) {
                         controller.beginDrop(finalTranslation: dropTranslation)
                     }
                     let payload = state.payload
                     let target = resolved.target
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(180))
+                        try? await Task.sleep(for: .milliseconds(dropDelayMs))
                         onDispatch(payload, target)
                         controller.clear()
                     }
                 } else {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    let cancelDelayMs = reduceMotion ? 50 : 300
+                    withAnimation(KanbanAnimations.cancel(reduceMotion: reduceMotion)) {
                         controller.beginCancel()
                     }
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(300))
+                        try? await Task.sleep(for: .milliseconds(cancelDelayMs))
                         controller.clear()
                     }
                 }

@@ -1,6 +1,27 @@
 import CoreGraphics
 import Foundation
 import Observation
+import SwiftUI
+
+nonisolated enum KanbanAnimations {
+    static let reducedDuration: Double = 0.05
+
+    static func lift(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .linear(duration: reducedDuration) : .spring(response: 0.22, dampingFraction: 0.7)
+    }
+
+    static func placeholder(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .linear(duration: reducedDuration) : .smooth(duration: 0.18)
+    }
+
+    static func drop(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .linear(duration: reducedDuration) : .easeOut(duration: 0.18)
+    }
+
+    static func cancel(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .linear(duration: reducedDuration) : .spring(response: 0.3, dampingFraction: 0.7)
+    }
+}
 
 nonisolated enum DragStatus: Sendable, Equatable {
     case lifting
