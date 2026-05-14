@@ -134,7 +134,17 @@ struct KanbanView: View {
             sourceFolderName: source
         )
         guard kanbanDrag.target != resolved else { return }
-        kanbanDrag.setTarget(resolved)
+        // Wrap the target change explicitly so only the placeholder-gap
+        // transition animates. The `.animation(_, value:)` modifier on the
+        // LazyVStack was animating EVERY layout change tied to the column
+        // — including the source's insertion on drop, where the new row
+        // would first appear at LazyVStack's default position and then
+        // animate to its correct slot. By driving the animation from here
+        // instead, only deliberate target changes during drag are smooth;
+        // the drop itself snaps.
+        withAnimation(KanbanAnimations.placeholder(reduceMotion: reduceMotion)) {
+            kanbanDrag.setTarget(resolved)
+        }
     }
 }
 

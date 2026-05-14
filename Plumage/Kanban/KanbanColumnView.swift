@@ -10,7 +10,6 @@ struct KanbanColumnView: View {
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(KanbanDragController.self) private var kanbanDrag
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // Keep ALL issues in the ForEach — even the source. Removing the
@@ -54,9 +53,6 @@ struct KanbanColumnView: View {
                         }
                     }
                     .padding(.horizontal, 4)
-                    .animation(
-                        KanbanAnimations.placeholder(reduceMotion: reduceMotion),
-                        value: placeholderIndex)
                 }
                 .scrollPosition($scrollPosition)
                 .scrollDisabled(kanbanDrag.isActive)
