@@ -60,11 +60,11 @@ struct IssueCardView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        // Uniform card height so every card in every column matches.
-        // Title + goal (each capped at their lineLimit) plus the Spacer
-        // padding fills any leftover vertical space, so a card with no goal
-        // is the same height as one with a long goal.
-        .frame(height: 132, alignment: .top)
+        // Uniform card content height so every card matches. Title + goal
+        // (each capped at their lineLimit) plus the Spacer fill any leftover
+        // space, so a card with no goal is the same height as one with a
+        // long goal.
+        .frame(height: KanbanLayout.cardContentHeight, alignment: .top)
         .cardContainer(tint: issue.type.color)
         .overlay(
             RoundedRectangle(cornerRadius: 12)

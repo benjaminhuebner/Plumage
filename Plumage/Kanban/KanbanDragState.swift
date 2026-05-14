@@ -6,10 +6,6 @@ import SwiftUI
 nonisolated enum KanbanAnimations {
     static let reducedDuration: Double = 0.05
 
-    static func lift(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .linear(duration: reducedDuration) : .spring(response: 0.22, dampingFraction: 0.7)
-    }
-
     static func placeholder(reduceMotion: Bool) -> Animation {
         reduceMotion ? .linear(duration: reducedDuration) : .smooth(duration: 0.18)
     }
@@ -36,22 +32,11 @@ nonisolated struct ResolvedDropTarget: Equatable, Sendable {
     let insertionFrame: CGRect
 }
 
-nonisolated struct KanbanDragState: Equatable, Sendable {
-    let payload: IssueDragPayload
-    let sourceFolderName: String
-    let sourceFrame: CGRect
-    var cursorLocation: CGPoint
-    var translation: CGSize
-    var target: ResolvedDropTarget?
-    var status: DragStatus
-}
-
-// Flat properties so Observation invalidates narrowly: cursor moves only
-// invalidate cursor/translation readers, not isActive/target/sourceFolderName.
-// Storing the drag as a single `KanbanDragState?` causes every reader of
-// `state` (e.g. `.scrollDisabled(state != nil)`, columns reading
-// `state?.sourceFolderName`) to re-evaluate on every cursor frame, which
-// cascades into the full KanbanView body and stalls the gesture.
+// Flat properties so Observation invalidates narrowly: a cursor move only
+// invalidates cursor/translation readers, not isActive/target/sourceFolderName.
+// A previous version stored the drag as a single `KanbanDragState?` and every
+// reader of `state` re-evaluated on every cursor frame, cascading into the
+// full KanbanView body and stalling the gesture.
 @Observable
 @MainActor
 final class KanbanDragController {
@@ -154,20 +139,17 @@ nonisolated func resolveDropTarget(
     for card in cards {
         guard let frame = cardFrames[card.id] else { continue }
         if cursor.y < frame.midY {
-            // insertionFrame must point at where the SOURCE lands (the
-            // placeholder slot above this card), NOT at the target card's
-            // own frame. The placeholder is rendered before the card with
-            // 8pt LazyVStack spacing, so the source's eventual layout slot
-            // sits at `frame.minY - 8 - frame.height`. Using `frame` here
-            // sent the drop animation 164pt below the source's real slot,
-            // which the user saw as the floating card falling down to the
-            // target card before the actual source materialised one
-            // card-height higher (the "Runterfall" bug).
+            // insertionFrame must point at where the SOURCE actually lands
+            // — the placeholder slot ABOVE the target card — not at the
+            // target card's own frame. The placeholder is rendered before
+            // the card with `KanbanLayout.cardSpacing` between them, so the
+            // source's real layout slot is one card-height higher than the
+            // matched card.
             let insertionFrame = CGRect(
                 x: frame.minX,
-                y: frame.minY - 8 - frame.height,
+                y: frame.minY - KanbanLayout.cardSpacing - KanbanLayout.cardHeight,
                 width: frame.width,
-                height: frame.height
+                height: KanbanLayout.cardHeight
             )
             return ResolvedDropTarget(
                 column: column,
@@ -178,13 +160,11 @@ nonisolated func resolveDropTarget(
     }
     let last = cards[cards.count - 1]
     let lastFrame = cardFrames[last.id] ?? .zero
-    // Source's new position is BELOW lastFrame, not at lastFrame. Without
-    // the +height shift, the drop animation lands at the wrong row and the
-    // user sees "first below, then plopp" as the source's real layout slot
-    // resolves a frame later.
+    // Source's new position is BELOW lastFrame plus one spacing — the
+    // placeholder slot for belowCard sits in that gap.
     let insertionFrame = CGRect(
-        origin: CGPoint(x: lastFrame.minX, y: lastFrame.maxY + 8),
-        size: lastFrame.size
+        origin: CGPoint(x: lastFrame.minX, y: lastFrame.maxY + KanbanLayout.cardSpacing),
+        size: CGSize(width: lastFrame.width, height: KanbanLayout.cardHeight)
     )
     return ResolvedDropTarget(
         column: column,

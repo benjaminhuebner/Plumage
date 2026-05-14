@@ -1,12 +1,10 @@
 import SwiftUI
 
-// Frame registry replaces the PreferenceKey-based reporting. SwiftUI's
-// preference system fires "Bound preference … tried to update multiple times
-// per frame" warnings during the column's multi-pass layout (LazyVStack +
-// ScrollView + placeholder reflow) when many cards emit fresh frame values
-// inside the same render pass. `.onGeometryChange` is the post-iOS-17 / macOS
-// 14 replacement that bypasses the preference-value graph entirely: each card
-// writes its own frame straight into the registry on settle.
+// Card- and column-frame storage shared between the column views and the
+// drop-target resolver. `.onGeometryChange` (macOS 14+) writes straight into
+// the registry — the equivalent PreferenceKey route emitted multiple values
+// per frame during the column's multi-pass layout and triggered SwiftUI's
+// "Bound preference X tried to update multiple times per frame" warning.
 @Observable
 @MainActor
 final class KanbanFrameRegistry {

@@ -14,22 +14,18 @@ struct KanbanColumnView: View {
 
     var body: some View {
         // Keep ALL issues in the ForEach — even the source. Removing the
-        // source IssueCardSwitch would destroy its view, which tears down the
-        // attached DragGesture mid-drag (the visible bug: card lifts, then
-        // stops following). Hiding via .opacity(0) inside IssueCardSwitch
-        // keeps the gesture's view identity alive.
+        // source IssueCardSwitch from the array would destroy its view, and
+        // the attached DragGesture would die mid-drag. IssueCardSwitch
+        // collapses to height 0 + opacity 0 while it is the drag source, so
+        // its view identity (and the gesture) survives the drag.
         let dragSource = kanbanDrag.sourceFolderName
         let placeholderIndex = computePlaceholderIndex(
             dragTarget: kanbanDrag.target?.target,
             column: column,
             visibleIssues: issues
         )
-        // Fixed card height + 24pt padding (12 top + 12 bottom from
-        // cardContainer) = 156pt. Use this constant for the placeholder so
-        // the gap matches the source's actual visual footprint exactly.
-        let placeholderHeight: CGFloat = 156
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: KanbanLayout.cardSpacing) {
             header
                 .padding(.horizontal, 4)
 
@@ -40,10 +36,10 @@ struct KanbanColumnView: View {
                     .padding(.vertical, 24)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: KanbanLayout.cardSpacing) {
                         ForEach(Array(issues.enumerated()), id: \.element.id) { idx, item in
                             if placeholderIndex == idx {
-                                placeholderSlot(height: placeholderHeight)
+                                placeholderSlot
                             }
                             IssueCardSwitch(
                                 issue: item,
@@ -53,7 +49,7 @@ struct KanbanColumnView: View {
                             )
                         }
                         if placeholderIndex == issues.count {
-                            placeholderSlot(height: placeholderHeight)
+                            placeholderSlot
                         }
                     }
                     .padding(.horizontal, 4)
@@ -62,20 +58,22 @@ struct KanbanColumnView: View {
                 .scrollDisabled(kanbanDrag.isActive)
             }
         }
-        // Fixed column width so every section is the same width regardless
-        // of how many cards live in it. Empty columns now stretch the same
-        // vertical/horizontal footprint as full ones.
+        // Pin every column to a fixed width so empty columns and full
+        // columns match. `maxHeight: .infinity` lets the column stretch to
+        // fill the kanban's vertical space.
         .frame(
-            minWidth: 260, idealWidth: 260, maxWidth: 260,
+            minWidth: KanbanLayout.columnWidth,
+            idealWidth: KanbanLayout.columnWidth,
+            maxWidth: KanbanLayout.columnWidth,
             maxHeight: .infinity, alignment: .top
         )
         .contentShape(Rectangle())
         .reportColumnFrame(column: column, registry: frameRegistry)
     }
 
-    private func placeholderSlot(height: CGFloat) -> some View {
+    private var placeholderSlot: some View {
         Color.clear
-            .frame(height: height)
+            .frame(height: KanbanLayout.cardHeight)
             .accessibilityHidden(true)
     }
 

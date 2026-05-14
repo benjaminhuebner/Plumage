@@ -30,10 +30,11 @@ struct IssueCardSwitch: View {
     private func validBody(_ value: Issue) -> some View {
         let isLocked = dirtyFolderName == value.folderName
         let payload = IssueDragPayload(folderName: value.folderName, currentStatus: value.status)
-        // Collapse the source slot entirely while it is the drag source —
-        // frame goes to 0 and content is clipped so the column's layout
-        // doesn't carry an empty slot beside the placeholder. View identity
-        // stays in the ForEach so the attached gesture keeps firing.
+        // While this card is the active drag source, collapse it entirely:
+        // frame to height 0, content clipped, opacity 0. The column's layout
+        // then shows only the placeholder slot, never an empty source slot
+        // beside it. View identity stays in the ForEach so the attached
+        // DragGesture keeps firing throughout the drag.
         let cardOpacity: Double = isDragSource ? 0 : (isLocked ? 0.7 : 1.0)
 
         IssueCardView(issue: value, padding: padding)
@@ -136,11 +137,11 @@ private struct CardInteraction: ViewModifier {
                     let target = resolved.target
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(dropDelayMs))
-                        // applyOptimisticDrop is SYNCHRONOUS — the issues
-                        // array is mutated (wrapped in the model's own
-                        // smooth-animation) before we clear, so when clear
+                        // applyOptimisticDrop runs synchronously and mutates
+                        // the issues array before we clear, so when clear
                         // hands the source back to the column layout it is
-                        // already at its new slot. No "first below then plopp".
+                        // already in its final slot — no animation, no
+                        // "lands wrong then re-sorts".
                         onDispatch(payload, target)
                         controller.clear()
                     }
