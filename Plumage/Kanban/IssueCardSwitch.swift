@@ -85,28 +85,25 @@ private struct ConditionalDragGesture: ViewModifier {
     }
 
     private func buildGesture() -> some Gesture {
-        let lift = LongPressGesture(minimumDuration: 0.15)
-        let drag = DragGesture(coordinateSpace: .named(KanbanCoordinateSpace.name))
-        return lift.sequenced(before: drag)
+        // Pure DragGesture, no LongPressGesture. minimumDistance: 4 acts as the
+        // tap-vs-drag boundary — a click without movement lets the NavigationLink
+        // button win, anything ≥ 4pt of movement activates the drag. This is the
+        // macOS native pattern (cf. carson-katri/drag-and-drop,
+        // hellojoelhuber/swiftui-drag-and-drop) and it is the only thing that
+        // survives the trackpad three-finger drag, which starts moving instantly
+        // and would always fail a LongPressGesture's "still for 150ms within 10pt"
+        // requirement.
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(KanbanCoordinateSpace.name))
             .onChanged { value in
-                switch value {
-                case .first(true):
-                    let frame = sourceFrameProvider()
-                    withAnimation(KanbanAnimations.lift(reduceMotion: reduceMotion)) {
-                        controller.startLift(
-                            payload: payload,
-                            sourceFolderName: payload.folderName,
-                            sourceFrame: frame
-                        )
-                    }
-                case .second(true, let dragValue?):
-                    controller.updateCursor(
-                        location: dragValue.location,
-                        translation: dragValue.translation
+                if !controller.isActive {
+                    controller.startLift(
+                        payload: payload,
+                        sourceFolderName: payload.folderName,
+                        sourceFrame: sourceFrameProvider()
                     )
-                default:
-                    break
                 }
+                controller.updateCursor(
+                    location: value.location, translation: value.translation)
             }
             .onEnded { _ in
                 guard controller.isActive, let payload = controller.payload else { return }
