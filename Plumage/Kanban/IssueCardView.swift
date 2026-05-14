@@ -10,6 +10,15 @@ struct IssueCardView: View {
         highlightedID == issue.folderName
     }
 
+    private var accessibilityDescription: String {
+        var parts = ["\(issue.type.rawValue.capitalized) · \(issue.title)"]
+        if let goal = issue.goal, !goal.isEmpty {
+            parts.append(goal)
+        }
+        parts.append(issue.status.label)
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
@@ -56,6 +65,7 @@ struct IssueCardView: View {
                 .animation(.easeOut(duration: 1.0), value: isHighlighted)
         )
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityDescription)
     }
 }
 
