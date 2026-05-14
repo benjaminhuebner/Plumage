@@ -71,6 +71,11 @@ struct KanbanColumnView: View {
             .disabled(newIssueSheetIsPresented == nil)
             .help("New issue")
             .accessibilityLabel("New issue in \(column.name)")
+            .accessibilityHint(
+                newIssueSheetIsPresented == nil
+                    ? "Unavailable while this project is still loading or failed to open"
+                    : ""
+            )
         }
     }
 }
