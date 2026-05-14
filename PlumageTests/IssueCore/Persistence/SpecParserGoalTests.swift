@@ -96,6 +96,25 @@ struct SpecParserGoalTests {
         #expect(SpecParser.extractGoal(from: content) == "First paragraph here.")
     }
 
+    @Test("Goal exactly 240 chars is not capped")
+    func exactBoundaryNoCap() throws {
+        let exact = String(repeating: "a", count: 240)
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Goal
+
+            \(exact)
+
+            ## Scope
+            """
+        let goal = try #require(SpecParser.extractGoal(from: content))
+        #expect(goal == exact)
+        #expect(!goal.hasSuffix("…"))
+    }
+
     @Test("Goal longer than 240 chars is capped with ellipsis")
     func capsLongGoal() throws {
         let long = String(repeating: "a", count: 300)
