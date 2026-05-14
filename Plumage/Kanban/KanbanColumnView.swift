@@ -8,14 +8,23 @@ struct KanbanColumnView: View {
 
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
     @Environment(ProjectKanbanModel.self) private var kanban
-    @State private var isDropTargeted = false
+    @Environment(KanbanDragController.self) private var kanbanDrag
 
     var body: some View {
+        let dragSource = kanbanDrag.state?.sourceFolderName
+        let visibleIssues = issues.filter { $0.id != dragSource }
+        let placeholderIndex = computePlaceholderIndex(
+            dragTarget: kanbanDrag.state?.target?.target,
+            column: column,
+            visibleIssues: visibleIssues
+        )
+        let placeholderHeight = kanbanDrag.state?.sourceFrame.height ?? 100
+
         VStack(alignment: .leading, spacing: 8) {
             header
                 .padding(.horizontal, 4)
 
-            if issues.isEmpty {
+            if visibleIssues.isEmpty && placeholderIndex == nil {
                 Text("No issues")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -23,31 +32,31 @@ struct KanbanColumnView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(issues) { item in
+                        ForEach(Array(visibleIssues.enumerated()), id: \.element.id) { idx, item in
+                            if placeholderIndex == idx {
+                                placeholderSlot(height: placeholderHeight)
+                            }
                             IssueCardSwitch(
                                 issue: item, padding: padding, projectURL: projectURL)
                         }
+                        if placeholderIndex == visibleIssues.count {
+                            placeholderSlot(height: placeholderHeight)
+                        }
                     }
                     .padding(.horizontal, 4)
+                    .animation(.smooth(duration: 0.18), value: placeholderIndex)
                 }
             }
         }
         .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
         .reportColumnFrame(column: column)
-        .dropDestination(for: IssueDragPayload.self) { items, _ in
-            guard let payload = items.first else { return false }
-            kanban.dispatchDrop(payload, to: .column(column), projectURL: projectURL)
-            return true
-        } isTargeted: { targeted in
-            isDropTargeted = targeted
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.accentColor, lineWidth: 2)
-                .opacity(isDropTargeted ? 0.6 : 0.0)
-                .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
-        )
+    }
+
+    private func placeholderSlot(height: CGFloat) -> some View {
+        Color.clear
+            .frame(height: height)
+            .accessibilityHidden(true)
     }
 
     private var header: some View {
@@ -134,4 +143,5 @@ struct KanbanColumnView: View {
     .padding()
     .frame(height: 480)
     .environment(ProjectKanbanModel())
+    .environment(KanbanDragController())
 }

@@ -5,6 +5,7 @@ struct KanbanView: View {
     let padding: Int
     let projectURL: URL
 
+    @Environment(ProjectKanbanModel.self) private var kanban
     @State private var cardFrames: [String: CGRect] = [:]
     @State private var columnFrames: [IssueColumn: CGRect] = [:]
     @State private var kanbanDrag = KanbanDragController()
@@ -25,6 +26,9 @@ struct KanbanView: View {
             .padding(.vertical, 8)
         }
         .coordinateSpace(name: KanbanCoordinateSpace.name)
+        .overlay(alignment: .topLeading) {
+            floatingDragCard
+        }
         .environment(kanbanDrag)
         .onPreferenceChange(CardFramesPreferenceKey.self) { frames in
             cardFrames = frames
@@ -35,6 +39,31 @@ struct KanbanView: View {
         .onChange(of: kanbanDrag.state?.cursorLocation) { _, _ in
             updateResolvedTarget()
         }
+    }
+
+    @ViewBuilder
+    private var floatingDragCard: some View {
+        if let drag = kanbanDrag.state, let issue = floatingIssue(drag.sourceFolderName) {
+            IssueCardView(issue: issue, padding: padding)
+                .frame(width: drag.sourceFrame.width, height: drag.sourceFrame.height)
+                .scaleEffect(drag.status == .cancelling ? 1.0 : 1.04)
+                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
+                .offset(
+                    x: drag.sourceFrame.minX + drag.translation.width,
+                    y: drag.sourceFrame.minY + drag.translation.height
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func floatingIssue(_ folderName: String) -> Issue? {
+        for item in kanban.issues {
+            if case .valid(let issue) = item, issue.folderName == folderName {
+                return issue
+            }
+        }
+        return nil
     }
 
     private func updateResolvedTarget() {

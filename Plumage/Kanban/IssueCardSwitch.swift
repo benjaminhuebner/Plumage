@@ -26,9 +26,6 @@ struct IssueCardSwitch: View {
     private func validBody(_ value: Issue) -> some View {
         let isLocked = dirtyFolderName == value.folderName
         let payload = IssueDragPayload(folderName: value.folderName, currentStatus: value.status)
-        let active = kanbanDrag.state?.sourceFolderName == value.folderName
-        let translation = active ? (kanbanDrag.state?.translation ?? .zero) : .zero
-        let scale: CGFloat = active ? 1.04 : 1.0
 
         NavigationLink(value: SpecRoute.spec(folderName: value.folderName)) {
             IssueCardView(issue: value, padding: padding)
@@ -42,15 +39,6 @@ struct IssueCardSwitch: View {
         } action: { frame in
             sourceFrameInKanban = frame
         }
-        .scaleEffect(scale)
-        .shadow(
-            color: .black.opacity(active ? 0.25 : 0),
-            radius: active ? 12 : 0,
-            x: 0,
-            y: active ? 4 : 0
-        )
-        .offset(translation)
-        .zIndex(active ? 1 : 0)
         .accessibilityActions {
             ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
                 Button("Move to \(target.name)") {

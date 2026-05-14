@@ -78,6 +78,26 @@ final class KanbanDragController {
     }
 }
 
+nonisolated func computePlaceholderIndex(
+    dragTarget: ProjectKanbanModel.DropTarget?,
+    column: IssueColumn,
+    visibleIssues: [DiscoveredIssue]
+) -> Int? {
+    guard let dragTarget else { return nil }
+    switch dragTarget {
+    case .column(let targetColumn):
+        guard targetColumn == column else { return nil }
+        return visibleIssues.count
+    case .aboveCard(let folderName, let targetColumn):
+        guard targetColumn == column else { return nil }
+        return visibleIssues.firstIndex(where: { $0.id == folderName })
+    case .belowCard(let folderName, let targetColumn):
+        guard targetColumn == column else { return nil }
+        guard let idx = visibleIssues.firstIndex(where: { $0.id == folderName }) else { return nil }
+        return idx + 1
+    }
+}
+
 nonisolated func resolveDropTarget(
     cursor: CGPoint,
     cardFrames: [String: CGRect],
