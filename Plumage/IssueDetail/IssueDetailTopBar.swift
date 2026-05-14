@@ -1,34 +1,52 @@
 import SwiftUI
 
 struct IssueDetailTopBar: View {
-    let paddedID: String
-    let branch: String
+    // nil in creating mode (no ID/branch until allocation).
+    let paddedID: String?
+    let branch: String?
     @Binding var displayMode: IssueDetailView.DisplayMode
+    let showsDisplayModeToggle: Bool
+    let showsCopyID: Bool
+    let showsRevealInFinder: Bool
+    let saveDisabled: Bool
     let onCopyID: () -> Void
     let onRevealInFinder: () -> Void
     let onSave: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(paddedID)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Text(branch)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+            if paddedID != nil || branch != nil {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let paddedID {
+                        Text(paddedID)
+                            .font(.system(.subheadline, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let branch {
+                        Text(branch)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
             }
             Spacer()
-            DisplayModeToggle(displayMode: $displayMode)
-                .help("Switch between detail and raw spec.md view")
-            Button("Copy ID", systemImage: "doc.on.doc", action: onCopyID)
-                .help("Copy folder name to clipboard")
-            Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
-                .help("Show this issue's folder in Finder")
+            if showsDisplayModeToggle {
+                DisplayModeToggle(displayMode: $displayMode)
+                    .help("Switch between detail and raw spec.md view")
+            }
+            if showsCopyID {
+                Button("Copy ID", systemImage: "doc.on.doc", action: onCopyID)
+                    .help("Copy folder name to clipboard")
+            }
+            if showsRevealInFinder {
+                Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
+                    .help("Show this issue's folder in Finder")
+            }
             Button("Save", systemImage: "square.and.arrow.down", action: onSave)
                 .help("Save changes (⌘S)")
+                .disabled(saveDisabled)
         }
         .buttonStyle(.borderless)
         .labelStyle(.titleAndIcon)
@@ -41,6 +59,10 @@ struct IssueDetailTopBar: View {
             paddedID: "#00016",
             branch: "issue/00016-better-issue-details",
             displayMode: mode,
+            showsDisplayModeToggle: true,
+            showsCopyID: true,
+            showsRevealInFinder: true,
+            saveDisabled: false,
             onCopyID: {},
             onRevealInFinder: {},
             onSave: {}

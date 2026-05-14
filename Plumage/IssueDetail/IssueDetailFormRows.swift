@@ -1,10 +1,18 @@
 import SwiftUI
 
 struct IssueDetailFormRows: View {
-    let issue: Issue
+    let type: IssueType
+    let status: IssueStatus
+    // nil hides the Created/Updated row entirely (creating mode has no dates).
+    let dates: Dates?
     let onSelectType: (IssueType) -> Void
     let onSelectStatus: (IssueStatus) -> Void
     let isDisabled: Bool
+
+    struct Dates: Equatable {
+        let created: Date
+        let updated: Date
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -19,14 +27,16 @@ struct IssueDetailFormRows: View {
                 }
             }
 
-            HStack(alignment: .firstTextBaseline, spacing: 24) {
-                pairedRow("Created") {
-                    Text(Self.dateFormatter.string(from: issue.created))
-                        .foregroundStyle(.secondary)
-                }
-                pairedRow("Updated") {
-                    Text(Self.dateFormatter.string(from: issue.updated))
-                        .foregroundStyle(.secondary)
+            if let dates {
+                HStack(alignment: .firstTextBaseline, spacing: 24) {
+                    pairedRow("Created") {
+                        Text(Self.dateFormatter.string(from: dates.created))
+                            .foregroundStyle(.secondary)
+                    }
+                    pairedRow("Updated") {
+                        Text(Self.dateFormatter.string(from: dates.updated))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -34,51 +44,51 @@ struct IssueDetailFormRows: View {
 
     // Menu+Button avoids the Binding(get:set:) anti-pattern: a Picker with
     // a callback would need a new Binding per body eval; a Menu just reads
-    // issue.type/status directly and dispatches via callback on tap.
+    // the current selection and dispatches via callback on tap.
     private var typeMenu: some View {
         Menu {
-            ForEach(IssueType.allCases, id: \.self) { type in
+            ForEach(IssueType.allCases, id: \.self) { entry in
                 Button {
-                    onSelectType(type)
+                    onSelectType(entry)
                 } label: {
                     Label {
-                        Text(type.rawValue.capitalized)
+                        Text(entry.rawValue.capitalized)
                     } icon: {
-                        Circle().fill(type.color)
+                        Circle().fill(entry.color)
                     }
-                    if type == issue.type {
+                    if entry == type {
                         Image(systemName: "checkmark")
                     }
                 }
             }
         } label: {
             HStack(spacing: 6) {
-                Circle().fill(issue.type.color).frame(width: 10, height: 10)
-                Text(issue.type.rawValue.capitalized)
+                Circle().fill(type.color).frame(width: 10, height: 10)
+                Text(type.rawValue.capitalized)
             }
         }
     }
 
     private var statusMenu: some View {
         Menu {
-            ForEach(IssueStatus.allCases, id: \.self) { status in
+            ForEach(IssueStatus.allCases, id: \.self) { entry in
                 Button {
-                    onSelectStatus(status)
+                    onSelectStatus(entry)
                 } label: {
                     Label {
-                        Text(status.label)
+                        Text(entry.label)
                     } icon: {
-                        Circle().fill(status.indicatorColor)
+                        Circle().fill(entry.indicatorColor)
                     }
-                    if status == issue.status {
+                    if entry == status {
                         Image(systemName: "checkmark")
                     }
                 }
             }
         } label: {
             HStack(spacing: 6) {
-                Circle().fill(issue.status.indicatorColor).frame(width: 10, height: 10)
-                Text(issue.status.label)
+                Circle().fill(status.indicatorColor).frame(width: 10, height: 10)
+                Text(status.label)
             }
         }
     }
@@ -108,18 +118,9 @@ struct IssueDetailFormRows: View {
 
 #Preview {
     IssueDetailFormRows(
-        issue: Issue(
-            id: 16,
-            folderName: "00016-better-issue-details",
-            title: "Better Issue-Details View",
-            type: .feature,
-            status: .inProgress,
-            created: Date(),
-            updated: Date(),
-            branch: "issue/00016-better-issue-details",
-            labels: ["ui", "ux"],
-            model: nil
-        ),
+        type: .feature,
+        status: .inProgress,
+        dates: .init(created: Date(), updated: Date()),
         onSelectType: { _ in },
         onSelectStatus: { _ in },
         isDisabled: false

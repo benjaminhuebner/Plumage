@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct IssueDetailHero: View {
-    let issue: Issue
+    let status: IssueStatus
+    let type: IssueType
+    let labels: [String]
     let titleDraft: Binding<String>
+    let titlePlaceholder: String
+    let autoFocusTitle: Bool
     let onCommitTitle: () -> Void
     let onAddLabel: (String) -> Void
     let onRemoveLabel: (String) -> Void
@@ -18,17 +22,17 @@ struct IssueDetailHero: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 8) {
-                IssueStatusPill(status: issue.status)
-                IssueTypePill(type: issue.type)
+                IssueStatusPill(status: status)
+                IssueTypePill(type: type)
                 LabelChipEditor(
-                    labels: issue.labels,
+                    labels: labels,
                     onAdd: onAddLabel,
                     onRemove: onRemoveLabel
                 )
                 .disabled(isDisabled)
                 Spacer(minLength: 0)
             }
-            TextField("Title", text: titleDraft)
+            TextField(titlePlaceholder, text: titleDraft)
                 .font(.largeTitle.weight(.bold))
                 .textFieldStyle(.plain)
                 .lineLimit(3)
@@ -39,6 +43,16 @@ struct IssueDetailHero: View {
                 .onSubmit(commitIfChanged)
                 .onChange(of: titleFocused) { _, focused in
                     if !focused { commitIfChanged() }
+                }
+                .task {
+                    // The first focus assignment is dropped intermittently if
+                    // it runs before the navigation push finishes animating;
+                    // a single async hop after the view appears lands focus
+                    // reliably (same trick as the prior sheet path).
+                    if autoFocusTitle {
+                        try? await Task.sleep(for: .milliseconds(50))
+                        titleFocused = true
+                    }
                 }
         }
     }
@@ -54,19 +68,12 @@ struct IssueDetailHero: View {
 #Preview {
     StatefulPreviewWrapper("Better Issue-Details View") { title in
         IssueDetailHero(
-            issue: Issue(
-                id: 16,
-                folderName: "00016-better-issue-details",
-                title: title.wrappedValue,
-                type: .feature,
-                status: .inProgress,
-                created: .distantPast,
-                updated: .distantPast,
-                branch: "issue/00016-better-issue-details",
-                labels: ["ui", "ux"],
-                model: nil
-            ),
+            status: .inProgress,
+            type: .feature,
+            labels: ["ui", "ux"],
             titleDraft: title,
+            titlePlaceholder: "Title",
+            autoFocusTitle: false,
             onCommitTitle: {},
             onAddLabel: { _ in },
             onRemoveLabel: { _ in },

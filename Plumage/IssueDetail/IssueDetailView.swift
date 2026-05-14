@@ -5,7 +5,6 @@ import SwiftUI
 
 struct IssueDetailView: View {
     let projectURL: URL
-    let folderName: String
 
     @State private var model: IssueDetailModel
     @State private var titleDraft: String = ""
@@ -35,9 +34,21 @@ struct IssueDetailView: View {
 
     init(projectURL: URL, folderName: String) {
         self.projectURL = projectURL
-        self.folderName = folderName
         let specURL = IssueLayout.specURL(in: projectURL, folderName: folderName)
-        _model = State(initialValue: IssueDetailModel(specURL: specURL, folderName: folderName))
+        _model = State(
+            initialValue: IssueDetailModel(
+                specURL: specURL, folderName: folderName, projectURL: projectURL
+            )
+        )
+    }
+
+    init(projectURL: URL, initialStatus: IssueStatus) {
+        self.projectURL = projectURL
+        _model = State(
+            initialValue: IssueDetailModel(
+                creatingInitialStatus: initialStatus, projectURL: projectURL
+            )
+        )
     }
 
     var body: some View {
@@ -56,12 +67,13 @@ struct IssueDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundTint)
-        .navigationTitle(model.issue?.title ?? folderName)
+        .navigationTitle(navigationTitle)
         .focusedSceneValue(\.specEditorIsActive, true)
         .focusedSceneValue(\.specEditorSave, attemptSave)
         .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
-        .focusedSceneValue(\.specEditorDirtyFolderName, isAnyDirty ? folderName : nil)
+        .focusedSceneValue(\.specEditorDirtyFolderName, dirtyFolderName)
         .task(id: model.specURL) {
+            guard !model.isCreating else { return }
             await model.load()
             if let issue = model.issue {
                 titleDraft = issue.title
@@ -83,12 +95,16 @@ struct IssueDetailView: View {
         }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
         .onChange(of: kanban.issues) { _, _ in
-            let current = kanban.issues.first { $0.id == folderName }
+            guard let currentFolder = model.folderName else { return }
+            let current = kanban.issues.first { $0.id == currentFolder }
             observeTask?.cancel()
             observeTask = Task { await model.observeExternalChange(currentIssue: current) }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { attemptSave() }
+            // Auto-save on background only applies in loaded mode. In creating
+            // mode there is no disk state yet — Cmd-W / back-nav dismisses
+            // without persisting (per spec: keine Disk-Spur).
+            if phase != .active && !model.isCreating { attemptSave() }
         }
         .onChange(of: displayMode) { _, newMode in
             // Switching INTO raw should snapshot the current disk content as
@@ -117,15 +133,17 @@ struct IssueDetailView: View {
     @ViewBuilder
     private var content: some View {
         VStack(spacing: 0) {
-            IssueDetailBanner(
-                frontmatterError: model.frontmatterError,
-                conflict: model.conflict,
-                onReload: {
-                    model.resolveConflictReload()
-                    rawDraft = model.loadedSpecContent
-                },
-                onKeep: { model.resolveConflictKeep() }
-            )
+            if !model.isCreating {
+                IssueDetailBanner(
+                    frontmatterError: model.frontmatterError,
+                    conflict: model.conflict,
+                    onReload: {
+                        model.resolveConflictReload()
+                        rawDraft = model.loadedSpecContent
+                    },
+                    onKeep: { model.resolveConflictKeep() }
+                )
+            }
             switch model.loadState {
             case .idle:
                 ProgressView().controlSize(.large)
@@ -136,7 +154,9 @@ struct IssueDetailView: View {
                     .padding(32)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loaded:
-                if let issue = model.issue {
+                if model.isCreating {
+                    creatingContent()
+                } else if let issue = model.issue {
                     loadedContent(issue: issue)
                 } else {
                     Text("Issue could not be parsed.")
@@ -155,6 +175,10 @@ struct IssueDetailView: View {
                 paddedID: "#" + IssueIDFormatter.padded(issue.id, width: 5),
                 branch: issue.branch,
                 displayMode: $displayMode,
+                showsDisplayModeToggle: true,
+                showsCopyID: true,
+                showsRevealInFinder: true,
+                saveDisabled: false,
                 onCopyID: copyID,
                 onRevealInFinder: revealInFinder,
                 onSave: attemptSave
@@ -170,10 +194,70 @@ struct IssueDetailView: View {
     }
 
     @ViewBuilder
+    private func creatingContent() -> some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 16) {
+            IssueDetailTopBar(
+                paddedID: nil,
+                branch: nil,
+                displayMode: $displayMode,
+                showsDisplayModeToggle: false,
+                showsCopyID: false,
+                showsRevealInFinder: false,
+                saveDisabled: !model.canSaveInCreatingMode,
+                onCopyID: {},
+                onRevealInFinder: {},
+                onSave: attemptSave
+            )
+            IssueDetailHero(
+                status: model.statusDraft,
+                type: model.typeDraft,
+                labels: model.labelsDraft,
+                titleDraft: $model.titleDraft,
+                titlePlaceholder: "Issue title",
+                autoFocusTitle: true,
+                onCommitTitle: {},
+                onAddLabel: { newLabel in
+                    if !model.labelsDraft.contains(newLabel) {
+                        model.labelsDraft.append(newLabel)
+                    }
+                },
+                onRemoveLabel: { label in
+                    model.labelsDraft.removeAll { $0 == label }
+                },
+                isDisabled: false
+            )
+            Divider()
+            IssueDetailFormRows(
+                type: model.typeDraft,
+                status: model.statusDraft,
+                dates: nil,
+                onSelectType: { newType in model.typeDraft = newType },
+                onSelectStatus: { newStatus in model.statusDraft = newStatus },
+                isDisabled: false
+            )
+            Divider()
+            CodeEditor(
+                text: $model.bodyDraft,
+                position: $editorPosition,
+                messages: $editorMessages,
+                language: markdownLanguage
+            )
+            .environment(\.codeEditorLayoutConfiguration, editorLayout)
+            .frame(minHeight: 240)
+        }
+        .padding(24)
+    }
+
+    @ViewBuilder
     private func detailBody(issue: Issue) -> some View {
         IssueDetailHero(
-            issue: issue,
+            status: issue.status,
+            type: issue.type,
+            labels: issue.labels,
             titleDraft: $titleDraft,
+            titlePlaceholder: "Title",
+            autoFocusTitle: false,
             onCommitTitle: commitTitle,
             onAddLabel: { newLabel in
                 let next = issue.labels + [newLabel]
@@ -187,7 +271,9 @@ struct IssueDetailView: View {
         )
         Divider()
         IssueDetailFormRows(
-            issue: issue,
+            type: issue.type,
+            status: issue.status,
+            dates: .init(created: issue.created, updated: issue.updated),
             onSelectType: { newType in runFormCommit { try await model.commitType(newType) } },
             onSelectStatus: { newStatus in
                 runFormCommit { try await model.commitStatus(newStatus) }
@@ -241,6 +327,19 @@ struct IssueDetailView: View {
         }
     }
 
+    private var navigationTitle: String {
+        if model.isCreating {
+            return "New Issue"
+        }
+        return model.issue?.title ?? model.folderName ?? ""
+    }
+
+    private var dirtyFolderName: String? {
+        // No folder yet in creating mode → never report a dirty folderName.
+        guard !model.isCreating, isAnyDirty else { return nil }
+        return model.folderName
+    }
+
     private func refreshEditorMessages() {
         editorMessages = []
     }
@@ -260,6 +359,21 @@ struct IssueDetailView: View {
     }
 
     private func attemptSave() {
+        if model.isCreating {
+            guard model.canSaveInCreatingMode else { return }
+            let prior = pendingBodySave
+            pendingBodySave = Task {
+                await prior?.value
+                do {
+                    try await model.createIssueFromDraft()
+                } catch IssueDetailModel.SaveError.emptyTitle {
+                    // Save was gated by canSaveInCreatingMode; no alert needed.
+                } catch {
+                    presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                }
+            }
+            return
+        }
         let prior = pendingBodySave
         pendingBodySave = Task {
             await prior?.value
@@ -277,6 +391,12 @@ struct IssueDetailView: View {
     }
 
     private func attemptPop() async {
+        // Creating mode never has unsaved disk state: closing leaves no
+        // trace and the in-memory drafts go away with the view.
+        if model.isCreating {
+            dismiss()
+            return
+        }
         await pendingBodySave?.value
         do {
             switch displayMode {
@@ -299,13 +419,15 @@ struct IssueDetailView: View {
     }
 
     private func copyID() {
+        guard let folder = model.folderName else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(folderName, forType: .string)
+        pasteboard.setString(folder, forType: .string)
     }
 
     private func revealInFinder() {
-        let url = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
+        guard let folder = model.folderName else { return }
+        let url = IssueLayout.issueFolder(in: projectURL, folderName: folder)
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 }
