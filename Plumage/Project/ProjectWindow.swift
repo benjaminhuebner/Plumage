@@ -75,6 +75,9 @@ struct ProjectWindow: View {
                     projectURL: handle.url
                 )
                 .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
+                .environment(\.openSpec) { folderName in
+                    navigationPath.append(SpecRoute.spec(folderName: folderName))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .failed(let error):

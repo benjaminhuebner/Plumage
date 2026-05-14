@@ -112,11 +112,17 @@ final class ProjectKanbanModel {
         }
     }
 
-    func performDropOptimistic(
+    // Synchronous wrapper that applies the optimistic update on the calling
+    // turn and fires the disk write into the background. Callers that need to
+    // observe the optimistic state immediately (the drop gesture: the source
+    // card must be at its new slot the moment the floating overlay clears,
+    // otherwise the user sees "first below, then plopp") use this entry
+    // point. Tests still use the async performDropOptimistic.
+    func applyOptimisticDrop(
         _ payload: IssueDragPayload,
         to target: DropTarget,
         projectURL: URL
-    ) async {
+    ) {
         guard let issue = lookupValidIssue(payload.folderName) else { return }
         let mutation = Self.computeMutation(
             issue: issue, target: target, snapshot: issues)
@@ -139,20 +145,37 @@ final class ProjectKanbanModel {
             .appendingPathComponent(issue.folderName)
             .appendingPathComponent("spec.md")
         let mutatorFn = mutator
-        do {
-            try await Task.detached {
-                try mutatorFn(specURL, newStatus, newOrder, Date())
-            }.value
-        } catch {
-            withAnimation(.smooth) {
-                issues = priorIssues
-                groupedIssues = Self.group(priorIssues)
+        dropTask?.cancel()
+        dropTask = Task { [weak self] in
+            do {
+                try await Task.detached {
+                    try mutatorFn(specURL, newStatus, newOrder, Date())
+                }.value
+            } catch {
+                self?.rollbackOptimisticDrop(
+                    to: priorIssues, error: error.localizedDescription)
             }
-            pendingDropFolderName = nil
-            pendingDropExpectedStatus = nil
-            pendingDropExpectedOrder = nil
-            lastDropError = error.localizedDescription
         }
+    }
+
+    func performDropOptimistic(
+        _ payload: IssueDragPayload,
+        to target: DropTarget,
+        projectURL: URL
+    ) async {
+        applyOptimisticDrop(payload, to: target, projectURL: projectURL)
+        await dropTask?.value
+    }
+
+    private func rollbackOptimisticDrop(to prior: [DiscoveredIssue], error: String) {
+        withAnimation(.smooth) {
+            issues = prior
+            groupedIssues = Self.group(prior)
+        }
+        pendingDropFolderName = nil
+        pendingDropExpectedStatus = nil
+        pendingDropExpectedOrder = nil
+        lastDropError = error
     }
 
     nonisolated static func reconcile(

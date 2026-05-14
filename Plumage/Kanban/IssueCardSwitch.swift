@@ -8,6 +8,7 @@ struct IssueCardSwitch: View {
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(KanbanDragController.self) private var kanbanDrag
+    @Environment(\.openSpec) private var openSpec
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
     @State private var sourceFrameInKanban: CGRect = .zero
 
@@ -16,10 +17,11 @@ struct IssueCardSwitch: View {
         case .valid(let value):
             validBody(value)
         case .invalid(let folder, let error):
-            NavigationLink(value: SpecRoute.spec(folderName: issue.id)) {
-                InvalidIssueCardView(folder: folder, error: error, padding: padding)
-            }
-            .buttonStyle(.plain)
+            InvalidIssueCardView(folder: folder, error: error, padding: padding)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    openSpec(issue.id)
+                }
         }
     }
 
@@ -27,50 +29,54 @@ struct IssueCardSwitch: View {
     private func validBody(_ value: Issue) -> some View {
         let isLocked = dirtyFolderName == value.folderName
         let payload = IssueDragPayload(folderName: value.folderName, currentStatus: value.status)
-        // While this is the active drag source, fade the in-place card to zero
-        // opacity. The card stays in the layout (slot remains visible as empty
-        // space) so its IssueCardSwitch view identity persists — the attached
-        // long-press+drag gesture continues to fire onChanged. Removing the
-        // view from the column ForEach would tear the gesture down mid-drag.
+        // Collapse the source slot entirely while it is the drag source —
+        // frame goes to 0 and content is clipped so the column's layout
+        // doesn't carry an empty slot beside the placeholder. View identity
+        // stays in the ForEach so the attached gesture keeps firing.
         let cardOpacity: Double = isDragSource ? 0 : (isLocked ? 0.7 : 1.0)
 
-        NavigationLink(value: SpecRoute.spec(folderName: value.folderName)) {
-            IssueCardView(issue: value, padding: padding)
-                .opacity(cardOpacity)
-        }
-        .buttonStyle(.plain)
-        .help(isLocked ? "Card has unsaved edits in the editor" : "")
-        .reportCardFrame(folderName: value.folderName)
-        .onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .named(KanbanCoordinateSpace.name))
-        } action: { frame in
-            sourceFrameInKanban = frame
-        }
-        .accessibilityActions {
-            ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
-                Button("Move to \(target.name)") {
-                    guard !isLocked else { return }
-                    kanban.dispatchDrop(payload, to: .column(target), projectURL: projectURL)
+        IssueCardView(issue: value, padding: padding)
+            .opacity(cardOpacity)
+            .frame(maxHeight: isDragSource ? 0 : nil)
+            .clipped()
+            .contentShape(Rectangle())
+            .help(isLocked ? "Card has unsaved edits in the editor" : "")
+            .reportCardFrame(folderName: value.folderName)
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .named(KanbanCoordinateSpace.name))
+            } action: { frame in
+                sourceFrameInKanban = frame
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityActions {
+                ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
+                    Button("Move to \(target.name)") {
+                        guard !isLocked else { return }
+                        kanban.dispatchDrop(payload, to: .column(target), projectURL: projectURL)
+                    }
                 }
             }
-        }
-        .modifier(
-            ConditionalDragGesture(
-                enabled: !isLocked,
-                payload: payload,
-                sourceFrameProvider: { sourceFrameInKanban },
-                onDispatch: { dispatchedPayload, target in
-                    kanban.dispatchDrop(dispatchedPayload, to: target, projectURL: projectURL)
-                }
+            .modifier(
+                CardInteraction(
+                    enabled: !isLocked,
+                    payload: payload,
+                    sourceFrameProvider: { sourceFrameInKanban },
+                    onTap: { openSpec(value.folderName) },
+                    onDispatch: { dispatchedPayload, target in
+                        kanban.applyOptimisticDrop(
+                            dispatchedPayload, to: target, projectURL: projectURL)
+                    }
+                )
             )
-        )
     }
 }
 
-private struct ConditionalDragGesture: ViewModifier {
+private struct CardInteraction: ViewModifier {
     let enabled: Bool
     let payload: IssueDragPayload
     let sourceFrameProvider: () -> CGRect
+    let onTap: () -> Void
     let onDispatch: (IssueDragPayload, ProjectKanbanModel.DropTarget) -> Void
 
     @Environment(KanbanDragController.self) private var controller
@@ -78,21 +84,30 @@ private struct ConditionalDragGesture: ViewModifier {
 
     func body(content: Content) -> some View {
         if enabled {
-            content.simultaneousGesture(buildGesture())
+            // ExclusiveGesture(Drag, Tap): drag wins as soon as movement
+            // reaches minimumDistance (4pt) — tap is then excluded entirely.
+            // A click without movement lets the tap fire and open the editor.
+            // No NavigationLink: keeping the link's bridged button-tap alive
+            // in parallel meant a drag-then-release-near-start would fire the
+            // tap simultaneously and open the editor unexpectedly.
+            content.gesture(buildDrag().exclusively(before: buildTap()))
         } else {
             content
         }
     }
 
-    private func buildGesture() -> some Gesture {
-        // Pure DragGesture, no LongPressGesture. minimumDistance: 4 acts as the
-        // tap-vs-drag boundary — a click without movement lets the NavigationLink
-        // button win, anything ≥ 4pt of movement activates the drag. This is the
-        // macOS native pattern (cf. carson-katri/drag-and-drop,
-        // hellojoelhuber/swiftui-drag-and-drop) and it is the only thing that
-        // survives the trackpad three-finger drag, which starts moving instantly
-        // and would always fail a LongPressGesture's "still for 150ms within 10pt"
-        // requirement.
+    private func buildTap() -> some Gesture {
+        TapGesture(count: 1).onEnded { onTap() }
+    }
+
+    private func buildDrag() -> some Gesture {
+        // Pure DragGesture, no LongPressGesture. macOS Accessibility's
+        // three-finger trackpad drag starts moving the cursor instantly on
+        // touch — a LongPressGesture's "still for 150ms within 10pt" fails
+        // every time on three-finger drag, killing the sequenced gesture
+        // before the DragGesture can activate. minimumDistance: 4 is the
+        // tap-vs-drag discriminator and works for mouse hold-drag,
+        // accessibility three-finger drag, and trackpad drag-lock alike.
         DragGesture(minimumDistance: 4, coordinateSpace: .named(KanbanCoordinateSpace.name))
             .onChanged { value in
                 if !controller.isActive {
@@ -120,6 +135,11 @@ private struct ConditionalDragGesture: ViewModifier {
                     let target = resolved.target
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(dropDelayMs))
+                        // applyOptimisticDrop is SYNCHRONOUS — the issues
+                        // array is mutated (wrapped in the model's own
+                        // smooth-animation) before we clear, so when clear
+                        // hands the source back to the column layout it is
+                        // already at its new slot. No "first below then plopp".
                         onDispatch(payload, target)
                         controller.clear()
                     }

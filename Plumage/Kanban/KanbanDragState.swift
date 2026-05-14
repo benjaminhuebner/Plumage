@@ -163,9 +163,17 @@ nonisolated func resolveDropTarget(
     }
     let last = cards[cards.count - 1]
     let lastFrame = cardFrames[last.id] ?? .zero
+    // Source's new position is BELOW lastFrame, not at lastFrame. Without
+    // the +height shift, the drop animation lands at the wrong row and the
+    // user sees "first below, then plopp" as the source's real layout slot
+    // resolves a frame later.
+    let insertionFrame = CGRect(
+        origin: CGPoint(x: lastFrame.minX, y: lastFrame.maxY + 8),
+        size: lastFrame.size
+    )
     return ResolvedDropTarget(
         column: column,
         target: .belowCard(folderName: last.id, column: column),
-        insertionFrame: lastFrame
+        insertionFrame: insertionFrame
     )
 }
