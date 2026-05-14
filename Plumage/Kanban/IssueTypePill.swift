@@ -16,7 +16,7 @@ struct IssueTypePill: View {
 extension IssueType {
     // Pill foregrounds: pure white on the cyan/green tints (dark enough for WCAG),
     // black on yellow/orange (too light for white text). Manually verified Light + Dark.
-    fileprivate var foregroundOnTint: Color {
+    var foregroundOnTint: Color {
         switch self {
         case .feature, .refactor: .white
         case .chore, .spike: .black
