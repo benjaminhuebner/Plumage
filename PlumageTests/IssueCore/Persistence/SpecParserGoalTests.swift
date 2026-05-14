@@ -98,6 +98,7 @@ struct SpecParserGoalTests {
         #expect(goal.hasSuffix("…"))
         // 240 chars + ellipsis. Count is in Characters, not UTF-16 code units.
         #expect(goal.count == 241)
+        #expect(goal.hasPrefix(String(repeating: "a", count: 240)))
     }
 
     @Test("unclosed HTML comment is preserved as literal text")
