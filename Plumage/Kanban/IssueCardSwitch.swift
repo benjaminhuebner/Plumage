@@ -47,6 +47,14 @@ struct IssueCardSwitch: View {
             measuredHeight = height
         }
         .modifier(ConditionalDraggable(payload: payload, enabled: !isLocked))
+        .accessibilityActions {
+            ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
+                Button("Move to \(target.name)") {
+                    guard !isLocked else { return }
+                    kanban.dispatchDrop(payload, to: .column(target), projectURL: projectURL)
+                }
+            }
+        }
         .dropDestination(for: IssueDragPayload.self) { items, location in
             dropEdge = nil
             guard let dropped = items.first else { return false }
