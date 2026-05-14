@@ -22,6 +22,9 @@ final class ProjectKanbanModel {
     private(set) var groupedIssues: [IssueColumn: [DiscoveredIssue]] = [:]
     private(set) var highlightedIssueID: String?
     private(set) var lastDropError: String?
+    private(set) var pendingDropFolderName: String?
+    private(set) var pendingDropExpectedStatus: IssueStatus?
+    private(set) var pendingDropExpectedOrder: SetValue<Double?>?
 
     private let producerFactory: @Sendable (URL) -> IssueSnapshotProducer
     private let highlightClock: any Clock<Duration>
@@ -51,10 +54,21 @@ final class ProjectKanbanModel {
         let producer = producerFactory(projectURL)
         await producer.start()
         for await snapshot in producer.snapshots {
-            let groups = Self.group(snapshot)
+            let reconciled = Self.reconcile(
+                incoming: snapshot,
+                pending: pendingDropFolderName,
+                expectedStatus: pendingDropExpectedStatus,
+                expectedOrder: pendingDropExpectedOrder
+            )
+            let groups = Self.group(reconciled.snapshot)
             withAnimation(.smooth(duration: 0.4)) {
-                self.issues = snapshot
+                self.issues = reconciled.snapshot
                 self.groupedIssues = groups
+            }
+            if reconciled.pendingCleared {
+                pendingDropFolderName = nil
+                pendingDropExpectedStatus = nil
+                pendingDropExpectedOrder = nil
             }
         }
         await producer.stop()
@@ -84,9 +98,9 @@ final class ProjectKanbanModel {
     #endif
 
     // Cancels any prior in-flight drop and schedules a new one. Views must
-    // use this instead of spawning unstructured Tasks in `dropDestination`
-    // closures — drops fired in quick succession could otherwise commit to
-    // disk out of order relative to the UI snapshot they read.
+    // use this instead of spawning unstructured Tasks in gesture callbacks —
+    // drops fired in quick succession could otherwise commit to disk out of
+    // order relative to the UI snapshot they read.
     func dispatchDrop(
         _ payload: IssueDragPayload,
         to target: DropTarget,
@@ -94,11 +108,11 @@ final class ProjectKanbanModel {
     ) {
         dropTask?.cancel()
         dropTask = Task { [weak self] in
-            await self?.performDrop(payload, to: target, projectURL: projectURL)
+            await self?.performDropOptimistic(payload, to: target, projectURL: projectURL)
         }
     }
 
-    func performDrop(
+    func performDropOptimistic(
         _ payload: IssueDragPayload,
         to target: DropTarget,
         projectURL: URL
@@ -106,24 +120,82 @@ final class ProjectKanbanModel {
         guard let issue = lookupValidIssue(payload.folderName) else { return }
         let mutation = Self.computeMutation(
             issue: issue, target: target, snapshot: issues)
-        switch mutation {
-        case .noop:
-            return
-        case .apply(let newStatus, let newOrder):
-            let specURL =
-                projectURL
-                .appendingPathComponent(".claude/issues")
-                .appendingPathComponent(issue.folderName)
-                .appendingPathComponent("spec.md")
-            let mutatorFn = mutator
-            do {
-                try await Task.detached {
-                    try mutatorFn(specURL, newStatus, newOrder, Date())
-                }.value
-            } catch {
-                lastDropError = error.localizedDescription
-            }
+        guard case .apply(let newStatus, let newOrder) = mutation else { return }
+
+        let priorIssues = issues
+        let updated = makeOptimisticUpdate(
+            issue: issue, newStatus: newStatus, newOrder: newOrder)
+        pendingDropFolderName = issue.folderName
+        pendingDropExpectedStatus = newStatus
+        pendingDropExpectedOrder = newOrder
+        withAnimation(.smooth(duration: 0.18)) {
+            issues = Self.replace(issues, folderName: issue.folderName, with: updated)
+            groupedIssues = Self.group(issues)
         }
+
+        let specURL =
+            projectURL
+            .appendingPathComponent(".claude/issues")
+            .appendingPathComponent(issue.folderName)
+            .appendingPathComponent("spec.md")
+        let mutatorFn = mutator
+        do {
+            try await Task.detached {
+                try mutatorFn(specURL, newStatus, newOrder, Date())
+            }.value
+        } catch {
+            withAnimation(.smooth) {
+                issues = priorIssues
+                groupedIssues = Self.group(priorIssues)
+            }
+            pendingDropFolderName = nil
+            pendingDropExpectedStatus = nil
+            pendingDropExpectedOrder = nil
+            lastDropError = error.localizedDescription
+        }
+    }
+
+    nonisolated static func reconcile(
+        incoming: [DiscoveredIssue],
+        pending: String?,
+        expectedStatus: IssueStatus?,
+        expectedOrder: SetValue<Double?>?
+    ) -> (snapshot: [DiscoveredIssue], pendingCleared: Bool) {
+        guard let pending else { return (incoming, false) }
+        guard let idx = incoming.firstIndex(where: { $0.id == pending }) else {
+            return (incoming, true)
+        }
+        guard case .valid(let item) = incoming[idx] else {
+            return (incoming, false)
+        }
+        let statusMatch = expectedStatus == nil || item.status == expectedStatus
+        let orderMatch: Bool
+        switch expectedOrder {
+        case .none, .some(.keep):
+            orderMatch = true
+        case .some(.set(let expected)):
+            orderMatch = item.order == expected
+        }
+        if statusMatch && orderMatch {
+            return (incoming, true)
+        }
+        let patchedStatus = expectedStatus ?? item.status
+        let patchedOrder: Double?
+        switch expectedOrder {
+        case .none, .some(.keep):
+            patchedOrder = item.order
+        case .some(.set(let value)):
+            patchedOrder = value
+        }
+        let patched = Issue(
+            id: item.id, folderName: item.folderName, title: item.title,
+            type: item.type, status: patchedStatus, created: item.created,
+            updated: item.updated, branch: item.branch, labels: item.labels,
+            model: item.model, order: patchedOrder, goal: item.goal
+        )
+        var snapshot = incoming
+        snapshot[idx] = .valid(patched)
+        return (snapshot, false)
     }
 
     nonisolated static func computeMutation(
@@ -202,6 +274,30 @@ final class ProjectKanbanModel {
             }
         }
         return nil
+    }
+
+    private func makeOptimisticUpdate(
+        issue: Issue, newStatus: IssueStatus, newOrder: SetValue<Double?>
+    ) -> DiscoveredIssue {
+        let updatedOrder: Double?
+        switch newOrder {
+        case .keep: updatedOrder = issue.order
+        case .set(let value): updatedOrder = value
+        }
+        return .valid(
+            Issue(
+                id: issue.id, folderName: issue.folderName, title: issue.title,
+                type: issue.type, status: newStatus, created: issue.created,
+                updated: Date(), branch: issue.branch, labels: issue.labels,
+                model: issue.model, order: updatedOrder, goal: issue.goal
+            )
+        )
+    }
+
+    nonisolated private static func replace(
+        _ items: [DiscoveredIssue], folderName: String, with new: DiscoveredIssue
+    ) -> [DiscoveredIssue] {
+        items.map { $0.id == folderName ? new : $0 }
     }
 
     private static func group(

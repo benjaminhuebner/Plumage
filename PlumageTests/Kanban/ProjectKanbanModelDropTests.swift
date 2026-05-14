@@ -113,10 +113,10 @@ struct ComputeMutationTests {
     }
 }
 
-@Suite("ProjectKanbanModel.performDrop")
+@Suite("ProjectKanbanModel.performDropOptimistic")
 @MainActor
 struct PerformDropTests {
-    @Test("performDrop calls mutator with computed status and order")
+    @Test("performDropOptimistic calls mutator with computed status and order")
     func callsMutator() async {
         let captured = LockedBox<[(URL, IssueStatus?, SetValue<Double?>)]>(value: [])
         let model = ProjectKanbanModel(mutator: { url, status, order, _ in
@@ -124,7 +124,7 @@ struct PerformDropTests {
         })
         model._setIssuesForTesting([.valid(makeIssue(id: 1, folder: "00001-a", status: .approved))])
         let projectURL = URL(filePath: "/tmp/probe")
-        await model.performDrop(
+        await model.performDropOptimistic(
             IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
             to: .column(.inProgress),
             projectURL: projectURL
@@ -141,14 +141,14 @@ struct PerformDropTests {
         #expect(calls.first?.2 == .set(nil))
     }
 
-    @Test("performDrop no-op does not call mutator")
+    @Test("performDropOptimistic no-op does not call mutator")
     func noopSkipsMutator() async {
         let captured = LockedBox<Int>(value: 0)
         let model = ProjectKanbanModel(mutator: { _, _, _, _ in
             captured.mutate { $0 += 1 }
         })
         model._setIssuesForTesting([.valid(makeIssue(id: 1, folder: "00001-a", status: .approved))])
-        await model.performDrop(
+        await model.performDropOptimistic(
             IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
             to: .column(.todo),
             projectURL: URL(filePath: "/tmp/probe")
@@ -156,14 +156,14 @@ struct PerformDropTests {
         #expect(captured.value == 0)
     }
 
-    @Test("performDrop on missing folder name is silent no-op")
+    @Test("performDropOptimistic on missing folder name is silent no-op")
     func missingFolderSilent() async {
         let captured = LockedBox<Int>(value: 0)
         let model = ProjectKanbanModel(mutator: { _, _, _, _ in
             captured.mutate { $0 += 1 }
         })
         model._setIssuesForTesting([])
-        await model.performDrop(
+        await model.performDropOptimistic(
             IssueDragPayload(folderName: "ghost", currentStatus: .approved),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
@@ -179,7 +179,7 @@ struct PerformDropTests {
         }
         let model = ProjectKanbanModel(mutator: { _, _, _, _ in throw DummyError() })
         model._setIssuesForTesting([.valid(makeIssue(id: 1, folder: "00001-a", status: .approved))])
-        await model.performDrop(
+        await model.performDropOptimistic(
             IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
