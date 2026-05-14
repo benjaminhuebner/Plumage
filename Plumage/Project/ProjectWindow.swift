@@ -14,6 +14,8 @@ struct ProjectWindow: View {
                 .navigationDestination(for: SpecRoute.self) { route in
                     switch route {
                     case .spec(let folderName):
+                        IssueDetailView(projectURL: handle.url, folderName: folderName)
+                    case .rawEditor(let folderName):
                         SpecEditorView(projectURL: handle.url, folderName: folderName)
                     }
                 }
@@ -75,8 +77,8 @@ struct ProjectWindow: View {
                     projectURL: handle.url
                 )
                 .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
-                .environment(\.openSpec) { folderName in
-                    navigationPath.append(SpecRoute.spec(folderName: folderName))
+                .environment(\.openSpec) { route in
+                    navigationPath.append(route)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

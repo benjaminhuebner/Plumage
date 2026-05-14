@@ -20,7 +20,7 @@ struct IssueCardSwitch: View {
             InvalidIssueCardView(folder: folder, error: error, padding: padding)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    openSpec(issue.id)
+                    openSpec(.spec(folderName: issue.id))
                 }
         }
     }
@@ -66,7 +66,7 @@ struct IssueCardSwitch: View {
                     sourceFrameProvider: { [frameRegistry] in
                         frameRegistry.cards[value.folderName] ?? .zero
                     },
-                    onTap: { openSpec(value.folderName) },
+                    onTap: { openSpec(.spec(folderName: value.folderName)) },
                     onDispatch: { dispatchedPayload, target in
                         kanban.applyOptimisticDrop(
                             dispatchedPayload, to: target, projectURL: projectURL)
