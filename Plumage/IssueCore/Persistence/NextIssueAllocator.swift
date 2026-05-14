@@ -124,10 +124,16 @@ nonisolated struct NextIssueAllocator: Sendable {
         return max(configured, 1)
     }
 
-    private static func iso8601(from date: Date) -> String {
+    // ISO8601DateFormatter is thread-safe for reads once properties are set.
+    // `nonisolated(unsafe)` is required because the type is not Sendable.
+    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func iso8601(from date: Date) -> String {
+        isoFormatter.string(from: date)
     }
 
     static func slugify(_ input: String) -> String {
