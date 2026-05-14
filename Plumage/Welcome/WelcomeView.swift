@@ -10,10 +10,10 @@ struct WelcomeView: View {
     var body: some View {
         HStack(spacing: 0) {
             leftPane
-                .frame(width: 460)
+                .frame(width: 430)
             rightPane
         }
-        .frame(width: 860, height: 520)
+        .frame(width: 645, height: 390)
         .background(WindowChromeCustomizer(windowAlphaHidden: windowAlphaHidden))
     }
 
