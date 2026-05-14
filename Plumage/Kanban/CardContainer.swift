@@ -3,6 +3,7 @@ import SwiftUI
 struct CardContainerModifier: ViewModifier {
     let tintColor: Color
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -28,8 +29,8 @@ struct CardContainerModifier: ViewModifier {
                 x: 0,
                 y: isHovering ? 3 : 2
             )
-            .scaleEffect(isHovering ? 1.01 : 1.0)
-            .animation(.smooth(duration: 0.18), value: isHovering)
+            .scaleEffect(isHovering && !reduceMotion ? 1.01 : 1.0)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: isHovering)
             .onHover { hovering in
                 isHovering = hovering
                 if hovering {

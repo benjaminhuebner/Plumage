@@ -7,6 +7,7 @@ struct InvalidIssueCardView: View {
 
     @Environment(\.kanbanHighlightedID) private var highlightedID: String?
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var folderName: String { folder.lastPathComponent }
 
@@ -59,7 +60,7 @@ struct InvalidIssueCardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.accentColor, lineWidth: 2)
                 .opacity(isHighlighted ? 1.0 : 0.0)
-                .animation(.easeOut(duration: 1.0), value: isHighlighted)
+                .animation(reduceMotion ? nil : .easeOut(duration: 1.0), value: isHighlighted)
         )
         .contentShape(Rectangle())
         .help(error.summary)

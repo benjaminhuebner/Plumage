@@ -5,6 +5,7 @@ struct IssueCardView: View {
     let padding: Int
 
     @Environment(\.kanbanHighlightedID) private var highlightedID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isHighlighted: Bool {
         highlightedID == issue.folderName
@@ -62,7 +63,7 @@ struct IssueCardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.accentColor, lineWidth: 2)
                 .opacity(isHighlighted ? 1.0 : 0.0)
-                .animation(.easeOut(duration: 1.0), value: isHighlighted)
+                .animation(reduceMotion ? nil : .easeOut(duration: 1.0), value: isHighlighted)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
