@@ -7,7 +7,7 @@ struct KanbanColumnView: View {
     let projectURL: URL
     let autoScroll: KanbanAutoScroll
 
-    @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
+    @Environment(\.openSpec) private var openSpec
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
 
     var body: some View {
@@ -49,7 +49,7 @@ struct KanbanColumnView: View {
                 .accessibilityLabel("\(issues.count) issues")
             Spacer()
             Button {
-                newIssueSheetIsPresented?.wrappedValue = true
+                openSpec(.createIssue(initialStatus: column.primaryStatusForCreation))
             } label: {
                 Image(systemName: "plus")
                     .font(.body.weight(.medium))
@@ -57,14 +57,8 @@ struct KanbanColumnView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(newIssueSheetIsPresented == nil)
             .help("New issue")
             .accessibilityLabel("New issue in \(column.name)")
-            .accessibilityHint(
-                newIssueSheetIsPresented == nil
-                    ? "Unavailable while this project is still loading or failed to open"
-                    : ""
-            )
         }
     }
 }
