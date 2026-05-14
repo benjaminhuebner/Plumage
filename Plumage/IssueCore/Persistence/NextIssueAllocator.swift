@@ -125,6 +125,8 @@ nonisolated struct NextIssueAllocator: Sendable {
     }
 
     private static func iso8601(from date: Date) -> String {
+        // Allocate per-call: ISO8601DateFormatter is not documented as
+        // thread-safe by Apple. See notes.md.
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)

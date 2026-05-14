@@ -38,6 +38,8 @@ struct InvalidIssueCardView: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            Spacer(minLength: 0)
+
             HStack {
                 Text(IssueIDFormatter.paddedOrPlaceholder(parts.id, width: padding))
                     .font(.caption2.monospaced())
@@ -54,6 +56,8 @@ struct InvalidIssueCardView: View {
                 .foregroundStyle(.red)
             }
         }
+        // Same uniform card height as IssueCardView.
+        .frame(height: KanbanLayout.cardContentHeight, alignment: .top)
         .cardContainer(tint: .red)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -66,7 +70,7 @@ struct InvalidIssueCardView: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 1.0), value: isHighlighted)
         )
         .contentShape(Rectangle())
-        .help(error.summary)
+        .help("Fix the frontmatter to enable drag & drop — \(error.summary)")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Invalid issue: \(error.summary)")
     }

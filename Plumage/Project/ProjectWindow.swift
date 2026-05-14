@@ -29,9 +29,10 @@ struct ProjectWindow: View {
                     Image(systemName: "plus")
                 }
                 .help("New Issue (⌘N)")
+                .disabled(!isLoaded)
             }
         }
-        .focusedSceneValue(\.newIssueSheetIsPresented, $showsNewIssueSheet)
+        .focusedSceneValue(\.newIssueSheetIsPresented, isLoaded ? $showsNewIssueSheet : nil)
         .sheet(isPresented: $showsNewIssueSheet) {
             NewIssueSheet(
                 projectURL: handle.url,
@@ -68,8 +69,15 @@ struct ProjectWindow: View {
                 }
                 .padding(.horizontal, 32)
                 .padding(.top, 32)
-                KanbanView(grouped: kanban.groupedIssues, padding: config.issueIdPadding ?? 5)
-                    .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
+                KanbanView(
+                    grouped: kanban.groupedIssues,
+                    padding: config.issueIdPadding ?? 5,
+                    projectURL: handle.url
+                )
+                .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
+                .environment(\.openSpec) { folderName in
+                    navigationPath.append(SpecRoute.spec(folderName: folderName))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .failed(let error):
@@ -87,6 +95,11 @@ struct ProjectWindow: View {
     private var displayTitle: String {
         if case .loaded(let config) = model.state { return config.name }
         return handle.url.lastPathComponent
+    }
+
+    private var isLoaded: Bool {
+        if case .loaded = model.state { return true }
+        return false
     }
 
     static func message(for error: ConfigLoader.LoadError) -> String {

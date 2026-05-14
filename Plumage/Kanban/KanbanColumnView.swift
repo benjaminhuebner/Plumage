@@ -4,31 +4,38 @@ struct KanbanColumnView: View {
     let column: IssueColumn
     let issues: [DiscoveredIssue]
     let padding: Int
+    let projectURL: URL
+    let autoScroll: KanbanAutoScroll
 
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
+    @Environment(\.kanbanFrameRegistry) private var frameRegistry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // Keep KanbanDragController OUT of this body — the drag-aware bits
+        // (placeholder slot, isDragSource flag) live in DraggableColumnBody,
+        // which observes the controller in isolation. Without this split,
+        // every cursor frame that resolves a new ResolvedDropTarget rebuilds
+        // all four column bodies, including their header and ForEach.
+        VStack(alignment: .leading, spacing: KanbanLayout.cardSpacing) {
             header
                 .padding(.horizontal, 4)
 
-            if issues.isEmpty {
-                Text("No issues")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(issues) { item in
-                            IssueCardSwitch(issue: item, padding: padding)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            }
+            DraggableColumnBody(
+                column: column,
+                issues: issues,
+                padding: padding,
+                projectURL: projectURL,
+                autoScroll: autoScroll
+            )
         }
-        .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
+        .frame(
+            minWidth: KanbanLayout.columnWidth,
+            idealWidth: KanbanLayout.columnWidth,
+            maxWidth: KanbanLayout.columnWidth,
+            maxHeight: .infinity, alignment: .top
+        )
+        .contentShape(Rectangle())
+        .reportColumnFrame(column: column, registry: frameRegistry)
     }
 
     private var header: some View {
@@ -53,7 +60,81 @@ struct KanbanColumnView: View {
             .disabled(newIssueSheetIsPresented == nil)
             .help("New issue")
             .accessibilityLabel("New issue in \(column.name)")
+            .accessibilityHint(
+                newIssueSheetIsPresented == nil
+                    ? "Unavailable while this project is still loading or failed to open"
+                    : ""
+            )
         }
+    }
+}
+
+// Drag-aware body. Reads KanbanDragController so that target / drag-source
+// changes only invalidate THIS view, not the parent column header or its
+// surrounding frame/coordinate-space modifiers.
+private struct DraggableColumnBody: View {
+    let column: IssueColumn
+    let issues: [DiscoveredIssue]
+    let padding: Int
+    let projectURL: URL
+    let autoScroll: KanbanAutoScroll
+
+    @Environment(KanbanDragController.self) private var kanbanDrag
+
+    var body: some View {
+        // Keep ALL issues in the ForEach — even the source. Removing the
+        // source IssueCardSwitch from the array would destroy its view, and
+        // the attached DragGesture would die mid-drag. IssueCardSwitch
+        // collapses to height 0 + opacity 0 while it is the drag source, so
+        // its view identity (and the gesture) survives the drag.
+        let dragSource = kanbanDrag.sourceFolderName
+        let placeholderIndex = computePlaceholderIndex(
+            dragTarget: kanbanDrag.target?.target,
+            column: column,
+            visibleIssues: issues
+        )
+
+        if issues.isEmpty && placeholderIndex == nil {
+            Text("No issues")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 24)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: KanbanLayout.cardSpacing) {
+                    ForEach(Array(issues.enumerated()), id: \.element.id) { idx, item in
+                        if placeholderIndex == idx {
+                            placeholderSlot
+                        }
+                        IssueCardSwitch(
+                            issue: item,
+                            padding: padding,
+                            projectURL: projectURL,
+                            isDragSource: item.id == dragSource
+                        )
+                        // Anchor the card's view identity to the folder
+                        // name (which survives the .valid/.invalid case
+                        // flip in DiscoveredIssue). Without this, a card
+                        // transitioning between cases mid-edit destroys
+                        // its subtree and any in-flight DragGesture along
+                        // with it.
+                        .id(item.id)
+                    }
+                    if placeholderIndex == issues.count {
+                        placeholderSlot
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+            .scrollPosition(autoScroll.columnBinding(for: column))
+            .scrollDisabled(kanbanDrag.isActive)
+        }
+    }
+
+    private var placeholderSlot: some View {
+        Color.clear
+            .frame(height: KanbanLayout.cardHeight)
+            .accessibilityHidden(true)
     }
 }
 
@@ -97,14 +178,20 @@ struct KanbanColumnView: View {
                     error: .invalidEnumValue(field: "status", value: "aproved")
                 ),
             ],
-            padding: 5
+            padding: 5,
+            projectURL: URL(filePath: "/tmp/sample"),
+            autoScroll: KanbanAutoScroll()
         )
         KanbanColumnView(
             column: .done,
             issues: [],
-            padding: 5
+            padding: 5,
+            projectURL: URL(filePath: "/tmp/sample"),
+            autoScroll: KanbanAutoScroll()
         )
     }
     .padding()
     .frame(height: 480)
+    .environment(ProjectKanbanModel())
+    .environment(KanbanDragController())
 }

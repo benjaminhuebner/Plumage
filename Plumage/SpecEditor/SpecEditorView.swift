@@ -12,6 +12,10 @@ struct SpecEditorView: View {
     @State private var loadFailed: String?
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
+    @State private var observeTask: Task<Void, Never>?
+    // Serializes saveIfDirty / saveAndRecreate triggers so that focus loss,
+    // scenePhase changes, and explicit ⌘S can't commit overlapping writes.
+    @State private var pendingSave: Task<Void, Never>?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
 
@@ -58,6 +62,10 @@ struct SpecEditorView: View {
         .focusedSceneValue(\.specEditorIsActive, true)
         .focusedSceneValue(\.specEditorSave, attemptSave)
         .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
+        .focusedSceneValue(
+            \.specEditorDirtyFolderName,
+            model.isDirty ? model.folderName : nil
+        )
         .task(id: model.specURL) {
             loadFailed = nil
             do {
@@ -73,13 +81,14 @@ struct SpecEditorView: View {
         }
         .onChange(of: kanban.issues) { _, _ in
             let current = kanban.issues.first { $0.id == folderName }
-            Task { await model.observeExternalChange(currentIssue: current) }
+            observeTask?.cancel()
+            observeTask = Task { await model.observeExternalChange(currentIssue: current) }
         }
         .onChange(of: editorFocused) { _, focused in
-            if !focused { saveTask() }
+            if !focused { attemptSave() }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { saveTask() }
+            if phase != .active { attemptSave() }
         }
         .alert(
             "Failed to save",
@@ -127,18 +136,10 @@ struct SpecEditorView: View {
         saveAlertVisible = true
     }
 
-    private func saveTask() {
-        Task {
-            do {
-                try await model.saveIfDirty()
-            } catch {
-                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
-            }
-        }
-    }
-
     private func attemptSave() {
-        Task {
+        let prior = pendingSave
+        pendingSave = Task {
+            await prior?.value
             do {
                 try await model.saveIfDirty()
             } catch {
@@ -148,6 +149,7 @@ struct SpecEditorView: View {
     }
 
     private func attemptPop() async {
+        await pendingSave?.value
         do {
             try await model.saveIfDirty()
             dismiss()
@@ -157,7 +159,9 @@ struct SpecEditorView: View {
     }
 
     private func saveAndRecreate() {
-        Task {
+        let prior = pendingSave
+        pendingSave = Task {
+            await prior?.value
             do {
                 try await model.resolveConflictSaveAndRecreate()
             } catch {
@@ -175,6 +179,7 @@ extension FocusedValues {
     @Entry var specEditorIsActive: Bool?
     @Entry var specEditorSave: (() -> Void)?
     @Entry var specEditorClose: (() -> Void)?
+    @Entry var specEditorDirtyFolderName: String?
 }
 
 #Preview {

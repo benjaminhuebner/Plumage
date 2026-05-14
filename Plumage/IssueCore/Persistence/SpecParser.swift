@@ -57,6 +57,7 @@ nonisolated enum SpecParser {
                 branch: raw.branch,
                 labels: raw.labels ?? [],
                 model: raw.model,
+                order: raw.order,
                 goal: extractGoal(from: content)
             )
         )
@@ -152,6 +153,9 @@ nonisolated enum SpecParser {
     }
 
     private static func parseDate(_ string: String) -> Date? {
+        // Allocate per-call: ISO8601DateFormatter is not documented as
+        // thread-safe by Apple. Allocation cost is negligible against the
+        // surrounding YAML decode. See notes.md.
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
         if let date = plain.date(from: string) { return date }
@@ -208,4 +212,5 @@ private nonisolated struct RawFrontmatter: Decodable {
     let branch: String
     let labels: [String]?
     let model: String?
+    let order: Double?
 }

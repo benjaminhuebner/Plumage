@@ -46,12 +46,7 @@ nonisolated enum IssueDiscovery {
             }
         }
 
-        return discovered.sorted { lhs, rhs in
-            let lk = lhs.sortKey
-            let rk = rhs.sortKey
-            if lk.0 != rk.0 { return lk.0 < rk.0 }
-            return lk.1 < rk.1
-        }
+        return discovered.sortedForKanban()
     }
 
     static func extractID(fromFolderName folderName: String) -> (id: Int?, slug: String) {
