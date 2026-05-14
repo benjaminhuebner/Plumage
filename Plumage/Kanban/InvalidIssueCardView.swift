@@ -58,7 +58,7 @@ struct InvalidIssueCardView: View {
         }
         // Same uniform card height as IssueCardView.
         .frame(height: KanbanLayout.cardContentHeight, alignment: .top)
-        .cardContainer(tint: .red)
+        .cardSurface(tint: .red)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.red, lineWidth: 1)

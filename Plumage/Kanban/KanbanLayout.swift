@@ -7,13 +7,13 @@ import CoreGraphics
 nonisolated enum KanbanLayout {
     static let columnWidth: CGFloat = 260
     // Sized to fit IssueCardView's worst case: 2-line title + 3-line goal +
-    // footer row + cardContainer's vertical padding. Changing this changes
+    // footer row + cardSurface's vertical padding. Changing this changes
     // every card uniformly; resolveDropTarget reads cardHeight to compute
     // the placeholder slot's Y so the drop animation lands on the right pixel.
     static let cardHeight: CGFloat = 156
     static let cardSpacing: CGFloat = 8
-    static let cardContainerPadding: CGFloat = 12
+    static let cardSurfacePadding: CGFloat = 12
     // Inner VStack height for IssueCardView / InvalidIssueCardView, so
-    // `cardContainer`'s padding sums up to `cardHeight` exactly.
-    static var cardContentHeight: CGFloat { cardHeight - 2 * cardContainerPadding }
+    // `cardSurface`'s padding sums up to `cardHeight` exactly.
+    static var cardContentHeight: CGFloat { cardHeight - 2 * cardSurfacePadding }
 }

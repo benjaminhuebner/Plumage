@@ -5,7 +5,6 @@ struct ProjectWindow: View {
 
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
-    @State private var showsNewIssueSheet = false
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -14,37 +13,26 @@ struct ProjectWindow: View {
                 .navigationDestination(for: SpecRoute.self) { route in
                     switch route {
                     case .spec(let folderName):
+                        IssueDetailView(projectURL: handle.url, folderName: folderName)
+                    case .rawEditor(let folderName):
                         SpecEditorView(projectURL: handle.url, folderName: folderName)
+                            .navigationTitle("Raw: \(folderName)")
+                    case .createIssue(let initialStatus):
+                        IssueDetailView(projectURL: handle.url, initialStatus: initialStatus)
                     }
                 }
         }
         .environment(kanban)
         .frame(minWidth: 720, minHeight: 480)
         .navigationTitle(displayTitle)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showsNewIssueSheet = true
-                } label: {
-                    Image(systemName: "plus")
+        .focusedSceneValue(
+            \.createIssueInDefaultColumn,
+            isLoaded
+                ? {
+                    navigationPath.append(SpecRoute.createIssue(initialStatus: .draft))
                 }
-                .help("New Issue (⌘N)")
-                .disabled(!isLoaded)
-            }
-        }
-        .focusedSceneValue(\.newIssueSheetIsPresented, isLoaded ? $showsNewIssueSheet : nil)
-        .sheet(isPresented: $showsNewIssueSheet) {
-            NewIssueSheet(
-                projectURL: handle.url,
-                existingIssues: kanban.issues,
-                onCreate: { _ in showsNewIssueSheet = false },
-                onCollision: { folder in
-                    showsNewIssueSheet = false
-                    kanban.highlight(folderName: folder)
-                },
-                onDismiss: { showsNewIssueSheet = false }
-            )
-        }
+                : nil
+        )
         .task(id: handle.url) {
             async let reload: Void = model.reload(at: handle.url)
             async let run: Void = kanban.run(projectURL: handle.url)
@@ -75,8 +63,8 @@ struct ProjectWindow: View {
                     projectURL: handle.url
                 )
                 .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
-                .environment(\.openSpec) { folderName in
-                    navigationPath.append(SpecRoute.spec(folderName: folderName))
+                .environment(\.openSpec) { route in
+                    navigationPath.append(route)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

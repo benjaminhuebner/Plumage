@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 nonisolated enum NextIssueAllocatorError: Error, Equatable, Sendable {
     case slugCollision(existingFolder: String)
@@ -11,6 +12,8 @@ nonisolated struct NextIssueAllocator: Sendable {
     let projectURL: URL
 
     private var fileManager: FileManager { .default }
+
+    private static let logger = Logger(subsystem: "com.plumage", category: "NextIssueAllocator")
 
     func allocate(
         slug: String,
@@ -82,11 +85,21 @@ nonisolated struct NextIssueAllocator: Sendable {
 
     private func highestExistingID() -> Int {
         let issuesDir = IssueLayout.issuesDirectory(in: projectURL)
+        // Without errorHandler, FileManager silently skips entries we can't
+        // read — and `highestExistingID` would underreport, producing a
+        // colliding ID on the next allocate(). Logging and continuing
+        // (return true) lets traversal proceed past one bad subtree.
         guard
             let enumerator = fileManager.enumerator(
                 at: issuesDir,
                 includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
+                options: [.skipsHiddenFiles],
+                errorHandler: { url, error in
+                    Self.logger.error(
+                        "highestExistingID: enumeration error at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                    return true
+                }
             )
         else { return 0 }
         var maxID = 0

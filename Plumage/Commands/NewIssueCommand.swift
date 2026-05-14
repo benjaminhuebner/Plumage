@@ -1,21 +1,23 @@
 import SwiftUI
 
 extension FocusedValues {
-    @Entry var newIssueSheetIsPresented: Binding<Bool>?
+    // Set by the active ProjectWindow scene. When fired, it pushes
+    // IssueDetailView in creating mode with the default-column status.
+    @Entry var createIssueInDefaultColumn: (() -> Void)?
 }
 
 struct NewIssueCommand: Commands {
-    @FocusedValue(\.newIssueSheetIsPresented) private var sheetBinding
+    @FocusedValue(\.createIssueInDefaultColumn) private var createIssue
     @FocusedValue(\.specEditorSave) private var editorSave
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("New Issue") {
                 editorSave?()
-                sheetBinding?.wrappedValue = true
+                createIssue?()
             }
             .keyboardShortcut("n", modifiers: .command)
-            .disabled(sheetBinding == nil)
+            .disabled(createIssue == nil)
         }
     }
 }

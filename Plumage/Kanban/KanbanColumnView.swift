@@ -7,7 +7,7 @@ struct KanbanColumnView: View {
     let projectURL: URL
     let autoScroll: KanbanAutoScroll
 
-    @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
+    @Environment(\.openSpec) private var openSpec
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
 
     var body: some View {
@@ -40,16 +40,22 @@ struct KanbanColumnView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(column.name)
-                .font(.title3.weight(.semibold))
-            Text("\(issues.count)")
-                .font(.title3)
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
-                .accessibilityLabel("\(issues.count) issues")
+            // Combine title + count so VoiceOver reads "Todo, 3 issues" as a
+            // single element. Keep the plus button outside the combined
+            // group so it stays an independently focusable action.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(column.name)
+                    .font(.title3.weight(.semibold))
+                Text("\(issues.count)")
+                    .font(.title3)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(column.name), \(issues.count) issues")
             Spacer()
             Button {
-                newIssueSheetIsPresented?.wrappedValue = true
+                openSpec(.createIssue(initialStatus: column.primaryStatusForCreation))
             } label: {
                 Image(systemName: "plus")
                     .font(.body.weight(.medium))
@@ -57,14 +63,8 @@ struct KanbanColumnView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(newIssueSheetIsPresented == nil)
             .help("New issue")
             .accessibilityLabel("New issue in \(column.name)")
-            .accessibilityHint(
-                newIssueSheetIsPresented == nil
-                    ? "Unavailable while this project is still loading or failed to open"
-                    : ""
-            )
         }
     }
 }

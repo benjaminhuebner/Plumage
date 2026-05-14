@@ -12,27 +12,32 @@ nonisolated enum MutatorError: Error, Equatable, Sendable {
     case noFrontmatter
 }
 
+nonisolated struct FrontmatterMutation: Sendable {
+    var title: SetValue<String> = .keep
+    var type: SetValue<IssueType> = .keep
+    var status: SetValue<IssueStatus> = .keep
+    var order: SetValue<Double?> = .keep
+    var labels: SetValue<[String]> = .keep
+    // Body splice is done in the same single write as the frontmatter
+    // mutation so saveBody can't leave the file with a new body but a
+    // stale `updated:` stamp on partial failure.
+    var body: SetValue<String> = .keep
+}
+
 nonisolated enum FrontmatterMutator {
     static func mutate(
         specURL: URL,
-        newStatus: IssueStatus?,
-        newOrder: SetValue<Double?>,
+        mutation: FrontmatterMutation,
         now: Date
     ) throws {
         let content = try String(contentsOf: specURL, encoding: .utf8)
-        let updated = try transform(
-            content: content,
-            newStatus: newStatus,
-            newOrder: newOrder,
-            now: now
-        )
+        let updated = try transform(content: content, mutation: mutation, now: now)
         try SpecWriter.write(updated, to: specURL)
     }
 
     static func transform(
         content: String,
-        newStatus: IssueStatus?,
-        newOrder: SetValue<Double?>,
+        mutation: FrontmatterMutation,
         now: Date
     ) throws -> String {
         let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
@@ -48,8 +53,11 @@ nonisolated enum FrontmatterMutator {
         }
 
         var frontmatter = Array(lines[(frontStart + 1)..<frontEnd])
+        var sawTitle = false
+        var sawType = false
         var sawStatus = false
         var sawOrder = false
+        var sawLabels = false
         var sawUpdated = false
         var statusIndex: Int?
 
@@ -58,21 +66,36 @@ nonisolated enum FrontmatterMutator {
         for (index, line) in frontmatter.enumerated() {
             guard let (key, indent) = parseKey(from: line) else { continue }
             switch key {
+            case "title":
+                sawTitle = true
+                if case .set(let value) = mutation.title {
+                    frontmatter[index] = "\(indent)title: \(formatTitleValue(value))"
+                }
+            case "type":
+                sawType = true
+                if case .set(let value) = mutation.type {
+                    frontmatter[index] = "\(indent)type: \(value.rawValue)"
+                }
             case "status":
                 sawStatus = true
                 statusIndex = index
-                if let newStatus {
-                    frontmatter[index] = "\(indent)status: \(newStatus.rawValue)"
+                if case .set(let value) = mutation.status {
+                    frontmatter[index] = "\(indent)status: \(value.rawValue)"
                 }
             case "order":
                 sawOrder = true
-                switch newOrder {
+                switch mutation.order {
                 case .keep:
                     break
                 case .set(.some(let value)):
                     frontmatter[index] = "\(indent)order: \(formatDouble(value))"
                 case .set(.none):
                     frontmatter[index] = "<<<__MUTATOR_DROP__>>>"
+                }
+            case "labels":
+                sawLabels = true
+                if case .set(let value) = mutation.labels {
+                    frontmatter[index] = "\(indent)labels: \(formatLabels(value))"
                 }
             case "updated":
                 sawUpdated = true
@@ -92,7 +115,7 @@ nonisolated enum FrontmatterMutator {
             }
         }
 
-        if case .set(.some(let value)) = newOrder, !sawOrder {
+        if case .set(.some(let value)) = mutation.order, !sawOrder {
             let line = "order: \(formatDouble(value))"
             // Re-resolve statusIndex against possibly-updated frontmatter.
             let insertAfter = frontmatter.firstIndex { line in
@@ -107,19 +130,66 @@ nonisolated enum FrontmatterMutator {
 
         frontmatter.removeAll { $0 == "<<<__MUTATOR_DROP__>>>" }
 
-        if !sawStatus, newStatus != nil {
-            // Status field absent — should be unreachable for valid specs, but
-            // do not silently inject it; the caller didn't ask for an arbitrary
-            // location, and a malformed spec needs explicit user attention.
+        // Status-field absent and caller asked to set it: malformed spec
+        // needs explicit user attention rather than silent injection.
+        if !sawStatus, case .set = mutation.status {
+            throw MutatorError.noFrontmatter
+        }
+        // Same for the other fields the form can mutate.
+        if !sawTitle, case .set = mutation.title {
+            throw MutatorError.noFrontmatter
+        }
+        if !sawType, case .set = mutation.type {
+            throw MutatorError.noFrontmatter
+        }
+        if !sawLabels, case .set = mutation.labels {
             throw MutatorError.noFrontmatter
         }
 
         var rebuilt: [String] = []
         rebuilt.append(contentsOf: lines[0...frontStart])
         rebuilt.append(contentsOf: frontmatter)
-        rebuilt.append(contentsOf: lines[frontEnd..<lines.count])
 
-        return rebuilt.joined(separator: lineSeparator)
+        switch mutation.body {
+        case .keep:
+            rebuilt.append(contentsOf: lines[frontEnd..<lines.count])
+            return rebuilt.joined(separator: lineSeparator)
+        case .set(let newBody):
+            // Preserve the closing `---` line itself, then a single blank
+            // separator, then the new body. Matches the convention in
+            // existing spec files and what IssueDetailModel.replaceBody used
+            // to produce.
+            rebuilt.append(lines[frontEnd])
+            let frontmatterSection = rebuilt.joined(separator: lineSeparator)
+            return frontmatterSection + lineSeparator + lineSeparator + newBody
+        }
+    }
+
+    // Drop-path back-compat wrapper. ProjectKanbanModel's Mutator typealias
+    // pins this exact signature; keep it green so #00015 callers compile
+    // unchanged. Internally routes through the new mutation entry point.
+    static func mutate(
+        specURL: URL,
+        newStatus: IssueStatus?,
+        newOrder: SetValue<Double?>,
+        now: Date
+    ) throws {
+        var mutation = FrontmatterMutation()
+        if let newStatus { mutation.status = .set(newStatus) }
+        mutation.order = newOrder
+        try mutate(specURL: specURL, mutation: mutation, now: now)
+    }
+
+    static func transform(
+        content: String,
+        newStatus: IssueStatus?,
+        newOrder: SetValue<Double?>,
+        now: Date
+    ) throws -> String {
+        var mutation = FrontmatterMutation()
+        if let newStatus { mutation.status = .set(newStatus) }
+        mutation.order = newOrder
+        return try transform(content: content, mutation: mutation, now: now)
     }
 
     private static func firstDelimiterIndex(in lines: [String]) -> Int? {
@@ -166,9 +236,48 @@ nonisolated enum FrontmatterMutator {
         return formatted
     }
 
+    static func formatTitleValue(_ raw: String) -> String {
+        if needsYAMLQuoting(raw) {
+            let escaped =
+                raw
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            return "\"\(escaped)\""
+        }
+        return raw
+    }
+
+    static func formatLabels(_ labels: [String]) -> String {
+        let formatted = labels.map { formatLabelValue($0) }
+        return "[\(formatted.joined(separator: ", "))]"
+    }
+
+    private static func formatLabelValue(_ raw: String) -> String {
+        if needsYAMLQuoting(raw) {
+            let escaped =
+                raw
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            return "\"\(escaped)\""
+        }
+        return raw
+    }
+
+    private static func needsYAMLQuoting(_ raw: String) -> Bool {
+        guard let first = raw.first else { return true }
+        // Leading whitespace or `-` would be parsed as a list/scalar marker.
+        if first == " " || first == "\t" || first == "-" { return true }
+        let danger: Set<Character> = [
+            ":", "#", "&", "*", "!", "|", ">", "%", "@", "\"", "\\", "{", "}", "[", "]", ",", "?",
+        ]
+        return raw.contains { danger.contains($0) }
+    }
+
     private static func isoString(from date: Date) -> String {
-        // Allocate per-call: ISO8601DateFormatter is not documented as
-        // thread-safe by Apple. See notes.md.
+        // Allocate per-call. ISO8601DateFormatter is thread-safe per Apple
+        // (NSFormatter's non-thread-safety note applies to DateFormatter,
+        // not the ISO8601 variant), but the allocation cost is negligible
+        // here and we avoid sharing mutable formatOptions across threads.
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)

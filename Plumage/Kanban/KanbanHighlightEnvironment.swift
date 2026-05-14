@@ -7,5 +7,5 @@ extension EnvironmentValues {
     // through here lets the card own its full gesture coordination via
     // ExclusiveGesture(Drag, Tap), so a drag-then-release-near-start no
     // longer opens the editor like NavigationLink's bridged button would.
-    @Entry var openSpec: (String) -> Void = { _ in }
+    @Entry var openSpec: (SpecRoute) -> Void = { _ in }
 }
