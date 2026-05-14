@@ -39,6 +39,7 @@ struct KanbanColumnView: View {
                 .font(.title3)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
+                .accessibilityLabel("\(issues.count) issues")
             Spacer()
             Button {
                 newIssueSheetIsPresented?.wrappedValue = true
