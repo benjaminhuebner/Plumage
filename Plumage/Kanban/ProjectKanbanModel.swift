@@ -67,9 +67,7 @@ final class ProjectKanbanModel {
         highlightTask = Task { [weak self] in
             try? await clock.sleep(for: duration)
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self?.highlightedIssueID = nil
-            }
+            self?.highlightedIssueID = nil
         }
     }
 
