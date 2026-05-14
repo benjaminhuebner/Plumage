@@ -4,6 +4,7 @@ struct IssueCardSwitch: View {
     let issue: DiscoveredIssue
     let padding: Int
     let projectURL: URL
+    var isDragSource: Bool = false
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(KanbanDragController.self) private var kanbanDrag
@@ -26,10 +27,16 @@ struct IssueCardSwitch: View {
     private func validBody(_ value: Issue) -> some View {
         let isLocked = dirtyFolderName == value.folderName
         let payload = IssueDragPayload(folderName: value.folderName, currentStatus: value.status)
+        // While this is the active drag source, fade the in-place card to zero
+        // opacity. The card stays in the layout (slot remains visible as empty
+        // space) so its IssueCardSwitch view identity persists — the attached
+        // long-press+drag gesture continues to fire onChanged. Removing the
+        // view from the column ForEach would tear the gesture down mid-drag.
+        let cardOpacity: Double = isDragSource ? 0 : (isLocked ? 0.7 : 1.0)
 
         NavigationLink(value: SpecRoute.spec(folderName: value.folderName)) {
             IssueCardView(issue: value, padding: padding)
-                .opacity(isLocked ? 0.7 : 1.0)
+                .opacity(cardOpacity)
         }
         .buttonStyle(.plain)
         .help(isLocked ? "Card has unsaved edits in the editor" : "")

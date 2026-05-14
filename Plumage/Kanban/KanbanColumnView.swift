@@ -13,12 +13,16 @@ struct KanbanColumnView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // Keep ALL issues in the ForEach — even the source. Removing the
+        // source IssueCardSwitch would destroy its view, which tears down the
+        // attached DragGesture mid-drag (the visible bug: card lifts, then
+        // stops following). Hiding via .opacity(0) inside IssueCardSwitch
+        // keeps the gesture's view identity alive.
         let dragSource = kanbanDrag.sourceFolderName
-        let visibleIssues = dragSource == nil ? issues : issues.filter { $0.id != dragSource }
         let placeholderIndex = computePlaceholderIndex(
             dragTarget: kanbanDrag.target?.target,
             column: column,
-            visibleIssues: visibleIssues
+            visibleIssues: issues
         )
         let placeholderHeight = kanbanDrag.isActive ? kanbanDrag.sourceFrame.height : 100
 
@@ -26,7 +30,7 @@ struct KanbanColumnView: View {
             header
                 .padding(.horizontal, 4)
 
-            if visibleIssues.isEmpty && placeholderIndex == nil {
+            if issues.isEmpty && placeholderIndex == nil {
                 Text("No issues")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -34,14 +38,18 @@ struct KanbanColumnView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(Array(visibleIssues.enumerated()), id: \.element.id) { idx, item in
+                        ForEach(Array(issues.enumerated()), id: \.element.id) { idx, item in
                             if placeholderIndex == idx {
                                 placeholderSlot(height: placeholderHeight)
                             }
                             IssueCardSwitch(
-                                issue: item, padding: padding, projectURL: projectURL)
+                                issue: item,
+                                padding: padding,
+                                projectURL: projectURL,
+                                isDragSource: item.id == dragSource
+                            )
                         }
-                        if placeholderIndex == visibleIssues.count {
+                        if placeholderIndex == issues.count {
                             placeholderSlot(height: placeholderHeight)
                         }
                     }
