@@ -158,7 +158,7 @@ struct IssueDetailView: View {
                 displayMode: $displayMode,
                 onCopyID: copyID,
                 onRevealInFinder: revealInFinder,
-                onSaveAndClose: { Task { await attemptPop() } }
+                onSave: attemptSave
             )
             switch displayMode {
             case .detail:

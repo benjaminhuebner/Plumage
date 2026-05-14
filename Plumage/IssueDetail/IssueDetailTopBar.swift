@@ -7,7 +7,7 @@ struct IssueDetailTopBar: View {
     @Binding var displayMode: IssueDetailView.DisplayMode
     let onCopyID: () -> Void
     let onRevealInFinder: () -> Void
-    let onSaveAndClose: () -> Void
+    let onSave: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -28,14 +28,9 @@ struct IssueDetailTopBar: View {
                 .help("Copy folder name to clipboard")
             Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
                 .help("Show this issue's folder in Finder")
-            Button(action: onSaveAndClose) {
-                Label(
-                    isBodyDirty ? "Save & Done" : "Done",
-                    systemImage: isBodyDirty ? "checkmark.circle.fill" : "checkmark"
-                )
-            }
-            .buttonStyle(.glassProminent)
-            .help(isBodyDirty ? "Save changes and return (⌘W)" : "Return to board (⌘W)")
+            Button("Save", action: onSave)
+                .disabled(!isBodyDirty)
+                .help("Save changes (⌘S)")
         }
         .buttonStyle(.borderless)
         .labelStyle(.titleAndIcon)
@@ -52,7 +47,7 @@ struct IssueDetailTopBar: View {
                 displayMode: mode,
                 onCopyID: {},
                 onRevealInFinder: {},
-                onSaveAndClose: {}
+                onSave: {}
             )
             IssueDetailTopBar(
                 paddedID: "#00016",
@@ -61,7 +56,7 @@ struct IssueDetailTopBar: View {
                 displayMode: mode,
                 onCopyID: {},
                 onRevealInFinder: {},
-                onSaveAndClose: {}
+                onSave: {}
             )
         }
         .padding()
