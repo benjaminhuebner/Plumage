@@ -63,7 +63,11 @@ nonisolated enum SpecParser {
     }
 
     static func extractGoal(from content: String) -> String? {
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        let normalized =
+            content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
         var inGoal = false
         var collected: [String] = []
         for line in lines {

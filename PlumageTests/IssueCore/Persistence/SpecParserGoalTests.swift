@@ -118,6 +118,13 @@ struct SpecParserGoalTests {
         #expect(goal.contains("<!--"))
     }
 
+    @Test("CRLF line endings are normalised before parsing")
+    func crlfNormalised() {
+        let content =
+            "---\r\nid: 1\r\n---\r\n\r\n## Goal\r\n\r\nWindows line endings.\r\n\r\n## Scope\r\n"
+        #expect(SpecParser.extractGoal(from: content) == "Windows line endings.")
+    }
+
     @Test("Goal extraction strips inline HTML comments")
     func stripsInlineComment() {
         let content = """
