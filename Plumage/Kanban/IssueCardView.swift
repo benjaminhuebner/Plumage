@@ -29,7 +29,7 @@ struct IssueCardView: View {
                         .foregroundStyle(.secondary)
                         .help("Blocked")
                 }
-                IssueTypeBadge(type: issue.type)
+                IssueTypePill(type: issue.type)
             }
 
             if !issue.labels.isEmpty {
