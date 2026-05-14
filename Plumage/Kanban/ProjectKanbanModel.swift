@@ -28,6 +28,7 @@ final class ProjectKanbanModel {
     private let highlightDuration: Duration
     private let mutator: Mutator
     private var highlightTask: Task<Void, Never>?
+    private var dropTask: Task<Void, Never>?
 
     init(
         producerFactory: @escaping @Sendable (URL) -> IssueSnapshotProducer = {
@@ -81,6 +82,21 @@ final class ProjectKanbanModel {
         self.groupedIssues = Self.group(issues)
     }
     #endif
+
+    // Cancels any prior in-flight drop and schedules a new one. Views must
+    // use this instead of spawning unstructured Tasks in `dropDestination`
+    // closures — drops fired in quick succession could otherwise commit to
+    // disk out of order relative to the UI snapshot they read.
+    func dispatchDrop(
+        _ payload: IssueDragPayload,
+        to target: DropTarget,
+        projectURL: URL
+    ) {
+        dropTask?.cancel()
+        dropTask = Task { [weak self] in
+            await self?.performDrop(payload, to: target, projectURL: projectURL)
+        }
+    }
 
     func performDrop(
         _ payload: IssueDragPayload,

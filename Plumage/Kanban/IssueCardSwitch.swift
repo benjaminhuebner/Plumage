@@ -49,10 +49,7 @@ struct IssueCardSwitch: View {
                 edge == .above
                 ? .aboveCard(folderName: value.folderName, column: value.column)
                 : .belowCard(folderName: value.folderName, column: value.column)
-            let urlSnapshot = projectURL
-            Task { @MainActor in
-                await kanban.performDrop(dropped, to: target, projectURL: urlSnapshot)
-            }
+            kanban.dispatchDrop(dropped, to: target, projectURL: projectURL)
             return true
         } isTargeted: { targeted in
             if !targeted {

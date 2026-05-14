@@ -36,12 +36,7 @@ struct KanbanColumnView: View {
         .contentShape(Rectangle())
         .dropDestination(for: IssueDragPayload.self) { items, _ in
             guard let payload = items.first else { return false }
-            let columnSnapshot = column
-            let urlSnapshot = projectURL
-            Task { @MainActor in
-                await kanban.performDrop(
-                    payload, to: .column(columnSnapshot), projectURL: urlSnapshot)
-            }
+            kanban.dispatchDrop(payload, to: .column(column), projectURL: projectURL)
             return true
         } isTargeted: { targeted in
             isDropTargeted = targeted
