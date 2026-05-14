@@ -9,6 +9,8 @@ struct IssueDetailView: View {
 
     @State private var model: IssueDetailModel
     @State private var titleDraft: String = ""
+    @State private var rawDraft: String = ""
+    @State private var displayMode: DisplayMode = .detail
     @State private var editorPosition = CodeEditor.Position()
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var pendingSaveAlert: SaveAlert?
@@ -17,11 +19,19 @@ struct IssueDetailView: View {
     @State private var observeTask: Task<Void, Never>?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
+    // Hides the right-edge minimap so the body editor uses the full width.
+    private let editorLayout = CodeEditor.LayoutConfiguration(showMinimap: false, wrapText: true)
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openSpec) private var openSpec
     @Environment(ProjectKanbanModel.self) private var kanban
+
+    enum DisplayMode: String, CaseIterable, Identifiable {
+        case detail = "Detail"
+        case raw = "Raw"
+        var id: String { rawValue }
+    }
 
     init(projectURL: URL, folderName: String) {
         self.projectURL = projectURL
@@ -48,19 +58,27 @@ struct IssueDetailView: View {
         .background(backgroundTint)
         .navigationTitle(model.issue?.title ?? folderName)
         .focusedSceneValue(\.specEditorIsActive, true)
-        .focusedSceneValue(\.specEditorSave, attemptSaveBody)
+        .focusedSceneValue(\.specEditorSave, attemptSave)
         .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
-        .focusedSceneValue(\.specEditorDirtyFolderName, model.isBodyDirty ? folderName : nil)
+        .focusedSceneValue(\.specEditorDirtyFolderName, isAnyDirty ? folderName : nil)
         .task(id: model.specURL) {
             await model.load()
             if let issue = model.issue {
                 titleDraft = issue.title
             }
+            rawDraft = model.loadedSpecContent
             refreshEditorMessages()
         }
         .onChange(of: model.issue?.title) { _, newTitle in
             if let newTitle, newTitle != titleDraft {
                 titleDraft = newTitle
+            }
+        }
+        .onChange(of: model.loadedSpecContent) { _, newContent in
+            // Keep raw buffer in sync after silent reloads / form writes.
+            // If user is actively editing in raw mode (rawDirty), preserve it.
+            if displayMode != .raw || !isRawDirty {
+                rawDraft = newContent
             }
         }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
@@ -70,7 +88,14 @@ struct IssueDetailView: View {
             observeTask = Task { await model.observeExternalChange(currentIssue: current) }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { attemptSaveBody() }
+            if phase != .active { attemptSave() }
+        }
+        .onChange(of: displayMode) { _, newMode in
+            // Switching INTO raw should snapshot the current disk content as
+            // the buffer's baseline, so the user starts from a clean view.
+            if newMode == .raw {
+                rawDraft = model.loadedSpecContent
+            }
         }
         .alert(
             "Failed to save",
@@ -95,7 +120,10 @@ struct IssueDetailView: View {
             IssueDetailBanner(
                 frontmatterError: model.frontmatterError,
                 conflict: model.conflict,
-                onReload: { model.resolveConflictReload() },
+                onReload: {
+                    model.resolveConflictReload()
+                    rawDraft = model.loadedSpecContent
+                },
                 onKeep: { model.resolveConflictKeep() }
             )
             switch model.loadState {
@@ -126,42 +154,68 @@ struct IssueDetailView: View {
             IssueDetailTopBar(
                 paddedID: "#" + IssueIDFormatter.padded(issue.id, width: 5),
                 branch: issue.branch,
-                isBodyDirty: model.isBodyDirty,
+                isBodyDirty: isAnyDirty,
+                displayMode: $displayMode,
                 onCopyID: copyID,
-                onOpenRawEditor: openRawEditor,
                 onRevealInFinder: revealInFinder,
                 onClose: { Task { await attemptPop() } }
             )
-            IssueDetailHero(issue: issue)
-            Divider()
-            IssueDetailFormRows(
-                issue: issue,
-                titleDraft: $titleDraft,
-                onCommitTitle: commitTitle,
-                onSelectType: { newType in runFormCommit { try await model.commitType(newType) } },
-                onSelectStatus: { newStatus in
-                    runFormCommit { try await model.commitStatus(newStatus) }
-                },
-                onAddLabel: { newLabel in
-                    let next = issue.labels + [newLabel]
-                    runFormCommit { try await model.commitLabels(next) }
-                },
-                onRemoveLabel: { label in
-                    let next = issue.labels.filter { $0 != label }
-                    runFormCommit { try await model.commitLabels(next) }
-                },
-                isDisabled: model.frontmatterError != nil
-            )
-            Divider()
-            CodeEditor(
-                text: $model.bodyDraft,
-                position: $editorPosition,
-                messages: $editorMessages,
-                language: markdownLanguage
-            )
-            .frame(minHeight: 240)
+            switch displayMode {
+            case .detail:
+                detailBody(issue: issue)
+            case .raw:
+                rawBody
+            }
         }
         .padding(24)
+    }
+
+    @ViewBuilder
+    private func detailBody(issue: Issue) -> some View {
+        IssueDetailHero(
+            issue: issue,
+            titleDraft: $titleDraft,
+            onCommitTitle: commitTitle,
+            isDisabled: model.frontmatterError != nil
+        )
+        Divider()
+        IssueDetailFormRows(
+            issue: issue,
+            onSelectType: { newType in runFormCommit { try await model.commitType(newType) } },
+            onSelectStatus: { newStatus in
+                runFormCommit { try await model.commitStatus(newStatus) }
+            },
+            onAddLabel: { newLabel in
+                let next = issue.labels + [newLabel]
+                runFormCommit { try await model.commitLabels(next) }
+            },
+            onRemoveLabel: { label in
+                let next = issue.labels.filter { $0 != label }
+                runFormCommit { try await model.commitLabels(next) }
+            },
+            isDisabled: model.frontmatterError != nil
+        )
+        Divider()
+        CodeEditor(
+            text: $model.bodyDraft,
+            position: $editorPosition,
+            messages: $editorMessages,
+            language: markdownLanguage
+        )
+        .environment(\.codeEditorLayoutConfiguration, editorLayout)
+        .frame(minHeight: 240)
+    }
+
+    @ViewBuilder
+    private var rawBody: some View {
+        CodeEditor(
+            text: $rawDraft,
+            position: $editorPosition,
+            messages: $editorMessages,
+            language: markdownLanguage
+        )
+        .environment(\.codeEditorLayoutConfiguration, editorLayout)
+        .frame(minHeight: 240)
     }
 
     private var backgroundTint: some View {
@@ -175,6 +229,17 @@ struct IssueDetailView: View {
             endPoint: .bottom
         )
         .ignoresSafeArea()
+    }
+
+    private var isRawDirty: Bool {
+        rawDraft != model.loadedSpecContent
+    }
+
+    private var isAnyDirty: Bool {
+        switch displayMode {
+        case .detail: model.isBodyDirty
+        case .raw: isRawDirty
+        }
     }
 
     private func refreshEditorMessages() {
@@ -195,12 +260,17 @@ struct IssueDetailView: View {
         }
     }
 
-    private func attemptSaveBody() {
+    private func attemptSave() {
         let prior = pendingBodySave
         pendingBodySave = Task {
             await prior?.value
             do {
-                try await model.saveBody()
+                switch displayMode {
+                case .detail:
+                    try await model.saveBody()
+                case .raw:
+                    try await model.saveRaw(rawDraft)
+                }
             } catch {
                 presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
@@ -210,7 +280,14 @@ struct IssueDetailView: View {
     private func attemptPop() async {
         await pendingBodySave?.value
         do {
-            try await model.saveBody()
+            switch displayMode {
+            case .detail:
+                try await model.saveBody()
+            case .raw:
+                if isRawDirty {
+                    try await model.saveRaw(rawDraft)
+                }
+            }
             dismiss()
         } catch {
             presentSaveAlert(message: error.localizedDescription, kind: .pop)
@@ -226,10 +303,6 @@ struct IssueDetailView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(folderName, forType: .string)
-    }
-
-    private func openRawEditor() {
-        openSpec(SpecRoute.rawEditor(folderName: folderName))
     }
 
     private func revealInFinder() {

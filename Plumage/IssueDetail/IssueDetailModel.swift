@@ -185,6 +185,30 @@ final class IssueDetailModel {
         }
     }
 
+    func saveRaw(_ rawContent: String) async throws {
+        let prior = pendingBodySave
+        let url = specURL
+        let writer = self.writer
+        let task = Task<Void, Error> {
+            _ = try? await prior?.value
+            let normalized = rawContent.replacingOccurrences(of: "\r\n", with: "\n")
+            try await Task.detached(priority: .userInitiated) {
+                try writer.write(normalized, to: url)
+            }.value
+        }
+        pendingBodySave = task
+        try await task.value
+
+        let fresh = await Task.detached(priority: .utility) {
+            try? String(contentsOf: url, encoding: .utf8)
+        }.value
+        if let fresh {
+            let normalized = fresh.replacingOccurrences(of: "\r\n", with: "\n")
+            lastWrittenContent = normalized
+            applyLoaded(content: normalized)
+        }
+    }
+
     func observeExternalChange(currentIssue: DiscoveredIssue?) async {
         guard let currentIssue else {
             noteSeenIssue(nil)
