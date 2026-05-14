@@ -11,12 +11,15 @@ struct InvalidIssueCardView: View {
 
     private var folderName: String { folder.lastPathComponent }
 
+    private var parts: (id: Int?, slug: String) {
+        IssueDiscovery.extractID(fromFolderName: folderName)
+    }
+
     private var isHighlighted: Bool {
         highlightedID == folderName
     }
 
     var body: some View {
-        let parts = IssueDiscovery.extractID(fromFolderName: folderName)
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 invalidPill
