@@ -52,8 +52,8 @@ struct IssueCardSwitch: View {
                 enabled: !isLocked,
                 payload: payload,
                 sourceFrameProvider: { sourceFrameInKanban },
-                onDispatch: { target in
-                    kanban.dispatchDrop(payload, to: target, projectURL: projectURL)
+                onDispatch: { dispatchedPayload, target in
+                    kanban.dispatchDrop(dispatchedPayload, to: target, projectURL: projectURL)
                 }
             )
         )
@@ -64,7 +64,7 @@ private struct ConditionalDragGesture: ViewModifier {
     let enabled: Bool
     let payload: IssueDragPayload
     let sourceFrameProvider: () -> CGRect
-    let onDispatch: (ProjectKanbanModel.DropTarget) -> Void
+    let onDispatch: (IssueDragPayload, ProjectKanbanModel.DropTarget) -> Void
 
     @Environment(KanbanDragController.self) private var controller
 
@@ -101,10 +101,31 @@ private struct ConditionalDragGesture: ViewModifier {
                 }
             }
             .onEnded { _ in
-                if let resolved = controller.state?.target {
-                    onDispatch(resolved.target)
+                guard let state = controller.state else { return }
+                if let resolved = state.target {
+                    let dropTranslation = CGSize(
+                        width: resolved.insertionFrame.minX - state.sourceFrame.minX,
+                        height: resolved.insertionFrame.minY - state.sourceFrame.minY
+                    )
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        controller.beginDrop(finalTranslation: dropTranslation)
+                    }
+                    let payload = state.payload
+                    let target = resolved.target
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(180))
+                        onDispatch(payload, target)
+                        controller.clear()
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        controller.beginCancel()
+                    }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(300))
+                        controller.clear()
+                    }
                 }
-                controller.clear()
             }
     }
 }

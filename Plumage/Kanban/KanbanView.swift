@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct KanbanView: View {
@@ -6,6 +7,7 @@ struct KanbanView: View {
     let projectURL: URL
 
     @Environment(ProjectKanbanModel.self) private var kanban
+    @Environment(\.scenePhase) private var scenePhase
     @State private var cardFrames: [String: CGRect] = [:]
     @State private var columnFrames: [IssueColumn: CGRect] = [:]
     @State private var kanbanDrag = KanbanDragController()
@@ -25,6 +27,7 @@ struct KanbanView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
+        .scrollDisabled(kanbanDrag.state != nil)
         .coordinateSpace(name: KanbanCoordinateSpace.name)
         .overlay(alignment: .topLeading) {
             floatingDragCard
@@ -38,6 +41,17 @@ struct KanbanView: View {
         }
         .onChange(of: kanbanDrag.state?.cursorLocation) { _, _ in
             updateResolvedTarget()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase != .active {
+                cancelDrag()
+            }
+        }
+        // .onKeyPress(.escape) does not reliably fire while a mouse drag holds
+        // the responder chain; a local NSEvent monitor catches the keystroke
+        // regardless of focus and lets us cancel the drag mid-gesture.
+        .task(id: kanbanDrag.state != nil) {
+            await monitorEscape()
         }
     }
 
@@ -64,6 +78,36 @@ struct KanbanView: View {
             }
         }
         return nil
+    }
+
+    private func cancelDrag() {
+        guard kanbanDrag.state != nil else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            kanbanDrag.beginCancel()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            kanbanDrag.clear()
+        }
+    }
+
+    private func monitorEscape() async {
+        guard kanbanDrag.state != nil else { return }
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                Task { @MainActor in cancelDrag() }
+                return nil
+            }
+            return event
+        }
+        defer {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+        while !Task.isCancelled, kanbanDrag.state != nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     private func updateResolvedTarget() {

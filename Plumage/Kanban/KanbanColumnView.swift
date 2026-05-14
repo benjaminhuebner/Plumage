@@ -46,6 +46,7 @@ struct KanbanColumnView: View {
                     .padding(.horizontal, 4)
                     .animation(.smooth(duration: 0.18), value: placeholderIndex)
                 }
+                .scrollDisabled(kanbanDrag.state != nil)
             }
         }
         .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
