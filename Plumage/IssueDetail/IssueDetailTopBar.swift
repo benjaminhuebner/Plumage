@@ -7,7 +7,7 @@ struct IssueDetailTopBar: View {
     @Binding var displayMode: IssueDetailView.DisplayMode
     let onCopyID: () -> Void
     let onRevealInFinder: () -> Void
-    let onClose: () -> Void
+    let onSaveAndClose: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -21,15 +21,6 @@ struct IssueDetailTopBar: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            if isBodyDirty {
-                HStack(spacing: 4) {
-                    Circle().fill(Color.orange).frame(width: 6, height: 6)
-                    Text("Unsaved (⌘S)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityLabel("Unsaved changes — save with Command S")
-            }
             Spacer()
             DisplayModeToggle(displayMode: $displayMode)
                 .help("Switch between detail and raw spec.md view")
@@ -37,12 +28,14 @@ struct IssueDetailTopBar: View {
                 .help("Copy folder name to clipboard")
             Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
                 .help("Show this issue's folder in Finder")
-            Button {
-                onClose()
-            } label: {
-                Image(systemName: "xmark")
+            Button(action: onSaveAndClose) {
+                Label(
+                    isBodyDirty ? "Save & Done" : "Done",
+                    systemImage: isBodyDirty ? "checkmark.circle.fill" : "checkmark"
+                )
             }
-            .help("Close (⌘W)")
+            .buttonStyle(.glassProminent)
+            .help(isBodyDirty ? "Save changes and return (⌘W)" : "Return to board (⌘W)")
         }
         .buttonStyle(.borderless)
         .labelStyle(.titleAndIcon)
@@ -59,7 +52,7 @@ struct IssueDetailTopBar: View {
                 displayMode: mode,
                 onCopyID: {},
                 onRevealInFinder: {},
-                onClose: {}
+                onSaveAndClose: {}
             )
             IssueDetailTopBar(
                 paddedID: "#00016",
@@ -68,7 +61,7 @@ struct IssueDetailTopBar: View {
                 displayMode: mode,
                 onCopyID: {},
                 onRevealInFinder: {},
-                onClose: {}
+                onSaveAndClose: {}
             )
         }
         .padding()
