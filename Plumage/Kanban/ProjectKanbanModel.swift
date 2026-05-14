@@ -134,10 +134,16 @@ final class ProjectKanbanModel {
         pendingDropFolderName = issue.folderName
         pendingDropExpectedStatus = newStatus
         pendingDropExpectedOrder = newOrder
-        withAnimation(.smooth(duration: 0.18)) {
-            issues = Self.replace(issues, folderName: issue.folderName, with: updated)
-            groupedIssues = Self.group(issues)
-        }
+        // Apply the optimistic update WITHOUT withAnimation: the layout
+        // transition would otherwise animate the source from its collapsed
+        // drag-source state (height 0, opacity 0) at the OLD index to its
+        // full natural state at the NEW index — visible to the user as the
+        // card "growing in" at the wrong slot before sliding to the right
+        // one. The floating overlay was already at the insertion point;
+        // letting the layout snap means the source appears in place at the
+        // exact spot the overlay just vacated.
+        issues = Self.replace(issues, folderName: issue.folderName, with: updated)
+        groupedIssues = Self.group(issues)
 
         let specURL =
             projectURL
