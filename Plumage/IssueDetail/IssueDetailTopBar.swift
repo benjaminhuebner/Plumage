@@ -3,7 +3,6 @@ import SwiftUI
 struct IssueDetailTopBar: View {
     let paddedID: String
     let branch: String
-    let isBodyDirty: Bool
     @Binding var displayMode: IssueDetailView.DisplayMode
     let onCopyID: () -> Void
     let onRevealInFinder: () -> Void
@@ -29,7 +28,8 @@ struct IssueDetailTopBar: View {
             Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
                 .help("Show this issue's folder in Finder")
             Button("Save", action: onSave)
-                .disabled(!isBodyDirty)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
                 .help("Save changes (⌘S)")
         }
         .buttonStyle(.borderless)
@@ -39,26 +39,14 @@ struct IssueDetailTopBar: View {
 
 #Preview {
     StatefulPreviewWrapper(IssueDetailView.DisplayMode.detail) { mode in
-        VStack {
-            IssueDetailTopBar(
-                paddedID: "#00016",
-                branch: "issue/00016-better-issue-details",
-                isBodyDirty: false,
-                displayMode: mode,
-                onCopyID: {},
-                onRevealInFinder: {},
-                onSave: {}
-            )
-            IssueDetailTopBar(
-                paddedID: "#00016",
-                branch: "issue/00016-better-issue-details",
-                isBodyDirty: true,
-                displayMode: mode,
-                onCopyID: {},
-                onRevealInFinder: {},
-                onSave: {}
-            )
-        }
+        IssueDetailTopBar(
+            paddedID: "#00016",
+            branch: "issue/00016-better-issue-details",
+            displayMode: mode,
+            onCopyID: {},
+            onRevealInFinder: {},
+            onSave: {}
+        )
         .padding()
         .frame(width: 800)
     }

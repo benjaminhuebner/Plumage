@@ -154,7 +154,6 @@ struct IssueDetailView: View {
             IssueDetailTopBar(
                 paddedID: "#" + IssueIDFormatter.padded(issue.id, width: 5),
                 branch: issue.branch,
-                isBodyDirty: isAnyDirty,
                 displayMode: $displayMode,
                 onCopyID: copyID,
                 onRevealInFinder: revealInFinder,
