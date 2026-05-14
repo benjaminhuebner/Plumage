@@ -46,6 +46,7 @@ struct IssueCardSwitch: View {
         } action: { height in
             measuredHeight = height
         }
+        .reportCardFrame(folderName: value.folderName)
         .modifier(ConditionalDraggable(payload: payload, enabled: !isLocked))
         .accessibilityActions {
             ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in

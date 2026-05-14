@@ -5,6 +5,9 @@ struct KanbanView: View {
     let padding: Int
     let projectURL: URL
 
+    @State private var cardFrames: [String: CGRect] = [:]
+    @State private var columnFrames: [IssueColumn: CGRect] = [:]
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 12) {
@@ -19,6 +22,13 @@ struct KanbanView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+        }
+        .coordinateSpace(name: KanbanCoordinateSpace.name)
+        .onPreferenceChange(CardFramesPreferenceKey.self) { frames in
+            cardFrames = frames
+        }
+        .onPreferenceChange(ColumnFramesPreferenceKey.self) { frames in
+            columnFrames = frames
         }
     }
 }

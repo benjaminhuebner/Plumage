@@ -34,6 +34,7 @@ struct KanbanColumnView: View {
         }
         .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
+        .reportColumnFrame(column: column)
         .dropDestination(for: IssueDragPayload.self) { items, _ in
             guard let payload = items.first else { return false }
             kanban.dispatchDrop(payload, to: .column(column), projectURL: projectURL)
