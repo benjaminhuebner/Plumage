@@ -5,7 +5,6 @@ struct ProjectWindow: View {
 
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
-    @State private var showsNewIssueSheet = false
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -18,27 +17,14 @@ struct ProjectWindow: View {
                     case .rawEditor(let folderName):
                         SpecEditorView(projectURL: handle.url, folderName: folderName)
                             .navigationTitle("Raw: \(folderName)")
-                    case .createIssue:
-                        // Wired up in later tasks of #00017 — placeholder so
-                        // SpecRoute's new case keeps the switch exhaustive.
-                        EmptyView()
+                    case .createIssue(let initialStatus):
+                        IssueDetailView(projectURL: handle.url, initialStatus: initialStatus)
                     }
                 }
         }
         .environment(kanban)
         .frame(minWidth: 720, minHeight: 480)
         .navigationTitle(displayTitle)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showsNewIssueSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .help("New Issue (⌘N)")
-                .disabled(!isLoaded)
-            }
-        }
         .focusedSceneValue(
             \.createIssueInDefaultColumn,
             isLoaded
@@ -47,18 +33,6 @@ struct ProjectWindow: View {
                 }
                 : nil
         )
-        .sheet(isPresented: $showsNewIssueSheet) {
-            NewIssueSheet(
-                projectURL: handle.url,
-                existingIssues: kanban.issues,
-                onCreate: { _ in showsNewIssueSheet = false },
-                onCollision: { folder in
-                    showsNewIssueSheet = false
-                    kanban.highlight(folderName: folder)
-                },
-                onDismiss: { showsNewIssueSheet = false }
-            )
-        }
         .task(id: handle.url) {
             async let reload: Void = model.reload(at: handle.url)
             async let run: Void = kanban.run(projectURL: handle.url)
