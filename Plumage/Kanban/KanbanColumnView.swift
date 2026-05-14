@@ -51,6 +51,7 @@ struct KanbanColumnView: View {
             .buttonStyle(.plain)
             .disabled(newIssueSheetIsPresented == nil)
             .help("New issue")
+            .accessibilityLabel("New issue in \(column.name)")
         }
     }
 }
