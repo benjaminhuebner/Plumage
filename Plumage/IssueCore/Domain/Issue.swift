@@ -11,6 +11,7 @@ nonisolated struct Issue: Hashable, Sendable {
     let branch: String
     let labels: [String]
     let model: String?
+    let order: Double?
     let goal: String?
 
     init(
@@ -24,6 +25,7 @@ nonisolated struct Issue: Hashable, Sendable {
         branch: String,
         labels: [String],
         model: String?,
+        order: Double? = nil,
         goal: String? = nil
     ) {
         self.id = id
@@ -36,6 +38,7 @@ nonisolated struct Issue: Hashable, Sendable {
         self.branch = branch
         self.labels = labels
         self.model = model
+        self.order = order
         self.goal = goal
     }
 }

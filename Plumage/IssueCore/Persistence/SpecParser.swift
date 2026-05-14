@@ -57,6 +57,7 @@ nonisolated enum SpecParser {
                 branch: raw.branch,
                 labels: raw.labels ?? [],
                 model: raw.model,
+                order: raw.order,
                 goal: extractGoal(from: content)
             )
         )
@@ -208,4 +209,5 @@ private nonisolated struct RawFrontmatter: Decodable {
     let branch: String
     let labels: [String]?
     let model: String?
+    let order: Double?
 }
