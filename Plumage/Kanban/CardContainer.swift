@@ -2,8 +2,6 @@ import SwiftUI
 
 struct CardContainerModifier: ViewModifier {
     let tintColor: Color
-    @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -23,16 +21,13 @@ struct CardContainerModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(.separator, lineWidth: 0.5)
             )
-            .shadow(
-                color: .black.opacity(isHovering ? 0.10 : 0.06),
-                radius: isHovering ? 8 : 4,
-                x: 0,
-                y: isHovering ? 3 : 2
-            )
-            .scaleEffect(isHovering && !reduceMotion ? 1.01 : 1.0)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: isHovering)
+            // Static shadow — no hover-dependent change. The previous
+            // hover animation (shadow y 2→3, radius 4→8, scale 1.0→1.01
+            // with .smooth(0.18)) fired the moment a card materialised
+            // under the cursor right after drop, which read as a
+            // "fall-down / settling" effect on the just-placed card.
+            .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
             .onHover { hovering in
-                isHovering = hovering
                 if hovering {
                     NSCursor.pointingHand.push()
                 } else {
