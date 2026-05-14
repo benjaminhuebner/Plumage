@@ -177,6 +177,55 @@ final class IssueDetailModel {
         try await runFormWrite(FrontmatterMutation(labels: .set(newLabels)))
     }
 
+    func createIssueFromDraft() async throws {
+        guard case .creating = kind else { return }
+        let trimmedTitle = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { throw SaveError.emptyTitle }
+        guard let allocator else { throw SaveError.missingProjectURL }
+
+        let slug = NextIssueAllocator.slugify(trimmedTitle)
+        let title = trimmedTitle
+        let type = typeDraft
+        let labels = labelsDraft
+        let status = statusDraft
+        let body = bodyDraft
+        let mutator = self.mutator
+        let now = clock()
+
+        let allocatedURL: URL
+        do {
+            allocatedURL = try await Task.detached(priority: .userInitiated) {
+                try allocator.allocate(
+                    slug: slug, title: title, type: type, labels: labels, now: now
+                )
+            }.value
+        } catch {
+            allocationError = "\(error)"
+            throw error
+        }
+
+        let mutation = FrontmatterMutation(
+            status: .set(status),
+            body: body.isEmpty ? .keep : .set(body)
+        )
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try mutator.mutate(specURL: allocatedURL, mutation: mutation, now: now)
+            }.value
+        } catch {
+            // Allocation already produced the folder on disk; surface the
+            // error to the user, but still transition to .loaded so they
+            // see the allocated issue and can retry the body/status save.
+            allocationError = "\(error)"
+        }
+
+        allocationError = nil
+        specURL = allocatedURL
+        let newFolderName = allocatedURL.deletingLastPathComponent().lastPathComponent
+        kind = .loaded(folderName: newFolderName)
+        await load()
+    }
+
     private func runFormWrite(_ mutation: FrontmatterMutation) async throws {
         // Single-tail-chain: every form write awaits the prior pending one
         // before reading disk + writing back. Without this, two pickers

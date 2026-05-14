@@ -286,6 +286,96 @@ struct IssueDetailModelTests {
         #expect(model.canSaveInCreatingMode)
     }
 
+    @Test("createIssueFromDraft calls allocator then mutator and transitions to loaded")
+    func createIssueAllocatorThenMutatorSequence() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "draft", body: "Loaded body."))
+        let recorder = AllocatorMutatorRecorder(allocatedSpecURL: env.specURL)
+        let projectURL = env.tmpDir
+        let model = IssueDetailModel(
+            creatingInitialStatus: .inProgress,
+            projectURL: projectURL,
+            allocator: recorder,
+            mutator: recorder,
+            clock: { self.now }
+        )
+        model.titleDraft = "My New Issue"
+        model.typeDraft = .chore
+        model.labelsDraft = ["ui"]
+        model.bodyDraft = "Some body content"
+
+        try await model.createIssueFromDraft()
+
+        let calls = recorder.calls
+        #expect(calls.count == 2)
+        if case .allocate(let slug, let title, let type, let labels, let now) = calls[0] {
+            #expect(slug == "my-new-issue")
+            #expect(title == "My New Issue")
+            #expect(type == .chore)
+            #expect(labels == ["ui"])
+            #expect(now == self.now)
+        } else {
+            #expect(Bool(false), "first call should be allocate, was \(calls[0])")
+        }
+        if case .mutate(let specURL, let mutation, let now) = calls[1] {
+            #expect(specURL == env.specURL)
+            #expect(mutation.status == .set(.inProgress))
+            #expect(mutation.body == .set("Some body content"))
+            #expect(now == self.now)
+        } else {
+            #expect(Bool(false), "second call should be mutate, was \(calls[1])")
+        }
+        // Kind transitioned to .loaded with the allocated folder name.
+        if case .loaded(let folderName) = model.kind {
+            #expect(folderName == env.specURL.deletingLastPathComponent().lastPathComponent)
+        } else {
+            #expect(Bool(false), "expected .loaded kind after save")
+        }
+        #expect(model.specURL == env.specURL)
+        #expect(model.allocationError == nil)
+    }
+
+    @Test("createIssueFromDraft with empty title throws and does not call allocator")
+    func createIssueRejectsEmptyTitle() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "draft"))
+        let recorder = AllocatorMutatorRecorder(allocatedSpecURL: env.specURL)
+        let model = IssueDetailModel(
+            creatingInitialStatus: .draft,
+            projectURL: env.tmpDir,
+            allocator: recorder,
+            mutator: recorder,
+            clock: { self.now }
+        )
+        model.titleDraft = "   "
+        await #expect(throws: IssueDetailModel.SaveError.emptyTitle) {
+            try await model.createIssueFromDraft()
+        }
+        #expect(recorder.calls.isEmpty)
+        if case .creating = model.kind {
+        } else {
+            #expect(Bool(false), "kind should remain .creating after failed save")
+        }
+    }
+
+    @Test("createIssueFromDraft keeps body unchanged when bodyDraft is empty")
+    func createIssueOmitsBodyWhenEmpty() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "draft"))
+        let recorder = AllocatorMutatorRecorder(allocatedSpecURL: env.specURL)
+        let model = IssueDetailModel(
+            creatingInitialStatus: .draft,
+            projectURL: env.tmpDir,
+            allocator: recorder,
+            mutator: recorder,
+            clock: { self.now }
+        )
+        model.titleDraft = "Title"
+        try await model.createIssueFromDraft()
+        if case .mutate(_, let mutation, _) = recorder.calls[1] {
+            #expect(mutation.body == .keep)
+        } else {
+            #expect(Bool(false))
+        }
+    }
+
     @Test("replaceBody preserves frontmatter")
     func replaceBodyPreserves() {
         let content = """
@@ -344,5 +434,45 @@ private final class TestEnvironment {
 
     deinit {
         try? FileManager.default.removeItem(at: tmpDir)
+    }
+}
+
+private enum RecordedCall: Sendable {
+    case allocate(slug: String, title: String, type: IssueType, labels: [String], now: Date)
+    case mutate(specURL: URL, mutation: FrontmatterMutation, now: Date)
+}
+
+private final class AllocatorMutatorRecorder: IssueAllocating, FrontmatterMutating, @unchecked Sendable {
+    // Sequence of allocate/mutate invocations recorded in call order so tests
+    // can pin that allocate runs before mutate.
+    let allocatedSpecURL: URL
+    private let lock = NSLock()
+    private var _calls: [RecordedCall] = []
+
+    init(allocatedSpecURL: URL) {
+        self.allocatedSpecURL = allocatedSpecURL
+    }
+
+    var calls: [RecordedCall] {
+        lock.withLock { _calls }
+    }
+
+    func allocate(
+        slug: String,
+        title: String,
+        type: IssueType,
+        labels: [String],
+        now: Date
+    ) throws -> URL {
+        lock.withLock {
+            _calls.append(.allocate(slug: slug, title: title, type: type, labels: labels, now: now))
+        }
+        return allocatedSpecURL
+    }
+
+    func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws {
+        lock.withLock {
+            _calls.append(.mutate(specURL: specURL, mutation: mutation, now: now))
+        }
     }
 }
