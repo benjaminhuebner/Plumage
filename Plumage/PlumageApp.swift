@@ -9,7 +9,7 @@ struct PlumageApp: App {
     @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some Scene {
-        Window("Welcome", id: "welcome") {
+        Window("Welcome to Plumage", id: "welcome") {
             WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
                 .containerBackground(.thickMaterial, for: .window)
                 .task {
@@ -24,13 +24,8 @@ struct PlumageApp: App {
         .windowResizability(.contentSize)
         .defaultPosition(.center)
         .defaultLaunchBehavior(.presented)
+        .keyboardShortcut("0", modifiers: [.command, .shift])
         .environment(recentProjects)
-        .commands {
-            CommandGroup(replacing: .newItem) {
-                OpenProjectMenuButton(recentProjects: recentProjects)
-            }
-            WelcomeWindowCommand()
-        }
 
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
@@ -46,6 +41,7 @@ struct PlumageApp: App {
             }
         }
         .commands {
+            OpenProjectMenuCommand(recentProjects: recentProjects)
             NewIssueCommand()
             SpecEditorCommands()
         }

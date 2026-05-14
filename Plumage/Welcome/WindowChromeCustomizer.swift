@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct WindowChromeCustomizer: NSViewRepresentable {
-    var windowAlphaHidden: Bool = false
+    let windowAlphaHidden: Bool
 
     func makeNSView(context: Context) -> NSView {
         ChromeCustomizingView(windowAlphaHidden: windowAlphaHidden)

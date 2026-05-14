@@ -161,3 +161,13 @@ struct OpenProjectMenuButton: View {
         .keyboardShortcut("o", modifiers: .command)
     }
 }
+
+struct OpenProjectMenuCommand: Commands {
+    let recentProjects: RecentProjects
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            OpenProjectMenuButton(recentProjects: recentProjects)
+        }
+    }
+}

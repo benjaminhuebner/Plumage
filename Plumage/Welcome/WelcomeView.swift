@@ -1,7 +1,11 @@
 import SwiftUI
 
 struct WelcomeView: View {
-    var windowAlphaHidden: Bool = false
+    private static let leftPaneWidth: CGFloat = 473
+    private static let windowWidth: CGFloat = 710
+    private static let windowHeight: CGFloat = 429
+
+    let windowAlphaHidden: Bool
 
     @Environment(RecentProjects.self) private var recentProjects
     @Environment(\.openWindow) private var openWindow
@@ -10,10 +14,10 @@ struct WelcomeView: View {
     var body: some View {
         HStack(spacing: 0) {
             leftPane
-                .frame(width: 430)
+                .frame(width: Self.leftPaneWidth)
             rightPane
         }
-        .frame(width: 645, height: 390)
+        .frame(width: Self.windowWidth, height: Self.windowHeight)
         .background(WindowChromeCustomizer(windowAlphaHidden: windowAlphaHidden))
     }
 
@@ -143,7 +147,7 @@ struct WelcomeView: View {
 }
 
 #Preview("Empty") {
-    WelcomeView()
+    WelcomeView(windowAlphaHidden: false)
         .environment(RecentProjects(storeURL: previewStoreURL()))
 }
 
@@ -160,7 +164,7 @@ private func populatedRecents() -> RecentProjects {
 }
 
 #Preview("Populated") {
-    WelcomeView()
+    WelcomeView(windowAlphaHidden: false)
         .environment(populatedRecents())
 }
 
