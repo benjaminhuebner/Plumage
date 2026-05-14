@@ -221,6 +221,148 @@ struct FrontmatterMutatorTests {
         #expect(output.contains("order: 1"))
     }
 
+    @Test("title-only mutation rewrites title and stamps updated")
+    func titleOnly() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(title: .set("New Title")),
+            now: now
+        )
+        #expect(output.contains("title: New Title"))
+        #expect(output.contains("status: approved"))
+        #expect(output.contains("updated: \(nowISO)"))
+    }
+
+    @Test("type-only mutation rewrites type using rawValue")
+    func typeOnly() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(type: .set(.chore)),
+            now: now
+        )
+        #expect(output.contains("type: chore"))
+        #expect(!output.contains("type: feature"))
+    }
+
+    @Test("labels-only mutation rewrites labels in flow style")
+    func labelsOnly() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(labels: .set(["ui", "ux"])),
+            now: now
+        )
+        #expect(output.contains("labels: [ui, ux]"))
+    }
+
+    @Test("labels mutation with empty array writes empty flow-style list")
+    func labelsEmpty() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(labels: .set([])),
+            now: now
+        )
+        #expect(output.contains("labels: []"))
+    }
+
+    @Test("multi-field mutation applies title + type + status + labels in one call")
+    func multiField() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(
+                title: .set("Bigger UI"),
+                type: .set(.spike),
+                status: .set(.inProgress),
+                labels: .set(["ui", "v0.1"])
+            ),
+            now: now
+        )
+        #expect(output.contains("title: Bigger UI"))
+        #expect(output.contains("type: spike"))
+        #expect(output.contains("status: in-progress"))
+        #expect(output.contains("labels: [ui, v0.1]"))
+        #expect(output.contains("updated: \(nowISO)"))
+    }
+
+    @Test("title with colon gets double-quoted")
+    func titleSpecialColon() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(title: .set("Foo: Bar")),
+            now: now
+        )
+        #expect(output.contains("title: \"Foo: Bar\""))
+    }
+
+    @Test("title with hash gets double-quoted")
+    func titleSpecialHash() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(title: .set("Issue #42")),
+            now: now
+        )
+        #expect(output.contains("title: \"Issue #42\""))
+    }
+
+    @Test("title with embedded double-quote escapes the quote")
+    func titleSpecialQuote() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(title: .set(#"Say "hi""#)),
+            now: now
+        )
+        #expect(output.contains(#"title: "Say \"hi\"""#))
+    }
+
+    @Test("label containing colon gets quoted")
+    func labelSpecialColon() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(labels: .set(["a:b", "ok"])),
+            now: now
+        )
+        #expect(output.contains("labels: [\"a:b\", ok]"))
+    }
+
+    @Test("missing title field with title.set throws noFrontmatter")
+    func missingTitleFieldThrows() {
+        let input = """
+            ---
+            id: 1
+            status: approved
+            ---
+            body
+            """
+        #expect(throws: MutatorError.noFrontmatter) {
+            try FrontmatterMutator.transform(
+                content: input,
+                mutation: FrontmatterMutation(title: .set("X")),
+                now: now
+            )
+        }
+    }
+
+    @Test("legacy mutate(specURL:newStatus:newOrder:) wrapper still works")
+    func legacyWrapper() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            newStatus: .done,
+            newOrder: .set(2.0),
+            now: now
+        )
+        #expect(output.contains("status: done"))
+        #expect(output.contains("order: 2"))
+    }
+
     private func baseSpec(status: String, order: String? = nil) -> String {
         var lines = [
             "---",
