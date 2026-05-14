@@ -176,6 +176,14 @@ struct IssueDetailView: View {
             issue: issue,
             titleDraft: $titleDraft,
             onCommitTitle: commitTitle,
+            onAddLabel: { newLabel in
+                let next = issue.labels + [newLabel]
+                runFormCommit { try await model.commitLabels(next) }
+            },
+            onRemoveLabel: { label in
+                let next = issue.labels.filter { $0 != label }
+                runFormCommit { try await model.commitLabels(next) }
+            },
             isDisabled: model.frontmatterError != nil
         )
         Divider()
@@ -184,14 +192,6 @@ struct IssueDetailView: View {
             onSelectType: { newType in runFormCommit { try await model.commitType(newType) } },
             onSelectStatus: { newStatus in
                 runFormCommit { try await model.commitStatus(newStatus) }
-            },
-            onAddLabel: { newLabel in
-                let next = issue.labels + [newLabel]
-                runFormCommit { try await model.commitLabels(next) }
-            },
-            onRemoveLabel: { label in
-                let next = issue.labels.filter { $0 != label }
-                runFormCommit { try await model.commitLabels(next) }
             },
             isDisabled: model.frontmatterError != nil
         )

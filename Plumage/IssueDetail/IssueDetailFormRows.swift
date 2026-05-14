@@ -4,8 +4,6 @@ struct IssueDetailFormRows: View {
     let issue: Issue
     let onSelectType: (IssueType) -> Void
     let onSelectStatus: (IssueStatus) -> Void
-    let onAddLabel: (String) -> Void
-    let onRemoveLabel: (String) -> Void
     let isDisabled: Bool
 
     var body: some View {
@@ -41,15 +39,6 @@ struct IssueDetailFormRows: View {
                 }
             }
 
-            row("Labels") {
-                LabelChipEditor(
-                    labels: issue.labels,
-                    onAdd: onAddLabel,
-                    onRemove: onRemoveLabel
-                )
-                .disabled(isDisabled)
-            }
-
             HStack(alignment: .firstTextBaseline, spacing: 24) {
                 pairedRow("Created") {
                     Text(Self.formatted(issue.created))
@@ -60,21 +49,6 @@ struct IssueDetailFormRows: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func row<Content: View>(
-        _ label: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .frame(width: 96, alignment: .trailing)
-                .foregroundStyle(.secondary)
-                .font(.callout)
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -131,8 +105,6 @@ struct IssueDetailFormRows: View {
         ),
         onSelectType: { _ in },
         onSelectStatus: { _ in },
-        onAddLabel: { _ in },
-        onRemoveLabel: { _ in },
         isDisabled: false
     )
     .padding()

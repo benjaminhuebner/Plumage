@@ -4,22 +4,23 @@ struct IssueDetailHero: View {
     let issue: Issue
     let titleDraft: Binding<String>
     let onCommitTitle: () -> Void
+    let onAddLabel: (String) -> Void
+    let onRemoveLabel: (String) -> Void
     let isDisabled: Bool
 
     @FocusState private var titleFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 IssueStatusPill(status: issue.status)
                 IssueTypePill(type: issue.type)
-                if !issue.labels.isEmpty {
-                    HStack(spacing: 4) {
-                        ForEach(issue.labels, id: \.self) { label in
-                            LabelChip(text: label)
-                        }
-                    }
-                }
+                LabelChipEditor(
+                    labels: issue.labels,
+                    onAdd: onAddLabel,
+                    onRemove: onRemoveLabel
+                )
+                .disabled(isDisabled)
                 Spacer(minLength: 0)
             }
             TextField("Title", text: titleDraft)
@@ -55,6 +56,8 @@ struct IssueDetailHero: View {
             ),
             titleDraft: title,
             onCommitTitle: {},
+            onAddLabel: { _ in },
+            onRemoveLabel: { _ in },
             isDisabled: false
         )
         .padding()

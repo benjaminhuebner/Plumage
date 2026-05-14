@@ -31,15 +31,8 @@ struct IssueDetailTopBar: View {
                 .accessibilityLabel("Unsaved changes — save with Command S")
             }
             Spacer()
-            Picker("View", selection: $displayMode) {
-                ForEach(IssueDetailView.DisplayMode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 140)
-            .help("Switch between detail and raw spec.md view")
+            DisplayModeToggle(displayMode: $displayMode)
+                .help("Switch between detail and raw spec.md view")
             Button("Copy ID", systemImage: "doc.on.doc", action: onCopyID)
                 .help("Copy folder name to clipboard")
             Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
