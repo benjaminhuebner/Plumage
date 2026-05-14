@@ -58,6 +58,10 @@ struct SpecEditorView: View {
         .focusedSceneValue(\.specEditorIsActive, true)
         .focusedSceneValue(\.specEditorSave, attemptSave)
         .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
+        .focusedSceneValue(
+            \.specEditorDirtyFolderName,
+            model.isDirty ? model.folderName : nil
+        )
         .task(id: model.specURL) {
             loadFailed = nil
             do {
@@ -175,6 +179,7 @@ extension FocusedValues {
     @Entry var specEditorIsActive: Bool?
     @Entry var specEditorSave: (() -> Void)?
     @Entry var specEditorClose: (() -> Void)?
+    @Entry var specEditorDirtyFolderName: String?
 }
 
 #Preview {
