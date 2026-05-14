@@ -216,9 +216,9 @@ struct SpecParserGoalTests {
 
             Short goal sentence.
             """
-        guard case .success(let issue) = SpecParser.parse(content: content, folderName: "00007-x")
-        else {
-            Testing.Issue.record("expected success")
+        let result = SpecParser.parse(content: content, folderName: "00007-x")
+        guard case .success(let issue) = result else {
+            Testing.Issue.record("expected success, got \(result)")
             return
         }
         #expect(issue.goal == "Short goal sentence.")
