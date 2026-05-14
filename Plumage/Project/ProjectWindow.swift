@@ -18,6 +18,10 @@ struct ProjectWindow: View {
                     case .rawEditor(let folderName):
                         SpecEditorView(projectURL: handle.url, folderName: folderName)
                             .navigationTitle("Raw: \(folderName)")
+                    case .createIssue:
+                        // Wired up in later tasks of #00017 — placeholder so
+                        // SpecRoute's new case keeps the switch exhaustive.
+                        EmptyView()
                     }
                 }
         }
