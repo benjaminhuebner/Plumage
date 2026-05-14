@@ -1,0 +1,147 @@
+import Foundation
+import Testing
+
+@testable import Plumage
+
+@Suite("SpecParser.extractGoal")
+struct SpecParserGoalTests {
+    @Test("normal Goal block returns the first paragraph trimmed")
+    func normalGoal() {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            # Issue 1
+
+            ## Context
+
+            Some context here.
+
+            ## Goal
+
+            Make the kanban look polished and inviting.
+
+            ## Scope
+            """
+        #expect(
+            SpecParser.extractGoal(from: content)
+                == "Make the kanban look polished and inviting."
+        )
+    }
+
+    @Test("missing Goal section returns nil")
+    func missingGoal() {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Context
+
+            Some text.
+
+            ## Scope
+            """
+        #expect(SpecParser.extractGoal(from: content) == nil)
+    }
+
+    @Test("Goal containing only an HTML comment returns nil")
+    func htmlCommentOnly() {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Goal
+
+            <!-- One sentence. Why this issue exists, not what it does. -->
+
+            ## Scope
+            """
+        #expect(SpecParser.extractGoal(from: content) == nil)
+    }
+
+    @Test("Goal with multiple paragraphs returns only the first")
+    func multipleParagraphs() {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Goal
+
+            First paragraph here.
+
+            Second paragraph that should be ignored.
+
+            ## Scope
+            """
+        #expect(SpecParser.extractGoal(from: content) == "First paragraph here.")
+    }
+
+    @Test("Goal longer than 240 chars is capped with ellipsis")
+    func capsLongGoal() throws {
+        let long = String(repeating: "a", count: 300)
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Goal
+
+            \(long)
+
+            ## Scope
+            """
+        let goal = try #require(SpecParser.extractGoal(from: content))
+        #expect(goal.hasSuffix("…"))
+        // 240 chars + ellipsis. Count is in Characters, not UTF-16 code units.
+        #expect(goal.count == 241)
+    }
+
+    @Test("Goal extraction strips inline HTML comments")
+    func stripsInlineComment() {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Goal
+
+            Visible <!-- hidden --> text.
+
+            ## Scope
+            """
+        #expect(SpecParser.extractGoal(from: content) == "Visible  text.")
+    }
+
+    @Test("parse populates Issue.goal from the body")
+    func parseExposesGoal() throws {
+        let content = """
+            ---
+            id: 7
+            title: t
+            type: feature
+            status: approved
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00007-x
+            labels: []
+            model: null
+            ---
+
+            # Issue
+
+            ## Goal
+
+            Short goal sentence.
+            """
+        guard case .success(let issue) = SpecParser.parse(content: content, folderName: "00007-x")
+        else {
+            Testing.Issue.record("expected success")
+            return
+        }
+        #expect(issue.goal == "Short goal sentence.")
+    }
+}

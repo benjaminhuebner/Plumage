@@ -56,9 +56,71 @@ nonisolated enum SpecParser {
                 updated: updated,
                 branch: raw.branch,
                 labels: raw.labels ?? [],
-                model: raw.model
+                model: raw.model,
+                goal: extractGoal(from: content)
             )
         )
+    }
+
+    static func extractGoal(from content: String) -> String? {
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        var inGoal = false
+        var collected: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !inGoal {
+                if trimmed == "## Goal" || trimmed == "# Goal" {
+                    inGoal = true
+                }
+                continue
+            }
+            if trimmed.hasPrefix("#") { break }
+            collected.append(String(line))
+        }
+        if collected.isEmpty { return nil }
+
+        let joined = collected.joined(separator: "\n")
+        let stripped = stripHTMLComments(joined)
+
+        var firstParagraph: [String] = []
+        for line in stripped.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                if firstParagraph.isEmpty { continue }
+                break
+            }
+            firstParagraph.append(trimmed)
+        }
+        let paragraph =
+            firstParagraph
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if paragraph.isEmpty { return nil }
+
+        let cap = 240
+        if paragraph.count > cap {
+            let prefix = paragraph.prefix(cap).trimmingCharacters(in: .whitespacesAndNewlines)
+            return prefix + "…"
+        }
+        return paragraph
+    }
+
+    private static func stripHTMLComments(_ input: String) -> String {
+        var result = ""
+        var index = input.startIndex
+        while index < input.endIndex {
+            guard let openRange = input.range(of: "<!--", range: index..<input.endIndex) else {
+                result += input[index..<input.endIndex]
+                break
+            }
+            result += input[index..<openRange.lowerBound]
+            if let closeRange = input.range(of: "-->", range: openRange.upperBound..<input.endIndex) {
+                index = closeRange.upperBound
+            } else {
+                index = input.endIndex
+            }
+        }
+        return result
     }
 
     private static func extractFrontmatter(from content: String) -> String? {
