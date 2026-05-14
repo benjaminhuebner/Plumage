@@ -248,6 +248,44 @@ struct IssueDetailModelTests {
         #expect(model.loadedBodyContent.contains("Raw replacement."))
     }
 
+    @Test("creating-mode init pre-populates statusDraft and skips disk load")
+    func creatingInitDefaults() async throws {
+        let projectURL = URL(filePath: "/tmp/fake-project-\(UUID().uuidString)")
+        let model = IssueDetailModel(
+            creatingInitialStatus: .inProgress,
+            projectURL: projectURL,
+            clock: { self.now }
+        )
+        var creatingStatus: IssueStatus?
+        if case .creating(let status) = model.kind { creatingStatus = status }
+        #expect(creatingStatus == .inProgress)
+        #expect(model.specURL == nil)
+        #expect(model.folderName == nil)
+        #expect(model.statusDraft == .inProgress)
+        #expect(model.typeDraft == .feature)
+        #expect(model.titleDraft.isEmpty)
+        #expect(model.labelsDraft.isEmpty)
+        #expect(model.bodyDraft.isEmpty)
+        // Form should render immediately, not a ProgressView.
+        #expect(model.loadState == .loaded)
+        #expect(!model.canSaveInCreatingMode)
+    }
+
+    @Test("creating-mode save is gated on non-empty trimmed title")
+    func creatingTitleGate() async throws {
+        let projectURL = URL(filePath: "/tmp/fake-project-\(UUID().uuidString)")
+        let model = IssueDetailModel(
+            creatingInitialStatus: .draft,
+            projectURL: projectURL,
+            clock: { self.now }
+        )
+        #expect(!model.canSaveInCreatingMode)
+        model.titleDraft = "   "
+        #expect(!model.canSaveInCreatingMode)
+        model.titleDraft = "Real title"
+        #expect(model.canSaveInCreatingMode)
+    }
+
     @Test("replaceBody preserves frontmatter")
     func replaceBodyPreserves() {
         let content = """

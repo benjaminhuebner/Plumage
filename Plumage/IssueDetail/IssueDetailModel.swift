@@ -16,10 +16,32 @@ final class IssueDetailModel {
 
     enum SaveError: Error, Equatable {
         case unresolvedConflict
+        case missingProjectURL
+        case emptyTitle
     }
 
-    let specURL: URL
-    let folderName: String
+    enum Kind: Equatable, Sendable {
+        case creating(initialStatus: IssueStatus)
+        case loaded(folderName: String)
+    }
+
+    private(set) var kind: Kind
+    private(set) var specURL: URL?
+    let projectURL: URL?
+
+    var folderName: String? {
+        switch kind {
+        case .creating: nil
+        case .loaded(let folderName): folderName
+        }
+    }
+
+    // Drafts used in creating mode. In loaded mode the existing form-commit
+    // path writes directly through to disk and these stay untouched.
+    var titleDraft: String = ""
+    var typeDraft: IssueType = .feature
+    var statusDraft: IssueStatus = .draft
+    var labelsDraft: [String] = []
 
     private(set) var issue: Issue?
     private(set) var loadState: LoadState = .idle
@@ -30,28 +52,66 @@ final class IssueDetailModel {
     private(set) var frontmatterError: FrontmatterError?
     private(set) var lastWrittenContent: String?
     private(set) var lastSeenIssue: DiscoveredIssue?
+    private(set) var allocationError: String?
 
     private var pendingFormWrite: Task<Void, Error>?
     private var pendingBodySave: Task<Void, Error>?
 
+    private nonisolated let allocator: IssueAllocating?
     private nonisolated let writer: SpecWriting
     private nonisolated let mutator: FrontmatterMutating
     private nonisolated let clock: @Sendable () -> Date
 
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
 
+    var isCreating: Bool {
+        if case .creating = kind { return true }
+        return false
+    }
+
+    var canSaveInCreatingMode: Bool {
+        guard isCreating else { return false }
+        return !titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     init(
         specURL: URL,
         folderName: String,
+        projectURL: URL? = nil,
+        allocator: IssueAllocating? = nil,
         writer: SpecWriting = DefaultSpecWriter(),
         mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
+        self.kind = .loaded(folderName: folderName)
         self.specURL = specURL
-        self.folderName = folderName
+        self.projectURL = projectURL
+        self.allocator = allocator
         self.writer = writer
         self.mutator = mutator
         self.clock = clock
+    }
+
+    init(
+        creatingInitialStatus: IssueStatus,
+        projectURL: URL,
+        allocator: IssueAllocating? = nil,
+        writer: SpecWriting = DefaultSpecWriter(),
+        mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
+        clock: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.kind = .creating(initialStatus: creatingInitialStatus)
+        self.specURL = nil
+        self.projectURL = projectURL
+        self.allocator = allocator ?? DefaultIssueAllocating(projectURL: projectURL)
+        self.writer = writer
+        self.mutator = mutator
+        self.clock = clock
+        self.statusDraft = creatingInitialStatus
+        // In creating mode the form must render immediately — there is
+        // nothing on disk to load. Mark loaded so the view skips the
+        // ProgressView path.
+        self.loadState = .loaded
     }
 
     func noteSeenIssue(_ issue: DiscoveredIssue?) {
@@ -59,7 +119,7 @@ final class IssueDetailModel {
     }
 
     func load() async {
-        let url = specURL
+        guard let url = specURL else { return }
         let raw: String
         do {
             raw = try await Task.detached(priority: .userInitiated) {
@@ -80,7 +140,11 @@ final class IssueDetailModel {
         loadedSpecContent = content
         loadedBodyContent = Self.extractBody(from: content)
         bodyDraft = loadedBodyContent
-        switch SpecParser.parse(content: content, folderName: folderName) {
+        // applyLoaded only runs after load()/save() in loaded mode; folderName
+        // is always non-nil here. Use the kind's folderName so the parsed
+        // Issue carries the right identifier.
+        let resolvedFolderName = folderName ?? ""
+        switch SpecParser.parse(content: content, folderName: resolvedFolderName) {
         case .success(let parsed):
             issue = parsed
             frontmatterError = nil
@@ -119,8 +183,8 @@ final class IssueDetailModel {
         // committing in the same turn would each read the same baseline,
         // mutate independently, and the second write would clobber the
         // first.
+        guard let url = specURL else { return }
         let prior = pendingFormWrite
-        let url = specURL
         let mutator = self.mutator
         let now = clock()
         let task = Task<Void, Error> {
@@ -135,7 +199,7 @@ final class IssueDetailModel {
     }
 
     private func reloadFromDiskAfterOwnWrite() async {
-        let url = specURL
+        guard let url = specURL else { return }
         let fresh = await Task.detached(priority: .utility) {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
@@ -159,8 +223,8 @@ final class IssueDetailModel {
         if case .externalChange = conflict {
             throw SaveError.unresolvedConflict
         }
+        guard let url = specURL else { return }
         let prior = pendingBodySave
-        let url = specURL
         let bodyToSave = bodyDraft
         let mutator = self.mutator
         let now = clock()
@@ -197,8 +261,8 @@ final class IssueDetailModel {
         if case .externalChange = conflict {
             throw SaveError.unresolvedConflict
         }
+        guard let url = specURL else { return }
         let prior = pendingBodySave
-        let url = specURL
         let writer = self.writer
         let task = Task<Void, Error> {
             _ = try? await prior?.value
@@ -228,7 +292,7 @@ final class IssueDetailModel {
         }
         if currentIssue == lastSeenIssue { return }
         noteSeenIssue(currentIssue)
-        let url = specURL
+        guard let url = specURL else { return }
         let fresh = await Task.detached(priority: .utility) {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
@@ -328,5 +392,35 @@ nonisolated protocol FrontmatterMutating: Sendable {
 nonisolated struct DefaultFrontmatterMutating: FrontmatterMutating {
     func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws {
         try FrontmatterMutator.mutate(specURL: specURL, mutation: mutation, now: now)
+    }
+}
+
+nonisolated protocol IssueAllocating: Sendable {
+    func allocate(
+        slug: String,
+        title: String,
+        type: IssueType,
+        labels: [String],
+        now: Date
+    ) throws -> URL
+}
+
+nonisolated struct DefaultIssueAllocating: IssueAllocating {
+    let projectURL: URL
+
+    func allocate(
+        slug: String,
+        title: String,
+        type: IssueType,
+        labels: [String],
+        now: Date
+    ) throws -> URL {
+        try NextIssueAllocator(projectURL: projectURL).allocate(
+            slug: slug,
+            title: title,
+            type: type,
+            labels: labels,
+            now: now
+        )
     }
 }
