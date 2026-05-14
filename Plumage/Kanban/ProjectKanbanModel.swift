@@ -341,7 +341,15 @@ final class ProjectKanbanModel {
     private static func group(
         _ issues: [DiscoveredIssue]
     ) -> [IssueColumn: [DiscoveredIssue]] {
-        Dictionary(grouping: issues, by: \.column)
+        // Sort each column by orderValue (with idValue fallback) so the
+        // display always reflects the kanban sort regardless of how the
+        // underlying `issues` array is ordered. Without this, the optimistic
+        // update's `Self.replace` keeps the source at its old array position
+        // — so a card with a new order field renders at its old slot until
+        // FSEvent reload re-sorts via discoverIssues. That manifested as
+        // "card lands at wrong slot for a few hundred ms, then jumps to
+        // the right one when the disk write comes back".
+        Dictionary(grouping: issues, by: \.column).mapValues { $0.sortedForKanban() }
     }
 }
 
