@@ -6,56 +6,76 @@ struct IssueCardSwitch: View {
     let projectURL: URL
 
     @Environment(ProjectKanbanModel.self) private var kanban
-    @State private var topHovered = false
-    @State private var bottomHovered = false
-
-    var body: some View {
-        NavigationLink(value: SpecRoute.spec(folderName: issue.id)) {
-            switch issue {
-            case .valid(let value):
-                IssueCardView(issue: value, padding: padding)
-                    .overlay(alignment: .top) {
-                        if topHovered { DropIndicator() }
-                    }
-                    .overlay(alignment: .bottom) {
-                        if bottomHovered { DropIndicator() }
-                    }
-                    .overlay {
-                        VStack(spacing: 0) {
-                            dropZone(for: .above, on: value)
-                            dropZone(for: .below, on: value)
-                        }
-                    }
-            case .invalid(let folder, let error):
-                InvalidIssueCardView(folder: folder, error: error, padding: padding)
-            }
-        }
-        .buttonStyle(.plain)
-    }
+    @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
+    @State private var dropEdge: DropEdge?
 
     private enum DropEdge { case above, below }
 
-    private func dropZone(for edge: DropEdge, on issue: Issue) -> some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .dropDestination(for: IssueDragPayload.self) { items, _ in
-                guard let payload = items.first else { return false }
-                let target: ProjectKanbanModel.DropTarget =
-                    edge == .above
-                    ? .aboveCard(folderName: issue.folderName, column: issue.column)
-                    : .belowCard(folderName: issue.folderName, column: issue.column)
-                let urlSnapshot = projectURL
-                Task { @MainActor in
-                    await kanban.performDrop(payload, to: target, projectURL: urlSnapshot)
-                }
-                return true
-            } isTargeted: { targeted in
-                if edge == .above {
-                    topHovered = targeted
-                } else {
-                    bottomHovered = targeted
-                }
+    var body: some View {
+        switch issue {
+        case .valid(let value):
+            validBody(value)
+        case .invalid(let folder, let error):
+            NavigationLink(value: SpecRoute.spec(folderName: issue.id)) {
+                InvalidIssueCardView(folder: folder, error: error, padding: padding)
             }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private func validBody(_ value: Issue) -> some View {
+        let isLocked = dirtyFolderName == value.folderName
+        let payload = IssueDragPayload(folderName: value.folderName, currentStatus: value.status)
+
+        NavigationLink(value: SpecRoute.spec(folderName: value.folderName)) {
+            IssueCardView(issue: value, padding: padding)
+                .opacity(isLocked ? 0.7 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .help(isLocked ? "Card has unsaved edits in the editor" : "")
+        .overlay(alignment: .top) {
+            if dropEdge == .above { DropIndicator() }
+        }
+        .overlay(alignment: .bottom) {
+            if dropEdge == .below { DropIndicator() }
+        }
+        .modifier(ConditionalDraggable(payload: payload, enabled: !isLocked))
+        .dropDestination(for: IssueDragPayload.self) { items, location in
+            dropEdge = nil
+            guard let dropped = items.first else { return false }
+            let edge: DropEdge = location.y < cardHeight / 2 ? .above : .below
+            let target: ProjectKanbanModel.DropTarget =
+                edge == .above
+                ? .aboveCard(folderName: value.folderName, column: value.column)
+                : .belowCard(folderName: value.folderName, column: value.column)
+            let urlSnapshot = projectURL
+            Task { @MainActor in
+                await kanban.performDrop(dropped, to: target, projectURL: urlSnapshot)
+            }
+            return true
+        } isTargeted: { targeted in
+            if !targeted {
+                dropEdge = nil
+            } else if dropEdge == nil {
+                dropEdge = .above
+            }
+        }
+    }
+
+    private let cardHeight: CGFloat = 120
+}
+
+private struct ConditionalDraggable: ViewModifier {
+    let payload: IssueDragPayload
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.draggable(payload)
+        } else {
+            content
+        }
     }
 }
 

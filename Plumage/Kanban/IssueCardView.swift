@@ -6,18 +6,9 @@ struct IssueCardView: View {
 
     @Environment(\.kanbanHighlightedID) private var highlightedID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
 
     private var isHighlighted: Bool {
         highlightedID == issue.folderName
-    }
-
-    private var isLockedByEditor: Bool {
-        dirtyFolderName == issue.folderName
-    }
-
-    private var dragPayload: IssueDragPayload {
-        IssueDragPayload(folderName: issue.folderName, currentStatus: issue.status)
     }
 
     private var accessibilityDescription: String {
@@ -74,24 +65,8 @@ struct IssueCardView: View {
                 .opacity(isHighlighted ? 1.0 : 0.0)
                 .animation(reduceMotion ? nil : .easeOut(duration: 1.0), value: isHighlighted)
         )
-        .opacity(isLockedByEditor ? 0.7 : 1.0)
-        .help(isLockedByEditor ? "Card has unsaved edits in the editor" : "")
-        .modifier(IssueCardDraggable(payload: dragPayload, enabled: !isLockedByEditor))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
-    }
-}
-
-private struct IssueCardDraggable: ViewModifier {
-    let payload: IssueDragPayload
-    let enabled: Bool
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content.draggable(payload)
-        } else {
-            content
-        }
     }
 }
 
