@@ -29,7 +29,7 @@ struct IssueCardSwitch: View {
     @ViewBuilder
     private func validBody(_ value: Issue) -> some View {
         let isLocked = dirtyFolderName == value.folderName
-        let payload = IssueDragPayload(folderName: value.folderName, currentStatus: value.status)
+        let payload = IssueDragPayload(folderName: value.folderName)
         // While this card is the active drag source, collapse it entirely:
         // frame to height 0, content clipped, opacity 0. The column's layout
         // then shows only the placeholder slot, never an empty source slot

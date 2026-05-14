@@ -166,15 +166,11 @@ nonisolated enum FrontmatterMutator {
         return formatted
     }
 
-    // ISO8601DateFormatter is thread-safe for reads once properties are set.
-    // `nonisolated(unsafe)` is required because the type is not Sendable.
-    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
+    private static func isoString(from date: Date) -> String {
+        // Allocate per-call: ISO8601DateFormatter is not documented as
+        // thread-safe by Apple. See notes.md.
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    private static func isoString(from date: Date) -> String {
-        isoFormatter.string(from: date)
+        return formatter.string(from: date)
     }
 }

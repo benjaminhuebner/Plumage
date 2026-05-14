@@ -2,13 +2,7 @@ nonisolated extension DiscoveredIssue {
     var column: IssueColumn {
         switch self {
         case .invalid: .todo
-        case .valid(let issue):
-            switch issue.status {
-            case .draft, .approved, .blocked: .todo
-            case .inProgress: .inProgress
-            case .waitingForReview: .waitingForReview
-            case .done: .done
-            }
+        case .valid(let issue): issue.column
         }
     }
 

@@ -152,25 +152,16 @@ nonisolated enum SpecParser {
         return nil
     }
 
-    // ISO8601DateFormatter is thread-safe for reads once properties are set,
-    // so we share instances across the ~2 parses per spec discovery walk.
-    // `nonisolated(unsafe)` is required because ISO8601DateFormatter is not
-    // Sendable under Swift 6 strict concurrency.
-    nonisolated(unsafe) private static let plainISOFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    nonisolated(unsafe) private static let fractionalISOFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
     private static func parseDate(_ string: String) -> Date? {
-        if let date = plainISOFormatter.date(from: string) { return date }
-        return fractionalISOFormatter.date(from: string)
+        // Allocate per-call: ISO8601DateFormatter is not documented as
+        // thread-safe by Apple. Allocation cost is negligible against the
+        // surrounding YAML decode. See notes.md.
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: string) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: string)
     }
 
     private static func mapYamlError(_ error: YamlError) -> FrontmatterError {

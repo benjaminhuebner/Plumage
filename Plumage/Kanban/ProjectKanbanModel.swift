@@ -352,14 +352,3 @@ final class ProjectKanbanModel {
         Dictionary(grouping: issues, by: \.column).mapValues { $0.sortedForKanban() }
     }
 }
-
-nonisolated extension Issue {
-    var column: IssueColumn {
-        switch status {
-        case .draft, .approved, .blocked: .todo
-        case .inProgress: .inProgress
-        case .waitingForReview: .waitingForReview
-        case .done: .done
-        }
-    }
-}

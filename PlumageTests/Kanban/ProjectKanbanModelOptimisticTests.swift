@@ -13,7 +13,7 @@ struct OptimisticDropTests {
         model._setIssuesForTesting([.valid(initial)])
 
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -38,7 +38,7 @@ struct OptimisticDropTests {
         model._setIssuesForTesting([.valid(initial)])
 
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -63,7 +63,7 @@ struct OptimisticDropTests {
         model._setIssuesForTesting([.valid(initial)])
 
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.todo),
             projectURL: URL(filePath: "/tmp/probe")
         )
