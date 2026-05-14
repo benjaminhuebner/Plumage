@@ -30,6 +30,22 @@ struct SpecParserGoalTests {
         )
     }
 
+    @Test("# Goal (H1) heading is accepted in addition to ## Goal")
+    func acceptsH1GoalHeading() {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            # Goal
+
+            H1 variant should work too.
+
+            ## Scope
+            """
+        #expect(SpecParser.extractGoal(from: content) == "H1 variant should work too.")
+    }
+
     @Test("missing Goal section returns nil")
     func missingGoal() {
         let content = """
