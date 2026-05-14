@@ -6,6 +6,7 @@ struct InvalidIssueCardView: View {
     let padding: Int
 
     @Environment(\.kanbanHighlightedID) private var highlightedID: String?
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     private var folderName: String { folder.lastPathComponent }
 
@@ -38,9 +39,15 @@ struct InvalidIssueCardView: View {
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Text("Invalid")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.red)
+                HStack(spacing: 3) {
+                    if differentiateWithoutColor {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.caption2)
+                    }
+                    Text("Invalid")
+                        .font(.caption2.weight(.medium))
+                }
+                .foregroundStyle(.red)
             }
         }
         .cardContainer(tint: .red)
