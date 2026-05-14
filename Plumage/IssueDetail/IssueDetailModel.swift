@@ -14,6 +14,10 @@ final class IssueDetailModel {
         case failed(String)
     }
 
+    enum SaveError: Error, Equatable {
+        case unresolvedConflict
+    }
+
     let specURL: URL
     let folderName: String
 
@@ -150,26 +154,30 @@ final class IssueDetailModel {
 
     func saveBody() async throws {
         guard isBodyDirty else { return }
+        // Don't silently overwrite an unresolved external change: the user
+        // has to pick Use-disk or Keep-mine via the banner first.
+        if case .externalChange = conflict {
+            throw SaveError.unresolvedConflict
+        }
         let prior = pendingBodySave
         let url = specURL
-        let writer = self.writer
         let bodyToSave = bodyDraft
         let mutator = self.mutator
         let now = clock()
 
         let task = Task<Void, Error> {
             _ = try? await prior?.value
-            // Read disk fresh so we keep external frontmatter changes;
-            // splice in the new body, then rewrite via mutator so the
-            // `updated:` field is stamped consistently with form writes.
+            // Single atomic write: frontmatter `updated:` stamp + body
+            // splice in one mutator pass. Previously this was two writes
+            // (body via SpecWriter, then a second mutator call for the
+            // stamp), which could leave the file with the new body but a
+            // stale `updated:` on partial failure.
             try await Task.detached(priority: .userInitiated) {
-                let current = try String(contentsOf: url, encoding: .utf8)
-                let normalized = current.replacingOccurrences(of: "\r\n", with: "\n")
-                let merged = Self.replaceBody(in: normalized, with: bodyToSave)
-                try writer.write(merged, to: url)
-                // Stamp updated separately so the frontmatter mutator and the
-                // body splice agree on the timestamp.
-                try mutator.mutate(specURL: url, mutation: FrontmatterMutation(), now: now)
+                try mutator.mutate(
+                    specURL: url,
+                    mutation: FrontmatterMutation(body: .set(bodyToSave)),
+                    now: now
+                )
             }.value
         }
         pendingBodySave = task
@@ -186,6 +194,9 @@ final class IssueDetailModel {
     }
 
     func saveRaw(_ rawContent: String) async throws {
+        if case .externalChange = conflict {
+            throw SaveError.unresolvedConflict
+        }
         let prior = pendingBodySave
         let url = specURL
         let writer = self.writer
@@ -257,8 +268,10 @@ final class IssueDetailModel {
     nonisolated static func extractBody(from content: String) -> String {
         // Split on the second `---` line. Anything before (frontmatter)
         // is dropped; everything after is the body, including any embedded
-        // `---` lines further down.
-        let lines = content.components(separatedBy: "\n")
+        // `---` lines further down. CRLF input is normalized first so the
+        // function is safe to call on raw file content from any platform.
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
         var seen = 0
         var bodyStart = 0
         for (index, line) in lines.enumerated() {
@@ -281,7 +294,10 @@ final class IssueDetailModel {
     }
 
     nonisolated static func replaceBody(in content: String, with newBody: String) -> String {
-        let lines = content.components(separatedBy: "\n")
+        // CRLF input is normalized first so the function is safe to call on
+        // raw file content from any platform.
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
         var seen = 0
         var splitIndex: Int?
         for (index, line) in lines.enumerated() {

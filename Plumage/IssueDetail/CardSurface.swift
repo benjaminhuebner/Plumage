@@ -3,6 +3,12 @@ import SwiftUI
 struct CardSurfaceModifier: ViewModifier {
     let tintColor: Color
 
+    // Guard against unbalanced push/pop: if hovering=true fires twice
+    // without an intervening hovering=false (view re-created mid-hover,
+    // overlay covers the card, sheet pops, etc.) the cursor stack would
+    // grow until the next manual reset. We only push/pop on transitions.
+    @State private var isHovering = false
+
     func body(content: Content) -> some View {
         content
             .padding(12)
@@ -28,10 +34,21 @@ struct CardSurfaceModifier: ViewModifier {
             // "fall-down / settling" effect on the just-placed card.
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
             .onHover { hovering in
+                guard hovering != isHovering else { return }
+                isHovering = hovering
                 if hovering {
                     NSCursor.pointingHand.push()
                 } else {
                     NSCursor.pop()
+                }
+            }
+            .onDisappear {
+                // Card removed while still hovered (drop animation, scroll
+                // out of view, window close) — pop our own push to keep
+                // the cursor stack balanced.
+                if isHovering {
+                    NSCursor.pop()
+                    isHovering = false
                 }
             }
     }

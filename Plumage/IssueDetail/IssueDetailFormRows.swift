@@ -10,44 +10,75 @@ struct IssueDetailFormRows: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 24) {
                 pairedRow("Type") {
-                    Picker("", selection: typeBinding) {
-                        ForEach(IssueType.allCases, id: \.self) { type in
-                            HStack {
-                                Circle().fill(type.color).frame(width: 10, height: 10)
-                                Text(type.rawValue.capitalized)
-                            }
-                            .tag(type)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .disabled(isDisabled)
+                    typeMenu
+                        .disabled(isDisabled)
                 }
                 pairedRow("Status") {
-                    Picker("", selection: statusBinding) {
-                        ForEach(IssueStatus.allCases, id: \.self) { status in
-                            HStack {
-                                Circle().fill(status.indicatorColor).frame(width: 10, height: 10)
-                                Text(status.label)
-                            }
-                            .tag(status)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .disabled(isDisabled)
+                    statusMenu
+                        .disabled(isDisabled)
                 }
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 24) {
                 pairedRow("Created") {
-                    Text(Self.formatted(issue.created))
+                    Text(Self.dateFormatter.string(from: issue.created))
                         .foregroundStyle(.secondary)
                 }
                 pairedRow("Updated") {
-                    Text(Self.formatted(issue.updated))
+                    Text(Self.dateFormatter.string(from: issue.updated))
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+
+    // Menu+Button avoids the Binding(get:set:) anti-pattern: a Picker with
+    // a callback would need a new Binding per body eval; a Menu just reads
+    // issue.type/status directly and dispatches via callback on tap.
+    private var typeMenu: some View {
+        Menu {
+            ForEach(IssueType.allCases, id: \.self) { type in
+                Button {
+                    onSelectType(type)
+                } label: {
+                    Label {
+                        Text(type.rawValue.capitalized)
+                    } icon: {
+                        Circle().fill(type.color)
+                    }
+                    if type == issue.type {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(issue.type.color).frame(width: 10, height: 10)
+                Text(issue.type.rawValue.capitalized)
+            }
+        }
+    }
+
+    private var statusMenu: some View {
+        Menu {
+            ForEach(IssueStatus.allCases, id: \.self) { status in
+                Button {
+                    onSelectStatus(status)
+                } label: {
+                    Label {
+                        Text(status.label)
+                    } icon: {
+                        Circle().fill(status.indicatorColor)
+                    }
+                    if status == issue.status {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(issue.status.indicatorColor).frame(width: 10, height: 10)
+                Text(issue.status.label)
             }
         }
     }
@@ -67,26 +98,12 @@ struct IssueDetailFormRows: View {
         }
     }
 
-    private var typeBinding: Binding<IssueType> {
-        Binding(
-            get: { issue.type },
-            set: { onSelectType($0) }
-        )
-    }
-
-    private var statusBinding: Binding<IssueStatus> {
-        Binding(
-            get: { issue.status },
-            set: { onSelectStatus($0) }
-        )
-    }
-
-    private static func formatted(_ date: Date) -> String {
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
+        return formatter
+    }()
 }
 
 #Preview {

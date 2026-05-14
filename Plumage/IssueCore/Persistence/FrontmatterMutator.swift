@@ -18,6 +18,10 @@ nonisolated struct FrontmatterMutation: Sendable {
     var status: SetValue<IssueStatus> = .keep
     var order: SetValue<Double?> = .keep
     var labels: SetValue<[String]> = .keep
+    // Body splice is done in the same single write as the frontmatter
+    // mutation so saveBody can't leave the file with a new body but a
+    // stale `updated:` stamp on partial failure.
+    var body: SetValue<String> = .keep
 }
 
 nonisolated enum FrontmatterMutator {
@@ -145,9 +149,20 @@ nonisolated enum FrontmatterMutator {
         var rebuilt: [String] = []
         rebuilt.append(contentsOf: lines[0...frontStart])
         rebuilt.append(contentsOf: frontmatter)
-        rebuilt.append(contentsOf: lines[frontEnd..<lines.count])
 
-        return rebuilt.joined(separator: lineSeparator)
+        switch mutation.body {
+        case .keep:
+            rebuilt.append(contentsOf: lines[frontEnd..<lines.count])
+            return rebuilt.joined(separator: lineSeparator)
+        case .set(let newBody):
+            // Preserve the closing `---` line itself, then a single blank
+            // separator, then the new body. Matches the convention in
+            // existing spec files and what IssueDetailModel.replaceBody used
+            // to produce.
+            rebuilt.append(lines[frontEnd])
+            let frontmatterSection = rebuilt.joined(separator: lineSeparator)
+            return frontmatterSection + lineSeparator + lineSeparator + newBody
+        }
     }
 
     // Drop-path back-compat wrapper. ProjectKanbanModel's Mutator typealias
@@ -259,8 +274,10 @@ nonisolated enum FrontmatterMutator {
     }
 
     private static func isoString(from date: Date) -> String {
-        // Allocate per-call: ISO8601DateFormatter is not documented as
-        // thread-safe by Apple. See notes.md.
+        // Allocate per-call. ISO8601DateFormatter is thread-safe per Apple
+        // (NSFormatter's non-thread-safety note applies to DateFormatter,
+        // not the ISO8601 variant), but the allocation cost is negligible
+        // here and we avoid sharing mutable formatOptions across threads.
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)

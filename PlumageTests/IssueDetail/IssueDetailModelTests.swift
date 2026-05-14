@@ -9,9 +9,18 @@ struct IssueDetailModelTests {
     private let now = Date(timeIntervalSince1970: 1_750_000_000)
     private let nowISO = "2025-06-15T15:06:40Z"
 
+    // Convenience that returns a TestEnvironment whose tmp dir is cleaned
+    // up automatically when the value goes out of scope (TestEnvironment
+    // is a class with a removing deinit). Tests use `try makeEnvironment`
+    // instead of constructing directly so the cleanup contract is local
+    // to one place.
+    private func makeEnvironment(spec content: String) throws -> TestEnvironment {
+        try TestEnvironment(spec: content)
+    }
+
     @Test("load parses frontmatter and extracts body")
     func loadParses() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "# Body\n\nHello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "# Body\n\nHello."))
         let model = env.makeModel()
         await model.load()
         let issue = try #require(model.issue)
@@ -23,7 +32,7 @@ struct IssueDetailModelTests {
 
     @Test("commitStatus writes status, stamps updated, reloads from disk")
     func commitStatusWrites() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved"))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved"))
         let model = env.makeModel()
         await model.load()
         try await model.commitStatus(.inProgress)
@@ -35,7 +44,7 @@ struct IssueDetailModelTests {
 
     @Test("commitTitle skips empty titles")
     func commitTitleSkipsEmpty() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved"))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved"))
         let model = env.makeModel()
         await model.load()
         let originalContent = try String(contentsOf: env.specURL, encoding: .utf8)
@@ -46,7 +55,7 @@ struct IssueDetailModelTests {
 
     @Test("multi-field commits serialize without losing earlier writes")
     func serializesMultipleWrites() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved"))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved"))
         let model = env.makeModel()
         await model.load()
         async let titleWrite: Void = model.commitTitle("New Title")
@@ -61,7 +70,7 @@ struct IssueDetailModelTests {
 
     @Test("isBodyDirty flips when body is edited")
     func dirtyBodyDetected() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
         let model = env.makeModel()
         await model.load()
         #expect(!model.isBodyDirty)
@@ -71,7 +80,7 @@ struct IssueDetailModelTests {
 
     @Test("saveBody persists the new body and clears dirty state")
     func saveBodyPersists() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
         let model = env.makeModel()
         await model.load()
         model.bodyDraft = "Hello, world."
@@ -85,7 +94,7 @@ struct IssueDetailModelTests {
 
     @Test("external change with clean buffer reloads silently")
     func externalCleanReload() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
         let model = env.makeModel()
         await model.load()
         let updated = Self.baseSpec(status: "blocked", body: "Hello.")
@@ -96,7 +105,7 @@ struct IssueDetailModelTests {
 
     @Test("external change with dirty buffer raises conflict")
     func externalDirtyConflict() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
         let model = env.makeModel()
         await model.load()
         model.bodyDraft = "Hello, dirty."
@@ -109,7 +118,7 @@ struct IssueDetailModelTests {
 
     @Test("resolveConflictReload adopts disk content")
     func resolveReload() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
         let model = env.makeModel()
         await model.load()
         model.bodyDraft = "dirty"
@@ -137,7 +146,7 @@ struct IssueDetailModelTests {
 
     @Test("observeExternalChange skips disk read when issue snapshot unchanged")
     func observeExternalChangeDedup() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
         let model = env.makeModel()
         await model.load()
         let issue = try #require(model.issue)
@@ -154,7 +163,7 @@ struct IssueDetailModelTests {
 
     @Test("observeExternalChange triggers reload when issue snapshot changes")
     func observeExternalChangeReloads() async throws {
-        let env = try TestEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
         let model = env.makeModel()
         await model.load()
         try Self.baseSpec(status: "blocked", body: "Disk-changed.")
@@ -172,6 +181,71 @@ struct IssueDetailModelTests {
         #expect(model.issue?.status == .blocked)
         #expect(model.loadedBodyContent.contains("Disk-changed."))
         #expect(model.conflict == nil)
+    }
+
+    @Test("saveBody throws SaveError.unresolvedConflict while external change is pending")
+    func saveBodyRefusesWhenConflict() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        model.bodyDraft = "Hello, dirty."
+        // Simulate an external write while the user is editing.
+        let disk = Self.baseSpec(status: "blocked", body: "Hello, disk.")
+        await model.handleExternalChange(diskContent: disk)
+        #expect(model.conflict != nil)
+        await #expect(throws: IssueDetailModel.SaveError.unresolvedConflict) {
+            try await model.saveBody()
+        }
+        // Disk content must be untouched — still the external version.
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("Hello."))  // original body still present on disk
+    }
+
+    @Test("saveRaw throws SaveError.unresolvedConflict while external change is pending")
+    func saveRawRefusesWhenConflict() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        // Mark the buffer dirty so handleExternalChange actually raises a
+        // conflict (clean buffers auto-adopt disk changes).
+        model.bodyDraft = "Local edit."
+        let disk = Self.baseSpec(status: "blocked", body: "Hello, disk.")
+        await model.handleExternalChange(diskContent: disk)
+        #expect(model.conflict != nil)
+        let proposed = Self.baseSpec(status: "done", body: "Edited raw.")
+        await #expect(throws: IssueDetailModel.SaveError.unresolvedConflict) {
+            try await model.saveRaw(proposed)
+        }
+    }
+
+    @Test("saveBody after resolveConflictKeep proceeds and overwrites disk")
+    func saveBodyAfterKeepProceeds() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        model.bodyDraft = "Mine wins."
+        let disk = Self.baseSpec(status: "blocked", body: "External.")
+        await model.handleExternalChange(diskContent: disk)
+        model.resolveConflictKeep()
+        try await model.saveBody()
+        let written = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(written.contains("Mine wins."))
+        #expect(!model.isBodyDirty)
+    }
+
+    @Test("saveRaw writes full content and re-applies frontmatter parse")
+    func saveRawPersistsFullContent() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        let raw = Self.baseSpec(status: "in-progress", body: "Raw replacement.")
+        try await model.saveRaw(raw)
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: in-progress"))
+        #expect(onDisk.contains("Raw replacement."))
+        // Model state reflects the freshly-written content.
+        #expect(model.issue?.status == .inProgress)
+        #expect(model.loadedBodyContent.contains("Raw replacement."))
     }
 
     @Test("replaceBody preserves frontmatter")
@@ -210,7 +284,10 @@ struct IssueDetailModelTests {
 }
 
 @MainActor
-private struct TestEnvironment {
+private final class TestEnvironment {
+    // Class (not struct) so deinit removes the tmp dir automatically when
+    // the local test value goes out of scope — otherwise UUID-named
+    // directories accumulate in /tmp on every test run.
     let tmpDir: URL
     let specURL: URL
     let now = Date(timeIntervalSince1970: 1_750_000_000)
@@ -225,5 +302,9 @@ private struct TestEnvironment {
 
     func makeModel() -> IssueDetailModel {
         IssueDetailModel(specURL: specURL, folderName: "00001-test", clock: { self.now })
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: tmpDir)
     }
 }

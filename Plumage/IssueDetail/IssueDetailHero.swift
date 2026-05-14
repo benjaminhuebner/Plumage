@@ -9,6 +9,11 @@ struct IssueDetailHero: View {
     let isDisabled: Bool
 
     @FocusState private var titleFocused: Bool
+    // Tracks the draft snapshot we last forwarded to the parent so that
+    // Enter (onSubmit) followed by focus-loss doesn't double-fire the
+    // commit. The model guards no-op writes by content too, but skipping
+    // the second dispatch saves a needless detached task + disk read.
+    @State private var lastCommittedDraft: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,11 +36,18 @@ struct IssueDetailHero: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .focused($titleFocused)
                 .disabled(isDisabled)
-                .onSubmit(onCommitTitle)
+                .onSubmit(commitIfChanged)
                 .onChange(of: titleFocused) { _, focused in
-                    if !focused { onCommitTitle() }
+                    if !focused { commitIfChanged() }
                 }
         }
+    }
+
+    private func commitIfChanged() {
+        let current = titleDraft.wrappedValue
+        guard current != lastCommittedDraft else { return }
+        lastCommittedDraft = current
+        onCommitTitle()
     }
 }
 

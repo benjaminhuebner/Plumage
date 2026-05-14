@@ -350,6 +350,41 @@ struct FrontmatterMutatorTests {
         }
     }
 
+    @Test("body .set replaces body and stamps updated in a single pass")
+    func bodySetReplacesBody() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(body: .set("Brand new body.")),
+            now: now
+        )
+        #expect(output.contains("Brand new body."))
+        #expect(!output.contains("Some content."))
+        #expect(!output.contains("# Body"))
+        #expect(output.contains("updated: \(nowISO)"))
+        // Frontmatter delimiter still intact.
+        let dashLines = output.components(separatedBy: "\n").filter {
+            $0.trimmingCharacters(in: .whitespaces) == "---"
+        }
+        #expect(dashLines.count == 2)
+    }
+
+    @Test("body .set combined with frontmatter fields produces one rewrite")
+    func bodySetCombinedWithFields() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(
+                status: .set(.done),
+                body: .set("Done now.")
+            ),
+            now: now
+        )
+        #expect(output.contains("status: done"))
+        #expect(output.contains("Done now."))
+        #expect(output.contains("updated: \(nowISO)"))
+    }
+
     @Test("legacy mutate(specURL:newStatus:newOrder:) wrapper still works")
     func legacyWrapper() throws {
         let input = baseSpec(status: "approved")
