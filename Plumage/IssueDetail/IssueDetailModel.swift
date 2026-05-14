@@ -56,6 +56,7 @@ final class IssueDetailModel {
 
     private var pendingFormWrite: Task<Void, Error>?
     private var pendingBodySave: Task<Void, Error>?
+    private var observeTask: Task<Void, Never>?
 
     private nonisolated let allocator: IssueAllocating?
     private nonisolated let writer: SpecWriting
@@ -337,6 +338,17 @@ final class IssueDetailModel {
             let normalized = fresh.replacingOccurrences(of: "\r\n", with: "\n")
             lastWrittenContent = normalized
             applyLoaded(content: normalized)
+        }
+    }
+
+    func observeKanban(currentIssue: DiscoveredIssue?) {
+        // Cancel any in-flight observation so a fast kanban-snapshot churn
+        // doesn't race two concurrent disk reads writing to the same fields.
+        // Owning the task here (instead of @State in the view) means it dies
+        // with the model — no ghost writes after view pop.
+        observeTask?.cancel()
+        observeTask = Task { [weak self] in
+            await self?.observeExternalChange(currentIssue: currentIssue)
         }
     }
 

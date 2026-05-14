@@ -21,6 +21,16 @@ final class SpecEditorModel {
 
     private nonisolated let writer: SpecWriting
 
+    // Serializes saveIfDirty / resolveConflictSaveAndRecreate triggers so
+    // overlapping focus-loss + ⌘S + scenePhase events can't commit out of
+    // order. Owned by the model (not @State in the view) so the chain dies
+    // with the model — no ghost writes after view pop.
+    private var pendingSave: Task<Void, Error>?
+    // Latest in-flight kanban observation. Cancelled on every new snapshot
+    // so a fast snapshot churn doesn't race two concurrent disk reads
+    // writing to the same fields.
+    private var observeTask: Task<Void, Never>?
+
     var isDirty: Bool { buffer != loadedContent }
 
     init(specURL: URL, folderName: String, writer: SpecWriting = DefaultSpecWriter()) {
@@ -55,10 +65,24 @@ final class SpecEditorModel {
     func saveIfDirty() async throws {
         guard isDirty else { return }
         let snapshot = buffer
-        try await writeOffActor(snapshot)
-        lastWrittenContent = snapshot
-        loadedContent = snapshot
-        evaluateFrontmatterError()
+        let prior = pendingSave
+        let task = Task<Void, Error> { [weak self] in
+            _ = try? await prior?.value
+            guard let self else { return }
+            try await self.writeOffActor(snapshot)
+            self.lastWrittenContent = snapshot
+            self.loadedContent = snapshot
+            self.evaluateFrontmatterError()
+        }
+        pendingSave = task
+        try await task.value
+    }
+
+    func observeKanban(currentIssue: DiscoveredIssue?) {
+        observeTask?.cancel()
+        observeTask = Task { [weak self] in
+            await self?.observeExternalChange(currentIssue: currentIssue)
+        }
     }
 
     func observeExternalChange(currentIssue: DiscoveredIssue?) async {
@@ -106,11 +130,18 @@ final class SpecEditorModel {
 
     func resolveConflictSaveAndRecreate() async throws {
         let snapshot = buffer
-        try await writeOffActor(snapshot)
-        lastWrittenContent = snapshot
-        loadedContent = snapshot
-        evaluateFrontmatterError()
-        conflict = nil
+        let prior = pendingSave
+        let task = Task<Void, Error> { [weak self] in
+            _ = try? await prior?.value
+            guard let self else { return }
+            try await self.writeOffActor(snapshot)
+            self.lastWrittenContent = snapshot
+            self.loadedContent = snapshot
+            self.evaluateFrontmatterError()
+            self.conflict = nil
+        }
+        pendingSave = task
+        try await task.value
     }
 
     private func writeOffActor(_ content: String) async throws {

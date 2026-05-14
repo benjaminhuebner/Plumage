@@ -40,13 +40,19 @@ struct KanbanColumnView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(column.name)
-                .font(.title3.weight(.semibold))
-            Text("\(issues.count)")
-                .font(.title3)
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
-                .accessibilityLabel("\(issues.count) issues")
+            // Combine title + count so VoiceOver reads "Todo, 3 issues" as a
+            // single element. Keep the plus button outside the combined
+            // group so it stays an independently focusable action.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(column.name)
+                    .font(.title3.weight(.semibold))
+                Text("\(issues.count)")
+                    .font(.title3)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(column.name), \(issues.count) issues")
             Spacer()
             Button {
                 openSpec(.createIssue(initialStatus: column.primaryStatusForCreation))

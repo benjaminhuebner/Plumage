@@ -13,8 +13,6 @@ struct IssueDetailView: View {
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
-    @State private var pendingBodySave: Task<Void, Never>?
-    @State private var observeTask: Task<Void, Never>?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -69,7 +67,7 @@ struct IssueDetailView: View {
         .navigationTitle(navigationTitle)
         .focusedSceneValue(\.specEditorIsActive, true)
         .focusedSceneValue(\.specEditorSave, attemptSave)
-        .focusedSceneValue(\.specEditorClose, { Task { await attemptPop() } })
+        .focusedSceneValue(\.specEditorClose, triggerPop)
         .focusedSceneValue(\.specEditorDirtyFolderName, dirtyFolderName)
         .task(id: model.specURL) {
             guard !model.isCreating else { return }
@@ -85,11 +83,8 @@ struct IssueDetailView: View {
             }
         }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
-        .onChange(of: kanban.issues) { _, _ in
-            guard let currentFolder = model.folderName else { return }
-            let current = kanban.issues.first { $0.id == currentFolder }
-            observeTask?.cancel()
-            observeTask = Task { await model.observeExternalChange(currentIssue: current) }
+        .onChange(of: currentKanbanIssue) { _, current in
+            model.observeKanban(currentIssue: current)
         }
         .onChange(of: scenePhase) { _, phase in
             // Auto-save on background only applies in loaded mode. In creating
@@ -251,6 +246,14 @@ struct IssueDetailView: View {
     }
 
     // MARK: - Mode-aware data sources
+
+    private var currentKanbanIssue: DiscoveredIssue? {
+        // Project the single kanban entry this view cares about so .onChange
+        // doesn't fire on every unrelated snapshot. Cheap: O(n) once per
+        // kanban update, vs. O(n) per render via .onChange(of: kanban.issues).
+        guard let folder = model.folderName else { return nil }
+        return kanban.issues.first { $0.id == folder }
+    }
 
     private var currentStatus: IssueStatus {
         if model.isCreating { return model.statusDraft }
@@ -427,11 +430,13 @@ struct IssueDetailView: View {
     }
 
     private func attemptSave() {
+        // Fire-and-forget: IssueDetailModel serializes overlapping
+        // saveBody/saveRaw calls on its own pendingBodySave chain, so a
+        // rapid double-click of Save just queues a no-op (guard-by-dirty)
+        // after the in-flight write finishes.
         if model.isCreating {
             guard model.canSaveInCreatingMode else { return }
-            let prior = pendingBodySave
-            pendingBodySave = Task {
-                await prior?.value
+            Task {
                 do {
                     try await model.createIssueFromDraft()
                 } catch IssueDetailModel.SaveError.emptyTitle {
@@ -442,9 +447,7 @@ struct IssueDetailView: View {
             }
             return
         }
-        let prior = pendingBodySave
-        pendingBodySave = Task {
-            await prior?.value
+        Task {
             do {
                 switch displayMode {
                 case .detail:
@@ -458,6 +461,10 @@ struct IssueDetailView: View {
         }
     }
 
+    private func triggerPop() {
+        Task { await attemptPop() }
+    }
+
     private func attemptPop() async {
         // Creating mode never has unsaved disk state: closing leaves no
         // trace and the in-memory drafts go away with the view.
@@ -465,7 +472,6 @@ struct IssueDetailView: View {
             dismiss()
             return
         }
-        await pendingBodySave?.value
         do {
             switch displayMode {
             case .detail:
