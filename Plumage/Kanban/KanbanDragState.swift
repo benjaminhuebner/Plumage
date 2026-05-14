@@ -154,10 +154,25 @@ nonisolated func resolveDropTarget(
     for card in cards {
         guard let frame = cardFrames[card.id] else { continue }
         if cursor.y < frame.midY {
+            // insertionFrame must point at where the SOURCE lands (the
+            // placeholder slot above this card), NOT at the target card's
+            // own frame. The placeholder is rendered before the card with
+            // 8pt LazyVStack spacing, so the source's eventual layout slot
+            // sits at `frame.minY - 8 - frame.height`. Using `frame` here
+            // sent the drop animation 164pt below the source's real slot,
+            // which the user saw as the floating card falling down to the
+            // target card before the actual source materialised one
+            // card-height higher (the "Runterfall" bug).
+            let insertionFrame = CGRect(
+                x: frame.minX,
+                y: frame.minY - 8 - frame.height,
+                width: frame.width,
+                height: frame.height
+            )
             return ResolvedDropTarget(
                 column: column,
                 target: .aboveCard(folderName: card.id, column: column),
-                insertionFrame: frame
+                insertionFrame: insertionFrame
             )
         }
     }
