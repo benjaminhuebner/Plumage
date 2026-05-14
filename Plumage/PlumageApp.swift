@@ -29,6 +29,7 @@ struct PlumageApp: App {
             CommandGroup(replacing: .newItem) {
                 OpenProjectMenuButton(recentProjects: recentProjects)
             }
+            WelcomeWindowCommand()
         }
 
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
