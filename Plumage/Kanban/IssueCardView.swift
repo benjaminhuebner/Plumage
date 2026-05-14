@@ -48,6 +48,8 @@ struct IssueCardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            Spacer(minLength: 0)
+
             HStack {
                 Text(IssueIDFormatter.padded(issue.id, width: padding))
                     .font(.caption2.monospaced())
@@ -58,6 +60,11 @@ struct IssueCardView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        // Uniform card height so every card in every column matches.
+        // Title + goal (each capped at their lineLimit) plus the Spacer
+        // padding fills any leftover vertical space, so a card with no goal
+        // is the same height as one with a long goal.
+        .frame(height: 132, alignment: .top)
         .cardContainer(tint: issue.type.color)
         .overlay(
             RoundedRectangle(cornerRadius: 12)

@@ -24,7 +24,10 @@ struct KanbanColumnView: View {
             column: column,
             visibleIssues: issues
         )
-        let placeholderHeight = kanbanDrag.isActive ? kanbanDrag.sourceFrame.height : 100
+        // Fixed card height + 24pt padding (12 top + 12 bottom from
+        // cardContainer) = 156pt. Use this constant for the placeholder so
+        // the gap matches the source's actual visual footprint exactly.
+        let placeholderHeight: CGFloat = 156
 
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -59,7 +62,13 @@ struct KanbanColumnView: View {
                 .scrollDisabled(kanbanDrag.isActive)
             }
         }
-        .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
+        // Fixed column width so every section is the same width regardless
+        // of how many cards live in it. Empty columns now stretch the same
+        // vertical/horizontal footprint as full ones.
+        .frame(
+            minWidth: 260, idealWidth: 260, maxWidth: 260,
+            maxHeight: .infinity, alignment: .top
+        )
         .contentShape(Rectangle())
         .reportColumnFrame(column: column, registry: frameRegistry)
     }

@@ -38,6 +38,8 @@ struct InvalidIssueCardView: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            Spacer(minLength: 0)
+
             HStack {
                 Text(IssueIDFormatter.paddedOrPlaceholder(parts.id, width: padding))
                     .font(.caption2.monospaced())
@@ -54,6 +56,8 @@ struct InvalidIssueCardView: View {
                 .foregroundStyle(.red)
             }
         }
+        // Same uniform card height as IssueCardView.
+        .frame(height: 132, alignment: .top)
         .cardContainer(tint: .red)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
