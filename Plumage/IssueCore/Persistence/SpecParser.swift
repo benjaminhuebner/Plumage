@@ -95,8 +95,12 @@ nonisolated enum SpecParser {
             }
             firstParagraph.append(trimmed)
         }
+        // Collapse runs of whitespace — stripping inline `<!-- … -->`
+        // can leave double spaces between the surrounding words.
         let paragraph =
             firstParagraph
+            .joined(separator: " ")
+            .split(separator: " ", omittingEmptySubsequences: true)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if paragraph.isEmpty { return nil }

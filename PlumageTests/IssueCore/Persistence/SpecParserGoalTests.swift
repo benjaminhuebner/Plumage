@@ -138,7 +138,7 @@ struct SpecParserGoalTests {
 
             ## Scope
             """
-        #expect(SpecParser.extractGoal(from: content) == "Visible  text.")
+        #expect(SpecParser.extractGoal(from: content) == "Visible text.")
     }
 
     @Test("parse populates Issue.goal from the body")
