@@ -3,6 +3,7 @@ import SwiftUI
 struct IssueDetailTopBar: View {
     let paddedID: String
     let branch: String
+    let isBodyDirty: Bool
     let onCopyID: () -> Void
     let onOpenRawEditor: () -> Void
     let onRevealInFinder: () -> Void
@@ -19,6 +20,15 @@ struct IssueDetailTopBar: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+            }
+            if isBodyDirty {
+                HStack(spacing: 4) {
+                    Circle().fill(Color.orange).frame(width: 6, height: 6)
+                    Text("Unsaved (⌘S)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Body has unsaved changes — save with Command S")
             }
             Spacer()
             Button("Copy ID", systemImage: "doc.on.doc", action: onCopyID)
@@ -40,14 +50,26 @@ struct IssueDetailTopBar: View {
 }
 
 #Preview {
-    IssueDetailTopBar(
-        paddedID: "#00016",
-        branch: "issue/00016-better-issue-details",
-        onCopyID: {},
-        onOpenRawEditor: {},
-        onRevealInFinder: {},
-        onClose: {}
-    )
+    VStack {
+        IssueDetailTopBar(
+            paddedID: "#00016",
+            branch: "issue/00016-better-issue-details",
+            isBodyDirty: false,
+            onCopyID: {},
+            onOpenRawEditor: {},
+            onRevealInFinder: {},
+            onClose: {}
+        )
+        IssueDetailTopBar(
+            paddedID: "#00016",
+            branch: "issue/00016-better-issue-details",
+            isBodyDirty: true,
+            onCopyID: {},
+            onOpenRawEditor: {},
+            onRevealInFinder: {},
+            onClose: {}
+        )
+    }
     .padding()
     .frame(width: 700)
 }
