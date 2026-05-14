@@ -5,6 +5,9 @@ nonisolated enum SetValue<T: Sendable>: Sendable {
     case set(T)
 }
 
+extension SetValue: Equatable where T: Equatable {}
+extension SetValue: Hashable where T: Hashable {}
+
 nonisolated enum MutatorError: Error, Equatable, Sendable {
     case noFrontmatter
 }

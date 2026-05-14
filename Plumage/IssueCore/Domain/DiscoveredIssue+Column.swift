@@ -1,4 +1,4 @@
-extension DiscoveredIssue {
+nonisolated extension DiscoveredIssue {
     var column: IssueColumn {
         switch self {
         case .invalid: .todo
