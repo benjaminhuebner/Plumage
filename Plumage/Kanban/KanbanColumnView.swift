@@ -24,7 +24,8 @@ struct KanbanColumnView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(issues) { item in
-                            IssueCardSwitch(issue: item, padding: padding)
+                            IssueCardSwitch(
+                                issue: item, padding: padding, projectURL: projectURL)
                         }
                     }
                     .padding(.horizontal, 4)
