@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import Observation
 
 nonisolated enum DragStatus: Sendable, Equatable {
     case lifting
@@ -22,6 +23,59 @@ nonisolated struct KanbanDragState: Equatable, Sendable {
     var translation: CGSize
     var target: ResolvedDropTarget?
     var status: DragStatus
+}
+
+@Observable
+@MainActor
+final class KanbanDragController {
+    private(set) var state: KanbanDragState?
+
+    func startLift(payload: IssueDragPayload, sourceFolderName: String, sourceFrame: CGRect) {
+        guard state == nil else { return }
+        state = KanbanDragState(
+            payload: payload,
+            sourceFolderName: sourceFolderName,
+            sourceFrame: sourceFrame,
+            cursorLocation: CGPoint(x: sourceFrame.midX, y: sourceFrame.midY),
+            translation: .zero,
+            target: nil,
+            status: .lifting
+        )
+    }
+
+    func updateCursor(location: CGPoint, translation: CGSize) {
+        guard var current = state else { return }
+        current.cursorLocation = location
+        current.translation = translation
+        if current.status == .lifting {
+            current.status = .dragging
+        }
+        state = current
+    }
+
+    func setTarget(_ target: ResolvedDropTarget?) {
+        guard var current = state else { return }
+        current.target = target
+        state = current
+    }
+
+    func beginDrop(finalTranslation: CGSize) {
+        guard var current = state else { return }
+        current.status = .dropping
+        current.translation = finalTranslation
+        state = current
+    }
+
+    func beginCancel() {
+        guard var current = state else { return }
+        current.status = .cancelling
+        current.translation = .zero
+        state = current
+    }
+
+    func clear() {
+        state = nil
+    }
 }
 
 nonisolated func resolveDropTarget(

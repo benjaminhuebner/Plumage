@@ -7,6 +7,7 @@ struct KanbanView: View {
 
     @State private var cardFrames: [String: CGRect] = [:]
     @State private var columnFrames: [IssueColumn: CGRect] = [:]
+    @State private var kanbanDrag = KanbanDragController()
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -24,11 +25,31 @@ struct KanbanView: View {
             .padding(.vertical, 8)
         }
         .coordinateSpace(name: KanbanCoordinateSpace.name)
+        .environment(kanbanDrag)
         .onPreferenceChange(CardFramesPreferenceKey.self) { frames in
             cardFrames = frames
         }
         .onPreferenceChange(ColumnFramesPreferenceKey.self) { frames in
             columnFrames = frames
+        }
+        .onChange(of: kanbanDrag.state?.cursorLocation) { _, _ in
+            updateResolvedTarget()
+        }
+    }
+
+    private func updateResolvedTarget() {
+        guard let drag = kanbanDrag.state else { return }
+        let resolved = resolveDropTarget(
+            cursor: drag.cursorLocation,
+            cardFrames: cardFrames,
+            columnFrames: columnFrames,
+            sortedIssues: grouped,
+            sourceFolderName: drag.sourceFolderName
+        )
+        if drag.target != resolved {
+            withAnimation(.smooth(duration: 0.18)) {
+                kanbanDrag.setTarget(resolved)
+            }
         }
     }
 }

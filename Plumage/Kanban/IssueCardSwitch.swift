@@ -6,11 +6,9 @@ struct IssueCardSwitch: View {
     let projectURL: URL
 
     @Environment(ProjectKanbanModel.self) private var kanban
+    @Environment(KanbanDragController.self) private var kanbanDrag
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
-    @State private var dropEdge: DropEdge?
-    @State private var measuredHeight: CGFloat = 0
-
-    private enum DropEdge { case above, below }
+    @State private var sourceFrameInKanban: CGRect = .zero
 
     var body: some View {
         switch issue {
@@ -28,6 +26,9 @@ struct IssueCardSwitch: View {
     private func validBody(_ value: Issue) -> some View {
         let isLocked = dirtyFolderName == value.folderName
         let payload = IssueDragPayload(folderName: value.folderName, currentStatus: value.status)
+        let active = kanbanDrag.state?.sourceFolderName == value.folderName
+        let translation = active ? (kanbanDrag.state?.translation ?? .zero) : .zero
+        let scale: CGFloat = active ? 1.04 : 1.0
 
         NavigationLink(value: SpecRoute.spec(folderName: value.folderName)) {
             IssueCardView(issue: value, padding: padding)
@@ -35,19 +36,21 @@ struct IssueCardSwitch: View {
         }
         .buttonStyle(.plain)
         .help(isLocked ? "Card has unsaved edits in the editor" : "")
-        .overlay(alignment: .top) {
-            if dropEdge == .above { DropIndicator() }
-        }
-        .overlay(alignment: .bottom) {
-            if dropEdge == .below { DropIndicator() }
-        }
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.height
-        } action: { height in
-            measuredHeight = height
-        }
         .reportCardFrame(folderName: value.folderName)
-        .modifier(ConditionalDraggable(payload: payload, enabled: !isLocked))
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named(KanbanCoordinateSpace.name))
+        } action: { frame in
+            sourceFrameInKanban = frame
+        }
+        .scaleEffect(scale)
+        .shadow(
+            color: .black.opacity(active ? 0.25 : 0),
+            radius: active ? 12 : 0,
+            x: 0,
+            y: active ? 4 : 0
+        )
+        .offset(translation)
+        .zIndex(active ? 1 : 0)
         .accessibilityActions {
             ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
                 Button("Move to \(target.name)") {
@@ -56,41 +59,65 @@ struct IssueCardSwitch: View {
                 }
             }
         }
-        .dropDestination(for: IssueDragPayload.self) { items, location in
-            dropEdge = nil
-            guard let dropped = items.first else { return false }
-            let pivot = measuredHeight > 0 ? measuredHeight / 2 : cardHeightFallback / 2
-            let edge: DropEdge = location.y < pivot ? .above : .below
-            let target: ProjectKanbanModel.DropTarget =
-                edge == .above
-                ? .aboveCard(folderName: value.folderName, column: value.column)
-                : .belowCard(folderName: value.folderName, column: value.column)
-            kanban.dispatchDrop(dropped, to: target, projectURL: projectURL)
-            return true
-        } isTargeted: { targeted in
-            if !targeted {
-                dropEdge = nil
-            } else if dropEdge == nil {
-                dropEdge = .above
-            }
-        }
+        .modifier(
+            ConditionalDragGesture(
+                enabled: !isLocked,
+                payload: payload,
+                sourceFrameProvider: { sourceFrameInKanban },
+                onDispatch: { target in
+                    kanban.dispatchDrop(payload, to: target, projectURL: projectURL)
+                }
+            )
+        )
     }
-
-    // Used only on the first drop hover before .onGeometryChange has fired
-    // once. After that, `measuredHeight` reflects the rendered card.
-    private let cardHeightFallback: CGFloat = 120
 }
 
-private struct ConditionalDraggable: ViewModifier {
-    let payload: IssueDragPayload
+private struct ConditionalDragGesture: ViewModifier {
     let enabled: Bool
+    let payload: IssueDragPayload
+    let sourceFrameProvider: () -> CGRect
+    let onDispatch: (ProjectKanbanModel.DropTarget) -> Void
+
+    @Environment(KanbanDragController.self) private var controller
 
     func body(content: Content) -> some View {
         if enabled {
-            content.draggable(payload)
+            content.simultaneousGesture(buildGesture())
         } else {
             content
         }
+    }
+
+    private func buildGesture() -> some Gesture {
+        let lift = LongPressGesture(minimumDuration: 0.15)
+        let drag = DragGesture(coordinateSpace: .named(KanbanCoordinateSpace.name))
+        return lift.sequenced(before: drag)
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    let frame = sourceFrameProvider()
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                        controller.startLift(
+                            payload: payload,
+                            sourceFolderName: payload.folderName,
+                            sourceFrame: frame
+                        )
+                    }
+                case .second(true, let dragValue?):
+                    controller.updateCursor(
+                        location: dragValue.location,
+                        translation: dragValue.translation
+                    )
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                if let resolved = controller.state?.target {
+                    onDispatch(resolved.target)
+                }
+                controller.clear()
+            }
     }
 }
 
@@ -128,4 +155,5 @@ private struct ConditionalDraggable: ViewModifier {
         .frame(width: 260)
     }
     .environment(ProjectKanbanModel())
+    .environment(KanbanDragController())
 }

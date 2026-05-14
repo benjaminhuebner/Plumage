@@ -38,6 +38,6 @@ extension View {
     }
 }
 
-enum KanbanCoordinateSpace {
+nonisolated enum KanbanCoordinateSpace {
     static let name = "kanban"
 }
