@@ -46,10 +46,23 @@ struct KanbanView: View {
         }
         .environment(kanbanDrag)
         .onPreferenceChange(CardFramesPreferenceKey.self) { frames in
-            cardFrames = frames
+            // Defer to the next runloop turn so multi-pass layout (LazyVStack +
+            // ScrollView + column reflow can emit the preference more than once
+            // per frame) doesn't trigger SwiftUI's "Bound preference … tried to
+            // update multiple times per frame" warning. The drag-target resolver
+            // tolerates a one-frame-stale cardFrames just fine.
+            Task { @MainActor in
+                if cardFrames != frames {
+                    cardFrames = frames
+                }
+            }
         }
         .onPreferenceChange(ColumnFramesPreferenceKey.self) { frames in
-            columnFrames = frames
+            Task { @MainActor in
+                if columnFrames != frames {
+                    columnFrames = frames
+                }
+            }
         }
         .onChange(of: kanbanDrag.cursorLocation) { _, _ in
             updateResolvedTarget()
