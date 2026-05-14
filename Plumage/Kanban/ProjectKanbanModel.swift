@@ -61,14 +61,23 @@ final class ProjectKanbanModel {
                 expectedOrder: pendingDropExpectedOrder
             )
             let groups = Self.group(reconciled.snapshot)
-            withAnimation(.smooth(duration: 0.4)) {
+            if reconciled.pendingCleared {
+                // FSEvent confirms our own pending drop — the layout is
+                // already correct on screen, only invisible fields like
+                // `updated` have changed. Wrapping this in withAnimation
+                // triggers a visible "refresh" pass that looks like a
+                // sort-after-drop because SwiftUI re-evaluates the whole
+                // LazyVStack. Apply directly without animation.
                 self.issues = reconciled.snapshot
                 self.groupedIssues = groups
-            }
-            if reconciled.pendingCleared {
                 pendingDropFolderName = nil
                 pendingDropExpectedStatus = nil
                 pendingDropExpectedOrder = nil
+            } else {
+                withAnimation(.smooth(duration: 0.4)) {
+                    self.issues = reconciled.snapshot
+                    self.groupedIssues = groups
+                }
             }
         }
         await producer.stop()
