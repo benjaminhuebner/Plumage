@@ -10,6 +10,7 @@ struct KanbanColumnView: View {
     @FocusedValue(\.newIssueSheetIsPresented) private var newIssueSheetIsPresented
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(KanbanDragController.self) private var kanbanDrag
+    @Environment(\.kanbanFrameRegistry) private var frameRegistry
 
     var body: some View {
         // Keep ALL issues in the ForEach — even the source. Removing the
@@ -60,7 +61,7 @@ struct KanbanColumnView: View {
         }
         .frame(minWidth: 240, maxWidth: 280, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
-        .reportColumnFrame(column: column)
+        .reportColumnFrame(column: column, registry: frameRegistry)
     }
 
     private func placeholderSlot(height: CGFloat) -> some View {

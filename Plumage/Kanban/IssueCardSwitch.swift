@@ -9,6 +9,7 @@ struct IssueCardSwitch: View {
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(KanbanDragController.self) private var kanbanDrag
     @Environment(\.openSpec) private var openSpec
+    @Environment(\.kanbanFrameRegistry) private var frameRegistry
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
     @State private var sourceFrameInKanban: CGRect = .zero
 
@@ -41,7 +42,7 @@ struct IssueCardSwitch: View {
             .clipped()
             .contentShape(Rectangle())
             .help(isLocked ? "Card has unsaved edits in the editor" : "")
-            .reportCardFrame(folderName: value.folderName)
+            .reportCardFrame(folderName: value.folderName, registry: frameRegistry)
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(KanbanCoordinateSpace.name))
             } action: { frame in

@@ -9,8 +9,7 @@ struct KanbanView: View {
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var cardFrames: [String: CGRect] = [:]
-    @State private var columnFrames: [IssueColumn: CGRect] = [:]
+    @State private var frames = KanbanFrameRegistry()
     @State private var kanbanFrame: CGRect = .zero
     @State private var kanbanDrag = KanbanDragController()
     @State private var autoScroll = KanbanAutoScroll()
@@ -45,25 +44,7 @@ struct KanbanView: View {
             FloatingDragCard(padding: padding)
         }
         .environment(kanbanDrag)
-        .onPreferenceChange(CardFramesPreferenceKey.self) { frames in
-            // Defer to the next runloop turn so multi-pass layout (LazyVStack +
-            // ScrollView + column reflow can emit the preference more than once
-            // per frame) doesn't trigger SwiftUI's "Bound preference … tried to
-            // update multiple times per frame" warning. The drag-target resolver
-            // tolerates a one-frame-stale cardFrames just fine.
-            Task { @MainActor in
-                if cardFrames != frames {
-                    cardFrames = frames
-                }
-            }
-        }
-        .onPreferenceChange(ColumnFramesPreferenceKey.self) { frames in
-            Task { @MainActor in
-                if columnFrames != frames {
-                    columnFrames = frames
-                }
-            }
-        }
+        .environment(\.kanbanFrameRegistry, frames)
         .onChange(of: kanbanDrag.cursorLocation) { _, _ in
             updateResolvedTarget()
             updateAutoScroll()
@@ -103,7 +84,7 @@ struct KanbanView: View {
             active: status == .dragging || status == .lifting,
             cursor: kanbanDrag.cursorLocation,
             kanbanFrame: kanbanFrame,
-            columnFrames: columnFrames
+            columnFrames: frames.columns
         )
     }
 
@@ -141,8 +122,8 @@ struct KanbanView: View {
         guard kanbanDrag.isActive, let source = kanbanDrag.sourceFolderName else { return }
         let resolved = resolveDropTarget(
             cursor: kanbanDrag.cursorLocation,
-            cardFrames: cardFrames,
-            columnFrames: columnFrames,
+            cardFrames: frames.cards,
+            columnFrames: frames.columns,
             sortedIssues: grouped,
             sourceFolderName: source
         )
