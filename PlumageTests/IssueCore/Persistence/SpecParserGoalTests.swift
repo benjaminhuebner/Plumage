@@ -78,6 +78,24 @@ struct SpecParserGoalTests {
         #expect(SpecParser.extractGoal(from: content) == nil)
     }
 
+    @Test("first ## Goal heading wins when duplicates exist")
+    func firstGoalWins() {
+        let content = """
+            ---
+            id: 1
+            ---
+
+            ## Goal
+
+            First Goal content.
+
+            ## Goal
+
+            Second Goal content.
+            """
+        #expect(SpecParser.extractGoal(from: content) == "First Goal content.")
+    }
+
     @Test("Goal with multiple paragraphs returns only the first")
     func multipleParagraphs() {
         let content = """
