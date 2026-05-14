@@ -46,36 +46,41 @@ struct SpecParserGoalTests {
         #expect(SpecParser.extractGoal(from: content) == "H1 variant should work too.")
     }
 
-    @Test("missing Goal section returns nil")
-    func missingGoal() {
-        let content = """
-            ---
-            id: 1
-            ---
+    @Test(
+        "extractGoal returns nil for inputs without a meaningful Goal",
+        arguments: [
+            (
+                "missing Goal heading",
+                """
+                ---
+                id: 1
+                ---
 
-            ## Context
+                ## Context
 
-            Some text.
+                Some text.
 
-            ## Scope
-            """
-        #expect(SpecParser.extractGoal(from: content) == nil)
-    }
+                ## Scope
+                """
+            ),
+            (
+                "Goal containing only an HTML comment",
+                """
+                ---
+                id: 1
+                ---
 
-    @Test("Goal containing only an HTML comment returns nil")
-    func htmlCommentOnly() {
-        let content = """
-            ---
-            id: 1
-            ---
+                ## Goal
 
-            ## Goal
+                <!-- One sentence. Why this issue exists, not what it does. -->
 
-            <!-- One sentence. Why this issue exists, not what it does. -->
-
-            ## Scope
-            """
-        #expect(SpecParser.extractGoal(from: content) == nil)
+                ## Scope
+                """
+            ),
+        ] as [(String, String)]
+    )
+    func returnsNilForEmptyGoal(description: String, content: String) {
+        #expect(SpecParser.extractGoal(from: content) == nil, "\(description)")
     }
 
     @Test("first ## Goal heading wins when duplicates exist")
