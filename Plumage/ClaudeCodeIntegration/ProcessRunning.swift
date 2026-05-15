@@ -13,7 +13,7 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
         let binary = try Self.locateBinary()
         let result: SpawnResult
         do {
-            result = try await Self.spawn(binaryURL: binary, args: ["--version"])
+            result = try await Self.spawnAt(binaryURL: binary, args: ["--version"])
         } catch let error as ProcessRunnerError {
             throw error
         } catch is CancellationError {
@@ -39,7 +39,7 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
     func spawnSession(args: [String]) async throws -> SpawnResult {
         let binary = try Self.locateBinary()
         do {
-            return try await Self.spawn(binaryURL: binary, args: args)
+            return try await Self.spawnAt(binaryURL: binary, args: args)
         } catch let error as ProcessRunnerError {
             throw error
         } catch is CancellationError {
@@ -88,7 +88,9 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
 
     // MARK: - Spawning
 
-    private static func spawn(binaryURL: URL, args: [String]) async throws -> SpawnResult {
+    // Internal access so integration tests can drive the spawn machinery with
+    // /bin/echo and /bin/sleep without going through locateBinary().
+    static func spawnAt(binaryURL: URL, args: [String]) async throws -> SpawnResult {
         let process = Process()
         process.executableURL = binaryURL
         process.arguments = args
@@ -130,10 +132,11 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
                 process.terminate()
             }
             let pid = process.processIdentifier
-            Task.detached {
+            Task.detached { [process] in
                 try? await Task.sleep(for: .seconds(Self.cancellationGraceSeconds))
-                // pid 0 means the process never launched / has been reaped — skip.
-                if pid > 0 {
+                // Re-check isRunning to avoid SIGKILL on a recycled PID once
+                // waitUntilExit has reaped the child after the SIGTERM landed.
+                if pid > 0, process.isRunning {
                     _ = Darwin.kill(pid, SIGKILL)
                 }
             }
