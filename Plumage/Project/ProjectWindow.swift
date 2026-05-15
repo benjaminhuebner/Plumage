@@ -8,39 +8,67 @@ struct ProjectWindow: View {
     @State private var navigationPath = NavigationPath()
     @State private var indicator = StatusIndicatorModel()
 
+    #if DEBUG
+    @SceneStorage("terminalSpikeShown") private var showTerminalSpike = false
+    #endif
+
     @Environment(\.processRunner) private var processRunner
 
     var body: some View {
+        baseStack
+            .environment(kanban)
+            .frame(minWidth: 720, minHeight: 480)
+            .navigationTitle(displayTitle)
+            .focusedSceneValue(
+                \.createIssueInDefaultColumn,
+                isLoaded
+                    ? {
+                        navigationPath.append(SpecRoute.createIssue(initialStatus: .draft))
+                    }
+                    : nil
+            )
+            .task(id: handle.url) {
+                async let reload: Void = model.reload(at: handle.url)
+                async let run: Void = kanban.run(projectURL: handle.url)
+                async let detect: Void = indicator.detect(using: processRunner)
+                _ = await (reload, run, detect)
+            }
+    }
+
+    @ViewBuilder
+    private var baseStack: some View {
+        #if DEBUG
         NavigationStack(path: $navigationPath) {
             content
                 .navigationDestination(for: SpecRoute.self) { route in
-                    switch route {
-                    case .spec(let folderName):
-                        IssueDetailView(projectURL: handle.url, folderName: folderName)
-                    case .rawEditor(let folderName):
-                        SpecEditorView(projectURL: handle.url, folderName: folderName)
-                            .navigationTitle("Raw: \(folderName)")
-                    case .createIssue(let initialStatus):
-                        IssueDetailView(projectURL: handle.url, initialStatus: initialStatus)
-                    }
+                    routeDestination(route)
                 }
         }
-        .environment(kanban)
-        .frame(minWidth: 720, minHeight: 480)
-        .navigationTitle(displayTitle)
-        .focusedSceneValue(
-            \.createIssueInDefaultColumn,
-            isLoaded
-                ? {
-                    navigationPath.append(SpecRoute.createIssue(initialStatus: .draft))
+        .inspector(isPresented: $showTerminalSpike) {
+            TerminalSpikeView()
+                .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
+        }
+        .focusedSceneValue(\.terminalSpikeToggle, $showTerminalSpike)
+        #else
+        NavigationStack(path: $navigationPath) {
+            content
+                .navigationDestination(for: SpecRoute.self) { route in
+                    routeDestination(route)
                 }
-                : nil
-        )
-        .task(id: handle.url) {
-            async let reload: Void = model.reload(at: handle.url)
-            async let run: Void = kanban.run(projectURL: handle.url)
-            async let detect: Void = indicator.detect(using: processRunner)
-            _ = await (reload, run, detect)
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private func routeDestination(_ route: SpecRoute) -> some View {
+        switch route {
+        case .spec(let folderName):
+            IssueDetailView(projectURL: handle.url, folderName: folderName)
+        case .rawEditor(let folderName):
+            SpecEditorView(projectURL: handle.url, folderName: folderName)
+                .navigationTitle("Raw: \(folderName)")
+        case .createIssue(let initialStatus):
+            IssueDetailView(projectURL: handle.url, initialStatus: initialStatus)
         }
     }
 
