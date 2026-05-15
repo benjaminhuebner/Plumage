@@ -73,6 +73,21 @@ struct IssueArchiverArchiveTests {
             _ = try IssueArchiver.archive(folderURL: nonExistent, archiveRoot: fixture.archiveRoot)
         }
     }
+
+    @Test("suffix walk past the hard cap throws fileWriteFileExists")
+    func suffixCapEnforced() throws {
+        let fixture = try ArchiverFixture()
+        // Saturate the suffix space: the unsuffixed slot plus every -1...-cap.
+        _ = try fixture.makeArchivedFolder(named: "00099-spam")
+        for suffix in 1...IssueArchiver.maxArchiveSuffix {
+            _ = try fixture.makeArchivedFolder(named: "00099-spam-\(suffix)")
+        }
+
+        let fresh = try fixture.makeIssueFolder(named: "00099-spam")
+        #expect(throws: CocoaError.self) {
+            _ = try IssueArchiver.archive(folderURL: fresh, archiveRoot: fixture.archiveRoot)
+        }
+    }
 }
 
 @Suite("IssueArchiver.trash")
@@ -82,16 +97,17 @@ struct IssueArchiverTrashTests {
         let fixture = try ArchiverFixture()
         let folder = try fixture.makeIssueFolder(named: "00012-rubbish")
 
-        let trashed = try IssueArchiver.trash(folderURL: folder)
-        // Track for teardown so we don't accumulate test garbage in the user's Trash.
-        fixture.trackTrashedURL(trashed)
+        // defer the registration so ~/.Trash doesn't leak if a later
+        // assertion throws before teardown.
+        var trashed: URL?
+        defer { trashed.map(fixture.trackTrashedURL) }
+        trashed = try IssueArchiver.trash(folderURL: folder)
+        let url = try #require(trashed)
 
         #expect(!FileManager.default.fileExists(atPath: folder.path))
-        #expect(FileManager.default.fileExists(atPath: trashed.path))
-        // The returned URL must point at something named after our folder (the
-        // system may suffix " 2" / " 3" on conflict, so prefix-match instead
-        // of equality).
-        #expect(trashed.lastPathComponent.hasPrefix("00012-rubbish"))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        // Prefix-match: the system may suffix " 2" / " 3" on Trash conflict.
+        #expect(url.lastPathComponent.hasPrefix("00012-rubbish"))
     }
 
     @Test("missing source folder throws")

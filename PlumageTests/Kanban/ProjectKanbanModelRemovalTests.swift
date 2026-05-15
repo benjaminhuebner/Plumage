@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Testing
 
@@ -221,5 +222,62 @@ struct OptimisticTrashTests {
 
         let folder = try #require(receivedFolder.value)
         #expect(folder.path.hasSuffix(".claude/issues/00001-a"))
+    }
+}
+
+@Suite("ProjectKanbanModel removal cancellation discipline")
+@MainActor
+struct RemovalCancellationTests {
+    @Test("second archive cancels first; first's throw does not roll back second's removal")
+    func secondArchiveSuppressesFirstRollback() async throws {
+        let firstEntered = AsyncGate()
+        let firstProceed = AsyncGate()
+        let secondEntered = AsyncGate()
+        let secondProceed = AsyncGate()
+        let callCount = LockedBox<Int>(value: 0)
+
+        let model = ProjectKanbanModel(
+            archiver: { folderURL, _ in
+                var call = 0
+                callCount.mutate { value in
+                    value += 1
+                    call = value
+                }
+                if call == 1 {
+                    firstEntered.signal()
+                    firstProceed.waitSync()
+                    throw NSError(
+                        domain: "RemovalCancellationTests", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "first should be swallowed"]
+                    )
+                }
+                secondEntered.signal()
+                secondProceed.waitSync()
+                return URL(filePath: "/tmp/archive/\(folderURL.lastPathComponent)")
+            }
+        )
+
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        let issueB = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .approved)
+        model._setIssuesForTesting([.valid(issueA), .valid(issueB)])
+
+        model.applyOptimisticArchive(
+            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
+        await firstEntered.wait()
+        #expect(model.issues.map(\.id) == ["00002-b"])
+
+        async let secondCompletion: Void = model.performArchiveOptimistic(
+            folderName: "00002-b", projectURL: URL(filePath: "/tmp/probe"))
+        await secondEntered.wait()
+        #expect(model.issues.isEmpty)
+
+        // First's throw must hit the !Task.isCancelled guard, not roll back.
+        firstProceed.signal()
+        secondProceed.signal()
+        await secondCompletion
+
+        #expect(model.issues.isEmpty)
+        #expect(model.lastRemovalError == nil)
+        #expect(model.lastRemovalCompleted == "00002-b")
     }
 }
