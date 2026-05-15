@@ -66,10 +66,11 @@ struct StatusIndicatorView: View {
         case .missing:
             return """
                 Searched \(SupportedClaudeVersion.searchPathDescription). \
-                Install via `\(SupportedClaudeVersion.installCommand)`.
+                Install via `\(SupportedClaudeVersion.installCommand)`, \
+                or relaunch Plumage from a terminal so it inherits your shell PATH.
                 """
         case .failed(let error):
-            return error.humanReadableMessage
+            return error.detectionMessage
         }
     }
 

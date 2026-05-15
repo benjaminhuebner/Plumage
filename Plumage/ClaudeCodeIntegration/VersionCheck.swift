@@ -49,21 +49,26 @@ nonisolated enum ProcessRunnerError: Error, Sendable, Equatable {
     case spawnFailed(String)
     case nonZeroExit(code: Int32, stderr: String)
 
-    var humanReadableMessage: String {
+    var detectionMessage: String {
+        message(invocation: Self.versionInvocation)
+    }
+
+    func message(invocation: String) -> String {
         switch self {
         case .binaryNotFound:
             return "claude binary not found."
         case .parseError(let raw):
             let snippet = raw.prefix(120)
-            return "Couldn't parse `\(Self.versionInvocation)` output: \"\(snippet)\"."
+            return "Couldn't parse `\(invocation)` output: \"\(snippet)\"."
         case .spawnFailed(let description):
             return "Failed to launch `claude`: \(description)"
         case .nonZeroExit(let code, let stderr):
             let snippet = stderr.prefix(200)
-            return "`\(Self.versionInvocation)` exited with code \(code): \(snippet)"
+            return "`\(invocation)` exited with code \(code): \(snippet)"
         }
     }
 
-    // Centralized so the human-readable surface stays inside ClaudeCodeIntegration.
+    // Kept inside ClaudeCodeIntegration so callers outside CCI don't have to
+    // embed the literal `claude --version` string (boundary-test forbids it).
     private static let versionInvocation = "claude --version"
 }

@@ -22,10 +22,6 @@ struct ProjectHeader: View {
     }
 }
 
-extension EnvironmentValues {
-    @Entry var processRunner: any ProcessRunning = ProductionProcessRunner()
-}
-
 #Preview("Header (ready)") {
     ProjectHeader(
         title: "Plumage",

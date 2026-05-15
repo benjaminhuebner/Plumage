@@ -15,20 +15,20 @@ final class StatusIndicatorModel {
     private(set) var state: IndicatorState = .loading
 
     func detect(using runner: any ProcessRunning) async {
-        let result: IndicatorState = await Task.detached(priority: .userInitiated) {
-            do {
-                let check = try await runner.detectVersion()
-                return check.inSupportedRange
-                    ? IndicatorState.ok(check)
-                    : IndicatorState.unsupported(check)
-            } catch ProcessRunnerError.binaryNotFound {
-                return .missing
-            } catch let error as ProcessRunnerError {
-                return .failed(error)
-            } catch {
-                return .failed(.spawnFailed(error.localizedDescription))
-            }
-        }.value
-        self.state = result
+        // No Task.detached here on purpose: SwiftUI's .task(id:) must be able to
+        // cancel detection when the project window closes, so the spawn's
+        // SIGTERM-then-SIGKILL chain in ProductionProcessRunner fires.
+        do {
+            let check = try await runner.detectVersion()
+            state = check.inSupportedRange ? .ok(check) : .unsupported(check)
+        } catch ProcessRunnerError.binaryNotFound {
+            state = .missing
+        } catch let error as ProcessRunnerError {
+            state = .failed(error)
+        } catch is CancellationError {
+            // Leave state as-is; the window is going away.
+        } catch {
+            state = .failed(.spawnFailed(error.localizedDescription))
+        }
     }
 }

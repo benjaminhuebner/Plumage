@@ -11,16 +11,7 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
 
     func detectVersion() async throws -> VersionCheck {
         let binary = try Self.locateBinary()
-        let result: SpawnResult
-        do {
-            result = try await Self.spawnAt(binaryURL: binary, args: ["--version"])
-        } catch let error as ProcessRunnerError {
-            throw error
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw ProcessRunnerError.spawnFailed(error.localizedDescription)
-        }
+        let result = try await Self.spawnAt(binaryURL: binary, args: ["--version"])
         guard result.exitCode == 0 else {
             let stderr = String(decoding: result.stderr, as: UTF8.self)
             throw ProcessRunnerError.nonZeroExit(code: result.exitCode, stderr: stderr)
@@ -38,15 +29,7 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
 
     func spawnSession(args: [String]) async throws -> SpawnResult {
         let binary = try Self.locateBinary()
-        do {
-            return try await Self.spawnAt(binaryURL: binary, args: args)
-        } catch let error as ProcessRunnerError {
-            throw error
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw ProcessRunnerError.spawnFailed(error.localizedDescription)
-        }
+        return try await Self.spawnAt(binaryURL: binary, args: args)
     }
 
     // MARK: - Binary discovery

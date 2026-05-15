@@ -30,9 +30,11 @@ struct ProductionProcessRunnerIntegrationTests {
         #expect(result.stderr.isEmpty)
     }
 
-    @Test("non-zero exit propagates as nonZeroExit error")
-    func nonZeroExit() async throws {
+    @Test("spawnAt surfaces a non-zero exit code without throwing")
+    func spawnAtNonZeroExit() async throws {
         // /usr/bin/false exits 1, /usr/bin/true exits 0 — POSIX.
+        // spawnAt returns the raw SpawnResult; the .nonZeroExit error mapping
+        // lives one level up in detectVersion (covered by StatusIndicatorModel tests).
         let falseURL = URL(fileURLWithPath: "/usr/bin/false")
         let result = try await ProductionProcessRunner.spawnAt(
             binaryURL: falseURL, args: [])

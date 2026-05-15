@@ -2,6 +2,10 @@ import Foundation
 
 @testable import Plumage
 
+// @unchecked Sendable because the conformance is enforced manually via NSLock:
+// outcome stores and the spawn callback are mutated under `lock`, so concurrent
+// access from test setup and the async-called protocol methods is safe.
+// See notes.md 2026-05-15 (#00019).
 final class MockProcessRunner: ProcessRunning, @unchecked Sendable {
     enum DetectOutcome: Sendable {
         case success(VersionCheck)
@@ -13,16 +17,32 @@ final class MockProcessRunner: ProcessRunning, @unchecked Sendable {
         case failure(ProcessRunnerError)
     }
 
-    var detectOutcome: DetectOutcome
-    var spawnOutcome: SpawnOutcome
-    var onSpawnSessionCalled: (@Sendable ([String]) -> Void)?
+    private let lock = NSLock()
+    private var _detectOutcome: DetectOutcome
+    private var _spawnOutcome: SpawnOutcome
+    private var _onSpawnSessionCalled: (@Sendable ([String]) -> Void)?
+
+    var detectOutcome: DetectOutcome {
+        get { lock.withLock { _detectOutcome } }
+        set { lock.withLock { _detectOutcome = newValue } }
+    }
+
+    var spawnOutcome: SpawnOutcome {
+        get { lock.withLock { _spawnOutcome } }
+        set { lock.withLock { _spawnOutcome = newValue } }
+    }
+
+    var onSpawnSessionCalled: (@Sendable ([String]) -> Void)? {
+        get { lock.withLock { _onSpawnSessionCalled } }
+        set { lock.withLock { _onSpawnSessionCalled = newValue } }
+    }
 
     init(
         detectOutcome: DetectOutcome = .failure(.binaryNotFound),
         spawnOutcome: SpawnOutcome = .success(SpawnResult(exitCode: 0, stdout: Data(), stderr: Data()))
     ) {
-        self.detectOutcome = detectOutcome
-        self.spawnOutcome = spawnOutcome
+        self._detectOutcome = detectOutcome
+        self._spawnOutcome = spawnOutcome
     }
 
     func detectVersion() async throws -> VersionCheck {
