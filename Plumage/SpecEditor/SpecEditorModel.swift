@@ -30,6 +30,11 @@ final class SpecEditorModel {
     // so a fast snapshot churn doesn't race two concurrent disk reads
     // writing to the same fields.
     private var observeTask: Task<Void, Never>?
+    // Bumped on every save start and on resolveConflictReload. Save tasks
+    // capture it at start and check it after writeOffActor returns — a
+    // reload that lands between the two awaits invalidates the now-stale
+    // snapshot, preventing the discarded local edit from resurfacing.
+    private var saveGeneration: UInt64 = 0
 
     var isDirty: Bool { buffer != loadedContent }
 
@@ -66,10 +71,13 @@ final class SpecEditorModel {
         guard isDirty else { return }
         let snapshot = buffer
         let prior = pendingSave
+        saveGeneration &+= 1
+        let myGeneration = saveGeneration
         let task = Task<Void, Error> { [weak self] in
             _ = try? await prior?.value
             guard let self else { return }
             try await self.writeOffActor(snapshot)
+            guard self.saveGeneration == myGeneration else { return }
             self.lastWrittenContent = snapshot
             self.loadedContent = snapshot
             self.evaluateFrontmatterError()
@@ -86,14 +94,18 @@ final class SpecEditorModel {
     }
 
     func observeExternalChange(currentIssue: DiscoveredIssue?) async {
-        guard let currentIssue else {
+        if let currentIssue {
+            if currentIssue == lastSeenIssue { return }
+            noteSeenIssue(currentIssue)
+        } else {
             noteSeenIssue(nil)
-            handleExternalChange(diskContent: nil)
-            return
         }
-        if currentIssue == lastSeenIssue { return }
-        noteSeenIssue(currentIssue)
         let url = specURL
+        // Probe disk in both the present-snapshot and missing-snapshot paths.
+        // The kanban can briefly show our folder as missing during an
+        // optimistic archive/trash before the on-disk move actually runs —
+        // setting `.fileDeleted` on the kanban signal alone would flash a
+        // banner that is correct only after the move lands.
         let fresh = await Task.detached(priority: .utility) {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
@@ -118,6 +130,7 @@ final class SpecEditorModel {
 
     func resolveConflictReload() {
         guard case .externalChange(let diskContent) = conflict else { return }
+        saveGeneration &+= 1
         loadedContent = diskContent
         buffer = diskContent
         evaluateFrontmatterError()
@@ -131,10 +144,13 @@ final class SpecEditorModel {
     func resolveConflictSaveAndRecreate() async throws {
         let snapshot = buffer
         let prior = pendingSave
+        saveGeneration &+= 1
+        let myGeneration = saveGeneration
         let task = Task<Void, Error> { [weak self] in
             _ = try? await prior?.value
             guard let self else { return }
             try await self.writeOffActor(snapshot)
+            guard self.saveGeneration == myGeneration else { return }
             self.lastWrittenContent = snapshot
             self.loadedContent = snapshot
             self.evaluateFrontmatterError()

@@ -78,6 +78,12 @@ struct SpecEditorView: View {
         .onChange(of: currentKanbanIssue) { _, current in
             model.observeKanban(currentIssue: current)
         }
+        .onChange(of: kanban.lastRemovalCompleted) { _, completed in
+            if let completed, completed == folderName { dismiss() }
+        }
+        .onChange(of: model.conflict) { _, conflict in
+            if conflict == .fileDeleted { dismiss() }
+        }
         .onChange(of: editorFocused) { _, focused in
             if !focused { attemptSave() }
         }

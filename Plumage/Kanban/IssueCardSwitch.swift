@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct IssueCardSwitch: View {
@@ -19,9 +20,26 @@ struct IssueCardSwitch: View {
         case .invalid(let folder, let error):
             InvalidIssueCardView(folder: folder, error: error, padding: padding)
                 .contentShape(Rectangle())
+                .contextMenu {
+                    cardMenuItems(folderName: folder.lastPathComponent, folderURL: folder)
+                }
                 .onTapGesture {
                     openSpec(.spec(folderName: issue.id))
                 }
+        }
+    }
+
+    @ViewBuilder
+    private func cardMenuItems(folderName: String, folderURL: URL) -> some View {
+        Button("Archivieren") {
+            kanban.applyOptimisticArchive(folderName: folderName, projectURL: projectURL)
+        }
+        Button("In den Papierkorb") {
+            kanban.applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
+        }
+        Divider()
+        Button("Im Finder zeigen") {
+            NSWorkspace.shared.activateFileViewerSelecting([folderURL])
         }
     }
 
@@ -57,6 +75,13 @@ struct IssueCardSwitch: View {
                         kanban.dispatchDrop(payload, to: .column(target), projectURL: projectURL)
                     }
                 }
+            }
+            .contextMenu {
+                cardMenuItems(
+                    folderName: value.folderName,
+                    folderURL: IssueLayout.issueFolder(
+                        in: projectURL, folderName: value.folderName)
+                )
             }
             .modifier(
                 CardInteraction(

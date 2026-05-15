@@ -27,11 +27,21 @@ final class ProjectKanbanModel {
     }
 
     typealias Mutator = @Sendable (URL, IssueStatus?, SetValue<Double?>, Date) throws -> Void
+    typealias Archiver = @Sendable (_ folderURL: URL, _ archiveRoot: URL) throws -> URL
+    typealias Trasher = @Sendable (_ folderURL: URL) throws -> URL
 
     private(set) var issues: [DiscoveredIssue] = []
     private(set) var groupedIssues: [IssueColumn: [DiscoveredIssue]] = [:]
     private(set) var highlightedIssueID: String?
     private(set) var lastDropError: String?
+    private(set) var lastRemovalError: String?
+    // Latest folderName whose removal (archive or trash) just completed
+    // successfully. Open detail/editor views watch this to auto-pop when
+    // their own card is the one that disappeared. Setting it on every
+    // success even if the same folder name comes back lets onChange-based
+    // observers fire reliably (Swift Testing equality short-circuits, but
+    // we always set the field to a distinct value: folder names are unique).
+    private(set) var lastRemovalCompleted: String?
     private(set) var pendingDrop: PendingDrop?
 
     var pendingDropFolderName: String? { pendingDrop?.folderName }
@@ -42,8 +52,11 @@ final class ProjectKanbanModel {
     private let highlightClock: any Clock<Duration>
     private let highlightDuration: Duration
     private let mutator: Mutator
+    private let archiver: Archiver
+    private let trasher: Trasher
     private var highlightTask: Task<Void, Never>?
     private var dropTask: Task<Void, Never>?
+    private var removalTask: Task<Void, Never>?
 
     init(
         producerFactory: @escaping @Sendable (URL) -> IssueSnapshotProducer = {
@@ -54,12 +67,20 @@ final class ProjectKanbanModel {
         mutator: @escaping Mutator = { url, status, order, now in
             try FrontmatterMutator.mutate(
                 specURL: url, newStatus: status, newOrder: order, now: now)
+        },
+        archiver: @escaping Archiver = { folderURL, archiveRoot in
+            try IssueArchiver.archive(folderURL: folderURL, archiveRoot: archiveRoot)
+        },
+        trasher: @escaping Trasher = { folderURL in
+            try IssueArchiver.trash(folderURL: folderURL)
         }
     ) {
         self.producerFactory = producerFactory
         self.highlightClock = clock
         self.highlightDuration = highlightDuration
         self.mutator = mutator
+        self.archiver = archiver
+        self.trasher = trasher
     }
 
     func run(projectURL: URL) async {
@@ -102,6 +123,10 @@ final class ProjectKanbanModel {
 
     func clearDropError() {
         lastDropError = nil
+    }
+
+    func clearRemovalError() {
+        lastRemovalError = nil
     }
 
     #if DEBUG
@@ -207,6 +232,85 @@ final class ProjectKanbanModel {
         }
         pendingDrop = nil
         lastDropError = error
+    }
+
+    func applyOptimisticArchive(folderName: String, projectURL: URL) {
+        guard issues.contains(where: { $0.id == folderName }) else { return }
+        let priorIssues = issues
+        withAnimation(.smooth) {
+            issues = issues.filter { $0.id != folderName }
+            groupedIssues = Self.group(issues)
+        }
+        let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
+        let archiveRoot = IssueLayout.archiveDirectory(in: projectURL)
+        let archiverFn = archiver
+        removalTask?.cancel()
+        removalTask = Task { [weak self] in
+            do {
+                _ = try await Task.detached {
+                    try archiverFn(folderURL, archiveRoot)
+                }.value
+                guard !Task.isCancelled else { return }
+                self?.lastRemovalCompleted = folderName
+            } catch {
+                // Same cancellation discipline as applyOptimisticDrop's catch
+                // block (notes.md 2026-05-14): if a newer removal cancelled us,
+                // priorIssues is stale relative to the newer removal's snapshot
+                // and writing it back would resurrect a card that the user
+                // already deleted in the second action.
+                guard !Task.isCancelled else { return }
+                self?.rollbackOptimisticRemoval(
+                    to: priorIssues, error: error.localizedDescription)
+            }
+        }
+    }
+
+    func performArchiveOptimistic(folderName: String, projectURL: URL) async {
+        applyOptimisticArchive(folderName: folderName, projectURL: projectURL)
+        let task = removalTask
+        await task?.value
+    }
+
+    func applyOptimisticTrash(folderName: String, projectURL: URL) {
+        guard issues.contains(where: { $0.id == folderName }) else { return }
+        let priorIssues = issues
+        withAnimation(.smooth) {
+            issues = issues.filter { $0.id != folderName }
+            groupedIssues = Self.group(issues)
+        }
+        let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
+        let trasherFn = trasher
+        removalTask?.cancel()
+        removalTask = Task { [weak self] in
+            do {
+                _ = try await Task.detached {
+                    try trasherFn(folderURL)
+                }.value
+                guard !Task.isCancelled else { return }
+                self?.lastRemovalCompleted = folderName
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.rollbackOptimisticRemoval(
+                    to: priorIssues, error: error.localizedDescription)
+            }
+        }
+    }
+
+    func performTrashOptimistic(folderName: String, projectURL: URL) async {
+        applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
+        let task = removalTask
+        await task?.value
+    }
+
+    // Mirror of rollbackOptimisticDrop for archive/trash. Kept duplicated
+    // intentionally — generalizing the two would force callers to share an
+    // error surface and obscure which kind of removal failed.
+    private func rollbackOptimisticRemoval(to prior: [DiscoveredIssue], error: String) {
+        withAnimation(.smooth) {
+            issues = prior
+            groupedIssues = Self.group(prior)
+        }
+        lastRemovalError = error
     }
 
     nonisolated static func reconcile(
