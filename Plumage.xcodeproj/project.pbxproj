@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		CA46020320030001000000C3 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020220030001000000C3 /* Yams */; };
 		CA46020520030001000000C3 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020720030001000000C3 /* CodeEditorView */; };
+		CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020C20030001000000C3 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */,
 				CA46020320030001000000C3 /* Yams in Frameworks */,
 				CA46020520030001000000C3 /* CodeEditorView in Frameworks */,
 			);
