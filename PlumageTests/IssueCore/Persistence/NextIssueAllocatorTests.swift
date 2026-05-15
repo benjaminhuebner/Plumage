@@ -227,6 +227,43 @@ struct NextIssueAllocatorAllocateTests {
             slug: "bar", title: "Bar", type: .feature, labels: [])
         #expect(url.path.hasSuffix(".claude/issues/00006-bar/spec.md"))
     }
+
+    // Pins archive-aware highest-ID behavior across active/archive mixes. The
+    // recursive enumerator on .claude/issues/ already walks into archive/,
+    // but tying the contract down with parameterized cases protects against
+    // accidental rewrites (e.g., switching to non-recursive contentsOfDirectory).
+    @Test(
+        "highestExistingID merges active and archive folders",
+        arguments: [
+            // (active ids, archive ids, expected next id)
+            ([Int](), [Int](), 1),
+            ([3], [Int](), 4),
+            ([Int](), [7], 8),
+            ([3, 5], [Int](), 6),
+            ([Int](), [4, 8], 9),
+            ([5], [7], 8),  // archive beats active
+            ([12], [4], 13),  // active beats archive
+            ([3, 9], [4, 11], 12),
+        ]
+    )
+    func highestIDMergesActiveAndArchive(
+        active: [Int], archive: [Int], expectedNext: Int
+    ) throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        for id in active {
+            try fixture.writeSpec(folder: "\(String(format: "%05d", id))-active", id: id)
+        }
+        for id in archive {
+            try fixture.writeSpec(folder: "archive/\(String(format: "%05d", id))-archived", id: id)
+        }
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "next", title: "Next", type: .feature, labels: [])
+        let expectedPadded = String(format: "%05d", expectedNext)
+        #expect(url.path.hasSuffix(".claude/issues/\(expectedPadded)-next/spec.md"))
+    }
 }
 
 private struct Fixture {
