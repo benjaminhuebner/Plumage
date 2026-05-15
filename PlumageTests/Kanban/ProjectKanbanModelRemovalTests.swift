@@ -80,6 +80,33 @@ struct OptimisticArchiveTests {
         #expect(model.lastRemovalError == nil)
     }
 
+    @Test("success path sets lastRemovalCompleted to the folder name")
+    func successSetsRemovalCompleted() async {
+        let model = ProjectKanbanModel(
+            archiver: { _, _ in URL(filePath: "/tmp/archive/00001-a") }
+        )
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+
+        await model.performArchiveOptimistic(
+            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
+
+        #expect(model.lastRemovalCompleted == "00001-a")
+    }
+
+    @Test("failure path does not set lastRemovalCompleted")
+    func failureDoesNotSetCompleted() async {
+        struct DummyError: Error {}
+        let model = ProjectKanbanModel(archiver: { _, _ in throw DummyError() })
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+
+        await model.performArchiveOptimistic(
+            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
+
+        #expect(model.lastRemovalCompleted == nil)
+    }
+
     @Test("rollback after a single removal does not stick lastRemovalError across a clear")
     func errorClearsAfterClearRemovalError() async {
         struct DummyError: Error, LocalizedError {

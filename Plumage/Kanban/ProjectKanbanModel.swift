@@ -35,6 +35,13 @@ final class ProjectKanbanModel {
     private(set) var highlightedIssueID: String?
     private(set) var lastDropError: String?
     private(set) var lastRemovalError: String?
+    // Latest folderName whose removal (archive or trash) just completed
+    // successfully. Open detail/editor views watch this to auto-pop when
+    // their own card is the one that disappeared. Setting it on every
+    // success even if the same folder name comes back lets onChange-based
+    // observers fire reliably (Swift Testing equality short-circuits, but
+    // we always set the field to a distinct value: folder names are unique).
+    private(set) var lastRemovalCompleted: String?
     private(set) var pendingDrop: PendingDrop?
 
     var pendingDropFolderName: String? { pendingDrop?.folderName }
@@ -243,6 +250,8 @@ final class ProjectKanbanModel {
                 _ = try await Task.detached {
                     try archiverFn(folderURL, archiveRoot)
                 }.value
+                guard !Task.isCancelled else { return }
+                self?.lastRemovalCompleted = folderName
             } catch {
                 // Same cancellation discipline as applyOptimisticDrop's catch
                 // block (notes.md 2026-05-14): if a newer removal cancelled us,
@@ -277,6 +286,8 @@ final class ProjectKanbanModel {
                 _ = try await Task.detached {
                     try trasherFn(folderURL)
                 }.value
+                guard !Task.isCancelled else { return }
+                self?.lastRemovalCompleted = folderName
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticRemoval(

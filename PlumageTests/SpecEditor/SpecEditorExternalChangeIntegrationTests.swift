@@ -62,6 +62,37 @@ struct SpecEditorExternalChangeIntegrationTests {
         #expect(model.conflict == .fileDeleted)
     }
 
+    // Kanban can report the issue as missing during an optimistic archive/trash
+    // before the on-disk move actually runs. observeExternalChange must probe
+    // disk in that case and stay quiet until the file is actually gone —
+    // otherwise the banner flashes for a frame on every removal.
+    @Test("kanban-missing snapshot does not flag fileDeleted while disk still has the file")
+    func kanbanMissingButDiskPresentIsNoConflict() async throws {
+        let url = try makeSpec(content: "version one")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
+        try await model.load()
+        // currentIssue: nil simulates "card disappeared from kanban".
+        await model.observeExternalChange(currentIssue: nil)
+
+        #expect(model.conflict == nil)
+    }
+
+    @Test("kanban-missing snapshot AND disk gone yields fileDeleted")
+    func kanbanMissingAndDiskGoneFlagsDeleted() async throws {
+        let url = try makeSpec(content: "version one")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let model = SpecEditorModel(specURL: url, folderName: "00042-feature")
+        try await model.load()
+        try FileManager.default.removeItem(at: url)
+
+        await model.observeExternalChange(currentIssue: nil)
+
+        #expect(model.conflict == .fileDeleted)
+    }
+
     private func makeSpec(content: String) throws -> URL {
         let dir = URL(filePath: NSTemporaryDirectory())
             .appendingPathComponent("SpecEditorExternalChangeTests-\(UUID().uuidString)")

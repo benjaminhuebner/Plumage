@@ -86,6 +86,12 @@ struct IssueDetailView: View {
         .onChange(of: currentKanbanIssue) { _, current in
             model.observeKanban(currentIssue: current)
         }
+        .onChange(of: kanban.lastRemovalCompleted) { _, completed in
+            if let completed, completed == model.folderName { dismiss() }
+        }
+        .onChange(of: model.conflict) { _, conflict in
+            if conflict == .fileDeleted { dismiss() }
+        }
         .onChange(of: scenePhase) { _, phase in
             // Auto-save on background only applies in loaded mode. In creating
             // mode there is no disk state yet — Cmd-W / back-nav dismisses

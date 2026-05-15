@@ -86,14 +86,18 @@ final class SpecEditorModel {
     }
 
     func observeExternalChange(currentIssue: DiscoveredIssue?) async {
-        guard let currentIssue else {
+        if let currentIssue {
+            if currentIssue == lastSeenIssue { return }
+            noteSeenIssue(currentIssue)
+        } else {
             noteSeenIssue(nil)
-            handleExternalChange(diskContent: nil)
-            return
         }
-        if currentIssue == lastSeenIssue { return }
-        noteSeenIssue(currentIssue)
         let url = specURL
+        // Probe disk in both the present-snapshot and missing-snapshot paths.
+        // The kanban can briefly show our folder as missing during an
+        // optimistic archive/trash before the on-disk move actually runs —
+        // setting `.fileDeleted` on the kanban signal alone would flash a
+        // banner that is correct only after the move lands.
         let fresh = await Task.detached(priority: .utility) {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
