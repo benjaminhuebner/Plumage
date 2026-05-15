@@ -12,4 +12,7 @@ nonisolated enum SupportedClaudeVersion {
         let upper = supportedMajors.upperBound
         return lower == upper ? "\(lower).x" : "\(lower).x – \(upper).x"
     }
+
+    static let installCommand: String = "npm install -g @anthropic-ai/claude-code"
+    static let searchPathDescription: String = "PATH and ~/.claude/local/claude"
 }

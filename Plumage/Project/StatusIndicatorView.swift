@@ -61,15 +61,15 @@ struct StatusIndicatorView: View {
                 Version \(check.version) is outside supported range \
                 \(SupportedClaudeVersion.supportedRangeDescription). \
                 Some features may not work — update via \
-                `npm install -g @anthropic-ai/claude-code`.
+                `\(SupportedClaudeVersion.installCommand)`.
                 """
         case .missing:
             return """
-                Searched PATH and ~/.claude/local/claude. \
-                Install via `npm install -g @anthropic-ai/claude-code`.
+                Searched \(SupportedClaudeVersion.searchPathDescription). \
+                Install via `\(SupportedClaudeVersion.installCommand)`.
                 """
         case .failed(let error):
-            return Self.message(for: error)
+            return error.humanReadableMessage
         }
     }
 
@@ -80,21 +80,6 @@ struct StatusIndicatorView: View {
         case .unsupported: return "Claude status: unsupported"
         case .missing: return "Claude status: not found"
         case .failed: return "Claude status: failed"
-        }
-    }
-
-    static func message(for error: ProcessRunnerError) -> String {
-        switch error {
-        case .binaryNotFound:
-            return "claude binary not found in PATH or ~/.claude/local/claude."
-        case .parseError(let raw):
-            let snippet = raw.prefix(120)
-            return "Couldn't parse `claude --version` output: \"\(snippet)\"."
-        case .spawnFailed(let description):
-            return "Failed to launch `claude`: \(description)"
-        case .nonZeroExit(let code, let stderr):
-            let snippet = stderr.prefix(200)
-            return "`claude --version` exited with code \(code): \(snippet)"
         }
     }
 }
