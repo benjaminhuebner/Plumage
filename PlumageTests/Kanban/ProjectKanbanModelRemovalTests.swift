@@ -80,6 +80,22 @@ struct OptimisticArchiveTests {
         #expect(model.lastRemovalError == nil)
     }
 
+    @Test("rollback after a single removal does not stick lastRemovalError across a clear")
+    func errorClearsAfterClearRemovalError() async {
+        struct DummyError: Error, LocalizedError {
+            var errorDescription: String? { "boom" }
+        }
+        let model = ProjectKanbanModel(archiver: { _, _ in throw DummyError() })
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+
+        await model.performArchiveOptimistic(
+            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
+        #expect(model.lastRemovalError == "boom")
+        model.clearRemovalError()
+        #expect(model.lastRemovalError == nil)
+    }
+
     @Test("archiver receives folder URL + archive root derived from projectURL")
     func archiverReceivesExpectedURLs() async throws {
         let receivedFolder = LockedBox<URL?>(value: nil)
@@ -101,5 +117,82 @@ struct OptimisticArchiveTests {
         let root = try #require(receivedRoot.value)
         #expect(folder.path.hasSuffix(".claude/issues/00001-a"))
         #expect(root.path.hasSuffix(".claude/issues/archive"))
+    }
+}
+
+@Suite("ProjectKanbanModel.applyOptimisticTrash")
+@MainActor
+struct OptimisticTrashTests {
+    @Test("removes the card before the trasher returns")
+    func successPathRemovesCard() async throws {
+        let model = ProjectKanbanModel(
+            trasher: { _ in URL(filePath: "/Users/me/.Trash/00001-a") }
+        )
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        let issueB = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .approved)
+        model._setIssuesForTesting([.valid(issueA), .valid(issueB)])
+
+        await model.performTrashOptimistic(
+            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
+
+        #expect(model.issues.count == 1)
+        #expect(model.issues.first?.id == "00002-b")
+        #expect(model.lastRemovalError == nil)
+    }
+
+    @Test("trasher throw rolls back removal and records error")
+    func failurePathRolledBack() async throws {
+        struct DummyError: Error, LocalizedError {
+            var errorDescription: String? { "no trash on this volume" }
+        }
+        let model = ProjectKanbanModel(trasher: { _ in throw DummyError() })
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+
+        await model.performTrashOptimistic(
+            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
+
+        #expect(model.issues.count == 1)
+        #expect(model.issues.first?.id == "00001-a")
+        #expect(model.lastRemovalError == "no trash on this volume")
+    }
+
+    @Test("unknown folder is a noop and never invokes the trasher")
+    func unknownFolderIsNoop() async {
+        let captured = LockedBox<Int>(value: 0)
+        let model = ProjectKanbanModel(
+            trasher: { _ in
+                captured.mutate { $0 += 1 }
+                return URL(filePath: "/Users/me/.Trash/x")
+            }
+        )
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+
+        await model.performTrashOptimistic(
+            folderName: "00099-missing", projectURL: URL(filePath: "/tmp/probe"))
+
+        #expect(captured.value == 0)
+        #expect(model.issues.count == 1)
+        #expect(model.lastRemovalError == nil)
+    }
+
+    @Test("trasher receives folder URL derived from projectURL")
+    func trasherReceivesExpectedURL() async throws {
+        let receivedFolder = LockedBox<URL?>(value: nil)
+        let model = ProjectKanbanModel(
+            trasher: { folderURL in
+                receivedFolder.mutate { $0 = folderURL }
+                return folderURL
+            }
+        )
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+
+        await model.performTrashOptimistic(
+            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
+
+        let folder = try #require(receivedFolder.value)
+        #expect(folder.path.hasSuffix(".claude/issues/00001-a"))
     }
 }
