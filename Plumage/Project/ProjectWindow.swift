@@ -6,6 +6,9 @@ struct ProjectWindow: View {
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
     @State private var navigationPath = NavigationPath()
+    @State private var indicator = StatusIndicatorModel()
+
+    @Environment(\.processRunner) private var processRunner
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -36,7 +39,8 @@ struct ProjectWindow: View {
         .task(id: handle.url) {
             async let reload: Void = model.reload(at: handle.url)
             async let run: Void = kanban.run(projectURL: handle.url)
-            _ = await (reload, run)
+            async let detect: Void = indicator.detect(using: processRunner)
+            _ = await (reload, run, detect)
         }
     }
 
@@ -48,15 +52,11 @@ struct ProjectWindow: View {
                 .controlSize(.large)
         case .loaded(let config):
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(config.name)
-                        .font(.system(size: 32, weight: .semibold))
-                    Text(handle.url.path)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 32)
-                .padding(.top, 32)
+                ProjectHeader(
+                    title: config.name,
+                    path: handle.url.path,
+                    indicatorState: indicator.state
+                )
                 KanbanView(
                     grouped: kanban.groupedIssues,
                     padding: config.issueIdPadding ?? 5,
