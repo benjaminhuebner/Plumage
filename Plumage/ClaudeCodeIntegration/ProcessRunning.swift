@@ -38,10 +38,10 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
         if let viaPath = try? whichClaude() {
             return viaPath
         }
-        let homeLocal = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: ".claude/local/claude")
-        if FileManager.default.isExecutableFile(atPath: homeLocal.path) {
-            return homeLocal
+        for candidate in SupportedClaudeVersion.knownInstallURLs {
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
         }
         throw .binaryNotFound
     }

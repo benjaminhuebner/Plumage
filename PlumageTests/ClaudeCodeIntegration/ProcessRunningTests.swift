@@ -53,10 +53,12 @@ struct SemanticVersionParseTests {
 
 @Suite("SupportedClaudeVersion.inSupportedRange")
 struct SupportedClaudeVersionTests {
-    @Test("major 1 is supported")
-    func majorOneSupported() {
+    @Test("majors 1 and 2 are supported")
+    func currentMajorsSupported() {
         #expect(SupportedClaudeVersion.inSupportedRange(.init(major: 1, minor: 0, patch: 0)))
         #expect(SupportedClaudeVersion.inSupportedRange(.init(major: 1, minor: 99, patch: 99)))
+        #expect(SupportedClaudeVersion.inSupportedRange(.init(major: 2, minor: 0, patch: 0)))
+        #expect(SupportedClaudeVersion.inSupportedRange(.init(major: 2, minor: 1, patch: 142)))
     }
 
     @Test("major 0 unsupported")
@@ -64,9 +66,9 @@ struct SupportedClaudeVersionTests {
         #expect(!SupportedClaudeVersion.inSupportedRange(.init(major: 0, minor: 9, patch: 0)))
     }
 
-    @Test("major 2 unsupported until bumped")
-    func majorTwoUnsupported() {
-        #expect(!SupportedClaudeVersion.inSupportedRange(.init(major: 2, minor: 0, patch: 0)))
+    @Test("major 3 unsupported until bumped")
+    func nextMajorUnsupported() {
+        #expect(!SupportedClaudeVersion.inSupportedRange(.init(major: 3, minor: 0, patch: 0)))
     }
 }
 
