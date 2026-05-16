@@ -62,10 +62,6 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: view)
         context.coordinator.lastColorScheme = colorScheme
 
-        // Use the system label colour for contrast against the clear material
-        // background and keep the cursor solid regardless of which pane has
-        // first-responder (the SwiftUI host shifts focus to the chat input
-        // field elsewhere; we still want the terminal cell highlighted).
         view.caretViewTracksFocus = false
         view.caretColor = NSColor.labelColor
         view.cursorStyleChanged(source: view.terminal, newStyle: .blinkBlock)
@@ -125,6 +121,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
     ) {
         // Without explicit terminate(), LocalProcess.deinit leaves the child
         // running and the PTY fd pair leaked for the app session.
+        nsView.stopCursorKeepAlive()
         coordinator.session?.beginExternalHandOff()
         nsView.terminate()
     }
@@ -176,13 +173,46 @@ private struct SwiftTermBridge: NSViewRepresentable {
     }
 }
 
-// claude's interactive REPL sends DECRST 25 (hide cursor) liberally while it
-// renders its own TUI elements. SwiftTerm honours that by removing the caret
-// view from the hierarchy — the user then sees no cursor at all, even at the
-// input prompt. Ignoring hideCursor keeps the cell highlighted at all times;
-// the only visual cost is a flicker during claude's rendering passes.
+// claude's interactive REPL sends DECRST 25 (hide cursor) constantly while it
+// renders its TUI. SwiftTerm's hide handling lives in two places: the
+// delegate callback `hideCursor(source:)`, which we override to a no-op, AND
+// the internal flag `Terminal.cursorHidden` which `updateCursorPosition` reads
+// every render to decide whether to remove caretView from the hierarchy.
+// Plumage can't reach `cursorHidden` directly, but feeding `\e[?25h` (DECSET
+// 25 = show cursor) into the terminal parses claude-side and flips the flag
+// back to false. A 120 ms repeater wins the race against claude's frequent
+// hide commands; the cursor stays continuously visible at the input cell.
 final class PersistentCursorTerminalView: LocalProcessTerminalView {
+    private var cursorKeepAlive: Timer?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        startCursorKeepAlive()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func startCursorKeepAlive() {
+        cursorKeepAlive?.invalidate()
+        // Schedule on .common modes so the timer survives scroll / event
+        // tracking on the inspector divider, and pick a fast cadence to win
+        // the race against claude's rendering bursts.
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            self?.terminal?.feed(text: "\u{1B}[?25h")
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        cursorKeepAlive = timer
+    }
+
     override func hideCursor(source: Terminal) {
-        // Intentionally empty.
+        // Intentionally empty — see class comment.
+    }
+
+    // Called from SwiftTerm's existing terminate() when the host removes the
+    // view, so we don't need to access Timer from a non-isolated deinit (which
+    // Swift 6 rejects).
+    func stopCursorKeepAlive() {
+        cursorKeepAlive?.invalidate()
+        cursorKeepAlive = nil
     }
 }
