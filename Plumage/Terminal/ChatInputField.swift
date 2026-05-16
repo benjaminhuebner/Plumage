@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ChatInputField: View {
@@ -6,31 +7,169 @@ struct ChatInputField: View {
     let onSend: () -> Void
 
     @FocusState private var focused: Bool
+    @State private var contentHeight: CGFloat = 22
+
+    private let minHeight: CGFloat = 22
+    private let maxHeight: CGFloat = 132
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextEditor(text: $text)
-                .font(.callout)
-                .scrollContentBackground(.hidden)
+            ZStack(alignment: .topLeading) {
+                SubmittingTextEditor(
+                    text: $text,
+                    contentHeight: $contentHeight,
+                    onSubmit: sendIfAllowed
+                )
+                .frame(height: clampedHeight)
                 .focused($focused)
-                .frame(minHeight: 36, maxHeight: 120)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: .rect(cornerRadius: 8))
 
-            Button {
-                onSend()
-            } label: {
+                if text.isEmpty {
+                    Text("Message claude…")
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 0)
+                        .allowsHitTesting(false)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(.background.tertiary, in: .rect(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(
+                        focused
+                            ? Color.accentColor.opacity(0.45)
+                            : Color.primary.opacity(0.08),
+                        lineWidth: 1
+                    )
+            }
+
+            Button(action: sendIfAllowed) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
+                    .foregroundStyle(sendTint)
+                    .contentShape(.circle)
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!canSend || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("Send (⌘↩)")
+            .disabled(!isReady)
+            .help("Send (⏎ — Shift+⏎ for newline)")
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private var clampedHeight: CGFloat {
+        min(max(contentHeight, minHeight), maxHeight)
+    }
+
+    private var trimmed: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isReady: Bool {
+        canSend && !trimmed.isEmpty
+    }
+
+    private var sendTint: Color {
+        isReady ? .accentColor : .secondary.opacity(0.4)
+    }
+
+    private func sendIfAllowed() {
+        guard isReady else { return }
+        onSend()
+    }
+}
+
+private struct SubmittingTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var contentHeight: CGFloat
+    let onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = SubmittingTextView()
+        textView.delegate = context.coordinator
+        textView.onSubmit = onSubmit
+        textView.font = .preferredFont(forTextStyle: .callout)
+        textView.isRichText = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.autoresizingMask = [.width]
+
+        let scroll = NSScrollView()
+        scroll.documentView = textView
+        scroll.hasVerticalScroller = false
+        scroll.hasHorizontalScroller = false
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+        scroll.autohidesScrollers = true
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let textView = scroll.documentView as? SubmittingTextView else { return }
+        textView.onSubmit = onSubmit
+        if textView.string != text {
+            textView.string = text
+        }
+        context.coordinator.measureHeight(textView)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, height: $contentHeight)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        let textBinding: Binding<String>
+        let heightBinding: Binding<CGFloat>
+
+        init(text: Binding<String>, height: Binding<CGFloat>) {
+            self.textBinding = text
+            self.heightBinding = height
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            if textBinding.wrappedValue != textView.string {
+                textBinding.wrappedValue = textView.string
+            }
+            measureHeight(textView)
+        }
+
+        func measureHeight(_ textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager,
+                let container = textView.textContainer
+            else { return }
+            layoutManager.ensureLayout(for: container)
+            let used = layoutManager.usedRect(for: container)
+            let newHeight = ceil(used.height)
+            if abs(heightBinding.wrappedValue - newHeight) > 0.5 {
+                heightBinding.wrappedValue = newHeight
+            }
+        }
+    }
+}
+
+private final class SubmittingTextView: NSTextView {
+    var onSubmit: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // Return = keyCode 36, Enter on numpad = keyCode 76.
+        // Plain (no shift) submits; with shift falls through to default — insert newline.
+        if (event.keyCode == 36 || event.keyCode == 76)
+            && !event.modifierFlags.contains(.shift)
+            && !event.modifierFlags.contains(.command)
+            && !event.modifierFlags.contains(.option)
+        {
+            onSubmit?()
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 
@@ -48,8 +187,15 @@ struct ChatInputField: View {
     }
 }
 
-#Preview("Disabled (awaiting response)") {
-    StatefulPreview(initialText: "I'm waiting…") { binding in
+#Preview("Multiline") {
+    StatefulPreview(initialText: "line one\nline two\nline three") { binding in
+        ChatInputField(text: binding, canSend: true, onSend: {})
+            .frame(width: 460)
+    }
+}
+
+#Preview("Disabled") {
+    StatefulPreview(initialText: "queued") { binding in
         ChatInputField(text: binding, canSend: false, onSend: {})
             .frame(width: 460)
     }
