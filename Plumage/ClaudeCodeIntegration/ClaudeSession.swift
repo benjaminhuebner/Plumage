@@ -37,15 +37,18 @@ final class ClaudeSession {
     private(set) var state: State = .idle
     private(set) var messages: [ChatMessage] = []
     private(set) var awaitingResponse: Bool = false
+    private(set) var conversationID: String
 
     private var process: Process?
     private var stdinHandle: FileHandle?
     private var readTask: Task<Void, Never>?
+    private var hasInitializedSession: Bool = false
 
     init(cwd: URL, binaryURL: URL, autoSpawn: Bool = true) {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.autoSpawn = autoSpawn
+        self.conversationID = UUID().uuidString.lowercased()
     }
 
     func start() {
@@ -117,6 +120,9 @@ final class ClaudeSession {
         readTask = nil
         process = nil
 
+        // Fresh context: new session ID, dropped history.
+        conversationID = UUID().uuidString.lowercased()
+        hasInitializedSession = false
         messages = []
         awaitingResponse = false
         state = .starting(cwd: cwd)
@@ -128,12 +134,29 @@ final class ClaudeSession {
         stdinHandle = nil
     }
 
+    // Restart keeps messages and conversationID — Banner-Restart + mode-toggle
+    // resume both want to land back in the same conversation; only /clear
+    // creates a fresh one (see clearAndRestart).
     func restart() {
         guard case .exited = state else { return }
-        messages = []
         awaitingResponse = false
         state = .starting(cwd: cwd)
         if autoSpawn { spawn() }
+    }
+
+    // Synchronous tear-down for mode switches: the other pane is about to
+    // claim the same session log, so this subprocess must release it before
+    // the next spawn — otherwise the two claude processes race the file lock.
+    func handOff() {
+        process?.terminationHandler = nil
+        process?.terminate()
+        try? stdinHandle?.close()
+        stdinHandle = nil
+        readTask?.cancel()
+        readTask = nil
+        process = nil
+        awaitingResponse = false
+        state = .exited(code: 0, reason: .userClosed)
     }
 
     func handleEvent(_ event: ClaudeStreamEvent) {
@@ -179,12 +202,19 @@ final class ClaudeSession {
 
         newProcess.executableURL = binaryURL
         newProcess.currentDirectoryURL = cwd
-        newProcess.arguments = [
-            "--print",
-            "--input-format", "stream-json",
-            "--output-format", "stream-json",
-            "--verbose",
-        ]
+        // First spawn of this conversation: --session-id pins our UUID.
+        // Subsequent spawns: --resume re-attaches without re-pinning.
+        let resumeArgs: [String] =
+            hasInitializedSession
+            ? ["--resume", conversationID]
+            : ["--session-id", conversationID]
+        newProcess.arguments =
+            [
+                "--print",
+                "--input-format", "stream-json",
+                "--output-format", "stream-json",
+                "--verbose",
+            ] + resumeArgs
         newProcess.standardInput = stdinPipe
         newProcess.standardOutput = stdoutPipe
         newProcess.standardError = FileHandle.nullDevice
@@ -206,6 +236,7 @@ final class ClaudeSession {
 
         process = newProcess
         stdinHandle = stdinPipe.fileHandleForWriting
+        hasInitializedSession = true
         // claude emits system/init only after the first user message — the spawn
         // alone proves the process is alive, so move to .running now and let
         // handleEvent fill the sessionID when init eventually arrives.

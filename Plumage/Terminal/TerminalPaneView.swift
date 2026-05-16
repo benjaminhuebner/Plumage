@@ -21,6 +21,27 @@ struct TerminalPaneView: View {
             topBar
             content
         }
+        .onChange(of: modeRaw, initial: false) { oldRaw, newRaw in
+            handleModeChange(
+                from: TerminalPaneMode(rawValue: oldRaw) ?? .chat,
+                to: TerminalPaneMode(rawValue: newRaw) ?? .chat
+            )
+        }
+    }
+
+    private func handleModeChange(from old: TerminalPaneMode, to new: TerminalPaneMode) {
+        guard old != new else { return }
+        switch new {
+        case .terminal:
+            // Chat must release the session log before the terminal claude
+            // resumes it — handOff terminates the chat subprocess synchronously.
+            session.handOff()
+        case .chat:
+            // Terminal view will be dismantled by SwiftUI (terminate sends
+            // SIGHUP to its claude). Respawn chat under the same conversationID
+            // so the freshly-rendered ChatView is wired to a live process.
+            session.restart()
+        }
     }
 
     @ViewBuilder
@@ -56,7 +77,8 @@ struct TerminalPaneView: View {
             case .terminal:
                 EmbeddedTerminalView(
                     cwd: session.cwd,
-                    binaryURL: session.binaryURL
+                    binaryURL: session.binaryURL,
+                    conversationID: session.conversationID
                 )
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)

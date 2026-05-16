@@ -9,6 +9,7 @@ import SwiftUI
 struct EmbeddedTerminalView: NSViewRepresentable {
     let cwd: URL
     let binaryURL: URL
+    let conversationID: String
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -26,11 +27,16 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         // Shell-wrap so we can set cwd (LocalProcessTerminalView has no direct
         // cwd parameter). exec replaces the shell with claude — only one
         // process boundary remains, and SIGHUP still propagates to claude.
+        // --resume <uuid> attaches to the same conversation the chat mode uses.
         let quotedPath = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let claudePath = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
+        let resumeArg = conversationID.replacingOccurrences(of: "'", with: #"'\''"#)
         view.startProcess(
             executable: "/bin/sh",
-            args: ["-c", "cd '\(quotedPath)' && exec '\(claudePath)'"],
+            args: [
+                "-c",
+                "cd '\(quotedPath)' && exec '\(claudePath)' --resume '\(resumeArg)'",
+            ],
             environment: Self.environmentForClaude()
         )
         return view
@@ -63,11 +69,11 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
     private static func environmentForClaude() -> [String] {
         // Inherit the parent app's full environment so claude finds the same
-        // auth state (~/.claude/.credentials.json, env tokens, keychain access)
-        // that the chat-mode subprocess gets. The earlier minimal-allowlist
-        // approach left interactive claude unauthenticated even though chat
-        // mode worked. Override TERM and augment PATH for a launched-from-
-        // Finder Plumage that didn't inherit the user's shell PATH.
+        // auth state (credentials, env tokens, keychain access) that the
+        // chat-mode subprocess gets. The earlier minimal-allowlist approach
+        // left interactive claude unauthenticated even though chat mode
+        // worked. Override TERM and augment PATH for a launched-from-Finder
+        // Plumage that didn't inherit the user's shell PATH.
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "xterm-256color"
         let home = FileManager.default.homeDirectoryForCurrentUser.path

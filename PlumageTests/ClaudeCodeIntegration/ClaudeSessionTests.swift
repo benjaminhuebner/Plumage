@@ -190,13 +190,14 @@ struct ClaudeSessionTests {
         #expect(session.state == .idle)
     }
 
-    @Test("restart() from .exited transitions to .starting and clears messages")
+    @Test("restart() from .exited transitions to .starting and keeps messages")
     func restartFromExited() async {
         let session = startedSession()
         await session.send("hi")
         session.handleEvent(.assistant([.text("hello")]))
         session.handleExit(code: 1)
         #expect(session.messages.count == 2)
+        let beforeRestartID = session.conversationID
 
         session.restart()
         if case .starting = session.state {
@@ -204,8 +205,20 @@ struct ClaudeSessionTests {
         } else {
             Issue.record("Expected .starting after restart, got \(session.state)")
         }
-        #expect(session.messages.isEmpty)
+        // restart keeps the same conversation — both messages and ID survive.
+        #expect(session.messages.count == 2)
         #expect(!session.awaitingResponse)
+        #expect(session.conversationID == beforeRestartID)
+    }
+
+    @Test("/clear regenerates conversationID and clears messages")
+    func slashClearRegeneratesConversationID() async {
+        let session = startedSession()
+        await session.send("first")
+        let originalID = session.conversationID
+        await session.send("/clear")
+        #expect(session.messages.isEmpty)
+        #expect(session.conversationID != originalID)
     }
 
     @Test("restart() from .running is a no-op")
