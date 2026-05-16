@@ -304,13 +304,73 @@ final class ClaudeSession {
     }
 
     private func sessionLogExists() -> Bool {
+        FileManager.default.fileExists(atPath: sessionLogURL().path)
+    }
+
+    private func sessionLogURL() -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
-        let file =
+        return
             home
             .appendingPathComponent(".claude/projects/\(encoded)")
             .appendingPathComponent("\(conversationID).jsonl")
-        return FileManager.default.fileExists(atPath: file.path)
+    }
+
+    // Parse claude's saved session log and replace `messages` with what was
+    // exchanged across previous runs (including terminal-mode turns Plumage
+    // never observed on its own stdout stream). Called from spawn() so chat
+    // mode always reflects the full conversation regardless of which mode it
+    // happened in.
+    private func rehydrateMessagesFromSessionLog() {
+        let file = sessionLogURL()
+        guard let data = try? Data(contentsOf: file),
+            let raw = String(data: data, encoding: .utf8)
+        else { return }
+
+        var hydrated: [ChatMessage] = []
+        for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let lineData = line.data(using: .utf8),
+                let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+            else { continue }
+            // claude logs many side-streams (hooks, snapshots, sidechain).
+            if json["isSidechain"] as? Bool == true { continue }
+            if json["attachment"] != nil { continue }
+            guard let type = json["type"] as? String,
+                let message = json["message"] as? [String: Any]
+            else { continue }
+            let role: ChatMessage.Role
+            switch type {
+            case "user": role = .user
+            case "assistant": role = .assistant
+            default: continue
+            }
+            guard let text = Self.extractText(from: message["content"]),
+                !text.isEmpty
+            else { continue }
+            // Drop Plumage- or claude-side <command-…> wrapper payloads;
+            // they're not human-visible turns.
+            if text.hasPrefix("<") && text.contains("</") { continue }
+            hydrated.append(
+                ChatMessage(id: UUID(), role: role, text: text, timestamp: .now)
+            )
+        }
+        if !hydrated.isEmpty {
+            messages = hydrated
+        }
+    }
+
+    private nonisolated static func extractText(from content: Any?) -> String? {
+        if let str = content as? String { return str }
+        if let array = content as? [[String: Any]] {
+            let texts = array.compactMap { item -> String? in
+                guard let type = item["type"] as? String, type == "text",
+                    let text = item["text"] as? String
+                else { return nil }
+                return text
+            }
+            return texts.joined(separator: "\n")
+        }
+        return nil
     }
 
     func handleEvent(_ event: ClaudeStreamEvent) {
@@ -386,6 +446,10 @@ final class ClaudeSession {
 
         process = newProcess
         stdinHandle = stdinPipe.fileHandleForWriting
+        // Rehydrate from the on-disk log so chat mode reflects whatever the
+        // terminal-mode subprocess wrote since last time. Safe even on the
+        // first spawn (no file → no-op).
+        rehydrateMessagesFromSessionLog()
         // claude emits system/init only after the first user message — the spawn
         // alone proves the process is alive, so move to .running now and let
         // handleEvent fill the sessionID when init eventually arrives.

@@ -51,8 +51,8 @@ private struct SwiftTermBridge: NSViewRepresentable {
 
     @Environment(\.colorScheme) private var colorScheme
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let view = LocalProcessTerminalView(frame: .zero)
+    func makeNSView(context: Context) -> PersistentCursorTerminalView {
+        let view = PersistentCursorTerminalView(frame: .zero)
         view.processDelegate = context.coordinator
         view.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         view.nativeBackgroundColor = .clear
@@ -62,11 +62,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: view)
         context.coordinator.lastColorScheme = colorScheme
 
-        // SwiftTerm defaults to a steadyBlock caret that's almost invisible
-        // against a clear background. Use a blinking block cursor (Apple
-        // Terminal's default look) and have it track focus so it stops blinking
-        // when the user clicks away.
-        view.caretViewTracksFocus = true
+        // Use the system label colour for contrast against the clear material
+        // background and keep the cursor solid regardless of which pane has
+        // first-responder (the SwiftUI host shifts focus to the chat input
+        // field elsewhere; we still want the terminal cell highlighted).
+        view.caretViewTracksFocus = false
+        view.caretColor = NSColor.labelColor
         view.cursorStyleChanged(source: view.terminal, newStyle: .blinkBlock)
 
         // Shell-wrap so we can set cwd (LocalProcessTerminalView has no direct
@@ -94,6 +95,11 @@ private struct SwiftTermBridge: NSViewRepresentable {
                 ],
                 environment: env
             )
+            // SwiftTerm starts unfocused inside an NSViewRepresentable. Without
+            // a firstResponder hand-off the caret renders as a hollow outline
+            // (drawCursor uses TerminalView.hasFocus) and keystrokes can be
+            // dropped (notes.md 2026-05-12 #00020-spike entry).
+            view.window?.makeFirstResponder(view)
         }
         return view
     }
@@ -106,7 +112,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         .joined(separator: " ")
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
+    func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
         guard context.coordinator.lastColorScheme != colorScheme else { return }
         context.coordinator.lastColorScheme = colorScheme
         nsView.nativeBackgroundColor = .clear
@@ -115,7 +121,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
     }
 
     static func dismantleNSView(
-        _ nsView: LocalProcessTerminalView, coordinator: Coordinator
+        _ nsView: PersistentCursorTerminalView, coordinator: Coordinator
     ) {
         // Without explicit terminate(), LocalProcess.deinit leaves the child
         // running and the PTY fd pair leaked for the app session.
@@ -125,7 +131,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
-    private func applyForeground(to view: LocalProcessTerminalView) {
+    private func applyForeground(to view: PersistentCursorTerminalView) {
         view.nativeForegroundColor =
             colorScheme == .dark
             ? NSColor(white: 0.92, alpha: 1)
@@ -167,5 +173,16 @@ private struct SwiftTermBridge: NSViewRepresentable {
             // session-id log lock; chat mode can safely spawn now.
             session?.markExternalHandOffDone()
         }
+    }
+}
+
+// claude's interactive REPL sends DECRST 25 (hide cursor) liberally while it
+// renders its own TUI elements. SwiftTerm honours that by removing the caret
+// view from the hierarchy — the user then sees no cursor at all, even at the
+// input prompt. Ignoring hideCursor keeps the cell highlighted at all times;
+// the only visual cost is a flicker during claude's rendering passes.
+final class PersistentCursorTerminalView: LocalProcessTerminalView {
+    override func hideCursor(source: Terminal) {
+        // Intentionally empty.
     }
 }

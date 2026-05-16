@@ -71,9 +71,9 @@ struct TerminalPaneView: View {
         switch indicatorState {
         case .loading, .ok:
             modeContent
-                .id(mode)
+                .id(modeRaw)
                 .transition(.opacity)
-                .animation(.easeInOut(duration: 0.18), value: mode)
+                .animation(.easeInOut(duration: 0.18), value: modeRaw)
         case .missing, .unsupported, .failed:
             MissingClaudeView(state: indicatorState)
         }
