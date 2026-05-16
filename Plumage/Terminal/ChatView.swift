@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ChatView: View {
-    @Bindable var session: ClaudeSession
+    let session: ClaudeSession
     @State private var draft: String = ""
 
     var body: some View {
