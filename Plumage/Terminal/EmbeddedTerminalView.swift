@@ -79,9 +79,15 @@ private struct SwiftTermBridge: NSViewRepresentable {
         let env = Self.environmentForClaude()
         let session = self.session
 
-        Task { @MainActor [weak view] in
+        // Cancel any prior spawn Task left over from a previous makeNSView
+        // call — SwiftUI is free to call makeNSView more than once for the
+        // same representable, and two concurrent spawn Tasks would race on
+        // the same session log lock.
+        context.coordinator.spawnTask?.cancel()
+        context.coordinator.spawnTask = Task { @MainActor [weak view, weak session] in
+            guard let session else { return }
             await session.awaitHandOff()
-            guard let view else { return }
+            guard !Task.isCancelled, let view else { return }
             let attachFlag = Self.shellQuotedAttachArgs(session.resumeOrInitArgs())
             view.startProcess(
                 executable: "/bin/sh",
@@ -94,7 +100,9 @@ private struct SwiftTermBridge: NSViewRepresentable {
             // SwiftTerm starts unfocused inside an NSViewRepresentable. Without
             // a firstResponder hand-off the caret renders as a hollow outline
             // (drawCursor uses TerminalView.hasFocus) and keystrokes can be
-            // dropped (notes.md 2026-05-12 #00020-spike entry).
+            // dropped (notes.md 2026-05-12 #00020-spike entry). Window may
+            // still be nil during the first layout pass — the responder hop
+            // is best-effort, not load-bearing.
             view.window?.makeFirstResponder(view)
         }
         return view
@@ -116,11 +124,14 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: nsView)
     }
 
+    @MainActor
     static func dismantleNSView(
         _ nsView: PersistentCursorTerminalView, coordinator: Coordinator
     ) {
         // Without explicit terminate(), LocalProcess.deinit leaves the child
         // running and the PTY fd pair leaked for the app session.
+        coordinator.spawnTask?.cancel()
+        coordinator.spawnTask = nil
         nsView.stopCursorKeepAlive()
         coordinator.session?.beginExternalHandOff()
         nsView.terminate()
@@ -156,6 +167,9 @@ private struct SwiftTermBridge: NSViewRepresentable {
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         weak var session: ClaudeSession?
         var lastColorScheme: ColorScheme?
+        // Owned by makeNSView/dismantleNSView so a re-entered makeNSView can
+        // cancel the previous spawn before launching a new one.
+        var spawnTask: Task<Void, Never>?
 
         init(session: ClaudeSession) {
             self.session = session
@@ -183,7 +197,13 @@ private struct SwiftTermBridge: NSViewRepresentable {
 // back to false. A 120 ms repeater wins the race against claude's frequent
 // hide commands; the cursor stays continuously visible at the input cell.
 final class PersistentCursorTerminalView: LocalProcessTerminalView {
-    private var cursorKeepAlive: Timer?
+    // nonisolated(unsafe): Timer? is touched from a MainActor-bound start/stop
+    // pair and from a nonisolated deinit fallback. SwiftTerm's host normally
+    // calls dismantleNSView (which invokes stopCursorKeepAlive) before drop,
+    // but the deinit guards against the case where the host short-circuits
+    // teardown — Swift 6 rejects a MainActor deinit reading isolated state,
+    // hence the unsafe storage. See notes.md #00021-embedded-terminal.
+    nonisolated(unsafe) private var cursorKeepAlive: Timer?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -192,13 +212,25 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    deinit {
+        cursorKeepAlive?.invalidate()
+        cursorKeepAlive = nil
+    }
+
     private func startCursorKeepAlive() {
         cursorKeepAlive?.invalidate()
         // Schedule on .common modes so the timer survives scroll / event
         // tracking on the inspector divider, and pick a fast cadence to win
         // the race against claude's rendering bursts.
+        // Timer block is typed @Sendable, but RunLoop.main fires it on the
+        // main thread — MainActor.assumeIsolated lets us touch the
+        // @MainActor-typed `terminal` property without an extra Task hop per
+        // tick. assumeIsolated traps if the assumption is wrong, which it
+        // never is for a RunLoop.main-scheduled Timer.
         let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
-            self?.terminal?.feed(text: "\u{1B}[?25h")
+            MainActor.assumeIsolated {
+                self?.terminal?.feed(text: "\u{1B}[?25h")
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         cursorKeepAlive = timer
