@@ -13,7 +13,7 @@ struct ChatInputField: View {
     private let maxHeight: CGFloat = 132
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 SubmittingTextEditor(
                     text: $text,
@@ -27,27 +27,15 @@ struct ChatInputField: View {
                     Text("Message claude…")
                         .font(.callout)
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 0)
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.horizontal, 8)
+            .padding(.leading, 10)
             .padding(.vertical, 6)
-            .background(.background.tertiary, in: .rect(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(
-                        focused
-                            ? Color.accentColor.opacity(0.45)
-                            : Color.primary.opacity(0.08),
-                        lineWidth: 1
-                    )
-            }
 
             Button(action: sendIfAllowed) {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundStyle(sendTint)
                     .contentShape(.circle)
             }
@@ -55,9 +43,26 @@ struct ChatInputField: View {
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(!isReady)
             .help("Send (⏎ — Shift+⏎ for newline)")
+            .padding(.trailing, 6)
+            .padding(.bottom, 4)
+        }
+        .background(.background.tertiary, in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(
+                    focused
+                        ? Color.accentColor.opacity(0.45)
+                        : Color.primary.opacity(0.08),
+                    lineWidth: 1
+                )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .onChange(of: text) { _, newValue in
+            if newValue.isEmpty {
+                contentHeight = minHeight
+            }
+        }
     }
 
     private var clampedHeight: CGFloat {
