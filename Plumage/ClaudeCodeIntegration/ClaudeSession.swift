@@ -15,6 +15,14 @@ final class ClaudeSession {
         case userClosed
         case crashed
         case killed
+
+        var displayName: String {
+            switch self {
+            case .userClosed: return "userClosed"
+            case .crashed: return "crashed"
+            case .killed: return "killed"
+            }
+        }
     }
 
     struct ChatMessage: Sendable, Equatable, Identifiable {
@@ -33,6 +41,7 @@ final class ClaudeSession {
     let cwd: URL
     let binaryURL: URL
     private let autoSpawn: Bool
+    private let sessionLogRoot: URL
 
     private(set) var state: State = .idle
     private(set) var messages: [ChatMessage] = []
@@ -47,12 +56,25 @@ final class ClaudeSession {
     private var process: Process?
     private var stdinHandle: FileHandle?
     private var readTask: Task<Void, Never>?
+    private var handOffWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-    init(cwd: URL, binaryURL: URL, autoSpawn: Bool = true) {
+    // Defaults to ~/.claude/projects but is injectable so tests can point at
+    // a temp directory and exercise resumeOrInitArgs / rehydrate without
+    // polluting the real home.
+    init(
+        cwd: URL,
+        binaryURL: URL,
+        autoSpawn: Bool = true,
+        sessionLogRoot: URL? = nil
+    ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.autoSpawn = autoSpawn
         self.conversationID = UUID().uuidString.lowercased()
+        self.sessionLogRoot =
+            sessionLogRoot
+            ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects")
     }
 
     func start() {
@@ -202,6 +224,14 @@ final class ClaudeSession {
     func stop() {
         try? stdinHandle?.close()
         stdinHandle = nil
+        // Without cancelling readTask the AsyncStream's onTermination never
+        // fires, so readabilityHandler keeps stdoutHandle + LineBuffer alive
+        // even though the subprocess is gone. handleExit, handOff and
+        // clearAndRestart already do this — stop() must too.
+        readTask?.cancel()
+        readTask = nil
+        process?.terminate()
+        process = nil
     }
 
     // Restart keeps messages and conversationID — Banner-Restart + mode-toggle
@@ -238,7 +268,7 @@ final class ClaudeSession {
     // the SIGTERM by some hundreds of ms while it flushes).
     func handOff() {
         guard let dying = process else {
-            handOffPending = false
+            clearHandOffPending()
             try? stdinHandle?.close()
             stdinHandle = nil
             readTask?.cancel()
@@ -252,7 +282,7 @@ final class ClaudeSession {
         // (we're shutting down deliberately) and we can observe the death.
         dying.terminationHandler = { _ in
             Task { @MainActor [weak self] in
-                self?.handOffPending = false
+                self?.clearHandOffPending()
             }
         }
         dying.terminate()
@@ -273,7 +303,7 @@ final class ClaudeSession {
     }
 
     func markExternalHandOffDone() {
-        handOffPending = false
+        clearHandOffPending()
     }
 
     // Called from the toggle's Binding setter BEFORE modeRaw mutates, so the
@@ -282,13 +312,39 @@ final class ClaudeSession {
         handOffPending = true
     }
 
+    // Drains any awaiters before flipping the flag — keeps the @Observable
+    // mutation visible to view-side reads while letting the continuation
+    // waiters wake up exactly once per pending-cycle.
+    private func clearHandOffPending() {
+        let waiters = handOffWaiters
+        handOffWaiters = [:]
+        handOffPending = false
+        for cont in waiters.values { cont.resume() }
+    }
+
+    // Signal-driven rather than polling: callers register a checked
+    // continuation; the next clearHandOffPending() resumes them. A timeout
+    // Task races the signal and cleans up its own waiter slot if it wins, so
+    // a never-arriving handoff completion releases the caller after `timeout`
+    // without leaking the continuation.
     func awaitHandOff(timeout: Duration = .seconds(3)) async {
         guard handOffPending else { return }
-        let start = ContinuousClock().now
-        while handOffPending {
-            try? await Task.sleep(for: .milliseconds(50))
-            if ContinuousClock().now - start > timeout { break }
+        let id = UUID()
+        let timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard let self else { return }
+            if let cont = self.handOffWaiters.removeValue(forKey: id) {
+                cont.resume()
+            }
         }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            guard handOffPending else {
+                cont.resume()
+                return
+            }
+            handOffWaiters[id] = cont
+        }
+        timeoutTask.cancel()
     }
 
     // Returns the spawn args for a fresh claude attach: --session-id when the
@@ -308,11 +364,10 @@ final class ClaudeSession {
     }
 
     private func sessionLogURL() -> URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
         let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
         return
-            home
-            .appendingPathComponent(".claude/projects/\(encoded)")
+            sessionLogRoot
+            .appendingPathComponent(encoded)
             .appendingPathComponent("\(conversationID).jsonl")
     }
 
@@ -321,7 +376,20 @@ final class ClaudeSession {
     // never observed on its own stdout stream). Called from spawn() so chat
     // mode always reflects the full conversation regardless of which mode it
     // happened in.
-    private func rehydrateMessagesFromSessionLog() {
+    //
+    // Skips when `messages` is already populated for this conversationID —
+    // the in-memory list is the live source after the first hydration and a
+    // second spawn (mode toggle within the same conversation) would just
+    // re-read an ever-larger JSONL file for no benefit. /clear regenerates
+    // conversationID and resets `messages`, which forces the next spawn to
+    // rehydrate the (then-empty-from-our-side) fresh session.
+    static let rehydrationCap = 200
+    // Internal (not private) so tests can drive rehydrate against an injected
+    // sessionLogRoot tempdir without spinning up a real subprocess. Production
+    // call site stays inside spawn().
+    func rehydrateMessagesFromSessionLog() {
+        guard messages.isEmpty else { return }
+
         let file = sessionLogURL()
         guard let data = try? Data(contentsOf: file),
             let raw = String(data: data, encoding: .utf8)
@@ -355,7 +423,10 @@ final class ClaudeSession {
             )
         }
         if !hydrated.isEmpty {
-            messages = hydrated
+            // Bound the in-memory list — sessions can grow into thousands of
+            // turns and we only need the recent tail to keep the conversation
+            // legible in chat mode.
+            messages = Array(hydrated.suffix(Self.rehydrationCap))
         }
     }
 
