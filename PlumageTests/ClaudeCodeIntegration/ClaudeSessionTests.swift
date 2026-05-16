@@ -4,7 +4,7 @@ import Testing
 @testable import Plumage
 
 @MainActor
-@Suite("ClaudeSession state machine")
+@Suite("ClaudeSession state machine", .serialized)
 struct ClaudeSessionTests {
     @Test("starts in .idle")
     func initialState() {
@@ -18,11 +18,11 @@ struct ClaudeSessionTests {
     func startTransition() {
         let session = makeSession()
         session.start()
-        if case .starting(let cwd) = session.state {
-            #expect(cwd == session.cwd)
-        } else {
+        guard case .starting(let cwd) = session.state else {
             Issue.record("Expected .starting, got \(session.state)")
+            return
         }
+        #expect(cwd == session.cwd)
     }
 
     @Test("start() from .starting is a no-op")
@@ -128,21 +128,26 @@ struct ClaudeSessionTests {
         await session.send("/clear")
         #expect(session.messages.isEmpty)
         // With autoSpawn:false, state lands back in .starting since no respawn happens.
-        if case .starting = session.state {
-            // ok
-        } else {
+        guard case .starting = session.state else {
             Issue.record("Expected .starting after /clear, got \(session.state)")
+            return
         }
     }
 
-    @Test("/exit triggers stop and leaves session waiting for terminationHandler")
+    @Test("/exit triggers stop and emits no user message")
     func slashExitInvokesStop() async {
         let session = startedSession()
+        // Seed a prior assistant turn so `messages.isEmpty` actually
+        // differentiates "/exit did not emit" from "we started empty".
+        session.handleEvent(.assistant([.text("reply")]))
+        #expect(session.messages.count == 1)
+
         await session.send("/exit")
-        // stop() closes stdin; state remains .running until the (non-existent in
-        // tests) terminationHandler fires. We assert that no user-message was
-        // emitted on stdin (messages stay empty for the /exit command itself).
-        #expect(session.messages.isEmpty)
+        // /exit itself does not produce a user message…
+        #expect(session.messages.count == 1)
+        // …and state stays .running until the terminationHandler fires (which
+        // never does in this autoSpawn:false test — no real process exists).
+        #expect(session.state == .running(sessionID: "test-session"))
     }
 
     @Test("result event clears awaitingResponse")
@@ -200,10 +205,9 @@ struct ClaudeSessionTests {
         let beforeRestartID = session.conversationID
 
         session.restart()
-        if case .starting = session.state {
-            // OK
-        } else {
+        guard case .starting = session.state else {
             Issue.record("Expected .starting after restart, got \(session.state)")
+            return
         }
         // restart keeps the same conversation — both messages and ID survive.
         #expect(session.messages.count == 2)
@@ -236,13 +240,185 @@ struct ClaudeSessionTests {
         #expect(session.state == .idle)
     }
 
+    // MARK: - awaitHandOff
+
+    @Test("awaitHandOff returns immediately when not pending")
+    func awaitHandOffEarlyExit() async {
+        let session = makeSession()
+        let start = ContinuousClock().now
+        await session.awaitHandOff(timeout: .seconds(1))
+        let elapsed = ContinuousClock().now - start
+        // No suspension expected — should be well under the timeout.
+        #expect(elapsed < .milliseconds(100))
+    }
+
+    @Test("awaitHandOff resolves when markExternalHandOffDone fires")
+    func awaitHandOffResolvesOnSignal() async {
+        let session = makeSession()
+        session.beginExternalHandOff()
+        #expect(session.handOffPending)
+
+        let waiter = Task { @MainActor in
+            await session.awaitHandOff(timeout: .seconds(2))
+        }
+
+        // Yield so the waiter Task registers its continuation before we signal.
+        try? await Task.sleep(for: .milliseconds(20))
+        session.markExternalHandOffDone()
+
+        await waiter.value
+        #expect(!session.handOffPending)
+    }
+
+    @Test("awaitHandOff returns after timeout when no signal arrives")
+    func awaitHandOffTimesOut() async {
+        let session = makeSession()
+        session.beginExternalHandOff()
+
+        let start = ContinuousClock().now
+        await session.awaitHandOff(timeout: .milliseconds(100))
+        let elapsed = ContinuousClock().now - start
+
+        #expect(elapsed >= .milliseconds(80))
+        #expect(elapsed < .seconds(1))
+        // Timeout doesn't clear the flag — only an external signal does.
+        #expect(session.handOffPending)
+    }
+
+    // MARK: - resumeOrInitArgs
+
+    @Test("resumeOrInitArgs returns --session-id when log absent")
+    func resumeArgsNewSession() throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let session = makeSession(cwd: URL(filePath: "/tmp/proj"), sessionLogRoot: temp)
+
+        let args = session.resumeOrInitArgs()
+        #expect(args.count == 2)
+        #expect(args[0] == "--session-id")
+        #expect(args[1] == session.conversationID)
+    }
+
+    @Test("resumeOrInitArgs returns --resume when log exists")
+    func resumeArgsExistingSession() throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let cwd = URL(filePath: "/tmp/proj")
+        let session = makeSession(cwd: cwd, sessionLogRoot: temp)
+        try writeSessionLog(at: temp, cwd: cwd, conversationID: session.conversationID, contents: "")
+
+        let args = session.resumeOrInitArgs()
+        #expect(args.count == 2)
+        #expect(args[0] == "--resume")
+        #expect(args[1] == session.conversationID)
+    }
+
+    // MARK: - rehydrateMessagesFromSessionLog
+
+    @Test("rehydrate is a no-op when session log does not exist")
+    func rehydrateMissingLog() throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let session = makeSession(cwd: URL(filePath: "/tmp/proj"), sessionLogRoot: temp)
+
+        session.rehydrateMessagesFromSessionLog()
+        #expect(session.messages.isEmpty)
+    }
+
+    @Test("rehydrate parses user and assistant turns")
+    func rehydrateBasicTurns() throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let cwd = URL(filePath: "/tmp/proj")
+        let session = makeSession(cwd: cwd, sessionLogRoot: temp)
+        let jsonl = """
+            {"type":"user","message":{"role":"user","content":"hi"}}
+            {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}
+            """
+        try writeSessionLog(
+            at: temp, cwd: cwd, conversationID: session.conversationID, contents: jsonl)
+
+        session.rehydrateMessagesFromSessionLog()
+        #expect(session.messages.count == 2)
+        #expect(session.messages[0].role == .user)
+        #expect(session.messages[0].text == "hi")
+        #expect(session.messages[1].role == .assistant)
+        #expect(session.messages[1].text == "hello")
+    }
+
+    @Test("rehydrate skips sidechain, attachments, and <command-…> wrappers")
+    func rehydrateFilters() throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let cwd = URL(filePath: "/tmp/proj")
+        let session = makeSession(cwd: cwd, sessionLogRoot: temp)
+        let jsonl = """
+            {"type":"user","isSidechain":true,"message":{"role":"user","content":"sidechain"}}
+            {"type":"user","attachment":{"path":"x"},"message":{"role":"user","content":"file"}}
+            {"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+            {"type":"user","message":{"role":"user","content":"real turn"}}
+            """
+        try writeSessionLog(
+            at: temp, cwd: cwd, conversationID: session.conversationID, contents: jsonl)
+
+        session.rehydrateMessagesFromSessionLog()
+        #expect(session.messages.count == 1)
+        #expect(session.messages[0].text == "real turn")
+    }
+
+    @Test("rehydrate is a no-op when messages are already populated")
+    func rehydrateSkipsWhenPopulated() throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let cwd = URL(filePath: "/tmp/proj")
+        let session = makeSession(cwd: cwd, sessionLogRoot: temp)
+        // Seed in-memory messages and a different log on disk.
+        session.start()
+        session.handleEvent(.systemInit(sessionID: "test"))
+        session.handleEvent(.assistant([.text("in memory")]))
+        #expect(session.messages.count == 1)
+        let jsonl =
+            #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"on disk"}]}}"#
+        try writeSessionLog(
+            at: temp, cwd: cwd, conversationID: session.conversationID, contents: jsonl)
+
+        session.rehydrateMessagesFromSessionLog()
+        #expect(session.messages.count == 1)
+        #expect(session.messages[0].text == "in memory")
+    }
+
+    @Test("rehydrate caps to ClaudeSession.rehydrationCap most recent turns")
+    func rehydrateCapsToTail() throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let cwd = URL(filePath: "/tmp/proj")
+        let session = makeSession(cwd: cwd, sessionLogRoot: temp)
+        let totalTurns = ClaudeSession.rehydrationCap + 50
+        let lines = (0..<totalTurns).map { index in
+            #"{"type":"user","message":{"role":"user","content":"turn \#(index)"}}"#
+        }
+        try writeSessionLog(
+            at: temp, cwd: cwd, conversationID: session.conversationID,
+            contents: lines.joined(separator: "\n"))
+
+        session.rehydrateMessagesFromSessionLog()
+        #expect(session.messages.count == ClaudeSession.rehydrationCap)
+        // Tail-kept: first kept turn is turn 50, last kept is turn (totalTurns-1).
+        #expect(session.messages.first?.text == "turn 50")
+        #expect(session.messages.last?.text == "turn \(totalTurns - 1)")
+    }
+
     // MARK: - Helpers
 
-    private func makeSession() -> ClaudeSession {
+    private func makeSession(
+        cwd: URL = URL(filePath: "/tmp"),
+        sessionLogRoot: URL? = nil
+    ) -> ClaudeSession {
         ClaudeSession(
-            cwd: URL(filePath: "/tmp"),
+            cwd: cwd,
             binaryURL: URL(filePath: "/usr/bin/true"),
-            autoSpawn: false
+            autoSpawn: false,
+            sessionLogRoot: sessionLogRoot
         )
     }
 
@@ -251,5 +427,22 @@ struct ClaudeSessionTests {
         session.start()
         session.handleEvent(.systemInit(sessionID: "test-session"))
         return session
+    }
+
+    private func makeTempLogRoot() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClaudeSessionTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeSessionLog(
+        at root: URL, cwd: URL, conversationID: String, contents: String
+    ) throws {
+        let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
+        let projectDir = root.appendingPathComponent(encoded)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        let file = projectDir.appendingPathComponent("\(conversationID).jsonl")
+        try contents.write(to: file, atomically: true, encoding: .utf8)
     }
 }
