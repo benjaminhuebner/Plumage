@@ -44,9 +44,6 @@ struct PlumageApp: App {
             OpenProjectMenuCommand(recentProjects: recentProjects)
             NewIssueCommand()
             SpecEditorCommands()
-            #if DEBUG
-            TerminalSpikeCommand()
-            #endif
         }
         .restorationBehavior(.disabled)
         .environment(recentProjects)
