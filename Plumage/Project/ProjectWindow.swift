@@ -9,7 +9,9 @@ struct ProjectWindow: View {
     @State private var indicator = StatusIndicatorModel()
 
     #if DEBUG
-    @SceneStorage("terminalSpikeShown") private var showTerminalSpike = false
+    // Not @SceneStorage: PlumageApp uses .restorationBehavior(.disabled), so
+    // the spike should start closed on every window open.
+    @State private var showTerminalSpike = false
     #endif
 
     @Environment(\.processRunner) private var processRunner
@@ -37,25 +39,34 @@ struct ProjectWindow: View {
 
     @ViewBuilder
     private var baseStack: some View {
+        let stack = NavigationStack(path: $navigationPath) {
+            content
+                .navigationDestination(for: SpecRoute.self) { route in
+                    routeDestination(route)
+                }
+                #if DEBUG
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showTerminalSpike.toggle()
+                    } label: {
+                        Label("Terminal", systemImage: "apple.terminal")
+                    }
+                    .help("Toggle Terminal (⌥⌘0)")
+                }
+            }
+                #endif
+        }
+
         #if DEBUG
-        NavigationStack(path: $navigationPath) {
-            content
-                .navigationDestination(for: SpecRoute.self) { route in
-                    routeDestination(route)
-                }
-        }
-        .inspector(isPresented: $showTerminalSpike) {
-            TerminalSpikeView()
-                .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
-        }
-        .focusedSceneValue(\.terminalSpikeToggle, $showTerminalSpike)
+        stack
+            .inspector(isPresented: $showTerminalSpike) {
+                TerminalSpikeView()
+                    .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
+            }
+            .focusedSceneValue(\.terminalSpikeToggle, $showTerminalSpike)
         #else
-        NavigationStack(path: $navigationPath) {
-            content
-                .navigationDestination(for: SpecRoute.self) { route in
-                    routeDestination(route)
-                }
-        }
+        stack
         #endif
     }
 
