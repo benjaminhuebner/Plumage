@@ -38,6 +38,11 @@ final class ClaudeSession {
     private(set) var messages: [ChatMessage] = []
     private(set) var awaitingResponse: Bool = false
     private(set) var conversationID: String
+    // True while a previous claude (chat or terminal) is mid-shutdown and
+    // still owns the session-id log lock. The next mode's spawn must wait
+    // for this to flip back to false or the new claude exits with
+    // "Session ID … is already in use."
+    private(set) var handOffPending: Bool = false
 
     private var process: Process?
     private var stdinHandle: FileHandle?
@@ -209,17 +214,17 @@ final class ClaudeSession {
         if autoSpawn { spawn() }
     }
 
-    // Mode-switch path back to chat — the SwiftTerm-side claude is dismantled
-    // asynchronously (terminate sends SIGHUP, OS reaps the child a few ms later),
-    // so a synchronous respawn would race the session-log lock and the new
-    // process would exit 1. Hold .starting visibly and spawn after the grace.
+    // Mode-switch path back to chat — wait for the SwiftTerm-side claude to
+    // actually exit (signalled via markExternalHandOffDone from the bridge's
+    // processTerminated delegate) before spawning chat-claude under the same
+    // session-id, otherwise the lock race produces "Session ID … in use".
     func resumeAfterHandOff() {
         awaitingResponse = false
         state = .starting(cwd: cwd)
         guard autoSpawn else { return }
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
             guard let self else { return }
+            await self.awaitHandOff()
             guard case .starting = self.state else { return }
             self.spawn()
         }
@@ -228,9 +233,29 @@ final class ClaudeSession {
     // Synchronous tear-down for mode switches: the other pane is about to
     // claim the same session log, so this subprocess must release it before
     // the next spawn — otherwise the two claude processes race the file lock.
+    // Synchronous tear-down for mode switches. handOffPending tracks the
+    // actual death of the chat subprocess (claude's session-id lock outlives
+    // the SIGTERM by some hundreds of ms while it flushes).
     func handOff() {
-        process?.terminationHandler = nil
-        process?.terminate()
+        guard let dying = process else {
+            handOffPending = false
+            try? stdinHandle?.close()
+            stdinHandle = nil
+            readTask?.cancel()
+            readTask = nil
+            awaitingResponse = false
+            state = .exited(code: 0, reason: .userClosed)
+            return
+        }
+        handOffPending = true
+        // Replace the original terminationHandler so handleExit doesn't fire
+        // (we're shutting down deliberately) and we can observe the death.
+        dying.terminationHandler = { _ in
+            Task { @MainActor [weak self] in
+                self?.handOffPending = false
+            }
+        }
+        dying.terminate()
         try? stdinHandle?.close()
         stdinHandle = nil
         readTask?.cancel()
@@ -238,6 +263,54 @@ final class ClaudeSession {
         process = nil
         awaitingResponse = false
         state = .exited(code: 0, reason: .userClosed)
+    }
+
+    // External hooks for the terminal-mode subprocess (owned by SwiftTerm,
+    // not by ClaudeSession). The bridge calls beginExternalHandOff() in
+    // dismantleNSView() and markExternalHandOffDone() in processTerminated.
+    func beginExternalHandOff() {
+        handOffPending = true
+    }
+
+    func markExternalHandOffDone() {
+        handOffPending = false
+    }
+
+    // Called from the toggle's Binding setter BEFORE modeRaw mutates, so the
+    // about-to-mount view's spawn Task sees handOffPending=true and waits.
+    func markHandOffStarting() {
+        handOffPending = true
+    }
+
+    func awaitHandOff(timeout: Duration = .seconds(3)) async {
+        guard handOffPending else { return }
+        let start = ContinuousClock().now
+        while handOffPending {
+            try? await Task.sleep(for: .milliseconds(50))
+            if ContinuousClock().now - start > timeout { break }
+        }
+    }
+
+    // Returns the spawn args for a fresh claude attach: --session-id when the
+    // session file doesn't exist yet, --resume otherwise. claude's --session-id
+    // is strictly "create new" (its SY_ check rejects with "Session ID …
+    // already in use" if the .jsonl file is present), so we cannot blindly
+    // pass --session-id on every spawn.
+    func resumeOrInitArgs() -> [String] {
+        guard sessionLogExists() else {
+            return ["--session-id", conversationID]
+        }
+        return ["--resume", conversationID]
+    }
+
+    private func sessionLogExists() -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
+        let file =
+            home
+            .appendingPathComponent(".claude/projects/\(encoded)")
+            .appendingPathComponent("\(conversationID).jsonl")
+        return FileManager.default.fileExists(atPath: file.path)
     }
 
     func handleEvent(_ event: ClaudeStreamEvent) {
@@ -283,18 +356,15 @@ final class ClaudeSession {
 
         newProcess.executableURL = binaryURL
         newProcess.currentDirectoryURL = cwd
-        // --session-id is create-or-attach: pins the UUID on the first spawn,
-        // re-attaches on subsequent ones. --resume would require the session
-        // file to already exist on disk, which only happens after claude has
-        // processed at least one user turn — so a mode-switch before any
-        // message would error out with "No conversation found".
-        newProcess.arguments = [
-            "--print",
-            "--input-format", "stream-json",
-            "--output-format", "stream-json",
-            "--verbose",
-            "--session-id", conversationID,
-        ]
+        // resumeOrInitArgs chooses --session-id vs --resume based on whether
+        // the session log already exists, mirroring claude's own behaviour.
+        newProcess.arguments =
+            [
+                "--print",
+                "--input-format", "stream-json",
+                "--output-format", "stream-json",
+                "--verbose",
+            ] + resumeOrInitArgs()
         newProcess.standardInput = stdinPipe
         newProcess.standardOutput = stdoutPipe
         newProcess.standardError = FileHandle.nullDevice

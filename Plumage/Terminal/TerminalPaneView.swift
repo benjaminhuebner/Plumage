@@ -21,32 +21,28 @@ struct TerminalPaneView: View {
             topBar
             content
         }
-        .onChange(of: modeRaw, initial: false) { oldRaw, newRaw in
-            // Defer to the next runloop tick — mutating session.state inline
-            // happens inside SwiftUI's update cycle and triggers the
-            // "Modifying state during view update" warning, because views
-            // observing session.state would be invalidated mid-render.
-            let from = TerminalPaneMode(rawValue: oldRaw) ?? .chat
-            let target = TerminalPaneMode(rawValue: newRaw) ?? .chat
-            Task { @MainActor in
-                handleModeChange(from: from, to: target)
-            }
-        }
     }
 
-    private func handleModeChange(from old: TerminalPaneMode, to new: TerminalPaneMode) {
-        guard old != new else { return }
-        switch new {
+    private func performModeChange(to target: TerminalPaneMode) {
+        let current = mode
+        guard current != target else { return }
+        // Mark handoff pending BEFORE modeRaw mutates and triggers the body
+        // re-eval that mounts/dismantles SwiftTermBridge. Without this, the
+        // new mode's spawn Task races the .onChange that would otherwise call
+        // handOff: it sees handOffPending=false and starts claude immediately,
+        // then claude prints "Session ID … is already in use" because the
+        // previous claude hasn't released the log lock yet.
+        session.markHandOffStarting()
+        switch target {
         case .terminal:
-            // Chat must release the session log before the terminal claude
-            // resumes it — handOff terminates the chat subprocess synchronously.
+            // handOff replaces the chat process's terminationHandler so
+            // handOffPending flips to false once chat-claude is actually dead.
             session.handOff()
         case .chat:
-            // Terminal view will be dismantled by SwiftUI (terminate sends
-            // SIGHUP to its claude). The kill is async, so respawning chat
-            // immediately races the session-log lock and the new claude exits
-            // with code 1. resumeAfterHandOff holds .starting and spawns after
-            // a short grace period.
+            // SwiftUI will dismantle SwiftTermBridge as part of the body
+            // re-eval; the bridge's dismantleNSView/processTerminated path
+            // flips handOffPending to false when terminal-claude exits.
+            // resumeAfterHandOff already awaits that signal before spawning.
             session.resumeAfterHandOff()
         }
     }
@@ -58,7 +54,10 @@ struct TerminalPaneView: View {
             TerminalModeToggle(
                 mode: Binding(
                     get: { mode },
-                    set: { modeRaw = $0.rawValue }
+                    set: { newMode in
+                        performModeChange(to: newMode)
+                        modeRaw = newMode.rawValue
+                    }
                 )
             )
         }
@@ -93,13 +92,9 @@ struct TerminalPaneView: View {
                     }
                 }
         case .terminal:
-            EmbeddedTerminalView(
-                cwd: session.cwd,
-                binaryURL: session.binaryURL,
-                conversationID: session.conversationID
-            )
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            EmbeddedTerminalView(session: session)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
         }
     }
 }

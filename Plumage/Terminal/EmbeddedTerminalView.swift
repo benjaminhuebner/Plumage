@@ -7,19 +7,13 @@ import AppKit
 import SwiftUI
 
 struct EmbeddedTerminalView: View {
-    let cwd: URL
-    let binaryURL: URL
-    let conversationID: String
+    let session: ClaudeSession
 
     @State private var bootingDone = false
 
     var body: some View {
         ZStack {
-            SwiftTermBridge(
-                cwd: cwd,
-                binaryURL: binaryURL,
-                conversationID: conversationID
-            )
+            SwiftTermBridge(session: session)
 
             if !bootingDone {
                 bootOverlay
@@ -30,7 +24,7 @@ struct EmbeddedTerminalView: View {
         // replay — sits in the ~1.5–2.0 s range. Fade the overlay just before
         // claude usually finishes; if the user's boot is slower, the overlay
         // disappears a moment early and they watch the banner paint in.
-        .task(id: conversationID) {
+        .task(id: session.conversationID) {
             try? await Task.sleep(for: .seconds(1.6))
             withAnimation(.easeOut(duration: 0.25)) {
                 bootingDone = true
@@ -53,9 +47,7 @@ struct EmbeddedTerminalView: View {
 }
 
 private struct SwiftTermBridge: NSViewRepresentable {
-    let cwd: URL
-    let binaryURL: URL
-    let conversationID: String
+    let session: ClaudeSession
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -73,20 +65,38 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // Shell-wrap so we can set cwd (LocalProcessTerminalView has no direct
         // cwd parameter). exec replaces the shell with claude — only one
         // process boundary remains, and SIGHUP still propagates to claude.
-        // --session-id is create-or-attach (--resume would fail if chat mode
-        // hadn't sent a message yet and therefore not materialised the log).
+        // Resume vs create-new is decided by ClaudeSession.resumeOrInitArgs
+        // (it checks whether the session log already exists, matching claude's
+        // own "is already in use" detection).
+        let cwd = session.cwd
+        let binaryURL = session.binaryURL
         let quotedPath = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let claudePath = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        let sessionArg = conversationID.replacingOccurrences(of: "'", with: #"'\''"#)
-        view.startProcess(
-            executable: "/bin/sh",
-            args: [
-                "-c",
-                "cd '\(quotedPath)' && exec '\(claudePath)' --session-id '\(sessionArg)'",
-            ],
-            environment: Self.environmentForClaude()
-        )
+        let env = Self.environmentForClaude()
+        let session = self.session
+
+        Task { @MainActor [weak view] in
+            await session.awaitHandOff()
+            guard let view else { return }
+            let attachFlag = Self.shellQuotedAttachArgs(session.resumeOrInitArgs())
+            view.startProcess(
+                executable: "/bin/sh",
+                args: [
+                    "-c",
+                    "cd '\(quotedPath)' && exec '\(claudePath)' \(attachFlag)",
+                ],
+                environment: env
+            )
+        }
         return view
+    }
+
+    private static func shellQuotedAttachArgs(_ args: [String]) -> String {
+        args.map { arg in
+            let escaped = arg.replacingOccurrences(of: "'", with: #"'\''"#)
+            return "'\(escaped)'"
+        }
+        .joined(separator: " ")
     }
 
     func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
@@ -102,10 +112,11 @@ private struct SwiftTermBridge: NSViewRepresentable {
     ) {
         // Without explicit terminate(), LocalProcess.deinit leaves the child
         // running and the PTY fd pair leaked for the app session.
+        coordinator.session?.beginExternalHandOff()
         nsView.terminate()
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
     private func applyForeground(to view: LocalProcessTerminalView) {
         view.nativeForegroundColor =
@@ -133,11 +144,21 @@ private struct SwiftTermBridge: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
+        weak var session: ClaudeSession?
         var lastColorScheme: ColorScheme?
+
+        init(session: ClaudeSession) {
+            self.session = session
+            super.init()
+        }
 
         func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
         func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-        func processTerminated(source: TerminalView, exitCode: Int32?) {}
+        func processTerminated(source: TerminalView, exitCode: Int32?) {
+            // The terminal-mode claude has fully exited and released the
+            // session-id log lock; chat mode can safely spawn now.
+            session?.markExternalHandOffDone()
+        }
     }
 }
