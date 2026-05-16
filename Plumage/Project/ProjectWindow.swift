@@ -6,37 +6,51 @@ struct ProjectWindow: View {
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
     @State private var navigationPath = NavigationPath()
+    @State private var indicator = StatusIndicatorModel()
+
+    @Environment(\.processRunner) private var processRunner
 
     var body: some View {
+        baseStack
+            .environment(kanban)
+            .frame(minWidth: 720, minHeight: 480)
+            .navigationTitle(displayTitle)
+            .focusedSceneValue(
+                \.createIssueInDefaultColumn,
+                isLoaded
+                    ? {
+                        navigationPath.append(SpecRoute.createIssue(initialStatus: .draft))
+                    }
+                    : nil
+            )
+            .task(id: handle.url) {
+                async let reload: Void = model.reload(at: handle.url)
+                async let run: Void = kanban.run(projectURL: handle.url)
+                async let detect: Void = indicator.detect(using: processRunner)
+                _ = await (reload, run, detect)
+            }
+    }
+
+    @ViewBuilder
+    private var baseStack: some View {
         NavigationStack(path: $navigationPath) {
             content
                 .navigationDestination(for: SpecRoute.self) { route in
-                    switch route {
-                    case .spec(let folderName):
-                        IssueDetailView(projectURL: handle.url, folderName: folderName)
-                    case .rawEditor(let folderName):
-                        SpecEditorView(projectURL: handle.url, folderName: folderName)
-                            .navigationTitle("Raw: \(folderName)")
-                    case .createIssue(let initialStatus):
-                        IssueDetailView(projectURL: handle.url, initialStatus: initialStatus)
-                    }
+                    routeDestination(route)
                 }
         }
-        .environment(kanban)
-        .frame(minWidth: 720, minHeight: 480)
-        .navigationTitle(displayTitle)
-        .focusedSceneValue(
-            \.createIssueInDefaultColumn,
-            isLoaded
-                ? {
-                    navigationPath.append(SpecRoute.createIssue(initialStatus: .draft))
-                }
-                : nil
-        )
-        .task(id: handle.url) {
-            async let reload: Void = model.reload(at: handle.url)
-            async let run: Void = kanban.run(projectURL: handle.url)
-            _ = await (reload, run)
+    }
+
+    @ViewBuilder
+    private func routeDestination(_ route: SpecRoute) -> some View {
+        switch route {
+        case .spec(let folderName):
+            IssueDetailView(projectURL: handle.url, folderName: folderName)
+        case .rawEditor(let folderName):
+            SpecEditorView(projectURL: handle.url, folderName: folderName)
+                .navigationTitle("Raw: \(folderName)")
+        case .createIssue(let initialStatus):
+            IssueDetailView(projectURL: handle.url, initialStatus: initialStatus)
         }
     }
 
@@ -48,15 +62,11 @@ struct ProjectWindow: View {
                 .controlSize(.large)
         case .loaded(let config):
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(config.name)
-                        .font(.system(size: 32, weight: .semibold))
-                    Text(handle.url.path)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 32)
-                .padding(.top, 32)
+                ProjectHeader(
+                    title: config.name,
+                    path: handle.url.path,
+                    indicatorState: indicator.state
+                )
                 KanbanView(
                     grouped: kanban.groupedIssues,
                     padding: config.issueIdPadding ?? 5,
