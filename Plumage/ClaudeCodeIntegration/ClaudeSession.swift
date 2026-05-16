@@ -32,19 +32,26 @@ final class ClaudeSession {
 
     let cwd: URL
     let binaryURL: URL
+    private let autoSpawn: Bool
 
     private(set) var state: State = .idle
     private(set) var messages: [ChatMessage] = []
     private(set) var awaitingResponse: Bool = false
 
-    init(cwd: URL, binaryURL: URL) {
+    private var process: Process?
+    private var stdinHandle: FileHandle?
+    private var readTask: Task<Void, Never>?
+
+    init(cwd: URL, binaryURL: URL, autoSpawn: Bool = true) {
         self.cwd = cwd
         self.binaryURL = binaryURL
+        self.autoSpawn = autoSpawn
     }
 
     func start() {
         guard case .idle = state else { return }
         state = .starting(cwd: cwd)
+        if autoSpawn { spawn() }
     }
 
     func send(_ text: String) async {
@@ -55,11 +62,20 @@ final class ClaudeSession {
             ChatMessage(id: UUID(), role: .user, text: trimmed, timestamp: .now)
         )
         awaitingResponse = true
+
+        guard let handle = stdinHandle else { return }
+        do {
+            let data = try ClaudeMessageEncoding.encode(userText: trimmed)
+            try handle.write(contentsOf: data)
+        } catch {
+            appendSystemMessage("Failed to send message: \(error.localizedDescription)")
+            awaitingResponse = false
+        }
     }
 
     func stop() {
-        // Process shutdown lands in the lifecycle task — state stays untouched
-        // until the terminationHandler reports back via handleExit(code:).
+        try? stdinHandle?.close()
+        stdinHandle = nil
     }
 
     func restart() {
@@ -67,6 +83,7 @@ final class ClaudeSession {
         messages = []
         awaitingResponse = false
         state = .starting(cwd: cwd)
+        if autoSpawn { spawn() }
     }
 
     func handleEvent(_ event: ClaudeStreamEvent) {
@@ -95,7 +112,72 @@ final class ClaudeSession {
         case .starting, .running:
             state = .exited(code: code, reason: Self.classify(code))
             awaitingResponse = false
+            readTask?.cancel()
+            readTask = nil
+            try? stdinHandle?.close()
+            stdinHandle = nil
+            process = nil
         }
+    }
+
+    private func spawn() {
+        let newProcess = Process()
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+
+        newProcess.executableURL = binaryURL
+        newProcess.currentDirectoryURL = cwd
+        newProcess.arguments = [
+            "--print",
+            "--input-format", "stream-json",
+            "--output-format", "stream-json",
+            "--verbose",
+        ]
+        newProcess.standardInput = stdinPipe
+        newProcess.standardOutput = stdoutPipe
+        newProcess.standardError = FileHandle.nullDevice
+
+        newProcess.terminationHandler = { terminated in
+            let code = terminated.terminationStatus
+            Task { @MainActor [weak self] in
+                self?.handleExit(code: code)
+            }
+        }
+
+        do {
+            try newProcess.run()
+        } catch {
+            state = .exited(code: -1, reason: .crashed)
+            appendSystemMessage("Failed to launch claude: \(error.localizedDescription)")
+            return
+        }
+
+        process = newProcess
+        stdinHandle = stdinPipe.fileHandleForWriting
+
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        readTask = Task { @MainActor [weak self] in
+            do {
+                for try await line in stdoutHandle.bytes.lines {
+                    guard let self else { return }
+                    guard !line.isEmpty else { continue }
+                    guard let data = line.data(using: .utf8) else { continue }
+                    guard
+                        let event = try? JSONDecoder().decode(
+                            ClaudeStreamEvent.self, from: data)
+                    else { continue }
+                    self.handleEvent(event)
+                }
+            } catch {
+                // stdout read ended — terminationHandler will drive state.
+            }
+        }
+    }
+
+    private func appendSystemMessage(_ text: String) {
+        messages.append(
+            ChatMessage(id: UUID(), role: .system, text: text, timestamp: .now)
+        )
     }
 
     private func appendAssistant(_ content: AssistantContent) {

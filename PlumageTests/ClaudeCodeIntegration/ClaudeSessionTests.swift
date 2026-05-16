@@ -182,7 +182,8 @@ struct ClaudeSessionTests {
     private func makeSession() -> ClaudeSession {
         ClaudeSession(
             cwd: URL(filePath: "/tmp"),
-            binaryURL: URL(filePath: "/usr/bin/true")
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            autoSpawn: false
         )
     }
 
