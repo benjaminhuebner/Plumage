@@ -209,6 +209,22 @@ final class ClaudeSession {
         if autoSpawn { spawn() }
     }
 
+    // Mode-switch path back to chat — the SwiftTerm-side claude is dismantled
+    // asynchronously (terminate sends SIGHUP, OS reaps the child a few ms later),
+    // so a synchronous respawn would race the session-log lock and the new
+    // process would exit 1. Hold .starting visibly and spawn after the grace.
+    func resumeAfterHandOff() {
+        awaitingResponse = false
+        state = .starting(cwd: cwd)
+        guard autoSpawn else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self else { return }
+            guard case .starting = self.state else { return }
+            self.spawn()
+        }
+    }
+
     // Synchronous tear-down for mode switches: the other pane is about to
     // claim the same session log, so this subprocess must release it before
     // the next spawn — otherwise the two claude processes race the file lock.

@@ -175,8 +175,14 @@ private struct SubmittingTextEditor: NSViewRepresentable {
             layoutManager.ensureLayout(for: container)
             let used = layoutManager.usedRect(for: container)
             let newHeight = ceil(used.height)
-            if abs(heightBinding.wrappedValue - newHeight) > 0.5 {
-                heightBinding.wrappedValue = newHeight
+            guard abs(heightBinding.wrappedValue - newHeight) > 0.5 else { return }
+            // Coordinator.measureHeight runs from updateNSView, which is
+            // inside SwiftUI's view-update cycle; writing the binding here
+            // synchronously triggers "Modifying state during view update".
+            // Defer to the next runloop tick.
+            let binding = heightBinding
+            DispatchQueue.main.async {
+                binding.wrappedValue = newHeight
             }
         }
     }

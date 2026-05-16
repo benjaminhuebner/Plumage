@@ -22,10 +22,15 @@ struct TerminalPaneView: View {
             content
         }
         .onChange(of: modeRaw, initial: false) { oldRaw, newRaw in
-            handleModeChange(
-                from: TerminalPaneMode(rawValue: oldRaw) ?? .chat,
-                to: TerminalPaneMode(rawValue: newRaw) ?? .chat
-            )
+            // Defer to the next runloop tick — mutating session.state inline
+            // happens inside SwiftUI's update cycle and triggers the
+            // "Modifying state during view update" warning, because views
+            // observing session.state would be invalidated mid-render.
+            let from = TerminalPaneMode(rawValue: oldRaw) ?? .chat
+            let target = TerminalPaneMode(rawValue: newRaw) ?? .chat
+            Task { @MainActor in
+                handleModeChange(from: from, to: target)
+            }
         }
     }
 
@@ -38,9 +43,11 @@ struct TerminalPaneView: View {
             session.handOff()
         case .chat:
             // Terminal view will be dismantled by SwiftUI (terminate sends
-            // SIGHUP to its claude). Respawn chat under the same conversationID
-            // so the freshly-rendered ChatView is wired to a live process.
-            session.restart()
+            // SIGHUP to its claude). The kill is async, so respawning chat
+            // immediately races the session-log lock and the new claude exits
+            // with code 1. resumeAfterHandOff holds .starting and spawns after
+            // a short grace period.
+            session.resumeAfterHandOff()
         }
     }
 

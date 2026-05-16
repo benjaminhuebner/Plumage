@@ -67,7 +67,14 @@ struct ProjectWindow: View {
                 .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
         }
         .onChange(of: terminalShown, initial: false) { _, newValue in
-            handleInspectorToggle(visible: newValue)
+            // Defer session lifecycle mutations to next runloop tick — calling
+            // session.start/restart/stop synchronously from .onChange happens
+            // inside SwiftUI's update cycle and triggers "Modifying state
+            // during view update" because the chat view body observes
+            // session.state and would re-evaluate mid-render.
+            Task { @MainActor in
+                handleInspectorToggle(visible: newValue)
+            }
         }
     }
 
