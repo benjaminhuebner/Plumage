@@ -60,8 +60,33 @@ struct ChatView: View {
                     .controlSize(.mini)
             }
             Spacer(minLength: 0)
+            Button {
+                openInTerminal()
+            } label: {
+                Image(systemName: "macwindow.on.rectangle")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Open claude in Terminal.app (full REPL)")
         }
         .padding(.bottom, 4)
+    }
+
+    private func openInTerminal() {
+        let escapedPath = session.cwd.path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+            tell application "Terminal"
+                activate
+                set newTab to do script "cd \\"\(escapedPath)\\" && claude"
+                set frontmost of window 1 to true
+            end tell
+            """
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        task.arguments = ["-e", script]
+        try? task.run()
     }
 
     private var statusText: String {
