@@ -51,6 +51,16 @@ struct ProjectWindow: View {
                 .navigationDestination(for: SpecRoute.self) { route in
                     routeDestination(route)
                 }
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            terminalShown.toggle()
+                        } label: {
+                            Label("Terminal", systemImage: "apple.terminal")
+                        }
+                        .help("Toggle Terminal (⌥⌘T)")
+                    }
+                }
         }
         .inspector(isPresented: $terminalShown) {
             TerminalPaneView(session: session, indicatorState: indicator.state)
