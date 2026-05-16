@@ -179,9 +179,10 @@ private struct SubmittingTextEditor: NSViewRepresentable {
             // Coordinator.measureHeight runs from updateNSView, which is
             // inside SwiftUI's view-update cycle; writing the binding here
             // synchronously triggers "Modifying state during view update".
-            // Defer to the next runloop tick.
+            // Defer to the next runloop tick — Task hop keeps everything
+            // inside the @MainActor model instead of dropping to GCD.
             let binding = heightBinding
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 binding.wrappedValue = newHeight
             }
         }

@@ -47,19 +47,24 @@ struct TerminalPaneView: View {
         }
     }
 
+    // Stored computed property (outside @ViewBuilder) so the Binding instance
+    // is freshly built only when the binding itself is read by the toggle,
+    // not on every body re-eval of topBar.
+    private var modeBinding: Binding<TerminalPaneMode> {
+        Binding(
+            get: { mode },
+            set: { newMode in
+                performModeChange(to: newMode)
+                modeRaw = newMode.rawValue
+            }
+        )
+    }
+
     @ViewBuilder
     private var topBar: some View {
         HStack {
             Spacer()
-            TerminalModeToggle(
-                mode: Binding(
-                    get: { mode },
-                    set: { newMode in
-                        performModeChange(to: newMode)
-                        modeRaw = newMode.rawValue
-                    }
-                )
-            )
+            TerminalModeToggle(mode: modeBinding)
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)

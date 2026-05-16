@@ -44,13 +44,7 @@ struct ExitBanner: View {
     }
 
     private var label: String {
-        let reasonText: String
-        switch reason {
-        case .userClosed: reasonText = "userClosed"
-        case .crashed: reasonText = "crashed"
-        case .killed: reasonText = "killed"
-        }
-        return "Session ended — exit \(code), \(reasonText)"
+        "Session ended — exit \(code), \(reason.displayName)"
     }
 }
 
