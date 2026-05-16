@@ -1,13 +1,49 @@
 import SwiftUI
 
+enum TerminalPaneMode: String, CaseIterable, Sendable {
+    case chat
+    case terminal
+}
+
 struct TerminalPaneView: View {
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
 
+    @SceneStorage("terminalPaneMode") private var modeRaw: String =
+        TerminalPaneMode.chat.rawValue
+
+    private var mode: TerminalPaneMode {
+        TerminalPaneMode(rawValue: modeRaw) ?? .chat
+    }
+
     var body: some View {
-        Group {
-            switch indicatorState {
-            case .loading, .ok:
+        VStack(spacing: 0) {
+            modeToggle
+            Divider()
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var modeToggle: some View {
+        Picker("", selection: $modeRaw) {
+            Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
+                .tag(TerminalPaneMode.chat.rawValue)
+            Label("Terminal", systemImage: "apple.terminal")
+                .tag(TerminalPaneMode.terminal.rawValue)
+        }
+        .pickerStyle(.segmented)
+        .labelStyle(.titleAndIcon)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch indicatorState {
+        case .loading, .ok:
+            switch mode {
+            case .chat:
                 ChatView(session: session)
                     .overlay(alignment: .top) {
                         if case .exited(let code, let reason) = session.state {
@@ -16,9 +52,16 @@ struct TerminalPaneView: View {
                             }
                         }
                     }
-            case .missing, .unsupported, .failed:
-                MissingClaudeView(state: indicatorState)
+            case .terminal:
+                EmbeddedTerminalView(
+                    cwd: session.cwd,
+                    binaryURL: session.binaryURL
+                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
             }
+        case .missing, .unsupported, .failed:
+            MissingClaudeView(state: indicatorState)
         }
     }
 }
