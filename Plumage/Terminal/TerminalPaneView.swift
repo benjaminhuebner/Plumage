@@ -18,24 +18,25 @@ struct TerminalPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            modeToggle
-            Divider()
+            topBar
             content
         }
     }
 
     @ViewBuilder
-    private var modeToggle: some View {
-        Picker("", selection: $modeRaw) {
-            Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
-                .tag(TerminalPaneMode.chat.rawValue)
-            Label("Terminal", systemImage: "apple.terminal")
-                .tag(TerminalPaneMode.terminal.rawValue)
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            TerminalModeToggle(
+                mode: Binding(
+                    get: { mode },
+                    set: { modeRaw = $0.rawValue }
+                )
+            )
         }
-        .pickerStyle(.segmented)
-        .labelStyle(.titleAndIcon)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder
