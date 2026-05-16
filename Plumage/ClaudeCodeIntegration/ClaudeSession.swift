@@ -89,7 +89,9 @@ final class ClaudeSession {
     func handleEvent(_ event: ClaudeStreamEvent) {
         switch event {
         case .systemInit(let sessionID):
-            if case .starting = state {
+            if case .running = state {
+                state = .running(sessionID: sessionID)
+            } else if case .starting = state {
                 state = .running(sessionID: sessionID)
             }
         case .systemOther, .rateLimit, .unknown:
@@ -154,23 +156,65 @@ final class ClaudeSession {
 
         process = newProcess
         stdinHandle = stdinPipe.fileHandleForWriting
+        // claude emits system/init only after the first user message — the spawn
+        // alone proves the process is alive, so move to .running now and let
+        // handleEvent fill the sessionID when init eventually arrives.
+        state = .running(sessionID: nil)
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
-        readTask = Task { @MainActor [weak self] in
-            do {
-                for try await line in stdoutHandle.bytes.lines {
-                    guard let self else { return }
-                    guard !line.isEmpty else { continue }
-                    guard let data = line.data(using: .utf8) else { continue }
-                    guard
-                        let event = try? JSONDecoder().decode(
-                            ClaudeStreamEvent.self, from: data)
-                    else { continue }
-                    self.handleEvent(event)
+        let buffer = LineBuffer()
+        let stream = AsyncStream<String>(bufferingPolicy: .unbounded) { continuation in
+            stdoutHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    if let final = buffer.flush() { continuation.yield(final) }
+                    continuation.finish()
+                    return
                 }
-            } catch {
-                // stdout read ended — terminationHandler will drive state.
+                for line in buffer.append(data) { continuation.yield(line) }
             }
+            continuation.onTermination = { _ in
+                stdoutHandle.readabilityHandler = nil
+            }
+        }
+
+        readTask = Task { @MainActor [weak self] in
+            for await line in stream {
+                guard let self else { return }
+                guard !line.isEmpty else { continue }
+                guard let data = line.data(using: .utf8) else { continue }
+                guard
+                    let event = try? JSONDecoder().decode(
+                        ClaudeStreamEvent.self, from: data)
+                else { continue }
+                self.handleEvent(event)
+            }
+        }
+    }
+
+    private nonisolated final class LineBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var partial: String = ""
+
+        func append(_ data: Data) -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let chunk = String(data: data, encoding: .utf8) else { return [] }
+            partial += chunk
+            var lines: [String] = []
+            while let nl = partial.range(of: "\n") {
+                lines.append(String(partial[..<nl.lowerBound]))
+                partial.removeSubrange(..<nl.upperBound)
+            }
+            return lines
+        }
+
+        func flush() -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            let remaining = partial
+            partial = ""
+            return remaining.isEmpty ? nil : remaining
         }
     }
 
