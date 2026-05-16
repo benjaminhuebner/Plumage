@@ -16,6 +16,7 @@ struct ChatInputField: View {
         HStack(alignment: .bottom, spacing: 10) {
             inputBubble
             sendButton
+                .alignmentGuide(.bottom) { dim in dim.height + 4 }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
