@@ -57,6 +57,12 @@ final class ClaudeSession {
     func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+
+        if trimmed.hasPrefix("/") {
+            handleLocalSlashCommand(trimmed)
+            return
+        }
+
         guard case .running = state else { return }
         messages.append(
             ChatMessage(id: UUID(), role: .user, text: trimmed, timestamp: .now)
@@ -71,6 +77,50 @@ final class ClaudeSession {
             appendSystemMessage("Failed to send message: \(error.localizedDescription)")
             awaitingResponse = false
         }
+    }
+
+    func handleLocalSlashCommand(_ text: String) {
+        let command = text.split(separator: " ", maxSplits: 1).first.map(String.init) ?? text
+        switch command.lowercased() {
+        case "/clear", "/restart":
+            clearAndRestart()
+        case "/exit", "/quit":
+            stop()
+        case "/help":
+            appendSystemMessage(
+                """
+                Plumage commands:
+                  /clear     Clear chat and restart the claude session
+                  /restart   Same as /clear
+                  /exit      End the claude session
+                  /help      Show this message
+
+                For claude's own slash commands (/mcp, /resume, etc.) \
+                use the "Open in Terminal" button.
+                """
+            )
+        default:
+            appendSystemMessage(
+                "Unknown command: \(command). Type /help for available commands."
+            )
+        }
+    }
+
+    private func clearAndRestart() {
+        // Tear down the current process without going through handleExit's
+        // state transition — we want to land in .starting → .running directly.
+        process?.terminationHandler = nil
+        process?.terminate()
+        try? stdinHandle?.close()
+        stdinHandle = nil
+        readTask?.cancel()
+        readTask = nil
+        process = nil
+
+        messages = []
+        awaitingResponse = false
+        state = .starting(cwd: cwd)
+        if autoSpawn { spawn() }
     }
 
     func stop() {

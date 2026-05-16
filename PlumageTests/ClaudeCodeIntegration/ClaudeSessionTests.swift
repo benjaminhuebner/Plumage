@@ -99,6 +99,52 @@ struct ClaudeSessionTests {
         #expect(session.messages.isEmpty)
     }
 
+    @Test("/help appends a system message even when not running")
+    func slashHelpWorksWhenIdle() async {
+        let session = makeSession()
+        await session.send("/help")
+        #expect(session.messages.count == 1)
+        #expect(session.messages[0].role == .system)
+        #expect(session.messages[0].text.contains("/clear"))
+        #expect(session.messages[0].text.contains("/exit"))
+    }
+
+    @Test("unknown slash command produces system feedback")
+    func slashUnknownProducesFeedback() async {
+        let session = startedSession()
+        await session.send("/wat")
+        #expect(session.messages.count == 1)
+        #expect(session.messages[0].role == .system)
+        #expect(session.messages[0].text.lowercased().contains("unknown"))
+    }
+
+    @Test("/clear clears messages without leaving claude alive")
+    func slashClearResetsMessages() async {
+        let session = startedSession()
+        await session.send("first")
+        session.handleEvent(.assistant([.text("reply")]))
+        #expect(session.messages.count == 2)
+
+        await session.send("/clear")
+        #expect(session.messages.isEmpty)
+        // With autoSpawn:false, state lands back in .starting since no respawn happens.
+        if case .starting = session.state {
+            // ok
+        } else {
+            Issue.record("Expected .starting after /clear, got \(session.state)")
+        }
+    }
+
+    @Test("/exit triggers stop and leaves session waiting for terminationHandler")
+    func slashExitInvokesStop() async {
+        let session = startedSession()
+        await session.send("/exit")
+        // stop() closes stdin; state remains .running until the (non-existent in
+        // tests) terminationHandler fires. We assert that no user-message was
+        // emitted on stdin (messages stay empty for the /exit command itself).
+        #expect(session.messages.isEmpty)
+    }
+
     @Test("result event clears awaitingResponse")
     func resultClearsAwaiting() async {
         let session = startedSession()
