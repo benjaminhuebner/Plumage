@@ -64,27 +64,35 @@ struct TerminalPaneView: View {
     private var content: some View {
         switch indicatorState {
         case .loading, .ok:
-            switch mode {
-            case .chat:
-                ChatView(session: session)
-                    .overlay(alignment: .top) {
-                        if case .exited(let code, let reason) = session.state {
-                            ExitBanner(code: code, reason: reason) {
-                                session.restart()
-                            }
-                        }
-                    }
-            case .terminal:
-                EmbeddedTerminalView(
-                    cwd: session.cwd,
-                    binaryURL: session.binaryURL,
-                    conversationID: session.conversationID
-                )
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-            }
+            modeContent
+                .id(mode)
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.18), value: mode)
         case .missing, .unsupported, .failed:
             MissingClaudeView(state: indicatorState)
+        }
+    }
+
+    @ViewBuilder
+    private var modeContent: some View {
+        switch mode {
+        case .chat:
+            ChatView(session: session)
+                .overlay(alignment: .top) {
+                    if case .exited(let code, let reason) = session.state {
+                        ExitBanner(code: code, reason: reason) {
+                            session.restart()
+                        }
+                    }
+                }
+        case .terminal:
+            EmbeddedTerminalView(
+                cwd: session.cwd,
+                binaryURL: session.binaryURL,
+                conversationID: session.conversationID
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
     }
 }
