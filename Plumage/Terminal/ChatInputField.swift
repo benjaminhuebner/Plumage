@@ -46,7 +46,12 @@ struct ChatInputField: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        // NSTextView renders glyphs flush to the top of its frame; balance the
+        // bubble's vertical padding so single-line text reads visually centred
+        // (text glyph height ≈ 13pt vs. editor frame ≈ 22pt leaves ~9pt to
+        // distribute; weighting more above shifts the glyphs to the middle).
+        .padding(.top, 11)
+        .padding(.bottom, 5)
         .background(.background.tertiary, in: .rect(cornerRadius: 18))
         .overlay {
             RoundedRectangle(cornerRadius: 18)
