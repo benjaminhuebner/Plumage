@@ -62,18 +62,20 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     }
 
     private static func environmentForClaude() -> [String] {
+        // Inherit the parent app's full environment so claude finds the same
+        // auth state (~/.claude/.credentials.json, env tokens, keychain access)
+        // that the chat-mode subprocess gets. The earlier minimal-allowlist
+        // approach left interactive claude unauthenticated even though chat
+        // mode worked. Override TERM and augment PATH for a launched-from-
+        // Finder Plumage that didn't inherit the user's shell PATH.
+        var env = ProcessInfo.processInfo.environment
+        env["TERM"] = "xterm-256color"
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let lang = "\(Locale.current.identifier).UTF-8"
-        let parentPath = ProcessInfo.processInfo.environment["PATH"]
-        let path =
-            parentPath
-            ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        return [
-            "TERM=xterm-256color",
-            "LANG=\(lang)",
-            "HOME=\(home)",
-            "PATH=\(path):\(home)/.local/bin:\(home)/.claude/local",
-        ]
+        let basePath =
+            env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] =
+            "\(basePath):/opt/homebrew/bin:\(home)/.local/bin:\(home)/.claude/local"
+        return env.map { "\($0.key)=\($0.value)" }
     }
 
     @MainActor
