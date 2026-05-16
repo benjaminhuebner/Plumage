@@ -6,7 +6,53 @@ import AppKit
 @preconcurrency import SwiftTerm
 import SwiftUI
 
-struct EmbeddedTerminalView: NSViewRepresentable {
+struct EmbeddedTerminalView: View {
+    let cwd: URL
+    let binaryURL: URL
+    let conversationID: String
+
+    @State private var bootingDone = false
+
+    var body: some View {
+        ZStack {
+            SwiftTermBridge(
+                cwd: cwd,
+                binaryURL: binaryURL,
+                conversationID: conversationID
+            )
+
+            if !bootingDone {
+                bootOverlay
+                    .transition(.opacity)
+            }
+        }
+        // claude's interactive boot — hooks, plugins, CLAUDE.md, --resume log
+        // replay — sits in the ~1.5–2.0 s range. Fade the overlay just before
+        // claude usually finishes; if the user's boot is slower, the overlay
+        // disappears a moment early and they watch the banner paint in.
+        .task(id: conversationID) {
+            try? await Task.sleep(for: .seconds(1.6))
+            withAnimation(.easeOut(duration: 0.25)) {
+                bootingDone = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var bootOverlay: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Resuming session…")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial)
+    }
+}
+
+private struct SwiftTermBridge: NSViewRepresentable {
     let cwd: URL
     let binaryURL: URL
     let conversationID: String
@@ -27,15 +73,16 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         // Shell-wrap so we can set cwd (LocalProcessTerminalView has no direct
         // cwd parameter). exec replaces the shell with claude — only one
         // process boundary remains, and SIGHUP still propagates to claude.
-        // --resume <uuid> attaches to the same conversation the chat mode uses.
+        // --session-id is create-or-attach (--resume would fail if chat mode
+        // hadn't sent a message yet and therefore not materialised the log).
         let quotedPath = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let claudePath = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        let resumeArg = conversationID.replacingOccurrences(of: "'", with: #"'\''"#)
+        let sessionArg = conversationID.replacingOccurrences(of: "'", with: #"'\''"#)
         view.startProcess(
             executable: "/bin/sh",
             args: [
                 "-c",
-                "cd '\(quotedPath)' && exec '\(claudePath)' --resume '\(resumeArg)'",
+                "cd '\(quotedPath)' && exec '\(claudePath)' --session-id '\(sessionArg)'",
             ],
             environment: Self.environmentForClaude()
         )

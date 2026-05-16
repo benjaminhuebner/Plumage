@@ -42,7 +42,6 @@ final class ClaudeSession {
     private var process: Process?
     private var stdinHandle: FileHandle?
     private var readTask: Task<Void, Never>?
-    private var hasInitializedSession: Bool = false
 
     init(cwd: URL, binaryURL: URL, autoSpawn: Bool = true) {
         self.cwd = cwd
@@ -122,7 +121,6 @@ final class ClaudeSession {
 
         // Fresh context: new session ID, dropped history.
         conversationID = UUID().uuidString.lowercased()
-        hasInitializedSession = false
         messages = []
         awaitingResponse = false
         state = .starting(cwd: cwd)
@@ -202,19 +200,18 @@ final class ClaudeSession {
 
         newProcess.executableURL = binaryURL
         newProcess.currentDirectoryURL = cwd
-        // First spawn of this conversation: --session-id pins our UUID.
-        // Subsequent spawns: --resume re-attaches without re-pinning.
-        let resumeArgs: [String] =
-            hasInitializedSession
-            ? ["--resume", conversationID]
-            : ["--session-id", conversationID]
-        newProcess.arguments =
-            [
-                "--print",
-                "--input-format", "stream-json",
-                "--output-format", "stream-json",
-                "--verbose",
-            ] + resumeArgs
+        // --session-id is create-or-attach: pins the UUID on the first spawn,
+        // re-attaches on subsequent ones. --resume would require the session
+        // file to already exist on disk, which only happens after claude has
+        // processed at least one user turn — so a mode-switch before any
+        // message would error out with "No conversation found".
+        newProcess.arguments = [
+            "--print",
+            "--input-format", "stream-json",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--session-id", conversationID,
+        ]
         newProcess.standardInput = stdinPipe
         newProcess.standardOutput = stdoutPipe
         newProcess.standardError = FileHandle.nullDevice
@@ -236,7 +233,6 @@ final class ClaudeSession {
 
         process = newProcess
         stdinHandle = stdinPipe.fileHandleForWriting
-        hasInitializedSession = true
         // claude emits system/init only after the first user message — the spawn
         // alone proves the process is alive, so move to .running now and let
         // handleEvent fill the sessionID when init eventually arrives.
