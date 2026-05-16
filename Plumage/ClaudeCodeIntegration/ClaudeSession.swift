@@ -65,6 +65,10 @@ final class ClaudeSession {
             return
         }
 
+        await sendUserMessage(trimmed)
+    }
+
+    private func sendUserMessage(_ trimmed: String) async {
         guard case .running = state else { return }
         messages.append(
             ChatMessage(id: UUID(), role: .user, text: trimmed, timestamp: .now)
@@ -88,6 +92,18 @@ final class ClaudeSession {
             clearAndRestart()
         case "/exit", "/quit":
             stop()
+        case "/status":
+            appendSystemMessage(statusReport())
+        case "/mcp":
+            appendSystemMessage("Listing MCP servers…")
+            Task { [weak self] in
+                await self?.dispatchSubcommand(["mcp", "list"], label: "MCP servers")
+            }
+        case "/doctor":
+            appendSystemMessage("Running claude doctor…")
+            Task { [weak self] in
+                await self?.dispatchSubcommand(["doctor"], label: "claude doctor")
+            }
         case "/help":
             appendSystemMessage(
                 """
@@ -95,17 +111,68 @@ final class ClaudeSession {
                   /clear     Clear chat and restart the claude session
                   /restart   Same as /clear
                   /exit      End the claude session
+                  /status    Show current session info
+                  /mcp       List configured MCP servers
+                  /doctor    Run claude doctor health check
                   /help      Show this message
 
-                For claude's own slash commands (/mcp, /resume, etc.) \
-                use the "Open in Terminal" button.
+                Other claude slash commands (e.g. /resume, /login, /model) only \
+                work in the interactive REPL — switch to Terminal mode for those.
                 """
             )
         default:
             appendSystemMessage(
-                "Unknown command: \(command). Type /help for available commands."
+                """
+                Unknown command: \(command). Plumage knows /clear, /restart, \
+                /exit, /status, /mcp, /doctor, /help. For claude's own REPL \
+                commands switch to Terminal mode.
+                """
             )
         }
+    }
+
+    private func statusReport() -> String {
+        let stateString: String
+        switch state {
+        case .idle: stateString = "idle"
+        case .starting: stateString = "starting"
+        case .running(let sid):
+            stateString = "running" + (sid.map { " (claude session: \($0))" } ?? "")
+        case .exited(let code, let reason): stateString = "ended (exit \(code), \(reason))"
+        }
+        return """
+            Conversation ID: \(conversationID)
+            State: \(stateString)
+            Messages: \(messages.count)
+            Working directory: \(cwd.path)
+            """
+    }
+
+    private func dispatchSubcommand(_ args: [String], label: String) async {
+        let binary = binaryURL
+        let workingDirectory = cwd
+        let output = await Task.detached { () -> String in
+            let task = Process()
+            task.executableURL = binary
+            task.arguments = args
+            task.currentDirectoryURL = workingDirectory
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = pipe
+            task.standardInput = FileHandle.nullDevice
+            do {
+                try task.run()
+            } catch {
+                return "Error: \(error.localizedDescription)"
+            }
+            task.waitUntilExit()
+            let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
+            let text =
+                String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? "(no output)" : text
+        }.value
+        appendSystemMessage("\(label):\n\(output)")
     }
 
     private func clearAndRestart() {
