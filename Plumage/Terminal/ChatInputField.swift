@@ -13,48 +13,9 @@ struct ChatInputField: View {
     private let maxHeight: CGFloat = 132
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                SubmittingTextEditor(
-                    text: $text,
-                    contentHeight: $contentHeight,
-                    onSubmit: sendIfAllowed
-                )
-                .frame(height: clampedHeight)
-                .focused($focused)
-
-                if text.isEmpty {
-                    Text("Message claude…")
-                        .font(.callout)
-                        .foregroundStyle(.tertiary)
-                        .allowsHitTesting(false)
-                }
-            }
-            .padding(.leading, 10)
-            .padding(.vertical, 6)
-
-            Button(action: sendIfAllowed) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(sendTint)
-                    .contentShape(.circle)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!isReady)
-            .help("Send (⏎ — Shift+⏎ for newline)")
-            .padding(.trailing, 6)
-            .padding(.bottom, 4)
-        }
-        .background(.background.tertiary, in: .rect(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(
-                    focused
-                        ? Color.accentColor.opacity(0.45)
-                        : Color.primary.opacity(0.08),
-                    lineWidth: 1
-                )
+        HStack(alignment: .bottom, spacing: 10) {
+            inputBubble
+            sendButton
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -63,6 +24,65 @@ struct ChatInputField: View {
                 contentHeight = minHeight
             }
         }
+    }
+
+    @ViewBuilder
+    private var inputBubble: some View {
+        ZStack(alignment: .topLeading) {
+            SubmittingTextEditor(
+                text: $text,
+                contentHeight: $contentHeight,
+                onSubmit: sendIfAllowed
+            )
+            .frame(height: clampedHeight)
+            .focused($focused)
+
+            if text.isEmpty {
+                Text("Message claude…")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+                    .allowsHitTesting(false)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.background.tertiary, in: .rect(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(
+                    focused
+                        ? Color.accentColor.opacity(0.45)
+                        : Color.primary.opacity(0.08),
+                    lineWidth: 1
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var sendButton: some View {
+        Button(action: sendIfAllowed) {
+            ZStack {
+                Circle()
+                    .fill(buttonFill)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 32, height: 32)
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.return, modifiers: .command)
+        .disabled(!isReady)
+        .opacity(isReady ? 1 : 0.45)
+        .animation(.snappy(duration: 0.12), value: isReady)
+        .help("Send (⏎ — Shift+⏎ for newline)")
+    }
+
+    private var buttonFill: AnyShapeStyle {
+        isReady
+            ? AnyShapeStyle(Color.accentColor)
+            : AnyShapeStyle(Color.secondary.opacity(0.35))
     }
 
     private var clampedHeight: CGFloat {
@@ -75,10 +95,6 @@ struct ChatInputField: View {
 
     private var isReady: Bool {
         canSend && !trimmed.isEmpty
-    }
-
-    private var sendTint: Color {
-        isReady ? .accentColor : .secondary.opacity(0.4)
     }
 
     private func sendIfAllowed() {
