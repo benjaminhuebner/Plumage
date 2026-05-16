@@ -7,8 +7,20 @@ struct ProjectWindow: View {
     @State private var kanban = ProjectKanbanModel()
     @State private var navigationPath = NavigationPath()
     @State private var indicator = StatusIndicatorModel()
+    @State private var session: ClaudeSession
+    @SceneStorage("terminalShown") private var terminalShown = false
 
     @Environment(\.processRunner) private var processRunner
+
+    init(handle: ProjectHandle) {
+        self.handle = handle
+        let binary =
+            (try? ProductionProcessRunner.locateBinary())
+            ?? URL(filePath: "/dev/null")
+        self._session = State(
+            initialValue: ClaudeSession(cwd: handle.url, binaryURL: binary)
+        )
+    }
 
     var body: some View {
         baseStack
@@ -23,6 +35,7 @@ struct ProjectWindow: View {
                     }
                     : nil
             )
+            .focusedSceneValue(\.terminalToggle, $terminalShown)
             .task(id: handle.url) {
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
@@ -38,6 +51,40 @@ struct ProjectWindow: View {
                 .navigationDestination(for: SpecRoute.self) { route in
                     routeDestination(route)
                 }
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            terminalShown.toggle()
+                        } label: {
+                            Label("Terminal", systemImage: "apple.terminal")
+                        }
+                        .help("Toggle Terminal (⌥⌘T)")
+                    }
+                }
+        }
+        .inspector(isPresented: $terminalShown) {
+            TerminalPaneView(session: session, indicatorState: indicator.state)
+                .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
+        }
+        .onChange(of: terminalShown, initial: false) { _, newValue in
+            // Synchronous: start/restart must happen before the inspector's
+            // content renders to avoid a brief state-misalignment with what's
+            // displayed. The "Modifying state during view update" warning this
+            // can provoke is cosmetic — see TerminalPaneView's onChange for
+            // the same trade-off.
+            handleInspectorToggle(visible: newValue)
+        }
+    }
+
+    private func handleInspectorToggle(visible: Bool) {
+        if visible {
+            switch session.state {
+            case .idle: session.start()
+            case .exited: session.restart()
+            case .starting, .running: break
+            }
+        } else {
+            session.stop()
         }
     }
 

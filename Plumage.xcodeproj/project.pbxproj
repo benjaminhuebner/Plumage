@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		CA46020320030001000000C3 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020220030001000000C3 /* Yams */; };
 		CA46020520030001000000C3 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020720030001000000C3 /* CodeEditorView */; };
+		CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020C20030001000000C3 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */,
 				CA46020320030001000000C3 /* Yams in Frameworks */,
 				CA46020520030001000000C3 /* CodeEditorView in Frameworks */,
 			);
@@ -121,6 +123,7 @@
 			packageProductDependencies = (
 				CA46020220030001000000C3 /* Yams */,
 				CA46020720030001000000C3 /* CodeEditorView */,
+				CA46020C20030001000000C3 /* SwiftTerm */,
 			);
 			productName = Plumage;
 			productReference = CA46013D2FB2F26800CAD6C3 /* Plumage.app */;
@@ -207,6 +210,7 @@
 			packageReferences = (
 				CA46020120030001000000C3 /* XCRemoteSwiftPackageReference "Yams" */,
 				CA46020620030001000000C3 /* XCRemoteSwiftPackageReference "CodeEditorView" */,
+				CA46020B20030001000000C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CA46013E2FB2F26800CAD6C3 /* Products */;
@@ -618,6 +622,14 @@
 				minimumVersion = 0.15.4;
 			};
 		};
+		CA46020B20030001000000C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.13.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -630,6 +642,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CA46020620030001000000C3 /* XCRemoteSwiftPackageReference "CodeEditorView" */;
 			productName = CodeEditorView;
+		};
+		CA46020C20030001000000C3 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA46020B20030001000000C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
