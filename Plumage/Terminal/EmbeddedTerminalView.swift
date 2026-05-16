@@ -62,6 +62,13 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: view)
         context.coordinator.lastColorScheme = colorScheme
 
+        // SwiftTerm defaults to a steadyBlock caret that's almost invisible
+        // against a clear background. Use a blinking block cursor (Apple
+        // Terminal's default look) and have it track focus so it stops blinking
+        // when the user clicks away.
+        view.caretViewTracksFocus = true
+        view.cursorStyleChanged(source: view.terminal, newStyle: .blinkBlock)
+
         // Shell-wrap so we can set cwd (LocalProcessTerminalView has no direct
         // cwd parameter). exec replaces the shell with claude — only one
         // process boundary remains, and SIGHUP still propagates to claude.
