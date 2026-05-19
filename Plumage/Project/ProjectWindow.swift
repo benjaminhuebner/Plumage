@@ -47,6 +47,16 @@ struct ProjectWindow: View {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
                     selectedRoute = restored
                 }
+                // @State ignores re-assignment from init, so a window reused
+                // for a different handle keeps the stale session.cwd unless
+                // we rebuild here.
+                if session.cwd != handle.url {
+                    session.stop()
+                    let binary =
+                        (try? ProductionProcessRunner.locateBinary())
+                        ?? URL(filePath: "/dev/null")
+                    session = ClaudeSession(cwd: handle.url, binaryURL: binary)
+                }
                 // Window-scoped session lifecycle: start once when the window
                 // appears so dock-toggle/Cmd+Opt+T don't pay claude's boot
                 // latency. session.stop() lives in .onDisappear below.

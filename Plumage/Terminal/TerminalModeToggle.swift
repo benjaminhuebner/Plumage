@@ -17,14 +17,14 @@ struct TerminalModeToggle: View {
         .padding(2)
         .background(
             Capsule(style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                .fill(.background.tertiary)
         )
         .overlay(
             Capsule(style: .continuous)
                 .strokeBorder(.separator, lineWidth: 0.5)
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Pane mode")
+        .accessibilityLabel("Anzeigemodus")
         .accessibilityValue(mode.label)
     }
 

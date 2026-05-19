@@ -11,10 +11,7 @@ struct ClaudeDockButtonTests {
         let button = ClaudeDockButton(isOpen: false, isWorking: false) {
             taps += 1
         }
-        // The closure is the only behavioral surface the view exposes
-        // without a UI test host; calling it directly verifies the wiring.
-        _ = button.body
-        button.invokeForTesting()
+        button.action()
         #expect(taps == 1)
     }
 
@@ -22,16 +19,16 @@ struct ClaudeDockButtonTests {
     func accessibilityLabelReflectsOpenState() {
         let closed = ClaudeDockButton(isOpen: false, isWorking: false) {}
         let open = ClaudeDockButton(isOpen: true, isWorking: false) {}
-        #expect(closed.accessibilityLabelForTesting == "Claude öffnen")
-        #expect(open.accessibilityLabelForTesting == "Claude schließen")
+        #expect(closed.accessibilityLabelText == "Claude öffnen")
+        #expect(open.accessibilityLabelText == "Claude schließen")
     }
 
     @Test
     func accessibilityValueReflectsWorkingState() {
         let idle = ClaudeDockButton(isOpen: false, isWorking: false) {}
         let working = ClaudeDockButton(isOpen: false, isWorking: true) {}
-        #expect(idle.accessibilityValueForTesting == "bereit")
-        #expect(working.accessibilityValueForTesting == "arbeitet")
+        #expect(idle.accessibilityValueText == "bereit")
+        #expect(working.accessibilityValueText == "arbeitet")
     }
 
     @Test

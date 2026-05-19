@@ -329,6 +329,19 @@ final class ClaudeSession {
         handOffPending = true
     }
 
+    // markHandOffStarting must fire BEFORE the caller flips persisted mode
+    // state — otherwise the new mode's spawn races the chat/terminal claude
+    // file-lock release ("Session ID … already in use").
+    func handOffToExternal() {
+        markHandOffStarting()
+        handOff()
+    }
+
+    func handOffFromExternal() {
+        markHandOffStarting()
+        resumeAfterHandOff()
+    }
+
     // Drains any awaiters before flipping the flag — keeps the @Observable
     // mutation visible to view-side reads while letting the continuation
     // waiters wake up exactly once per pending-cycle.

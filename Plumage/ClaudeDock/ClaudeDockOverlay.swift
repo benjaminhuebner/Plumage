@@ -5,6 +5,8 @@ struct ClaudeDockOverlay: View {
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private static let buttonBottomPadding: CGFloat = 16
     private static let buttonTrailingPadding: CGFloat = 16
     // 16pt safe-area + 48pt button + 12pt gap = 76pt.
@@ -12,9 +14,8 @@ struct ClaudeDockOverlay: View {
     private static let panelTrailingPadding: CGFloat = 16
 
     var body: some View {
-        // Two siblings instead of nested overlays so each gets its own
-        // hit area; the panel does not capture taps outside its frame.
         ZStack(alignment: .bottomTrailing) {
+            // Full-frame anchor so .bottomTrailing has something to pin to.
             Color.clear
             if isOpen {
                 ClaudeDockPanel(
@@ -24,10 +25,7 @@ struct ClaudeDockOverlay: View {
                 )
                 .padding(.trailing, Self.panelTrailingPadding)
                 .padding(.bottom, Self.panelBottomPadding)
-                .transition(
-                    .scale(scale: 0.05, anchor: .bottomTrailing)
-                        .combined(with: .opacity)
-                )
+                .transition(panelTransition)
             }
             ClaudeDockButton(
                 isOpen: isOpen,
@@ -37,16 +35,25 @@ struct ClaudeDockOverlay: View {
             .padding(.trailing, Self.buttonTrailingPadding)
             .padding(.bottom, Self.buttonBottomPadding)
         }
-        .allowsHitTesting(true)
     }
 
-    private func toggle() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+    func toggle() {
+        withAnimation(toggleAnimation) {
             isOpen.toggle()
         }
     }
 
-    func toggleForTesting() { toggle() }
+    private var toggleAnimation: Animation {
+        reduceMotion
+            ? .linear(duration: 0.1)
+            : .spring(response: 0.35, dampingFraction: 0.78)
+    }
+
+    private var panelTransition: AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .scale(scale: 0.05, anchor: .bottomTrailing).combined(with: .opacity)
+    }
 }
 
 #Preview {

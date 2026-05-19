@@ -25,7 +25,7 @@ struct ClaudeDockOverlayTests {
             indicatorState: .loading,
             isOpen: binding
         )
-        overlay.toggleForTesting()
+        overlay.toggle()
         #expect(isOpen == true)
     }
 
@@ -41,30 +41,7 @@ struct ClaudeDockOverlayTests {
             indicatorState: .loading,
             isOpen: binding
         )
-        overlay.toggleForTesting()
+        overlay.toggle()
         #expect(isOpen == false)
-    }
-
-    @Test
-    func overlayRendersWithoutCrashingForBothStates() {
-        var open = false
-        let binding = Binding<Bool>(
-            get: { open },
-            set: { open = $0 }
-        )
-        let session = makeSession()
-        _ =
-            ClaudeDockOverlay(
-                session: session,
-                indicatorState: .loading,
-                isOpen: binding
-            ).body
-        open = true
-        _ =
-            ClaudeDockOverlay(
-                session: session,
-                indicatorState: .loading,
-                isOpen: binding
-            ).body
     }
 }

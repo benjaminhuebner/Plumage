@@ -1,15 +1,20 @@
 import SwiftUI
 
 struct ClaudeDockPanel: View {
+    static let sceneStorageKey = "terminalPaneMode"
+    static let defaultMode: TerminalPaneMode = .chat
+
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
 
-    @SceneStorage("terminalPaneMode") private var modeRaw: String =
-        TerminalPaneMode.chat.rawValue
+    @SceneStorage(ClaudeDockPanel.sceneStorageKey) private var modeRaw: String =
+        ClaudeDockPanel.defaultMode.rawValue
 
-    private var mode: TerminalPaneMode {
-        TerminalPaneMode(rawValue: modeRaw) ?? .chat
+    @AccessibilityFocusState private var contentFocused: Bool
+
+    var mode: TerminalPaneMode {
+        TerminalPaneMode(rawValue: modeRaw) ?? Self.defaultMode
     }
 
     var body: some View {
@@ -28,47 +33,16 @@ struct ClaudeDockPanel: View {
         )
         .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
         .focusable()
+        .accessibilityFocused($contentFocused)
+        .onAppear { contentFocused = true }
         .onKeyPress(.escape) {
             close()
             return .handled
         }
     }
 
-    private func close() {
+    func close() {
         isOpen = false
-    }
-
-    let sceneStorageKeyForTesting = "terminalPaneMode"
-    let defaultModeForTesting: TerminalPaneMode = .chat
-
-    func closeForTesting() { close() }
-
-    private func performModeChange(to target: TerminalPaneMode) {
-        let current = mode
-        guard current != target else { return }
-        // Mark handoff pending BEFORE modeRaw mutates and triggers the body
-        // re-eval that mounts/dismantles SwiftTermBridge. Without this, the
-        // new mode's spawn Task races the .onChange that would otherwise call
-        // handOff: it sees handOffPending=false and starts claude immediately,
-        // then claude prints "Session ID … is already in use" because the
-        // previous claude hasn't released the log lock yet.
-        session.markHandOffStarting()
-        switch target {
-        case .terminal:
-            session.handOff()
-        case .chat:
-            session.resumeAfterHandOff()
-        }
-    }
-
-    private var modeBinding: Binding<TerminalPaneMode> {
-        Binding(
-            get: { mode },
-            set: { newMode in
-                performModeChange(to: newMode)
-                modeRaw = newMode.rawValue
-            }
-        )
     }
 
     @ViewBuilder
@@ -76,7 +50,6 @@ struct ClaudeDockPanel: View {
         switch indicatorState {
         case .loading, .ok:
             modeContent
-                .id(modeRaw)
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.18), value: modeRaw)
         case .missing, .unsupported, .failed:
@@ -97,10 +70,27 @@ struct ClaudeDockPanel: View {
                     }
                 }
         case .terminal:
+            // .id() forces SwiftTermBridge to dismantle+remount so the
+            // embedded claude spawn sees the fresh handoff state.
             EmbeddedTerminalView(session: session)
+                .id(TerminalPaneMode.terminal.rawValue)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
         }
+    }
+
+    private var modeBinding: Binding<TerminalPaneMode> {
+        Binding(
+            get: { mode },
+            set: { newMode in
+                guard mode != newMode else { return }
+                switch newMode {
+                case .terminal: session.handOffToExternal()
+                case .chat: session.handOffFromExternal()
+                }
+                modeRaw = newMode.rawValue
+            }
+        )
     }
 }
 
@@ -114,9 +104,9 @@ private struct DockPanelHeader: View {
             Spacer(minLength: 4)
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
+                    .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
