@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct NavigatorSidebar: View {
@@ -19,6 +20,7 @@ struct NavigatorSidebar: View {
             Section("Kanban") {
                 Label("Board", systemImage: "rectangle.3.group.fill")
                     .tag(NavigatorRoute.kanban)
+                    .clickableSidebarRow()
                 ForEach(IssueColumn.allCases) { column in
                     columnRow(column)
                 }
@@ -37,6 +39,7 @@ struct NavigatorSidebar: View {
             Section("Claude") {
                 Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
                     .tag(NavigatorRoute.claudeMD)
+                    .clickableSidebarRow()
                 hooksGroup
                 skillsGroup
                 settingsGroup
@@ -67,6 +70,7 @@ struct NavigatorSidebar: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
+            .clickableSidebarRow()
         }
     }
 
@@ -88,6 +92,7 @@ struct NavigatorSidebar: View {
                 .truncationMode(.tail)
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
+        .clickableSidebarRow()
     }
 
     @ViewBuilder
@@ -95,6 +100,7 @@ struct NavigatorSidebar: View {
         let relative = relativePath(for: url)
         Label(url.lastPathComponent, systemImage: "doc.text")
             .tag(NavigatorRoute.doc(relativePath: relative))
+            .clickableSidebarRow()
     }
 
     @ViewBuilder
@@ -106,10 +112,12 @@ struct NavigatorSidebar: View {
                 ForEach(navigator.hooks, id: \.self) { url in
                     Label(url.lastPathComponent, systemImage: "scroll")
                         .tag(NavigatorRoute.hook(name: url.lastPathComponent))
+                        .clickableSidebarRow()
                 }
             }
         } label: {
             Label("Hooks", systemImage: "terminal")
+                .clickableSidebarRow()
         }
     }
 
@@ -127,6 +135,7 @@ struct NavigatorSidebar: View {
             }
         } label: {
             Label("Skills", systemImage: "puzzlepiece.extension")
+                .clickableSidebarRow()
         }
     }
 
@@ -136,9 +145,11 @@ struct NavigatorSidebar: View {
             ForEach(SettingsFile.allCases, id: \.self) { file in
                 Label(file.rawValue, systemImage: "gearshape")
                     .tag(NavigatorRoute.settings(file))
+                    .clickableSidebarRow()
             }
         } label: {
             Label("Settings", systemImage: "gearshape.2")
+                .clickableSidebarRow()
         }
     }
 
@@ -157,6 +168,40 @@ struct NavigatorSidebar: View {
             return components[idx..<components.count].joined(separator: "/")
         }
         return url.lastPathComponent
+    }
+}
+
+private struct ClickableSidebarRowModifier: ViewModifier {
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                // push/pop must stay balanced — track local state so a
+                // missed exit callback (view removed mid-hover) can pop in
+                // .onDisappear.
+                if hovering {
+                    if !pushed {
+                        NSCursor.pointingHand.push()
+                        pushed = true
+                    }
+                } else if pushed {
+                    NSCursor.pop()
+                    pushed = false
+                }
+            }
+            .onDisappear {
+                if pushed {
+                    NSCursor.pop()
+                    pushed = false
+                }
+            }
+    }
+}
+
+extension View {
+    fileprivate func clickableSidebarRow() -> some View {
+        modifier(ClickableSidebarRowModifier())
     }
 }
 
