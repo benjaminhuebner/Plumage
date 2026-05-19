@@ -11,8 +11,8 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
     @SceneStorage("nav.expansion.settings") private var settingsExpanded = false
-    @SceneStorage("nav.expansion.col.todo") private var todoExpanded = true
-    @SceneStorage("nav.expansion.col.inProgress") private var inProgressExpanded = true
+    @SceneStorage("nav.expansion.col.todo") private var todoExpanded = false
+    @SceneStorage("nav.expansion.col.inProgress") private var inProgressExpanded = false
     @SceneStorage("nav.expansion.col.waitingForReview") private var waitingExpanded = false
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
