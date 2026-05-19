@@ -63,7 +63,7 @@ struct NavigatorSidebar: View {
             }
         } label: {
             HStack {
-                Text(column.name)
+                Label(column.name, systemImage: column.systemImage)
                 Spacer()
                 Text("\(items.count)")
                     .foregroundStyle(.tertiary)
