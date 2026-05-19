@@ -52,6 +52,11 @@ struct DocEditorView: View {
         .navigationTitle(displayName)
         .focusedSceneValue(\.specEditorIsActive, true)
         .focusedSceneValue(\.specEditorSave, attemptSave)
+        // Selection-driven detail has no pop, so the original
+        // `\.specEditorClose` pop semantic is meaningless here. Reuse the
+        // hook as a manual save-confirm trigger so Cmd-W mid-edit still
+        // commits the current buffer before the window closes.
+        .focusedSceneValue(\.specEditorClose, attemptSave)
         .focusedSceneValue(\.specEditorDirtyFolderName, model.isDirty ? displayName : nil)
         .task(id: model.fileURL) {
             loadFailed = nil
