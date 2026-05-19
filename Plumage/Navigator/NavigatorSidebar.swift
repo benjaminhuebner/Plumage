@@ -6,18 +6,43 @@ struct NavigatorSidebar: View {
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
 
-    @SceneStorage("nav.expansion.kanban") private var kanbanExpanded = true
-    @SceneStorage("nav.expansion.docs") private var docsExpanded = true
-    @SceneStorage("nav.expansion.claude") private var claudeExpanded = true
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
     @SceneStorage("nav.expansion.settings") private var settingsExpanded = false
+    @SceneStorage("nav.expansion.col.todo") private var todoExpanded = true
+    @SceneStorage("nav.expansion.col.inProgress") private var inProgressExpanded = true
+    @SceneStorage("nav.expansion.col.waitingForReview") private var waitingExpanded = false
+    @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
     var body: some View {
         List(selection: selectionBinding) {
-            kanbanSection
-            docsSection
-            claudeSection
+            Section("Kanban") {
+                Label("Board", systemImage: "rectangle.3.group.fill")
+                    .tag(NavigatorRoute.kanban)
+                ForEach(IssueColumn.allCases) { column in
+                    columnRow(column)
+                }
+            }
+
+            Section("Docs") {
+                if navigator.docs.isEmpty {
+                    Text("No docs yet")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    ForEach(navigator.docs, id: \.self) { url in
+                        docRow(url)
+                    }
+                }
+            }
+
+            Section("Claude") {
+                Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
+                    .tag(NavigatorRoute.claudeMD)
+                hooksGroup
+                skillsGroup
+                settingsGroup
+            }
         }
         .listStyle(.sidebar)
     }
@@ -30,24 +55,9 @@ struct NavigatorSidebar: View {
     }
 
     @ViewBuilder
-    private var kanbanSection: some View {
-        Section {
-            DisclosureGroup(isExpanded: $kanbanExpanded) {
-                ForEach(IssueColumn.allCases) { column in
-                    columnRow(column)
-                }
-            } label: {
-                Label("Kanban", systemImage: "rectangle.3.group.fill")
-                    .font(.headline)
-            }
-            .tag(NavigatorRoute.kanban)
-        }
-    }
-
-    @ViewBuilder
     private func columnRow(_ column: IssueColumn) -> some View {
         let items = kanban.groupedIssues[column] ?? []
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: expansionBinding(for: column)) {
             ForEach(items, id: \.id) { issue in
                 issueRow(issue)
             }
@@ -59,6 +69,15 @@ struct NavigatorSidebar: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
+        }
+    }
+
+    private func expansionBinding(for column: IssueColumn) -> Binding<Bool> {
+        switch column {
+        case .todo: return $todoExpanded
+        case .inProgress: return $inProgressExpanded
+        case .waitingForReview: return $waitingExpanded
+        case .done: return $doneExpanded
         }
     }
 
@@ -74,46 +93,10 @@ struct NavigatorSidebar: View {
     }
 
     @ViewBuilder
-    private var docsSection: some View {
-        Section {
-            DisclosureGroup(isExpanded: $docsExpanded) {
-                if navigator.docs.isEmpty {
-                    Text("No docs")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
-                } else {
-                    ForEach(navigator.docs, id: \.self) { url in
-                        docRow(url)
-                    }
-                }
-            } label: {
-                Label("Docs", systemImage: "doc.text")
-                    .font(.headline)
-            }
-        }
-    }
-
-    @ViewBuilder
     private func docRow(_ url: URL) -> some View {
         let relative = relativePath(for: url)
-        Label(url.lastPathComponent, systemImage: "doc")
+        Label(url.lastPathComponent, systemImage: "doc.text")
             .tag(NavigatorRoute.doc(relativePath: relative))
-    }
-
-    @ViewBuilder
-    private var claudeSection: some View {
-        Section {
-            DisclosureGroup(isExpanded: $claudeExpanded) {
-                Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
-                    .tag(NavigatorRoute.claudeMD)
-                hooksGroup
-                skillsGroup
-                settingsGroup
-            } label: {
-                Label("Claude", systemImage: "doc.badge.gearshape")
-                    .font(.headline)
-            }
-        }
     }
 
     @ViewBuilder
@@ -125,7 +108,7 @@ struct NavigatorSidebar: View {
                     .font(.callout)
             } else {
                 ForEach(navigator.hooks, id: \.self) { url in
-                    Label(url.lastPathComponent, systemImage: "doc")
+                    Label(url.lastPathComponent, systemImage: "scroll")
                         .tag(NavigatorRoute.hook(name: url.lastPathComponent))
                 }
             }
@@ -157,18 +140,15 @@ struct NavigatorSidebar: View {
     private var settingsGroup: some View {
         DisclosureGroup(isExpanded: $settingsExpanded) {
             ForEach(SettingsFile.allCases, id: \.self) { file in
-                Label(file.rawValue, systemImage: "doc")
+                Label(file.rawValue, systemImage: "gearshape")
                     .tag(NavigatorRoute.settings(file))
             }
         } label: {
-            Label("Settings", systemImage: "gearshape")
+            Label("Settings", systemImage: "gearshape.2")
         }
     }
 
     private func relativePath(for url: URL) -> String {
-        // Docs URLs live under `.claude/docs/<file>.md`; record the path
-        // segment from `.claude/` downward so the route survives across
-        // project-root moves and round-trips through @SceneStorage.
         let components = url.pathComponents
         if let idx = components.lastIndex(of: ".claude") {
             return components[idx..<components.count].joined(separator: "/")
