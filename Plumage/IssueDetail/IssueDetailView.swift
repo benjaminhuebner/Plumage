@@ -64,11 +64,11 @@ struct IssueDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundTint)
-        .navigationTitle(navigationTitle)
+        .navigationTitle(model.navigationTitle)
         .focusedSceneValue(\.specEditorIsActive, true)
         .focusedSceneValue(\.specEditorSave, attemptSave)
         .focusedSceneValue(\.specEditorClose, triggerPop)
-        .focusedSceneValue(\.specEditorDirtyFolderName, dirtyFolderName)
+        .focusedSceneValue(\.specEditorDirtyFolderName, model.dirtyFolderName(rawDirty: isRawDirty))
         .task(id: model.specURL) {
             guard !model.isCreating else { return }
             await model.load()
@@ -178,8 +178,8 @@ struct IssueDetailView: View {
                 showsCopyID: !model.isCreating,
                 showsRevealInFinder: !model.isCreating,
                 saveDisabled: saveDisabled,
-                onCopyID: copyID,
-                onRevealInFinder: revealInFinder,
+                onCopyID: model.copyIDToPasteboard,
+                onRevealInFinder: model.revealInFinder,
                 onSave: attemptSave
             )
             switch displayMode {
@@ -313,7 +313,7 @@ struct IssueDetailView: View {
             // Read-only synthesized preview; the setter is a no-op because
             // the editor is .disabled() in creating mode.
             return Binding(
-                get: { synthesizedRawPreview },
+                get: { model.synthesizedRawPreview },
                 set: { _ in }
             )
         }
@@ -321,25 +321,6 @@ struct IssueDetailView: View {
             get: { rawDraft },
             set: { rawDraft = $0 }
         )
-    }
-
-    private var synthesizedRawPreview: String {
-        let labels = FrontmatterMutator.formatLabels(model.labelsDraft)
-        let title =
-            model.titleDraft.isEmpty
-            ? ""
-            : FrontmatterMutator.formatTitleValue(model.titleDraft)
-        return """
-            ---
-            id: <pending>
-            title: \(title)
-            type: \(model.typeDraft.rawValue)
-            status: \(model.statusDraft.rawValue)
-            labels: \(labels)
-            ---
-
-            \(model.bodyDraft)
-            """
     }
 
     private var saveDisabled: Bool {
@@ -352,28 +333,11 @@ struct IssueDetailView: View {
         return model.frontmatterError != nil
     }
 
+    // Local thin wrapper — the model owns the dirty check, but it needs to
+    // be passed `rawDraft` because the raw buffer still lives on the view
+    // (sync with model.loadedSpecContent via onChange handlers).
     private var isRawDirty: Bool {
-        rawDraft != model.loadedSpecContent
-    }
-
-    private var isAnyDirty: Bool {
-        switch displayMode {
-        case .detail: model.isBodyDirty
-        case .raw: isRawDirty
-        }
-    }
-
-    private var navigationTitle: String {
-        if model.isCreating {
-            return "New Issue"
-        }
-        return model.issue?.title ?? model.folderName ?? ""
-    }
-
-    private var dirtyFolderName: String? {
-        // No folder yet in creating mode → never report a dirty folderName.
-        guard !model.isCreating, isAnyDirty else { return nil }
-        return model.folderName
+        model.isRawDirty(rawDraft)
     }
 
     // MARK: - Mode-aware callbacks
@@ -499,19 +463,6 @@ struct IssueDetailView: View {
     private func presentSaveAlert(message: String, kind: SaveAlert.Kind) {
         pendingSaveAlert = SaveAlert(message: message, kind: kind)
         saveAlertVisible = true
-    }
-
-    private func copyID() {
-        guard let folder = model.folderName else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(folder, forType: .string)
-    }
-
-    private func revealInFinder() {
-        guard let folder = model.folderName else { return }
-        let url = IssueLayout.issueFolder(in: projectURL, folderName: folder)
-        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 }
 

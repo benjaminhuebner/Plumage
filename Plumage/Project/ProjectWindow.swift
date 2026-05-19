@@ -50,22 +50,10 @@ struct ProjectWindow: View {
                 }
                 // @State ignores re-assignment from init, so a window reused
                 // for a different handle keeps the stale session.cwd unless
-                // we rebuild here.
-                if session.cwd != handle.url {
-                    session.stop()
-                    let binary =
-                        (try? ProductionProcessRunner.locateBinary())
-                        ?? URL(filePath: "/dev/null")
-                    session = ClaudeSession(cwd: handle.url, binaryURL: binary)
-                }
-                // Window-scoped session lifecycle: start once when the window
-                // appears so dock-toggle/Cmd+Opt+T don't pay claude's boot
-                // latency. session.stop() lives in .onDisappear below.
-                switch session.state {
-                case .idle: session.start()
-                case .exited: session.restart()
-                case .starting, .running: break
-                }
+                // we rebuild here. attach() then handles the
+                // start/restart/no-op decision.
+                session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
+                session.attach()
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)

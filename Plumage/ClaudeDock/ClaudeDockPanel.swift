@@ -3,10 +3,18 @@ import SwiftUI
 struct ClaudeDockPanel: View {
     static let sceneStorageKey = "terminalPaneMode"
     static let defaultMode: TerminalPaneMode = .chat
+    static let preferredWidth: CGFloat = 420
+    static let preferredHeight: CGFloat = 560
 
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
+    // The overlay measures available window height and passes it down so
+    // the panel can shrink instead of overflowing the window's top edge
+    // when the user resizes near the project window's minHeight (560pt).
+    // Defaults to preferredHeight so previews / standalone uses keep
+    // their original size.
+    var availableHeight: CGFloat = ClaudeDockPanel.preferredHeight
 
     @SceneStorage(ClaudeDockPanel.sceneStorageKey) private var modeRaw: String =
         ClaudeDockPanel.defaultMode.rawValue
@@ -22,7 +30,10 @@ struct ClaudeDockPanel: View {
             DockPanelHeader(mode: modeBinding, onClose: close)
             content
         }
-        .frame(width: 420, height: 560)
+        .frame(
+            width: Self.preferredWidth,
+            height: min(Self.preferredHeight, max(availableHeight - 96, 240))
+        )
         .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
         .focusable()
         .accessibilityFocused($contentFocused)

@@ -33,6 +33,13 @@ final class DocEditorModel {
         self.writer = writer
     }
 
+    // Safety net for abnormal teardown paths where .onDisappear is skipped.
+    // Primary cleanup remains the view's .onDisappear → cancelPendingWork.
+    // isolated deinit (Swift 6.2) so we can touch the @MainActor state.
+    isolated deinit {
+        pendingSave?.cancel()
+    }
+
     func load() async throws {
         let url = fileURL
         let result = await Task.detached(priority: .userInitiated) { () -> (String, Bool) in

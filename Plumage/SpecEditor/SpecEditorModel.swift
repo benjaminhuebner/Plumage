@@ -39,12 +39,28 @@ final class SpecEditorModel {
     // about it.
     private var saveGeneration: UInt64 = 0
 
+    // Cache the last frontmatter substring + its validation result so
+    // body-only keystrokes skip the YAML decode entirely. The CodeEditor
+    // fires evaluateFrontmatterError on every character; without this
+    // guard each keystroke allocates intermediate strings inside
+    // extractFrontmatter and a fresh YAML decode pass.
+    private var lastValidatedFrontmatter: String?
+
     var isDirty: Bool { buffer != loadedContent }
 
     init(specURL: URL, folderName: String, writer: SpecWriting = DefaultSpecWriter()) {
         self.specURL = specURL
         self.folderName = folderName
         self.writer = writer
+    }
+
+    // Safety net for abnormal teardown paths where .onDisappear is skipped
+    // (system-initiated window close, navigation-stack edge cases). The
+    // primary cleanup path remains the view's .onDisappear → cancelPendingWork.
+    // isolated deinit (Swift 6.2) so we can touch the @MainActor state.
+    isolated deinit {
+        pendingSave?.cancel()
+        observeTask?.cancel()
     }
 
     func noteSeenIssue(_ issue: DiscoveredIssue?) {
@@ -185,6 +201,14 @@ final class SpecEditorModel {
     }
 
     private func evaluateFrontmatterError() {
+        // Fast path: if the frontmatter region is byte-identical to the
+        // last validated one, the result cannot have changed — skip the
+        // YAML decode. Body-only edits flow through here untouched.
+        let region = SpecParser.extractFrontmatterRegion(from: buffer)
+        if let region, region == lastValidatedFrontmatter {
+            return
+        }
+        lastValidatedFrontmatter = region
         frontmatterError = SpecParser.validate(content: buffer)
     }
 }

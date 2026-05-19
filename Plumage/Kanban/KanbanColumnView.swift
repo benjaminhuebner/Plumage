@@ -100,10 +100,20 @@ private struct DraggableColumnBody: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 24)
         } else {
+            // Translate placeholderIndex (Int?) into id-based markers so the
+            // ForEach can iterate `issues` directly without an
+            // `Array(issues.enumerated())` allocation on every drag frame.
+            // placeholderBeforeID names the card the placeholder appears
+            // ABOVE; placeholderAtEnd handles the bottom-of-list case where
+            // placeholderIndex == issues.count.
+            let placeholderBeforeID: String? = placeholderIndex.flatMap { idx in
+                idx < issues.count ? issues[idx].id : nil
+            }
+            let placeholderAtEnd = placeholderIndex == issues.count
             ScrollView {
                 LazyVStack(spacing: KanbanLayout.cardSpacing) {
-                    ForEach(Array(issues.enumerated()), id: \.element.id) { idx, item in
-                        if placeholderIndex == idx {
+                    ForEach(issues, id: \.id) { item in
+                        if item.id == placeholderBeforeID {
                             placeholderSlot
                         }
                         IssueCardSwitch(
@@ -120,11 +130,17 @@ private struct DraggableColumnBody: View {
                         // with it.
                         .id(item.id)
                     }
-                    if placeholderIndex == issues.count {
+                    if placeholderAtEnd {
                         placeholderSlot
                     }
                 }
                 .padding(.horizontal, 4)
+                // Animate FSEvent-driven reorders and optimistic-rollback
+                // restorations. The drag-time placeholder change is driven
+                // by KanbanView.updateResolvedTarget's own withAnimation
+                // and is not tied to `issues`, so this modifier won't fire
+                // on every drag cursor frame.
+                .animation(.smooth(duration: 0.4), value: issues)
             }
             .scrollPosition(autoScroll.columnBinding(for: column))
             .scrollDisabled(kanbanDrag.isActive)

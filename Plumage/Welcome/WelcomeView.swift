@@ -18,7 +18,15 @@ struct WelcomeView: View {
                 .frame(width: Self.leftPaneWidth)
             rightPane
         }
-        .frame(width: Self.windowWidth, height: Self.windowHeight)
+        // min/ideal pair instead of a hard width/height: a hard `.frame(width:height:)`
+        // on a Window scene root historically wedged XCUITest auto-terminate
+        // (notes.md 00002-open-project), and a non-resizable window also
+        // truncates long recent-project paths with no way to widen. Min equals
+        // Ideal so the default opening size is unchanged.
+        .frame(
+            minWidth: Self.windowWidth, idealWidth: Self.windowWidth,
+            minHeight: Self.windowHeight, idealHeight: Self.windowHeight
+        )
         .background(WindowChromeCustomizer(windowAlphaHidden: windowAlphaHidden))
     }
 

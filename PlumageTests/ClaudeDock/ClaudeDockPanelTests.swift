@@ -13,7 +13,7 @@ struct ClaudeDockPanelTests {
         )
     }
 
-    @Test
+    @Test("scene storage key matches previous TerminalPaneView key")
     func sceneStorageKeyMatchesPreviousTerminalPaneViewKey() {
         // Persistence carries over from the pre-dock TerminalPaneView, so the
         // key must stay "terminalPaneMode". A rename here would silently reset
@@ -22,7 +22,7 @@ struct ClaudeDockPanelTests {
         #expect(ClaudeDockPanel.defaultMode == .chat)
     }
 
-    @Test
+    @Test("close flips binding to false")
     func closeFlipsBindingToFalse() {
         var isOpen = true
         let binding = Binding<Bool>(
@@ -38,7 +38,7 @@ struct ClaudeDockPanelTests {
         #expect(isOpen == false)
     }
 
-    @Test
+    @Test("TerminalPaneMode raw value round-trips")
     func terminalPaneModeRoundTrips() {
         #expect(TerminalPaneMode(rawValue: "chat") == .chat)
         #expect(TerminalPaneMode(rawValue: "terminal") == .terminal)

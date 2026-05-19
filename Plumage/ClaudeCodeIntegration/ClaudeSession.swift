@@ -57,6 +57,7 @@ final class ClaudeSession {
     private var process: Process?
     private var stdinHandle: FileHandle?
     private var readTask: Task<Void, Never>?
+    private var subcommandTask: Task<Void, Never>?
     private var handOffWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     // Defaults to ~/.claude/projects but is injectable so tests can point at
@@ -80,10 +81,50 @@ final class ClaudeSession {
             .appendingPathComponent(".claude/projects")
     }
 
+    // Safety net for abnormal teardown paths (scene killed, owner replaced
+    // without explicit stop()). The owning view's .onDisappear is the
+    // primary cleanup path; without this deinit a window-close path that
+    // skips that hook would leak readTask + stdout fd-pair indefinitely.
+    //
+    // isolated deinit (Swift 6.2) so we can touch the @MainActor state
+    // directly. Practically every release path lands on the main actor
+    // anyway (SwiftUI @State on MainActor) — the explicit isolation just
+    // makes the compiler happy without an assumeIsolated escape hatch.
+    isolated deinit {
+        readTask?.cancel()
+        subcommandTask?.cancel()
+        try? stdinHandle?.close()
+        process?.terminate()
+    }
+
     func start() {
         guard case .idle = state else { return }
         state = .starting(cwd: cwd)
         if autoSpawn { spawn() }
+    }
+
+    // Window-scoped lifecycle hook called from ProjectWindow.task. Picks the
+    // right transition for the session's current state (start vs restart vs
+    // no-op) so the view body stays free of state-machine logic.
+    func attach() {
+        switch state {
+        case .idle: start()
+        case .exited: restart()
+        case .starting, .running: break
+        }
+    }
+
+    // Helper for ProjectWindow's URL-change path: if the new URL matches the
+    // existing session's cwd, keeps the session; otherwise stops the prior
+    // and returns a fresh ClaudeSession bound to the new cwd. Centralises
+    // the binary-location lookup so the call site doesn't duplicate it.
+    static func rebuilt(for handleURL: URL, replacing prior: ClaudeSession) -> ClaudeSession {
+        if prior.cwd == handleURL { return prior }
+        prior.stop()
+        let binary =
+            (try? ProductionProcessRunner.locateBinary())
+            ?? URL(filePath: "/dev/null")
+        return ClaudeSession(cwd: handleURL, binaryURL: binary)
     }
 
     func send(_ text: String) async {
@@ -126,12 +167,18 @@ final class ClaudeSession {
             appendSystemMessage(statusReport())
         case "/mcp":
             appendSystemMessage("Listing MCP servers…")
-            Task { [weak self] in
+            // Tracked so stop()/clearAndRestart() teardown can cancel the
+            // child via dispatchSubcommand's withTaskCancellationHandler.
+            // Cancelling any prior tracked subcommand prevents two slash
+            // commands from racing for the slot.
+            subcommandTask?.cancel()
+            subcommandTask = Task { [weak self] in
                 await self?.dispatchSubcommand(["mcp", "list"], label: "MCP servers")
             }
         case "/doctor":
             appendSystemMessage("Running claude doctor…")
-            Task { [weak self] in
+            subcommandTask?.cancel()
+            subcommandTask = Task { [weak self] in
                 await self?.dispatchSubcommand(["doctor"], label: "claude doctor")
             }
         case "/help":
@@ -228,6 +275,8 @@ final class ClaudeSession {
         stdinHandle = nil
         readTask?.cancel()
         readTask = nil
+        subcommandTask?.cancel()
+        subcommandTask = nil
         process = nil
 
         // Fresh context: new session ID, dropped history.
@@ -247,6 +296,8 @@ final class ClaudeSession {
         // clearAndRestart already do this — stop() must too.
         readTask?.cancel()
         readTask = nil
+        subcommandTask?.cancel()
+        subcommandTask = nil
         process?.terminate()
         process = nil
     }
@@ -290,6 +341,8 @@ final class ClaudeSession {
             stdinHandle = nil
             readTask?.cancel()
             readTask = nil
+            subcommandTask?.cancel()
+            subcommandTask = nil
             awaitingResponse = false
             state = .exited(code: 0, reason: .userClosed)
             return
@@ -307,6 +360,8 @@ final class ClaudeSession {
         stdinHandle = nil
         readTask?.cancel()
         readTask = nil
+        subcommandTask?.cancel()
+        subcommandTask = nil
         process = nil
         awaitingResponse = false
         state = .exited(code: 0, reason: .userClosed)
@@ -357,6 +412,13 @@ final class ClaudeSession {
     // Task races the signal and cleans up its own waiter slot if it wins, so
     // a never-arriving handoff completion releases the caller after `timeout`
     // without leaking the continuation.
+    #if DEBUG
+    // Test hook so awaitHandOff tests can poll for waiter registration
+    // deterministically (via Task.yield) instead of sleeping for an
+    // arbitrary stabilisation window.
+    func handOffWaiterCountForTesting() -> Int { handOffWaiters.count }
+    #endif
+
     func awaitHandOff(timeout: Duration = .seconds(3)) async {
         guard handOffPending else { return }
         let id = UUID()
@@ -604,6 +666,13 @@ final class ClaudeSession {
         }
     }
 
+    // @unchecked Sendable: `partial` is mutated from two contexts —
+    // `readabilityHandler` on the FileHandle's background queue (append /
+    // flush during streaming) and the AsyncStream's onTermination on
+    // teardown. NSLock serializes every read and write of `partial`, so
+    // concurrent access is safe even though the compiler can't see it.
+    // Removing the lock or relaxing the contract would re-introduce a
+    // silent data race on the partial-line buffer. See notes.md.
     private nonisolated final class LineBuffer: @unchecked Sendable {
         private let lock = NSLock()
         private var partial: String = ""
@@ -612,8 +681,15 @@ final class ClaudeSession {
             lock.lock()
             defer { lock.unlock() }
             guard let chunk = String(data: data, encoding: .utf8) else { return [] }
-            partial += chunk
+            // `partial += chunk` triggers COW when partial's underlying
+            // storage is shared (e.g. captured by a prior line slice);
+            // append(contentsOf:) reuses the existing storage when refs == 1.
+            partial.append(contentsOf: chunk)
             var lines: [String] = []
+            // Most stdout chunks carry zero or one newline; preallocate
+            // for the common case so a streaming burst doesn't trip the
+            // array's growth doubling on every chunk.
+            lines.reserveCapacity(4)
             while let nl = partial.range(of: "\n") {
                 lines.append(String(partial[..<nl.lowerBound]))
                 partial.removeSubrange(..<nl.upperBound)
@@ -631,7 +707,7 @@ final class ClaudeSession {
     }
 
     private func appendSystemMessage(_ text: String) {
-        messages.append(
+        appendMessage(
             ChatMessage(id: UUID(), role: .system, text: text, timestamp: .now)
         )
     }
@@ -639,11 +715,11 @@ final class ClaudeSession {
     private func appendAssistant(_ content: AssistantContent) {
         switch content {
         case .text(let text):
-            messages.append(
+            appendMessage(
                 ChatMessage(id: UUID(), role: .assistant, text: text, timestamp: .now)
             )
         case .toolUse(let name):
-            messages.append(
+            appendMessage(
                 ChatMessage(
                     id: UUID(),
                     role: .assistant,
@@ -653,6 +729,18 @@ final class ClaudeSession {
             )
         case .other:
             break
+        }
+    }
+
+    // Cap the live messages array to `rehydrationCap` (with a 2× slack so
+    // we only trim in bursts, not on every append). The rehydration path
+    // already truncates to the same cap; without this guard a long session
+    // with many tool-use turns grows unbounded, slowing ForEach diffs and
+    // memory in lockstep.
+    private func appendMessage(_ message: ChatMessage) {
+        messages.append(message)
+        if messages.count > rehydrationCap * 2 {
+            messages = Array(messages.suffix(rehydrationCap))
         }
     }
 

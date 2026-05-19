@@ -13,7 +13,7 @@ struct ClaudeDockOverlayTests {
         )
     }
 
-    @Test
+    @Test("toggle flips binding from false to true")
     func toggleFlipsBindingFromFalseToTrue() {
         var isOpen = false
         let binding = Binding<Bool>(
@@ -29,7 +29,7 @@ struct ClaudeDockOverlayTests {
         #expect(isOpen == true)
     }
 
-    @Test
+    @Test("toggle flips binding from true to false")
     func toggleFlipsBindingFromTrueToFalse() {
         var isOpen = true
         let binding = Binding<Bool>(

@@ -6,6 +6,7 @@ struct ClaudeDockOverlay: View {
     @Binding var isOpen: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var availableHeight: CGFloat = ClaudeDockPanel.preferredHeight
 
     private static let buttonBottomPadding: CGFloat = 16
     private static let buttonTrailingPadding: CGFloat = 16
@@ -17,12 +18,21 @@ struct ClaudeDockOverlay: View {
         GlassEffectContainer {
             ZStack(alignment: .bottomTrailing) {
                 // Full-frame anchor so .bottomTrailing has something to pin to.
+                // onGeometryChange feeds the panel the live window height so
+                // it can shrink at minHeight=560 instead of overflowing the
+                // window's top edge.
                 Color.clear
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        availableHeight = height
+                    }
                 if isOpen {
                     ClaudeDockPanel(
                         session: session,
                         indicatorState: indicatorState,
-                        isOpen: $isOpen
+                        isOpen: $isOpen,
+                        availableHeight: availableHeight
                     )
                     .padding(.trailing, Self.panelTrailingPadding)
                     .padding(.bottom, Self.panelBottomPadding)

@@ -3,6 +3,14 @@ import Foundation
 nonisolated final class IssueWatcher: Sendable {
     nonisolated let events: AsyncStream<IssueChangeEvent>
 
+    // Stored so deinit can cancel them. continuation.onTermination already
+    // cancels both, but that only fires when the stream itself is released —
+    // if a caller creates an IssueWatcher and drops it without consuming
+    // `events`, the tasks would otherwise live until the stream eventually
+    // deallocates. deinit closes that gap.
+    private let signaler: Task<Void, Never>
+    private let pump: Task<Void, Never>
+
     convenience init(
         projectURL: URL,
         clock: some Clock<Duration> = ContinuousClock(),
@@ -57,10 +65,18 @@ nonisolated final class IssueWatcher: Sendable {
             }
         }
 
+        self.signaler = signaler
+        self.pump = pump
+
         continuation.onTermination = { @Sendable _ in
             signaler.cancel()
             pump.cancel()
             onTeardown()
         }
+    }
+
+    deinit {
+        signaler.cancel()
+        pump.cancel()
     }
 }

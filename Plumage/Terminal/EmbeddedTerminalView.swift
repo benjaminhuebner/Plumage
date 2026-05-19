@@ -74,6 +74,16 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // own "is already in use" detection).
         let cwd = session.cwd
         let binaryURL = session.binaryURL
+        // Defense in depth: the POSIX single-quote escape below is correct
+        // for ' characters but offers no guarantee against null bytes or
+        // embedded newlines, both of which would break `/bin/sh -c` parsing
+        // in unpredictable ways. Reject the spawn outright if either is
+        // present in cwd or claude's path — these can only originate from
+        // a corrupt environment (the user's file system); fail loudly
+        // rather than fan a malformed shell command out to /bin/sh.
+        guard Self.isShellSafe(cwd.path), Self.isShellSafe(binaryURL.path) else {
+            return view
+        }
         let quotedPath = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let claudePath = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let env = Self.environmentForClaude()
@@ -110,10 +120,20 @@ private struct SwiftTermBridge: NSViewRepresentable {
 
     private static func shellQuotedAttachArgs(_ args: [String]) -> String {
         args.map { arg in
+            // Guard mirrors the cwd/binary-path check in makeNSView: null
+            // bytes or newlines in any arg break /bin/sh -c parsing in
+            // ways quoting cannot recover from. Today resumeOrInitArgs
+            // only returns hex UUIDs + literal flags, but the function is
+            // `internal` and a future caller could change that.
+            precondition(isShellSafe(arg), "shellQuotedAttachArgs: unsafe arg")
             let escaped = arg.replacingOccurrences(of: "'", with: #"'\''"#)
             return "'\(escaped)'"
         }
         .joined(separator: " ")
+    }
+
+    private static func isShellSafe(_ value: String) -> Bool {
+        !value.contains("\0") && !value.contains("\n") && !value.contains("\r")
     }
 
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {

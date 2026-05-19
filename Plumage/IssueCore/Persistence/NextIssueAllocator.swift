@@ -182,7 +182,11 @@ nonisolated struct NextIssueAllocator: Sendable {
         var out = template
         out = out.replacingOccurrences(of: "<<<ID>>>", with: String(id))
         out = out.replacingOccurrences(of: "<<<ID_PADDED>>>", with: idPadded)
-        out = out.replacingOccurrences(of: "<<<TITLE>>>", with: title)
+        // YAML-quote the user-supplied title so `:`, `[`, `{`, `#`, leading
+        // dashes, or embedded newlines don't produce a frontmatter file
+        // that fails its own re-parse (red "invalid" card). Routes the
+        // value through the same formatter the form-commit path uses.
+        out = out.replacingOccurrences(of: "<<<TITLE>>>", with: FrontmatterMutator.formatTitleValue(title))
         out = out.replacingOccurrences(of: "<<<SLUG>>>", with: slug)
         out = out.replacingOccurrences(of: "<<<CREATED>>>", with: created)
         return injectTypeAndLabels(out, type: type, labels: labels)

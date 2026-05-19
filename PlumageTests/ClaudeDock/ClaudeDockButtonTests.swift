@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct ClaudeDockButtonTests {
-    @Test
+    @Test("tap invokes the action closure")
     func tapInvokesAction() {
         var taps = 0
         let button = ClaudeDockButton(isOpen: false, isWorking: false) {
@@ -15,7 +15,7 @@ struct ClaudeDockButtonTests {
         #expect(taps == 1)
     }
 
-    @Test
+    @Test("accessibility label reflects open state")
     func accessibilityLabelReflectsOpenState() {
         let closed = ClaudeDockButton(isOpen: false, isWorking: false) {}
         let open = ClaudeDockButton(isOpen: true, isWorking: false) {}
@@ -23,7 +23,7 @@ struct ClaudeDockButtonTests {
         #expect(open.accessibilityLabelText == "Claude schließen")
     }
 
-    @Test
+    @Test("accessibility value reflects working state")
     func accessibilityValueReflectsWorkingState() {
         let idle = ClaudeDockButton(isOpen: false, isWorking: false) {}
         let working = ClaudeDockButton(isOpen: false, isWorking: true) {}
@@ -31,7 +31,7 @@ struct ClaudeDockButtonTests {
         #expect(working.accessibilityValueText == "arbeitet")
     }
 
-    @Test
+    @Test("symbol name is sparkles")
     func symbolNameIsSparkles() {
         #expect(ClaudeDockButton.symbolName == "sparkles")
     }

@@ -1,6 +1,10 @@
 import Foundation
 import Observation
-import SwiftUI
+
+// Intentionally no `import SwiftUI` — kept pure-Foundation so the model is
+// fully testable from any host and the animation decision (which mutations
+// animate, which snap) lives at the call site in KanbanColumnView /
+// KanbanView via `.animation(_:value:)`.
 
 @Observable
 @MainActor
@@ -89,21 +93,14 @@ final class ProjectKanbanModel {
         for await snapshot in producer.snapshots {
             let reconciled = Self.reconcile(incoming: snapshot, pending: pendingDrop)
             let groups = Self.group(reconciled.snapshot)
+            // Mutate-only: KanbanColumnView attaches `.animation(.smooth, value:)`
+            // for the FSEvent path. The pending-drop clear and the FSEvent
+            // re-render both look identical from this side; the view layer
+            // decides whether the change animates.
+            self.issues = reconciled.snapshot
+            self.groupedIssues = groups
             if reconciled.pendingCleared {
-                // FSEvent confirms our own pending drop — the layout is
-                // already correct on screen, only invisible fields like
-                // `updated` have changed. Wrapping this in withAnimation
-                // triggers a visible "refresh" pass that looks like a
-                // sort-after-drop because SwiftUI re-evaluates the whole
-                // LazyVStack. Apply directly without animation.
-                self.issues = reconciled.snapshot
-                self.groupedIssues = groups
                 pendingDrop = nil
-            } else {
-                withAnimation(.smooth(duration: 0.4)) {
-                    self.issues = reconciled.snapshot
-                    self.groupedIssues = groups
-                }
             }
         }
         await producer.stop()
@@ -226,10 +223,10 @@ final class ProjectKanbanModel {
     }
 
     private func rollbackOptimisticDrop(to prior: [DiscoveredIssue], error: String) {
-        withAnimation(.smooth) {
-            issues = prior
-            groupedIssues = Self.group(prior)
-        }
+        // Mutate-only; view-side `.animation(.smooth, value: kanban.issues)`
+        // handles the visual transition. See `run` for the same reasoning.
+        issues = prior
+        groupedIssues = Self.group(prior)
         pendingDrop = nil
         lastDropError = error
     }
@@ -237,10 +234,8 @@ final class ProjectKanbanModel {
     func applyOptimisticArchive(folderName: String, projectURL: URL) {
         guard issues.contains(where: { $0.id == folderName }) else { return }
         let priorIssues = issues
-        withAnimation(.smooth) {
-            issues = issues.filter { $0.id != folderName }
-            groupedIssues = Self.group(issues)
-        }
+        issues = issues.filter { $0.id != folderName }
+        groupedIssues = Self.group(issues)
         let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
         let archiveRoot = IssueLayout.archiveDirectory(in: projectURL)
         let archiverFn = archiver
@@ -274,10 +269,8 @@ final class ProjectKanbanModel {
     func applyOptimisticTrash(folderName: String, projectURL: URL) {
         guard issues.contains(where: { $0.id == folderName }) else { return }
         let priorIssues = issues
-        withAnimation(.smooth) {
-            issues = issues.filter { $0.id != folderName }
-            groupedIssues = Self.group(issues)
-        }
+        issues = issues.filter { $0.id != folderName }
+        groupedIssues = Self.group(issues)
         let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
         let trasherFn = trasher
         removalTask?.cancel()
@@ -306,10 +299,8 @@ final class ProjectKanbanModel {
     // intentionally — generalizing the two would force callers to share an
     // error surface and obscure which kind of removal failed.
     private func rollbackOptimisticRemoval(to prior: [DiscoveredIssue], error: String) {
-        withAnimation(.smooth) {
-            issues = prior
-            groupedIssues = Self.group(prior)
-        }
+        issues = prior
+        groupedIssues = Self.group(prior)
         lastRemovalError = error
     }
 

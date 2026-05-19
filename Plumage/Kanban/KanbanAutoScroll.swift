@@ -63,6 +63,14 @@ final class KanbanAutoScroll {
         activeTrigger = nil
     }
 
+    // Safety net for abnormal teardown paths. Primary cleanup remains the
+    // view's gesture-end → stop(). isolated deinit (Swift 6.2) cancels the
+    // 60Hz tick loop immediately rather than letting `[weak self]` defer
+    // the exit by one tick.
+    isolated deinit {
+        tickTask?.cancel()
+    }
+
     nonisolated static func detectTrigger(
         cursor: CGPoint,
         kanbanFrame: CGRect,

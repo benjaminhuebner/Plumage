@@ -262,8 +262,16 @@ struct ClaudeSessionTests {
             await session.awaitHandOff(timeout: .seconds(2))
         }
 
-        // Yield so the waiter Task registers its continuation before we signal.
-        try? await Task.sleep(for: .milliseconds(20))
+        // Drive the scheduler until the waiter's continuation lands inside
+        // awaitHandOff's withCheckedContinuation. Polling via Task.yield()
+        // is deterministic — it returns control as soon as the awaiting
+        // task has run far enough to register, with no wall-clock guess. A
+        // single yield is usually enough; the loop bounds the wait at 64
+        // hops as a safety net for CI scheduling oddities.
+        for _ in 0..<64 {
+            if session.handOffWaiterCountForTesting() > 0 { break }
+            await Task.yield()
+        }
         session.markExternalHandOffDone()
 
         await waiter.value

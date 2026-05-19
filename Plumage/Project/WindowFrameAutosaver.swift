@@ -6,12 +6,14 @@ struct WindowFrameAutosaver: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        DispatchQueue.main.async {
+        // Defer until SwiftUI has installed the NSView in its window. Using
+        // Task { @MainActor } over DispatchQueue.main.async keeps the hop
+        // visible to the actor executor and consistent with the rest of the
+        // codebase. AppKit autosaves the frame to UserDefaults under this
+        // key, independent of SwiftUI's scene restoration (which Plumage
+        // disables to prevent project windows from auto-reopening on launch).
+        Task { @MainActor in
             guard let window = view.window else { return }
-            // AppKit autosaves the frame to UserDefaults under this key,
-            // independent of SwiftUI's scene restoration (which Plumage
-            // disables to prevent project windows from auto-reopening on
-            // launch).
             window.setFrameAutosaveName(autosaveName)
         }
         return view
