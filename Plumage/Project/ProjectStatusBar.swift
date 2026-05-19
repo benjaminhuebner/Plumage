@@ -1,27 +1,26 @@
 import SwiftUI
 
+// SwiftUI content for the NSWindow bottom bar. No own background or border:
+// the NSTitlebarAccessoryViewController.bottom slot brings the native window
+// chrome material and divider.
 struct ProjectStatusBar: View {
     let indicatorState: StatusIndicatorModel.IndicatorState
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 6) {
-                Spacer()
-                statusDot
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .frame(maxWidth: .infinity)
-            .background(.bar)
-            .help(tooltip)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(accessibilityLabel))
-            .accessibilityValue(Text(tooltip))
+        HStack(spacing: 6) {
+            Spacer()
+            statusDot
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
         }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 22)
+        .help(tooltip)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(accessibilityLabel))
+        .accessibilityValue(Text(tooltip))
     }
 
     @ViewBuilder
