@@ -4,13 +4,41 @@ import Yams
 nonisolated enum SpecParser {
     // Returns the frontmatter error if parsing fails, otherwise nil. Used
     // by callers that only need validation, not the parsed Issue value —
-    // avoids the Issue allocation that `parse(content:folderName:)` does
-    // on the success path.
+    // SpecEditorModel calls this on every keystroke, so it skips the
+    // Issue allocation (and the unused `extractGoal` walk) that
+    // `parse(content:folderName:)` does on the success path.
     static func validate(content: String) -> FrontmatterError? {
-        switch parse(content: content, folderName: "") {
-        case .success: nil
-        case .failure(let error): error
+        guard let yaml = extractFrontmatter(from: content) else {
+            return .missingFrontmatter
         }
+        if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .missingRequiredField(name: "id")
+        }
+
+        let raw: RawFrontmatter
+        do {
+            raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
+        } catch let yamlError as YamlError {
+            return mapYamlError(yamlError)
+        } catch let decoding as DecodingError {
+            return mapDecodingError(decoding)
+        } catch {
+            return .invalidYAML(line: nil, column: nil, message: error.localizedDescription)
+        }
+
+        if IssueType(rawValue: raw.type) == nil {
+            return .invalidEnumValue(field: "type", value: raw.type)
+        }
+        if IssueStatus(rawValue: raw.status) == nil {
+            return .invalidEnumValue(field: "status", value: raw.status)
+        }
+        if parseDate(raw.created) == nil {
+            return .invalidDate(field: "created", value: raw.created)
+        }
+        if parseDate(raw.updated) == nil {
+            return .invalidDate(field: "updated", value: raw.updated)
+        }
+        return nil
     }
 
     static func parse(content: String, folderName: String) -> Result<Issue, FrontmatterError> {
@@ -152,16 +180,28 @@ nonisolated enum SpecParser {
         return nil
     }
 
+    // ISO8601DateFormatter is documented thread-safe for parsing (Foundation
+    // formatters' reentrancy guarantee covers the ISO8601 variant; the
+    // older "not thread-safe" caveat applies to DateFormatter's
+    // locale-sensitive paths). Sharing two pre-configured instances avoids
+    // a per-call allocation on every Issue parse — SpecEditorModel runs
+    // this on each keystroke. `nonisolated(unsafe)` is sound: formatOptions
+    // are set once at file-scope and never mutated.
+    nonisolated(unsafe) private static let plainParser: ISO8601DateFormatter = {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime]
+        return parser
+    }()
+
+    nonisolated(unsafe) private static let fractionalParser: ISO8601DateFormatter = {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return parser
+    }()
+
     private static func parseDate(_ string: String) -> Date? {
-        // Allocate per-call: ISO8601DateFormatter is not documented as
-        // thread-safe by Apple. Allocation cost is negligible against the
-        // surrounding YAML decode. See notes.md.
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        if let date = plain.date(from: string) { return date }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: string)
+        if let date = plainParser.date(from: string) { return date }
+        return fractionalParser.date(from: string)
     }
 
     private static func mapYamlError(_ error: YamlError) -> FrontmatterError {

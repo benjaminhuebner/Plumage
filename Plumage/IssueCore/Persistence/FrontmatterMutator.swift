@@ -273,13 +273,19 @@ nonisolated enum FrontmatterMutator {
         return raw.contains { danger.contains($0) }
     }
 
-    private static func isoString(from date: Date) -> String {
-        // Allocate per-call. ISO8601DateFormatter is thread-safe per Apple
-        // (NSFormatter's non-thread-safety note applies to DateFormatter,
-        // not the ISO8601 variant), but the allocation cost is negligible
-        // here and we avoid sharing mutable formatOptions across threads.
+    // ISO8601DateFormatter parsing/formatting is reentrant; sharing one
+    // pre-configured instance avoids an allocation on every frontmatter
+    // mutation. formatOptions are set once at file-scope and never mutated,
+    // so `nonisolated(unsafe)` is sound. ISO8601DateFormatter does not
+    // conform to Sendable but Apple's docs guarantee "may be used from
+    // multiple threads concurrently".
+    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func isoString(from date: Date) -> String {
+        isoFormatter.string(from: date)
     }
 }

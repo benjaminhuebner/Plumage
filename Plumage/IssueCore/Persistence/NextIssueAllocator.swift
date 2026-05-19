@@ -85,14 +85,16 @@ nonisolated struct NextIssueAllocator: Sendable {
 
     private func highestExistingID() -> Int {
         let issuesDir = IssueLayout.issuesDirectory(in: projectURL)
-        // Without errorHandler, FileManager silently skips entries we can't
-        // read — and `highestExistingID` would underreport, producing a
-        // colliding ID on the next allocate(). Logging and continuing
-        // (return true) lets traversal proceed past one bad subtree.
+        // Read IDs from folder names (e.g. "00042-foo") instead of opening
+        // each spec.md and parsing its frontmatter. The padded-prefix is the
+        // canonical source — IssueDiscovery uses the same path — so the
+        // scan no longer pays a per-issue disk-read on a hot create flow.
+        // Recursive enumeration still merges active + archive subtrees
+        // (the tests pin this with active/archive parameter cases).
         guard
             let enumerator = fileManager.enumerator(
                 at: issuesDir,
-                includingPropertiesForKeys: nil,
+                includingPropertiesForKeys: [.isDirectoryKey],
                 options: [.skipsHiddenFiles],
                 errorHandler: { url, error in
                     Self.logger.error(
@@ -103,33 +105,15 @@ nonisolated struct NextIssueAllocator: Sendable {
             )
         else { return 0 }
         var maxID = 0
-        for case let url as URL in enumerator where url.lastPathComponent == "spec.md" {
-            guard let data = fileManager.contents(atPath: url.path),
-                let text = String(data: data, encoding: .utf8)
-            else { continue }
-            if let id = Self.extractIDFromFrontmatter(text) {
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory == true else { continue }
+            let parts = IssueDiscovery.extractID(fromFolderName: url.lastPathComponent)
+            if let id = parts.id {
                 maxID = max(maxID, id)
             }
         }
         return maxID
-    }
-
-    private static func extractIDFromFrontmatter(_ text: String) -> Int? {
-        var sawOpener = false
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed == "---" {
-                if sawOpener { return nil }
-                sawOpener = true
-                continue
-            }
-            if !sawOpener { continue }
-            if trimmed.hasPrefix("id:") {
-                let value = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces)
-                return Int(value)
-            }
-        }
-        return nil
     }
 
     private func paddingWidth() -> Int {
@@ -137,12 +121,18 @@ nonisolated struct NextIssueAllocator: Sendable {
         return max(configured, 1)
     }
 
-    private static func iso8601(from date: Date) -> String {
-        // Allocate per-call: ISO8601DateFormatter is not documented as
-        // thread-safe by Apple. See notes.md.
+    // ISO8601DateFormatter formatting is reentrant; share one instance
+    // (formatOptions are set once at file-scope and never mutated).
+    // `nonisolated(unsafe)` because ISO8601DateFormatter is not Sendable
+    // but Apple's docs guarantee concurrent use is safe.
+    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func iso8601(from date: Date) -> String {
+        isoFormatter.string(from: date)
     }
 
     static func slugify(_ input: String) -> String {
