@@ -32,6 +32,7 @@ struct ProjectWindow: View {
             .environment(kanban)
             .environment(navigator)
             .frame(minWidth: 900, minHeight: 560)
+            .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(
                 \.createIssueInDefaultColumn,
