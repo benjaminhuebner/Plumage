@@ -26,9 +26,7 @@ struct NavigatorSidebar: View {
 
             Section("Docs") {
                 if navigator.docs.isEmpty {
-                    Text("No docs yet")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
+                    emptyPlaceholder("No docs yet")
                 } else {
                     ForEach(navigator.docs, id: \.self) { url in
                         docRow(url)
@@ -103,9 +101,7 @@ struct NavigatorSidebar: View {
     private var hooksGroup: some View {
         DisclosureGroup(isExpanded: $hooksExpanded) {
             if navigator.hooks.isEmpty {
-                Text("No hooks")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
+                emptyPlaceholder("No hooks")
             } else {
                 ForEach(navigator.hooks, id: \.self) { url in
                     Label(url.lastPathComponent, systemImage: "scroll")
@@ -121,9 +117,7 @@ struct NavigatorSidebar: View {
     private var skillsGroup: some View {
         DisclosureGroup(isExpanded: $skillsExpanded) {
             if navigator.skills.isEmpty {
-                Text("No skills")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
+                emptyPlaceholder("No skills")
             } else {
                 ForEach(navigator.skills, id: \.self) { node in
                     if case .folder(let name, let children) = node {
@@ -146,6 +140,15 @@ struct NavigatorSidebar: View {
         } label: {
             Label("Settings", systemImage: "gearshape.2")
         }
+    }
+
+    @ViewBuilder
+    private func emptyPlaceholder(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(.tertiary)
+            .font(.callout)
+            .disabled(true)
+            .selectionDisabled()
     }
 
     private func relativePath(for url: URL) -> String {
