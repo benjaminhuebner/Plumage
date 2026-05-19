@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum TerminalPaneMode: String, CaseIterable, Sendable {
+    case chat
+    case terminal
+}
+
 struct TerminalModeToggle: View {
     @Binding var mode: TerminalPaneMode
 
