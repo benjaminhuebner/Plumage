@@ -7,7 +7,8 @@ struct ClaudeDockOverlay: View {
 
     private static let buttonBottomPadding: CGFloat = 16
     private static let buttonTrailingPadding: CGFloat = 16
-    private static let panelBottomPadding: CGFloat = 72
+    // 16pt safe-area + 48pt button + 12pt gap = 76pt.
+    private static let panelBottomPadding: CGFloat = 76
     private static let panelTrailingPadding: CGFloat = 16
 
     var body: some View {

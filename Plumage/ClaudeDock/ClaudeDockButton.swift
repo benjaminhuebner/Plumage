@@ -21,18 +21,19 @@ struct ClaudeDockButton: View {
         Button(action: action) {
             Image(systemName: Self.symbolName)
                 .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .symbolEffect(
                     .variableColor.iterative.reversing,
                     options: .repeat(.continuous),
                     isActive: isWorking
                 )
-                .frame(width: 44, height: 44)
+                .frame(width: 48, height: 48)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .tint(isWorking ? .accentColor : .secondary)
+        .tint(.accentColor)
         .glassEffect(in: Circle())
+        .shadow(color: .accentColor.opacity(0.28), radius: 10, y: 2)
         .help("Claude (⌥⌘T)")
         .accessibilityLabel(accessibilityLabelForTesting)
         .accessibilityValue(accessibilityValueForTesting)
