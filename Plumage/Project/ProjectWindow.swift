@@ -5,12 +5,16 @@ struct ProjectWindow: View {
 
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
-    @State private var navigationPath = NavigationPath()
+    @State private var navigator = NavigatorModel()
+    @State private var selectedRoute: NavigatorRoute = .kanban
+    @State private var showCreateSheet = false
+    @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
     @SceneStorage("terminalShown") private var terminalShown = false
 
     @Environment(\.processRunner) private var processRunner
+    @Environment(\.scenePhase) private var scenePhase
 
     init(handle: ProjectHandle) {
         self.handle = handle
@@ -25,13 +29,15 @@ struct ProjectWindow: View {
     var body: some View {
         baseStack
             .environment(kanban)
+            .environment(navigator)
             .frame(minWidth: 720, minHeight: 480)
             .navigationTitle(displayTitle)
             .focusedSceneValue(
                 \.createIssueInDefaultColumn,
                 isLoaded
                     ? {
-                        navigationPath.append(SpecRoute.createIssue(initialStatus: .draft))
+                        createInitialStatus = .draft
+                        showCreateSheet = true
                     }
                     : nil
             )
@@ -40,17 +46,33 @@ struct ProjectWindow: View {
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
-                _ = await (reload, run, detect)
+                async let navLoad: Void = navigator.reload(projectURL: handle.url)
+                _ = await (reload, run, detect, navLoad)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    Task { await navigator.reload(projectURL: handle.url) }
+                }
+            }
+            .sheet(isPresented: $showCreateSheet) {
+                NavigationStack {
+                    IssueDetailView(projectURL: handle.url, initialStatus: createInitialStatus)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Close") { showCreateSheet = false }
+                            }
+                        }
+                }
+                .frame(minWidth: 720, minHeight: 600)
             }
     }
 
     @ViewBuilder
     private var baseStack: some View {
-        NavigationStack(path: $navigationPath) {
-            content
-                .navigationDestination(for: SpecRoute.self) { route in
-                    routeDestination(route)
-                }
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            detail
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -89,42 +111,35 @@ struct ProjectWindow: View {
     }
 
     @ViewBuilder
-    private func routeDestination(_ route: SpecRoute) -> some View {
-        switch route {
-        case .spec(let folderName):
-            IssueDetailView(projectURL: handle.url, folderName: folderName)
-        case .rawEditor(let folderName):
-            SpecEditorView(projectURL: handle.url, folderName: folderName)
-                .navigationTitle("Raw: \(folderName)")
-        case .createIssue(let initialStatus):
-            IssueDetailView(projectURL: handle.url, initialStatus: initialStatus)
-        }
+    private var sidebar: some View {
+        NavigatorSidebar(selection: $selectedRoute)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var detail: some View {
         switch model.state {
         case .loading:
             ProgressView()
                 .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let config):
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
                 ProjectHeader(
                     title: config.name,
                     path: handle.url.path,
                     indicatorState: indicator.state
                 )
-                KanbanView(
-                    grouped: kanban.groupedIssues,
-                    padding: config.issueIdPadding ?? 5,
-                    projectURL: handle.url
+                NavigatorDetail(
+                    route: selectedRoute,
+                    projectURL: handle.url,
+                    padding: config.issueIdPadding ?? 5
                 )
                 .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
                 .environment(\.openSpec) { route in
-                    navigationPath.append(route)
+                    handleOpenSpec(route)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
                 Text("Couldn't open this project.")
@@ -134,6 +149,18 @@ struct ProjectWindow: View {
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func handleOpenSpec(_ route: SpecRoute) {
+        // Bridges the legacy SpecRoute closure onto the new selection-driven
+        // navigation while task 9 swaps the call sites over to NavigatorRoute.
+        switch route {
+        case .spec(let folderName), .rawEditor(let folderName):
+            selectedRoute = .issue(folderName: folderName)
+        case .createIssue(let initialStatus):
+            createInitialStatus = initialStatus
+            showCreateSheet = true
         }
     }
 
