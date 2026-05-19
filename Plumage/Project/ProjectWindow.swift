@@ -107,6 +107,11 @@ struct ProjectWindow: View {
                     )
                 }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                StatusIndicatorView(state: indicator.state)
+            }
+        }
     }
 
     @ViewBuilder
@@ -122,37 +127,33 @@ struct ProjectWindow: View {
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let config):
-            VStack(alignment: .leading, spacing: 0) {
-                NavigatorDetail(
-                    route: selectedRoute,
-                    projectURL: handle.url,
-                    padding: config.issueIdPadding ?? 5
-                )
-                // .id(route) forces SwiftUI to tear down + rebuild the detail
-                // subtree on every route change. Without this, DocEditorView
-                // and IssueDetailView hold @State models that were initialized
-                // with the *first* file/issue URL — Swift View identity is
-                // position-based, so the same struct slot re-uses the same
-                // @State on every re-render. New URL into init() is ignored
-                // and .task(id:) never fires because model.fileURL never
-                // changes. See axiom-swiftui debugging.md Root Cause 5.
-                .id(selectedRoute)
-                .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
-                .environment(\.openSpec) { route in
-                    if selectedRoute == .kanban, case .issue = route {
-                        detailOriginRoute = .kanban
-                    }
-                    selectedRoute = route
+            NavigatorDetail(
+                route: selectedRoute,
+                projectURL: handle.url,
+                padding: config.issueIdPadding ?? 5
+            )
+            // .id(route) forces SwiftUI to tear down + rebuild the detail
+            // subtree on every route change. Without this, DocEditorView
+            // and IssueDetailView hold @State models that were initialized
+            // with the *first* file/issue URL — Swift View identity is
+            // position-based, so the same struct slot re-uses the same
+            // @State on every re-render. New URL into init() is ignored
+            // and .task(id:) never fires because model.fileURL never
+            // changes. See axiom-swiftui debugging.md Root Cause 5.
+            .id(selectedRoute)
+            .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
+            .environment(\.openSpec) { route in
+                if selectedRoute == .kanban, case .issue = route {
+                    detailOriginRoute = .kanban
                 }
-                .environment(\.openCreateIssue) { status in
-                    createInitialStatus = status
-                    showCreateSheet = true
-                }
-                .environment(\.dismissToOrigin, backToOriginAction)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                Divider()
-                ProjectStatusBar(indicatorState: indicator.state)
+                selectedRoute = route
             }
+            .environment(\.openCreateIssue) { status in
+                createInitialStatus = status
+                showCreateSheet = true
+            }
+            .environment(\.dismissToOrigin, backToOriginAction)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
                 Text("Couldn't open this project.")
