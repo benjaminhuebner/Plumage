@@ -136,7 +136,11 @@ struct ProjectWindow: View {
                 )
                 .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
                 .environment(\.openSpec) { route in
-                    handleOpenSpec(route)
+                    selectedRoute = route
+                }
+                .environment(\.openCreateIssue) { status in
+                    createInitialStatus = status
+                    showCreateSheet = true
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
@@ -149,18 +153,6 @@ struct ProjectWindow: View {
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    private func handleOpenSpec(_ route: SpecRoute) {
-        // Bridges the legacy SpecRoute closure onto the new selection-driven
-        // navigation while task 9 swaps the call sites over to NavigatorRoute.
-        switch route {
-        case .spec(let folderName), .rawEditor(let folderName):
-            selectedRoute = .issue(folderName: folderName)
-        case .createIssue(let initialStatus):
-            createInitialStatus = initialStatus
-            showCreateSheet = true
         }
     }
 

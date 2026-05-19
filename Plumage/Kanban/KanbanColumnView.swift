@@ -7,7 +7,7 @@ struct KanbanColumnView: View {
     let projectURL: URL
     let autoScroll: KanbanAutoScroll
 
-    @Environment(\.openSpec) private var openSpec
+    @Environment(\.openCreateIssue) private var openCreateIssue
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
 
     var body: some View {
@@ -55,7 +55,7 @@ struct KanbanColumnView: View {
             .accessibilityLabel("\(column.name), \(issues.count) issues")
             Spacer()
             Button {
-                openSpec(.createIssue(initialStatus: column.primaryStatusForCreation))
+                openCreateIssue(column.primaryStatusForCreation)
             } label: {
                 Image(systemName: "plus")
                     .font(.body.weight(.medium))
