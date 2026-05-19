@@ -31,25 +31,15 @@ struct IssueCardSwitch: View {
                     openSpec(.issue(folderName: issue.id))
                 }
                 .contextMenu {
-                    cardMenuItems(folderName: folder.lastPathComponent, folderURL: folder)
+                    IssueContextMenuItems(
+                        folderName: folder.lastPathComponent,
+                        folderURL: folder,
+                        projectURL: projectURL
+                    )
                 }
                 .onTapGesture {
                     openSpec(.issue(folderName: issue.id))
                 }
-        }
-    }
-
-    @ViewBuilder
-    private func cardMenuItems(folderName: String, folderURL: URL) -> some View {
-        Button("Archive") {
-            kanban.applyOptimisticArchive(folderName: folderName, projectURL: projectURL)
-        }
-        Button("Move to Trash") {
-            kanban.applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
-        }
-        Divider()
-        Button("Reveal in Finder") {
-            NSWorkspace.shared.activateFileViewerSelecting([folderURL])
         }
     }
 
@@ -87,10 +77,11 @@ struct IssueCardSwitch: View {
                 }
             }
             .contextMenu {
-                cardMenuItems(
+                IssueContextMenuItems(
                     folderName: value.folderName,
                     folderURL: IssueLayout.issueFolder(
-                        in: projectURL, folderName: value.folderName)
+                        in: projectURL, folderName: value.folderName),
+                    projectURL: projectURL
                 )
             }
             .modifier(

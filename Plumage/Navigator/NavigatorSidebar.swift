@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NavigatorSidebar: View {
     @Binding var selection: NavigatorRoute
+    let projectURL: URL
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
@@ -93,6 +94,22 @@ struct NavigatorSidebar: View {
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
         .clickableSidebarRow()
+        .contextMenu {
+            IssueContextMenuItems(
+                folderName: issue.id,
+                folderURL: issueFolderURL(issue),
+                projectURL: projectURL
+            )
+        }
+    }
+
+    private func issueFolderURL(_ issue: DiscoveredIssue) -> URL {
+        switch issue {
+        case .valid(let value):
+            return IssueLayout.issueFolder(in: projectURL, folderName: value.folderName)
+        case .invalid(let folder, _):
+            return folder
+        }
     }
 
     @ViewBuilder
