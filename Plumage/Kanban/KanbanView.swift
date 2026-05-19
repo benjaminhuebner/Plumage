@@ -127,8 +127,13 @@ struct KanbanView: View {
         // the loop promptly via CancellationError instead of being silently
         // swallowed and leaving the monitor running past drag-end.
         while !Task.isCancelled, kanbanDrag.isActive {
+            // 50ms cap: cancellation arrives at most ~50ms after the drag
+            // ends, so the monitor stops listening before the next user
+            // gesture begins. The 100ms used previously was tight enough
+            // not to be noticed in practice but left a longer trailing
+            // window where Escape still cancelled a no-longer-active drag.
             do {
-                try await Task.sleep(for: .milliseconds(100))
+                try await Task.sleep(for: .milliseconds(50))
             } catch {
                 break
             }

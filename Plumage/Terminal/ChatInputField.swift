@@ -83,6 +83,7 @@ struct ChatInputField: View {
         .opacity(isReady ? 1 : 0.45)
         .animation(.snappy(duration: 0.12), value: isReady)
         .help("Send (⏎ — Shift+⏎ for newline)")
+        .accessibilityLabel("Send message")
     }
 
     private var buttonFill: AnyShapeStyle {

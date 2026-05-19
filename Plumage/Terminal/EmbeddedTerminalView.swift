@@ -207,7 +207,9 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        startCursorKeepAlive()
+        // Timer is started lazily once the view actually enters a window
+        // (see viewDidMoveToWindow). Starting in init() ran the 20Hz timer
+        // even when the terminal mode wasn't visible.
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -215,6 +217,15 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     deinit {
         cursorKeepAlive?.invalidate()
         cursorKeepAlive = nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            startCursorKeepAlive()
+        } else {
+            stopCursorKeepAlive()
+        }
     }
 
     private func startCursorKeepAlive() {

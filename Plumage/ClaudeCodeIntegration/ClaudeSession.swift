@@ -42,6 +42,7 @@ final class ClaudeSession {
     let binaryURL: URL
     private let autoSpawn: Bool
     private let sessionLogRoot: URL
+    private let rehydrationCap: Int
 
     private(set) var state: State = .idle
     private(set) var messages: [ChatMessage] = []
@@ -65,12 +66,14 @@ final class ClaudeSession {
         cwd: URL,
         binaryURL: URL,
         autoSpawn: Bool = true,
-        sessionLogRoot: URL? = nil
+        sessionLogRoot: URL? = nil,
+        rehydrationCap: Int = ClaudeSession.defaultRehydrationCap
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.autoSpawn = autoSpawn
         self.conversationID = UUID().uuidString.lowercased()
+        self.rehydrationCap = rehydrationCap
         self.sessionLogRoot =
             sessionLogRoot
             ?? FileManager.default.homeDirectoryForCurrentUser
@@ -178,27 +181,41 @@ final class ClaudeSession {
     private func dispatchSubcommand(_ args: [String], label: String) async {
         let binary = binaryURL
         let workingDirectory = cwd
-        let output = await Task.detached { () -> String in
-            let task = Process()
-            task.executableURL = binary
-            task.arguments = args
-            task.currentDirectoryURL = workingDirectory
-            let pipe = Pipe()
-            task.standardOutput = pipe
-            task.standardError = pipe
-            task.standardInput = FileHandle.nullDevice
-            do {
-                try task.run()
-            } catch {
-                return "Error: \(error.localizedDescription)"
+        let process = Process()
+        process.executableURL = binary
+        process.arguments = args
+        process.currentDirectoryURL = workingDirectory
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            appendSystemMessage("\(label):\nError: \(error.localizedDescription)")
+            return
+        }
+
+        // withTaskCancellationHandler: if the surrounding session is torn
+        // down (handOff / stop / clearAndRestart cancels this Task), send
+        // SIGTERM right away so `waitUntilExit` returns instead of pinning
+        // a cooperative thread indefinitely. Matches ProductionProcessRunner.
+        let output: String = await withTaskCancellationHandler {
+            await Task.detached { () -> String in
+                process.waitUntilExit()
+                let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
+                let text =
+                    String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return text.isEmpty ? "(no output)" : text
+            }.value
+        } onCancel: {
+            if process.isRunning {
+                process.terminate()
             }
-            task.waitUntilExit()
-            let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-            let text =
-                String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return text.isEmpty ? "(no output)" : text
-        }.value
+        }
+        if Task.isCancelled { return }
         appendSystemMessage("\(label):\n\(output)")
     }
 
@@ -383,17 +400,33 @@ final class ClaudeSession {
     // re-read an ever-larger JSONL file for no benefit. /clear regenerates
     // conversationID and resets `messages`, which forces the next spawn to
     // rehydrate the (then-empty-from-our-side) fresh session.
-    static let rehydrationCap = 200
+    nonisolated static let defaultRehydrationCap = 200
     // Internal (not private) so tests can drive rehydrate against an injected
     // sessionLogRoot tempdir without spinning up a real subprocess. Production
     // call site stays inside spawn().
-    func rehydrateMessagesFromSessionLog() {
+    //
+    // Disk I/O runs on a detached cooperative task so a slow filesystem
+    // (NFS, external SSD) can't block the main thread while the session log
+    // is read. The decode pass is also off-actor — the file can be hundreds
+    // of KB for long conversations.
+    func rehydrateMessagesFromSessionLog() async {
         guard messages.isEmpty else { return }
-
         let file = sessionLogURL()
+        let cap = rehydrationCap
+        let hydrated = await Task.detached(priority: .userInitiated) {
+            Self.parseSessionLog(at: file, cap: cap)
+        }.value
+        // After the await: another caller could have populated `messages` in
+        // the meantime (e.g., a /clear that landed during the read). Don't
+        // clobber a non-empty list with a rehydration of the prior session.
+        guard messages.isEmpty, !hydrated.isEmpty else { return }
+        messages = hydrated
+    }
+
+    nonisolated private static func parseSessionLog(at file: URL, cap: Int) -> [ChatMessage] {
         guard let data = try? Data(contentsOf: file),
             let raw = String(data: data, encoding: .utf8)
-        else { return }
+        else { return [] }
 
         var hydrated: [ChatMessage] = []
         for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -422,12 +455,10 @@ final class ClaudeSession {
                 ChatMessage(id: UUID(), role: role, text: text, timestamp: .now)
             )
         }
-        if !hydrated.isEmpty {
-            // Bound the in-memory list — sessions can grow into thousands of
-            // turns and we only need the recent tail to keep the conversation
-            // legible in chat mode.
-            messages = Array(hydrated.suffix(Self.rehydrationCap))
-        }
+        // Bound the in-memory list — sessions can grow into thousands of
+        // turns and we only need the recent tail to keep the conversation
+        // legible in chat mode.
+        return Array(hydrated.suffix(cap))
     }
 
     private nonisolated static func extractText(from content: Any?) -> String? {
@@ -518,9 +549,12 @@ final class ClaudeSession {
         process = newProcess
         stdinHandle = stdinPipe.fileHandleForWriting
         // Rehydrate from the on-disk log so chat mode reflects whatever the
-        // terminal-mode subprocess wrote since last time. Safe even on the
-        // first spawn (no file → no-op).
-        rehydrateMessagesFromSessionLog()
+        // terminal-mode subprocess wrote since last time. Async + detached
+        // so a slow filesystem can't block the main thread while spawn()
+        // returns. Safe even on the first spawn (no file → no-op).
+        Task { @MainActor [weak self] in
+            await self?.rehydrateMessagesFromSessionLog()
+        }
         // claude emits system/init only after the first user message — the spawn
         // alone proves the process is alive, so move to .running now and let
         // handleEvent fill the sessionID when init eventually arrives.

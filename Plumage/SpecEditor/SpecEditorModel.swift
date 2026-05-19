@@ -34,6 +34,9 @@ final class SpecEditorModel {
     // capture it at start and check it after writeOffActor returns — a
     // reload that lands between the two awaits invalidates the now-stale
     // snapshot, preventing the discarded local edit from resurfacing.
+    // Wrapping increment: overflow at 2^64 saves is unreachable in practice,
+    // but `&+=` skips the debug-mode trap so callers don't need to think
+    // about it.
     private var saveGeneration: UInt64 = 0
 
     var isDirty: Bool { buffer != loadedContent }
@@ -91,6 +94,19 @@ final class SpecEditorModel {
         observeTask = Task { [weak self] in
             await self?.observeExternalChange(currentIssue: currentIssue)
         }
+    }
+
+    // Called from the view's .onDisappear. Cancels the in-flight save chain
+    // and any pending kanban observation so subsequent state mutations that
+    // would land on a popped view stop firing. Cancellation propagates into
+    // writeOffActor's Task.detached, but the synchronous SpecWriter.write
+    // call has no cancellation point; an already-in-progress disk write
+    // still completes (which matches the autosave-on-disappear semantics).
+    func cancelPendingWork() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        observeTask?.cancel()
+        observeTask = nil
     }
 
     func observeExternalChange(currentIssue: DiscoveredIssue?) async {

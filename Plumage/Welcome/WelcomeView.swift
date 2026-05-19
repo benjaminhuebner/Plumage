@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct WelcomeView: View {
@@ -25,7 +26,6 @@ struct WelcomeView: View {
         VStack(spacing: 18) {
             Spacer()
             appIcon
-                .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 128, height: 128)
             VStack(spacing: 4) {
@@ -134,8 +134,11 @@ struct WelcomeView: View {
         )
     }
 
+    // NSApp.applicationIconImage falls back to the system "Application" icon
+    // when the bundle has no AppIcon set yet (debug runs from Xcode). Sized
+    // by the caller via .frame.
     private var appIcon: Image {
-        Image(systemName: "bird.fill")
+        Image(nsImage: NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName) ?? NSImage())
     }
 
     nonisolated static let appVersionString: String = {

@@ -46,7 +46,13 @@ final class KanbanAutoScroll {
         tickTask = Task { [weak self] in
             while !Task.isCancelled, let self {
                 self.tick(trigger: trigger)
-                try? await Task.sleep(for: .milliseconds(Self.tickIntervalMs))
+                // try (no `?`) so cancellation exits the loop on the same
+                // tick rather than running one extra tick after stop().
+                do {
+                    try await Task.sleep(for: .milliseconds(Self.tickIntervalMs))
+                } catch {
+                    return
+                }
             }
         }
     }

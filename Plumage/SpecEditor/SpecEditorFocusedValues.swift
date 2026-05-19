@@ -1,0 +1,12 @@
+import SwiftUI
+
+// Editor-wide focused values consumed by Commands (⌘S, ⌘W) and
+// IssueCardSwitch (dirty-state lock). The historical "specEditor" prefix
+// predates the rename to IssueDetail/DocEditor; the keys are kept so the
+// command wiring stays stable across the move.
+extension FocusedValues {
+    @Entry var specEditorIsActive: Bool?
+    @Entry var specEditorSave: (() -> Void)?
+    @Entry var specEditorClose: (() -> Void)?
+    @Entry var specEditorDirtyFolderName: String?
+}

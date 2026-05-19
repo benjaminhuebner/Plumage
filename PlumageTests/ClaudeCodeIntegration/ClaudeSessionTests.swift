@@ -316,17 +316,17 @@ struct ClaudeSessionTests {
     // MARK: - rehydrateMessagesFromSessionLog
 
     @Test("rehydrate is a no-op when session log does not exist")
-    func rehydrateMissingLog() throws {
+    func rehydrateMissingLog() async throws {
         let temp = try makeTempLogRoot()
         defer { try? FileManager.default.removeItem(at: temp) }
         let session = makeSession(cwd: URL(filePath: "/tmp/proj"), sessionLogRoot: temp)
 
-        session.rehydrateMessagesFromSessionLog()
+        await session.rehydrateMessagesFromSessionLog()
         #expect(session.messages.isEmpty)
     }
 
     @Test("rehydrate parses user and assistant turns")
-    func rehydrateBasicTurns() throws {
+    func rehydrateBasicTurns() async throws {
         let temp = try makeTempLogRoot()
         defer { try? FileManager.default.removeItem(at: temp) }
         let cwd = URL(filePath: "/tmp/proj")
@@ -338,7 +338,7 @@ struct ClaudeSessionTests {
         try writeSessionLog(
             at: temp, cwd: cwd, conversationID: session.conversationID, contents: jsonl)
 
-        session.rehydrateMessagesFromSessionLog()
+        await session.rehydrateMessagesFromSessionLog()
         #expect(session.messages.count == 2)
         #expect(session.messages[0].role == .user)
         #expect(session.messages[0].text == "hi")
@@ -347,7 +347,7 @@ struct ClaudeSessionTests {
     }
 
     @Test("rehydrate skips sidechain, attachments, and <command-…> wrappers")
-    func rehydrateFilters() throws {
+    func rehydrateFilters() async throws {
         let temp = try makeTempLogRoot()
         defer { try? FileManager.default.removeItem(at: temp) }
         let cwd = URL(filePath: "/tmp/proj")
@@ -361,13 +361,13 @@ struct ClaudeSessionTests {
         try writeSessionLog(
             at: temp, cwd: cwd, conversationID: session.conversationID, contents: jsonl)
 
-        session.rehydrateMessagesFromSessionLog()
+        await session.rehydrateMessagesFromSessionLog()
         #expect(session.messages.count == 1)
         #expect(session.messages[0].text == "real turn")
     }
 
     @Test("rehydrate is a no-op when messages are already populated")
-    func rehydrateSkipsWhenPopulated() throws {
+    func rehydrateSkipsWhenPopulated() async throws {
         let temp = try makeTempLogRoot()
         defer { try? FileManager.default.removeItem(at: temp) }
         let cwd = URL(filePath: "/tmp/proj")
@@ -382,18 +382,18 @@ struct ClaudeSessionTests {
         try writeSessionLog(
             at: temp, cwd: cwd, conversationID: session.conversationID, contents: jsonl)
 
-        session.rehydrateMessagesFromSessionLog()
+        await session.rehydrateMessagesFromSessionLog()
         #expect(session.messages.count == 1)
         #expect(session.messages[0].text == "in memory")
     }
 
-    @Test("rehydrate caps to ClaudeSession.rehydrationCap most recent turns")
-    func rehydrateCapsToTail() throws {
+    @Test("rehydrate caps to ClaudeSession.defaultRehydrationCap most recent turns")
+    func rehydrateCapsToTail() async throws {
         let temp = try makeTempLogRoot()
         defer { try? FileManager.default.removeItem(at: temp) }
         let cwd = URL(filePath: "/tmp/proj")
         let session = makeSession(cwd: cwd, sessionLogRoot: temp)
-        let totalTurns = ClaudeSession.rehydrationCap + 50
+        let totalTurns = ClaudeSession.defaultRehydrationCap + 50
         let lines = (0..<totalTurns).map { index in
             #"{"type":"user","message":{"role":"user","content":"turn \#(index)"}}"#
         }
@@ -401,8 +401,8 @@ struct ClaudeSessionTests {
             at: temp, cwd: cwd, conversationID: session.conversationID,
             contents: lines.joined(separator: "\n"))
 
-        session.rehydrateMessagesFromSessionLog()
-        #expect(session.messages.count == ClaudeSession.rehydrationCap)
+        await session.rehydrateMessagesFromSessionLog()
+        #expect(session.messages.count == ClaudeSession.defaultRehydrationCap)
         // Tail-kept: first kept turn is turn 50, last kept is turn (totalTurns-1).
         #expect(session.messages.first?.text == "turn 50")
         #expect(session.messages.last?.text == "turn \(totalTurns - 1)")
