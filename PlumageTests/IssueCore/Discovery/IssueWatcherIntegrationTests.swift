@@ -18,7 +18,12 @@ struct IssueWatcherIntegrationTests {
             for await event in events { await collector.record(event) }
         }
 
-        // Give the FSEvent stream a moment to install.
+        // Give the FSEvent stream a moment to install. There is no observable
+        // signal from FSEventStreamStart to "ready to deliver"; the value
+        // is empirically large enough on local + CI hardware to cover kernel
+        // registration. If this test flakes on a heavily loaded runner,
+        // increase rather than removing — there is no deterministic
+        // alternative inside the public FSEvents API.
         try await Task.sleep(for: .milliseconds(100))
 
         try fixture.writeSpec(folder: "00001-foo", body: "title: edited\n")

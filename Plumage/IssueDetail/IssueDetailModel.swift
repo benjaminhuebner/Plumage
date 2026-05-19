@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -106,6 +107,15 @@ final class IssueDetailModel {
         self.writer = writer
         self.mutator = mutator
         self.clock = clock
+    }
+
+    // Safety net for abnormal teardown paths where .onDisappear is skipped.
+    // Primary cleanup remains the view's .onDisappear → cancelPendingWork.
+    // isolated deinit (Swift 6.2) so we can touch the @MainActor state.
+    isolated deinit {
+        pendingFormWrite?.cancel()
+        pendingBodySave?.cancel()
+        observeTask?.cancel()
     }
 
     init(
@@ -415,6 +425,59 @@ final class IssueDetailModel {
 
     func resolveConflictKeep() {
         conflict = nil
+    }
+
+    // Live preview of what the raw spec would look like on disk if the
+    // user saved right now. Lives on the model rather than the view so it
+    // can stay in lock-step with how FrontmatterMutator formats fields,
+    // and so the view layer is free of YAML-construction logic.
+    var synthesizedRawPreview: String {
+        let labelsLine = FrontmatterMutator.formatLabels(labelsDraft)
+        let titleLine =
+            titleDraft.isEmpty
+            ? ""
+            : FrontmatterMutator.formatTitleValue(titleDraft)
+        return """
+            ---
+            id: <pending>
+            title: \(titleLine)
+            type: \(typeDraft.rawValue)
+            status: \(statusDraft.rawValue)
+            labels: \(labelsLine)
+            ---
+
+            \(bodyDraft)
+            """
+    }
+
+    var navigationTitle: String {
+        if isCreating { return "New Issue" }
+        return issue?.title ?? folderName ?? ""
+    }
+
+    func isRawDirty(_ rawDraft: String) -> Bool {
+        rawDraft != loadedSpecContent
+    }
+
+    func dirtyFolderName(rawDirty: Bool, bodyDirtyOverride: Bool? = nil) -> String? {
+        // Creating mode never has a folder yet; never report dirty.
+        guard !isCreating else { return nil }
+        let bodyDirty = bodyDirtyOverride ?? isBodyDirty
+        guard rawDirty || bodyDirty else { return nil }
+        return folderName
+    }
+
+    func copyIDToPasteboard() {
+        guard let folder = folderName else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(folder, forType: .string)
+    }
+
+    func revealInFinder() {
+        guard let folder = folderName, let projectURL else { return }
+        let url = IssueLayout.issueFolder(in: projectURL, folderName: folder)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     nonisolated static func extractBody(from content: String) -> String {

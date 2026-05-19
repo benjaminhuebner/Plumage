@@ -8,7 +8,13 @@ struct IssueCardSwitch: View {
     var isDragSource: Bool = false
 
     @Environment(ProjectKanbanModel.self) private var kanban
-    @Environment(KanbanDragController.self) private var kanbanDrag
+    // Drag controller is intentionally NOT read here. The card's "am I the
+    // drag source?" answer arrives as the `isDragSource` prop from the
+    // parent DraggableColumnBody, and the drag gesture itself lives in
+    // CardInteraction which has its own @Environment read. Keeping a
+    // controller dependency on IssueCardSwitch would invalidate every
+    // visible cell on drag-start/end (controller.isActive flips), which
+    // is N×4 unnecessary body re-evals at lift-off.
     @Environment(\.openSpec) private var openSpec
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?

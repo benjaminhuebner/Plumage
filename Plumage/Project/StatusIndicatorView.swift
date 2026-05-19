@@ -12,7 +12,10 @@ struct StatusIndicatorView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .background(.regularMaterial, in: .capsule)
+        // Content-surface badge; Liquid Glass / .regularMaterial are
+        // navigation-only per project rule. `.fill.tertiary` matches
+        // macOS 26's solid status-pill vocabulary.
+        .background(.fill.tertiary, in: .capsule)
         .help(tooltip)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityLabel))

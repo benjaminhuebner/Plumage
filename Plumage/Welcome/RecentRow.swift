@@ -25,5 +25,8 @@ struct RecentRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
+        // Hover-tooltip exposes the full project path when the row is too
+        // narrow to display it (long paths truncate via `.truncationMode`).
+        .help(item.url.path)
     }
 }

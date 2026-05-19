@@ -12,7 +12,7 @@ struct ProjectWindow: View {
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
-    @SceneStorage("terminalShown") private var terminalShown = false
+    @SceneStorage("claudeDock.open") private var isDockOpen = false
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -31,7 +31,8 @@ struct ProjectWindow: View {
         baseStack
             .environment(kanban)
             .environment(navigator)
-            .frame(minWidth: 720, minHeight: 480)
+            .frame(minWidth: 900, minHeight: 560)
+            .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(
                 \.createIssueInDefaultColumn,
@@ -42,16 +43,25 @@ struct ProjectWindow: View {
                     }
                     : nil
             )
-            .focusedSceneValue(\.terminalToggle, $terminalShown)
+            .focusedSceneValue(\.terminalToggle, $isDockOpen)
             .task(id: handle.url) {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
                     selectedRoute = restored
                 }
+                // @State ignores re-assignment from init, so a window reused
+                // for a different handle keeps the stale session.cwd unless
+                // we rebuild here. attach() then handles the
+                // start/restart/no-op decision.
+                session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
+                session.attach()
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
                 _ = await (reload, run, detect, navLoad)
+            }
+            .onDisappear {
+                session.stop()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
@@ -80,40 +90,13 @@ struct ProjectWindow: View {
             sidebar
         } detail: {
             detail
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            terminalShown.toggle()
-                        } label: {
-                            Label("Terminal", systemImage: "apple.terminal")
-                        }
-                        .help("Toggle Terminal (⌥⌘T)")
-                    }
+                .overlay(alignment: .bottomTrailing) {
+                    ClaudeDockOverlay(
+                        session: session,
+                        indicatorState: indicator.state,
+                        isOpen: $isDockOpen
+                    )
                 }
-        }
-        .inspector(isPresented: $terminalShown) {
-            TerminalPaneView(session: session, indicatorState: indicator.state)
-                .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
-        }
-        .onChange(of: terminalShown, initial: false) { _, newValue in
-            // Synchronous: start/restart must happen before the inspector's
-            // content renders to avoid a brief state-misalignment with what's
-            // displayed. The "Modifying state during view update" warning this
-            // can provoke is cosmetic — see TerminalPaneView's onChange for
-            // the same trade-off.
-            handleInspectorToggle(visible: newValue)
-        }
-    }
-
-    private func handleInspectorToggle(visible: Bool) {
-        if visible {
-            switch session.state {
-            case .idle: session.start()
-            case .exited: session.restart()
-            case .starting, .running: break
-            }
-        } else {
-            session.stop()
         }
     }
 

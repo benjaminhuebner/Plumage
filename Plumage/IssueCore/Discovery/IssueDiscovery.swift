@@ -29,9 +29,26 @@ nonisolated enum IssueDiscovery {
                     && (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             }
 
+        // Anchor for symlink containment check below. Resolved + standardized
+        // once so the per-spec test is a plain prefix match.
+        let projectRoot = projectURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let containmentBoundary = projectRoot.hasSuffix("/") ? projectRoot : projectRoot + "/"
+
         let discovered = issueFolders.compactMap { folder -> DiscoveredIssue? in
             let specURL = folder.appendingPathComponent("spec.md")
             guard fileManager.fileExists(atPath: specURL.path) else { return nil }
+            // Reject any spec whose resolved path escapes the project root.
+            // A hostile or careless repo could plant a symlink at
+            // .claude/issues/00001-pwn/spec.md → /etc/passwd or
+            // ~/.ssh/id_rsa; without this guard Plumage would happily read
+            // and display its contents, and a subsequent save through
+            // SpecWriter would overwrite the target.
+            let resolvedPath = specURL.resolvingSymlinksInPath().standardizedFileURL.path
+            guard resolvedPath.hasPrefix(containmentBoundary) else {
+                logger.error(
+                    "Skipping spec outside project root: \(resolvedPath, privacy: .public)")
+                return nil
+            }
             let content: String
             do {
                 content = try String(contentsOf: specURL, encoding: .utf8)

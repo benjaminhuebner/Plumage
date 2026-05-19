@@ -40,6 +40,7 @@ struct PlumageApp: App {
                     }
             }
         }
+        .defaultSize(width: 1280, height: 800)
         .commands {
             OpenProjectMenuCommand(recentProjects: recentProjects)
             NewIssueCommand()

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct NavigatorSidebar: View {
@@ -19,6 +20,7 @@ struct NavigatorSidebar: View {
             Section("Kanban") {
                 Label("Board", systemImage: "rectangle.3.group.fill")
                     .tag(NavigatorRoute.kanban)
+                    .clickableSidebarRow()
                 ForEach(IssueColumn.allCases) { column in
                     columnRow(column)
                 }
@@ -26,9 +28,7 @@ struct NavigatorSidebar: View {
 
             Section("Docs") {
                 if navigator.docs.isEmpty {
-                    Text("No docs yet")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
+                    emptyPlaceholder("No docs yet")
                 } else {
                     ForEach(navigator.docs, id: \.self) { url in
                         docRow(url)
@@ -39,6 +39,7 @@ struct NavigatorSidebar: View {
             Section("Claude") {
                 Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
                     .tag(NavigatorRoute.claudeMD)
+                    .clickableSidebarRow()
                 hooksGroup
                 skillsGroup
                 settingsGroup
@@ -63,12 +64,13 @@ struct NavigatorSidebar: View {
             }
         } label: {
             HStack {
-                Text(column.name)
+                Label(column.name, systemImage: column.systemImage)
                 Spacer()
                 Text("\(items.count)")
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
+            .clickableSidebarRow()
         }
     }
 
@@ -90,6 +92,7 @@ struct NavigatorSidebar: View {
                 .truncationMode(.tail)
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
+        .clickableSidebarRow()
     }
 
     @ViewBuilder
@@ -97,23 +100,24 @@ struct NavigatorSidebar: View {
         let relative = relativePath(for: url)
         Label(url.lastPathComponent, systemImage: "doc.text")
             .tag(NavigatorRoute.doc(relativePath: relative))
+            .clickableSidebarRow()
     }
 
     @ViewBuilder
     private var hooksGroup: some View {
         DisclosureGroup(isExpanded: $hooksExpanded) {
             if navigator.hooks.isEmpty {
-                Text("No hooks")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
+                emptyPlaceholder("No hooks")
             } else {
                 ForEach(navigator.hooks, id: \.self) { url in
                     Label(url.lastPathComponent, systemImage: "scroll")
                         .tag(NavigatorRoute.hook(name: url.lastPathComponent))
+                        .clickableSidebarRow()
                 }
             }
         } label: {
             Label("Hooks", systemImage: "terminal")
+                .clickableSidebarRow()
         }
     }
 
@@ -121,9 +125,7 @@ struct NavigatorSidebar: View {
     private var skillsGroup: some View {
         DisclosureGroup(isExpanded: $skillsExpanded) {
             if navigator.skills.isEmpty {
-                Text("No skills")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
+                emptyPlaceholder("No skills")
             } else {
                 ForEach(navigator.skills, id: \.self) { node in
                     if case .folder(let name, let children) = node {
@@ -133,6 +135,7 @@ struct NavigatorSidebar: View {
             }
         } label: {
             Label("Skills", systemImage: "puzzlepiece.extension")
+                .clickableSidebarRow()
         }
     }
 
@@ -142,10 +145,21 @@ struct NavigatorSidebar: View {
             ForEach(SettingsFile.allCases, id: \.self) { file in
                 Label(file.rawValue, systemImage: "gearshape")
                     .tag(NavigatorRoute.settings(file))
+                    .clickableSidebarRow()
             }
         } label: {
             Label("Settings", systemImage: "gearshape.2")
+                .clickableSidebarRow()
         }
+    }
+
+    @ViewBuilder
+    private func emptyPlaceholder(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(.tertiary)
+            .font(.callout)
+            .disabled(true)
+            .selectionDisabled()
     }
 
     private func relativePath(for url: URL) -> String {
@@ -154,6 +168,40 @@ struct NavigatorSidebar: View {
             return components[idx..<components.count].joined(separator: "/")
         }
         return url.lastPathComponent
+    }
+}
+
+private struct ClickableSidebarRowModifier: ViewModifier {
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                // push/pop must stay balanced — track local state so a
+                // missed exit callback (view removed mid-hover) can pop in
+                // .onDisappear.
+                if hovering {
+                    if !pushed {
+                        NSCursor.pointingHand.push()
+                        pushed = true
+                    }
+                } else if pushed {
+                    NSCursor.pop()
+                    pushed = false
+                }
+            }
+            .onDisappear {
+                if pushed {
+                    NSCursor.pop()
+                    pushed = false
+                }
+            }
+    }
+}
+
+extension View {
+    fileprivate func clickableSidebarRow() -> some View {
+        modifier(ClickableSidebarRowModifier())
     }
 }
 

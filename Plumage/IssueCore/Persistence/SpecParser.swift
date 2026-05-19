@@ -2,6 +2,20 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
+    // YAMLDecoder is stateless after init (Yams 5.4); hoisting to a shared
+    // instance saves a per-call allocation in the keystroke-frequent
+    // validate() path. nonisolated(unsafe) parallels the formatter caches
+    // below — never mutated after declaration.
+    nonisolated(unsafe) private static let sharedDecoder = YAMLDecoder()
+
+    // Public hook so SpecEditorModel can skip validate() entirely when the
+    // frontmatter substring hasn't changed across keystrokes (the body
+    // changes far more often than the frontmatter does). Returns the
+    // extracted frontmatter region or nil if absent.
+    static func extractFrontmatterRegion(from content: String) -> String? {
+        extractFrontmatter(from: content)
+    }
+
     // Returns the frontmatter error if parsing fails, otherwise nil. Used
     // by callers that only need validation, not the parsed Issue value —
     // SpecEditorModel calls this on every keystroke, so it skips the
@@ -17,7 +31,7 @@ nonisolated enum SpecParser {
 
         let raw: RawFrontmatter
         do {
-            raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
+            raw = try sharedDecoder.decode(RawFrontmatter.self, from: yaml)
         } catch let yamlError as YamlError {
             return mapYamlError(yamlError)
         } catch let decoding as DecodingError {
@@ -51,7 +65,7 @@ nonisolated enum SpecParser {
 
         let raw: RawFrontmatter
         do {
-            raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
+            raw = try sharedDecoder.decode(RawFrontmatter.self, from: yaml)
         } catch let yamlError as YamlError {
             return .failure(mapYamlError(yamlError))
         } catch let decoding as DecodingError {
