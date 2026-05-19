@@ -114,11 +114,6 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let config):
             VStack(alignment: .leading, spacing: 0) {
-                ProjectHeader(
-                    title: config.name,
-                    path: handle.url.path,
-                    indicatorState: indicator.state
-                )
                 NavigatorDetail(
                     route: selectedRoute,
                     projectURL: handle.url,
@@ -142,6 +137,8 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                Divider()
+                ProjectStatusBar(indicatorState: indicator.state)
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
