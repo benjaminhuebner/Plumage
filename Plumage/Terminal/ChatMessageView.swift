@@ -26,9 +26,9 @@ struct ChatMessageView: View {
             .foregroundStyle(.primary)
             .multilineTextAlignment(.leading)
             .textSelection(.enabled)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(bubbleBackground, in: .rect(cornerRadius: 10))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(bubbleBackground, in: .rect(cornerRadius: 18))
     }
 
     private var systemBubble: some View {
