@@ -12,7 +12,7 @@ struct ProjectWindow: View {
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
-    @SceneStorage("terminalShown") private var terminalShown = false
+    @SceneStorage("claudeDock.open") private var isDockOpen = false
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -42,16 +42,27 @@ struct ProjectWindow: View {
                     }
                     : nil
             )
-            .focusedSceneValue(\.terminalToggle, $terminalShown)
+            .focusedSceneValue(\.terminalToggle, $isDockOpen)
             .task(id: handle.url) {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
                     selectedRoute = restored
+                }
+                // Window-scoped session lifecycle: start once when the window
+                // appears so dock-toggle/Cmd+Opt+T don't pay claude's boot
+                // latency. session.stop() lives in .onDisappear below.
+                switch session.state {
+                case .idle: session.start()
+                case .exited: session.restart()
+                case .starting, .running: break
                 }
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
                 _ = await (reload, run, detect, navLoad)
+            }
+            .onDisappear {
+                session.stop()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
@@ -80,40 +91,13 @@ struct ProjectWindow: View {
             sidebar
         } detail: {
             detail
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            terminalShown.toggle()
-                        } label: {
-                            Label("Terminal", systemImage: "apple.terminal")
-                        }
-                        .help("Toggle Terminal (⌥⌘T)")
-                    }
+                .overlay(alignment: .bottomTrailing) {
+                    ClaudeDockOverlay(
+                        session: session,
+                        indicatorState: indicator.state,
+                        isOpen: $isDockOpen
+                    )
                 }
-        }
-        .inspector(isPresented: $terminalShown) {
-            TerminalPaneView(session: session, indicatorState: indicator.state)
-                .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
-        }
-        .onChange(of: terminalShown, initial: false) { _, newValue in
-            // Synchronous: start/restart must happen before the inspector's
-            // content renders to avoid a brief state-misalignment with what's
-            // displayed. The "Modifying state during view update" warning this
-            // can provoke is cosmetic — see TerminalPaneView's onChange for
-            // the same trade-off.
-            handleInspectorToggle(visible: newValue)
-        }
-    }
-
-    private func handleInspectorToggle(visible: Bool) {
-        if visible {
-            switch session.state {
-            case .idle: session.start()
-            case .exited: session.restart()
-            case .starting, .running: break
-            }
-        } else {
-            session.stop()
         }
     }
 
