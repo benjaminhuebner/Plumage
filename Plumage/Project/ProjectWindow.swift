@@ -31,7 +31,7 @@ struct ProjectWindow: View {
         baseStack
             .environment(kanban)
             .environment(navigator)
-            .frame(minWidth: 720, minHeight: 480)
+            .frame(minWidth: 900, minHeight: 560)
             .navigationTitle(displayTitle)
             .focusedSceneValue(
                 \.createIssueInDefaultColumn,
