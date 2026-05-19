@@ -9,7 +9,7 @@ struct SkillTreeView: View {
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
             ForEach(Array(children.enumerated()), id: \.offset) { _, node in
-                nodeView(skillName: skillName, relativePath: skillName, node: node)
+                nodeView(skillName: skillName, relativePath: "", node: node)
             }
         } label: {
             Label(skillName, systemImage: "puzzlepiece")
