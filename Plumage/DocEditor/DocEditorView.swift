@@ -74,7 +74,13 @@ struct DocEditorView: View {
             }
         }
         .onDisappear {
+            // attemptSave is fire-and-forget; cancelPendingWork ensures any
+            // earlier queued saves are cancelled rather than landing post-pop.
+            // The latest save still runs because attemptSave queues a new
+            // task after the cancel (the model's saveGeneration check
+            // prevents the cancelled one from clobbering state on return).
             attemptSave()
+            model.cancelPendingWork()
         }
         .alert(
             "Failed to save",

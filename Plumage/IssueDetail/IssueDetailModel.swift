@@ -58,6 +58,21 @@ final class IssueDetailModel {
     private var pendingBodySave: Task<Void, Error>?
     private var observeTask: Task<Void, Never>?
 
+    // Called from the view's .onDisappear. Cancels the in-flight save chain
+    // and any pending kanban observation so subsequent state mutations that
+    // would land on a popped view stop firing. Cancellation propagates into
+    // any awaiting Task.detached but the inner synchronous mutator call has
+    // no cancellation point; an already-in-progress disk write still
+    // completes (autosave-on-disappear semantics).
+    func cancelPendingWork() {
+        pendingFormWrite?.cancel()
+        pendingFormWrite = nil
+        pendingBodySave?.cancel()
+        pendingBodySave = nil
+        observeTask?.cancel()
+        observeTask = nil
+    }
+
     private nonisolated let allocator: IssueAllocating?
     private nonisolated let writer: SpecWriting
     private nonisolated let mutator: FrontmatterMutating

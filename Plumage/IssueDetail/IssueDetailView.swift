@@ -122,6 +122,9 @@ struct IssueDetailView: View {
         } message: { alert in
             Text(alert.message)
         }
+        .onDisappear {
+            model.cancelPendingWork()
+        }
     }
 
     @ViewBuilder

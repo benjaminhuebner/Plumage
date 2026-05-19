@@ -22,7 +22,8 @@ final class DocEditorModel {
     private var pendingSave: Task<Void, Error>?
     // Bumped on save start and resolveConflictReload; a mid-flight reload
     // invalidates the still-running save so its post-write state-mutation
-    // is dropped.
+    // is dropped. Wrapping increment: overflow at 2^64 saves is unreachable
+    // in practice, but `&+=` avoids the debug-mode trap.
     private var saveGeneration: UInt64 = 0
 
     var isDirty: Bool { buffer != loadedContent }
@@ -65,6 +66,12 @@ final class DocEditorModel {
         }
         pendingSave = task
         try await task.value
+    }
+
+    // Called from the view's .onDisappear; see SpecEditorModel.cancelPendingWork.
+    func cancelPendingWork() {
+        pendingSave?.cancel()
+        pendingSave = nil
     }
 
     func probeExternalChange() async {

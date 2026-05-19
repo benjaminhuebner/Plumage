@@ -125,7 +125,7 @@ struct NavigatorSidebar: View {
                     .foregroundStyle(.secondary)
                     .font(.callout)
             } else {
-                ForEach(Array(navigator.skills.enumerated()), id: \.offset) { _, node in
+                ForEach(navigator.skills, id: \.self) { node in
                     if case .folder(let name, let children) = node {
                         SkillTreeView(skillName: name, children: children)
                     }

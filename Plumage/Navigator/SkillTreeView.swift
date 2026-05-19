@@ -8,7 +8,7 @@ struct SkillTreeView: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ForEach(Array(children.enumerated()), id: \.offset) { _, node in
+            ForEach(children, id: \.self) { node in
                 nodeView(skillName: skillName, relativePath: "", node: node)
             }
         } label: {
@@ -49,7 +49,7 @@ private struct SkillFolderRow: View {
     var body: some View {
         let path = parentPath.isEmpty ? folderName : parentPath + "/" + folderName
         DisclosureGroup(isExpanded: $expanded) {
-            ForEach(Array(children.enumerated()), id: \.offset) { _, node in
+            ForEach(children, id: \.self) { node in
                 childView(node: node, path: path)
             }
         } label: {
