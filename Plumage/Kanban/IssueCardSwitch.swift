@@ -20,6 +20,10 @@ struct IssueCardSwitch: View {
         case .invalid(let folder, let error):
             InvalidIssueCardView(folder: folder, error: error, padding: padding)
                 .contentShape(Rectangle())
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(named: Text("Open")) {
+                    openSpec(.issue(folderName: issue.id))
+                }
                 .contextMenu {
                     cardMenuItems(folderName: folder.lastPathComponent, folderURL: folder)
                 }
@@ -31,14 +35,14 @@ struct IssueCardSwitch: View {
 
     @ViewBuilder
     private func cardMenuItems(folderName: String, folderURL: URL) -> some View {
-        Button("Archivieren") {
+        Button("Archive") {
             kanban.applyOptimisticArchive(folderName: folderName, projectURL: projectURL)
         }
-        Button("In den Papierkorb") {
+        Button("Move to Trash") {
             kanban.applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
         }
         Divider()
-        Button("Im Finder zeigen") {
+        Button("Reveal in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([folderURL])
         }
     }

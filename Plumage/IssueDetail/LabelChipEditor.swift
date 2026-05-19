@@ -35,6 +35,7 @@ struct LabelChipEditor: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isEditing ? "Add label" : "Add new label")
+            .accessibilityHint(isEditing ? "Commits the typed label" : "Shows the label input field")
             .disabled(isEditing && !LabelChipEditor.isValid(draft))
         }
     }

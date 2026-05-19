@@ -108,8 +108,12 @@ struct IssueDetailFormRows: View {
         }
     }
 
+    // Shared across all instances; the body always runs on the MainActor, so
+    // the formatter's documented "not reentrant from multiple threads"
+    // constraint does not apply here.
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter

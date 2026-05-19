@@ -74,6 +74,7 @@ struct IssueCardView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
+        .accessibilityHint("Opens issue detail")
     }
 }
 
