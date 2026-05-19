@@ -127,4 +127,33 @@ struct NavigatorRouteTests {
         #expect(SettingsFile.main.rawValue == "settings.json")
         #expect(SettingsFile.local.rawValue == "settings.local.json")
     }
+
+    @Test(
+        "persistedString round-trips every case shape",
+        arguments: [
+            NavigatorRoute.kanban,
+            .issue(folderName: "00024-project-navigator"),
+            .doc(relativePath: ".claude/docs/PROJECT.md"),
+            .claudeMD,
+            .hook(name: "lint-swift.sh"),
+            .skillFile(skill: "plumage-implement", relativePath: "scripts/precommit-gate.sh"),
+            .settings(.main),
+            .settings(.local),
+        ]
+    )
+    func persistedStringRoundTrip(route: NavigatorRoute) {
+        let encoded = route.persistedString
+        let decoded = NavigatorRoute(persistedString: encoded)
+        #expect(decoded == route)
+    }
+
+    @Test("persistedString init returns nil for empty input")
+    func persistedStringEmpty() {
+        #expect(NavigatorRoute(persistedString: "") == nil)
+    }
+
+    @Test("persistedString init returns nil for invalid JSON")
+    func persistedStringInvalid() {
+        #expect(NavigatorRoute(persistedString: "not json") == nil)
+    }
 }

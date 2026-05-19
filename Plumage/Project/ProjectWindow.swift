@@ -7,6 +7,7 @@ struct ProjectWindow: View {
     @State private var kanban = ProjectKanbanModel()
     @State private var navigator = NavigatorModel()
     @State private var selectedRoute: NavigatorRoute = .kanban
+    @SceneStorage("nav.selection") private var persistedRouteData: String = ""
     @State private var showCreateSheet = false
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
@@ -43,11 +44,17 @@ struct ProjectWindow: View {
             )
             .focusedSceneValue(\.terminalToggle, $terminalShown)
             .task(id: handle.url) {
+                if let restored = NavigatorRoute(persistedString: persistedRouteData) {
+                    selectedRoute = restored
+                }
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
                 _ = await (reload, run, detect, navLoad)
+            }
+            .onChange(of: selectedRoute) { _, new in
+                persistedRouteData = new.persistedString
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
