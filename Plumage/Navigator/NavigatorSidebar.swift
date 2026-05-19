@@ -6,12 +6,12 @@ struct NavigatorSidebar: View {
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
 
-    @State private var kanbanExpanded = true
-    @State private var docsExpanded = true
-    @State private var claudeExpanded = true
-    @State private var hooksExpanded = false
-    @State private var skillsExpanded = false
-    @State private var settingsExpanded = false
+    @SceneStorage("nav.expansion.kanban") private var kanbanExpanded = true
+    @SceneStorage("nav.expansion.docs") private var docsExpanded = true
+    @SceneStorage("nav.expansion.claude") private var claudeExpanded = true
+    @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
+    @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
+    @SceneStorage("nav.expansion.settings") private var settingsExpanded = false
 
     var body: some View {
         List(selection: selectionBinding) {
