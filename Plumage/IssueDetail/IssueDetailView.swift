@@ -176,10 +176,8 @@ struct IssueDetailView: View {
                 displayMode: $displayMode,
                 showsDisplayModeToggle: true,
                 showsCopyID: !model.isCreating,
-                showsRevealInFinder: !model.isCreating,
                 saveDisabled: saveDisabled,
                 onCopyID: model.copyIDToPasteboard,
-                onRevealInFinder: model.revealInFinder,
                 onSave: attemptSave
             )
             switch displayMode {
