@@ -1,47 +1,49 @@
 import SwiftUI
 
-struct StatusIndicatorView: View {
-    let state: StatusIndicatorModel.IndicatorState
+struct ProjectStatusBar: View {
+    let indicatorState: StatusIndicatorModel.IndicatorState
 
     var body: some View {
-        HStack(spacing: 6) {
-            dot
-            Text(label)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.primary)
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 6) {
+                Spacer()
+                statusDot
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+            .help(tooltip)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(accessibilityLabel))
+            .accessibilityValue(Text(tooltip))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        // Content-surface badge; Liquid Glass / .regularMaterial are
-        // navigation-only per project rule. `.fill.tertiary` matches
-        // macOS 26's solid status-pill vocabulary.
-        .background(.fill.tertiary, in: .capsule)
-        .help(tooltip)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(accessibilityLabel))
-        .accessibilityValue(Text(tooltip))
     }
 
     @ViewBuilder
-    private var dot: some View {
-        switch state {
+    private var statusDot: some View {
+        switch indicatorState {
         case .loading:
             Circle()
                 .fill(.gray)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
                 .opacity(0.4)
                 .modifier(PulseModifier())
         case .ok:
-            Circle().fill(.green).frame(width: 8, height: 8)
+            Circle().fill(.green).frame(width: 6, height: 6)
         case .unsupported:
-            Circle().fill(.yellow).frame(width: 8, height: 8)
+            Circle().fill(.yellow).frame(width: 6, height: 6)
         case .missing, .failed:
-            Circle().fill(.red).frame(width: 8, height: 8)
+            Circle().fill(.red).frame(width: 6, height: 6)
         }
     }
 
     private var label: String {
-        switch state {
+        switch indicatorState {
         case .loading: return "checking…"
         case .ok(let check): return "claude \(check.version) ready"
         case .unsupported(let check): return "claude \(check.version) unsupported"
@@ -51,7 +53,7 @@ struct StatusIndicatorView: View {
     }
 
     private var tooltip: String {
-        switch state {
+        switch indicatorState {
         case .loading:
             return "Detecting `claude` binary…"
         case .ok(let check):
@@ -78,7 +80,7 @@ struct StatusIndicatorView: View {
     }
 
     private var accessibilityLabel: String {
-        switch state {
+        switch indicatorState {
         case .loading: return "Claude status: checking"
         case .ok: return "Claude status: ready"
         case .unsupported: return "Claude status: unsupported"
@@ -102,14 +104,9 @@ private struct PulseModifier: ViewModifier {
     }
 }
 
-#Preview("Loading") {
-    StatusIndicatorView(state: .loading)
-        .padding()
-}
-
-#Preview("OK") {
-    StatusIndicatorView(
-        state: .ok(
+#Preview("StatusBar (ok)") {
+    ProjectStatusBar(
+        indicatorState: .ok(
             VersionCheck(
                 version: SemanticVersion(major: 1, minor: 2, patch: 3),
                 binaryURL: URL(fileURLWithPath: "/opt/homebrew/bin/claude"),
@@ -117,30 +114,10 @@ private struct PulseModifier: ViewModifier {
             )
         )
     )
-    .padding()
+    .frame(width: 720)
 }
 
-#Preview("Unsupported") {
-    StatusIndicatorView(
-        state: .unsupported(
-            VersionCheck(
-                version: SemanticVersion(major: 0, minor: 9, patch: 0),
-                binaryURL: URL(fileURLWithPath: "/opt/homebrew/bin/claude"),
-                inSupportedRange: false
-            )
-        )
-    )
-    .padding()
-}
-
-#Preview("Missing") {
-    StatusIndicatorView(state: .missing)
-        .padding()
-}
-
-#Preview("Failed") {
-    StatusIndicatorView(
-        state: .failed(.nonZeroExit(code: 127, stderr: "command not found"))
-    )
-    .padding()
+#Preview("StatusBar (missing)") {
+    ProjectStatusBar(indicatorState: .missing)
+        .frame(width: 720)
 }
