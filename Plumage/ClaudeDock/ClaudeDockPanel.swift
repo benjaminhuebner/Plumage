@@ -23,15 +23,7 @@ struct ClaudeDockPanel: View {
             content
         }
         .frame(width: 420, height: 560)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.background.secondary)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.separator, lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
         .focusable()
         .accessibilityFocused($contentFocused)
         .onAppear { contentFocused = true }
