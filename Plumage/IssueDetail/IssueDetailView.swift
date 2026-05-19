@@ -13,6 +13,10 @@ struct IssueDetailView: View {
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
+    // Captured end-action for the pending pop attempt — re-used by the
+    // "Try again" / "Discard changes" alert buttons so both back-to-origin
+    // and dismiss-sheet paths land in the right place.
+    @State private var pendingPopAction: (() -> Void)?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -21,6 +25,7 @@ struct IssueDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openSpec) private var openSpec
+    @Environment(\.dismissToOrigin) private var dismissToOrigin
     @Environment(ProjectKanbanModel.self) private var kanban
 
     enum DisplayMode: String, CaseIterable, Identifiable {
@@ -114,8 +119,9 @@ struct IssueDetailView: View {
         ) { alert in
             switch alert.kind {
             case .pop:
-                Button("Try again") { Task { await attemptPop() } }
-                Button("Discard changes", role: .destructive) { dismiss() }
+                let popAction = pendingPopAction ?? { dismiss() }
+                Button("Try again") { Task { await attemptPop(endAction: popAction) } }
+                Button("Discard changes", role: .destructive) { popAction() }
             case .saveOnly:
                 Button("OK", role: .cancel) {}
             }
@@ -178,7 +184,8 @@ struct IssueDetailView: View {
                 showsCopyID: !model.isCreating,
                 saveDisabled: saveDisabled,
                 onCopyID: model.copyIDToPasteboard,
-                onSave: attemptSave
+                onSave: attemptSave,
+                onBack: dismissToOrigin.map { action in { triggerBack(action) } }
             )
             switch displayMode {
             case .detail:
@@ -433,14 +440,18 @@ struct IssueDetailView: View {
     }
 
     private func triggerPop() {
-        Task { await attemptPop() }
+        Task { await attemptPop(endAction: { dismiss() }) }
     }
 
-    private func attemptPop() async {
+    private func triggerBack(_ action: @escaping () -> Void) {
+        Task { await attemptPop(endAction: action) }
+    }
+
+    private func attemptPop(endAction: @escaping () -> Void) async {
         // Creating mode never has unsaved disk state: closing leaves no
         // trace and the in-memory drafts go away with the view.
         if model.isCreating {
-            dismiss()
+            endAction()
             return
         }
         do {
@@ -452,8 +463,9 @@ struct IssueDetailView: View {
                     try await model.saveRaw(rawDraft)
                 }
             }
-            dismiss()
+            endAction()
         } catch {
+            pendingPopAction = endAction
             presentSaveAlert(message: error.localizedDescription, kind: .pop)
         }
     }

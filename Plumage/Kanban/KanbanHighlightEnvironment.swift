@@ -11,4 +11,10 @@ extension EnvironmentValues {
     // KanbanColumnView's "+" button triggers a new issue. ProjectWindow
     // wires this to the create-issue sheet.
     @Entry var openCreateIssue: (IssueStatus) -> Void = { _ in }
+    // Set by ProjectWindow when the current detail view was reached from
+    // the kanban board. IssueDetailView renders a back button when this
+    // is non-nil; the closure restores the kanban route. nil otherwise
+    // (e.g. opened via the sidebar) — no NavigationStack, so origin is
+    // tracked explicitly.
+    @Entry var dismissToOrigin: (() -> Void)?
 }

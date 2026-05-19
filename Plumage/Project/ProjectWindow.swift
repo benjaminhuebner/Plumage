@@ -8,6 +8,11 @@ struct ProjectWindow: View {
     @State private var navigator = NavigatorModel()
     @State private var selectedRoute: NavigatorRoute = .kanban
     @SceneStorage("nav.selection") private var persistedRouteData: String = ""
+    // Tracks where the current detail view was reached from, so issue detail
+    // can offer a back button when opened via the kanban board (sidebar
+    // clicks set selection directly via Binding, not through openSpec, so
+    // they don't populate this).
+    @State private var detailOriginRoute: NavigatorRoute?
     @State private var showCreateSheet = false
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
@@ -65,6 +70,10 @@ struct ProjectWindow: View {
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
+                if case .issue = new {
+                } else {
+                    detailOriginRoute = nil
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
@@ -130,12 +139,16 @@ struct ProjectWindow: View {
                 .id(selectedRoute)
                 .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
                 .environment(\.openSpec) { route in
+                    if selectedRoute == .kanban, case .issue = route {
+                        detailOriginRoute = .kanban
+                    }
                     selectedRoute = route
                 }
                 .environment(\.openCreateIssue) { status in
                     createInitialStatus = status
                     showCreateSheet = true
                 }
+                .environment(\.dismissToOrigin, backToOriginAction)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 Divider()
                 ProjectStatusBar(indicatorState: indicator.state)
@@ -155,6 +168,11 @@ struct ProjectWindow: View {
     private var displayTitle: String {
         if case .loaded(let config) = model.state { return config.name }
         return handle.url.lastPathComponent
+    }
+
+    private var backToOriginAction: (() -> Void)? {
+        guard let origin = detailOriginRoute, origin == .kanban else { return nil }
+        return { selectedRoute = .kanban }
     }
 
     private var isLoaded: Bool {
