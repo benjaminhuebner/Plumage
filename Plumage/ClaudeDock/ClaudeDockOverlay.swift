@@ -14,26 +14,28 @@ struct ClaudeDockOverlay: View {
     private static let panelTrailingPadding: CGFloat = 16
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            // Full-frame anchor so .bottomTrailing has something to pin to.
-            Color.clear
-            if isOpen {
-                ClaudeDockPanel(
-                    session: session,
-                    indicatorState: indicatorState,
-                    isOpen: $isOpen
+        GlassEffectContainer {
+            ZStack(alignment: .bottomTrailing) {
+                // Full-frame anchor so .bottomTrailing has something to pin to.
+                Color.clear
+                if isOpen {
+                    ClaudeDockPanel(
+                        session: session,
+                        indicatorState: indicatorState,
+                        isOpen: $isOpen
+                    )
+                    .padding(.trailing, Self.panelTrailingPadding)
+                    .padding(.bottom, Self.panelBottomPadding)
+                    .transition(panelTransition)
+                }
+                ClaudeDockButton(
+                    isOpen: isOpen,
+                    isWorking: session.awaitingResponse,
+                    action: toggle
                 )
-                .padding(.trailing, Self.panelTrailingPadding)
-                .padding(.bottom, Self.panelBottomPadding)
-                .transition(panelTransition)
+                .padding(.trailing, Self.buttonTrailingPadding)
+                .padding(.bottom, Self.buttonBottomPadding)
             }
-            ClaudeDockButton(
-                isOpen: isOpen,
-                isWorking: session.awaitingResponse,
-                action: toggle
-            )
-            .padding(.trailing, Self.buttonTrailingPadding)
-            .padding(.bottom, Self.buttonBottomPadding)
         }
     }
 
