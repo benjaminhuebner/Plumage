@@ -23,7 +23,7 @@ nonisolated enum ClaudeProjectFiles {
 
     static func enumerateHooks(projectURL: URL) throws -> [URL] {
         let dir = projectURL.appendingPathComponent(hooksRelativePath, isDirectory: true)
-        return try listFiles(in: dir, withExtension: "sh")
+        return try listFiles(in: dir, withExtensions: ["sh", "py"])
     }
 
     static func enumerateSkills(projectURL: URL) throws -> [SkillNode] {
@@ -296,6 +296,10 @@ nonisolated enum ClaudeProjectFiles {
     }
 
     private static func listFiles(in directory: URL, withExtension ext: String) throws -> [URL] {
+        try listFiles(in: directory, withExtensions: [ext])
+    }
+
+    private static func listFiles(in directory: URL, withExtensions extensions: Set<String>) throws -> [URL] {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: directory.path) else { return [] }
         let entries = try fileManager.contentsOfDirectory(
@@ -305,7 +309,7 @@ nonisolated enum ClaudeProjectFiles {
         )
         return
             entries
-            .filter { $0.pathExtension == ext }
+            .filter { extensions.contains($0.pathExtension) }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
 
