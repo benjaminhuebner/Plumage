@@ -3,42 +3,6 @@ import Testing
 
 @testable import Plumage
 
-@Suite("ProductionAppLauncher")
-struct ProductionAppLauncherTests {
-    @Test("openApp passes -n to /usr/bin/open for a fresh instance")
-    func openPassesDashN() async throws {
-        let mock = MockXcodeProcessRunner()
-        let launcher = ProductionAppLauncher(runner: mock)
-        try await launcher.openApp(at: URL(fileURLWithPath: "/tmp/Build/Demo.app"))
-        let invocation = try #require(mock.invocations.first)
-        #expect(invocation.binaryURL.path == "/usr/bin/open")
-        #expect(invocation.args == ["-n", "/tmp/Build/Demo.app"])
-    }
-
-    @Test("openApp throws on non-zero exit")
-    func openSurfacesNonZeroExit() async {
-        let mock = MockXcodeProcessRunner()
-        mock.defaultRunOutcome = .success(
-            XcodeSpawnResult(
-                exitCode: 1, stdout: Data(),
-                stderr: Data("not a bundle".utf8)
-            ))
-        let launcher = ProductionAppLauncher(runner: mock)
-        do {
-            try await launcher.openApp(at: URL(fileURLWithPath: "/tmp/Build/Demo.app"))
-            Issue.record("expected non-zero exit to throw")
-        } catch let error as XcodeProcessRunnerError {
-            if case .nonZeroExit = error {
-                // expected
-            } else {
-                Issue.record("unexpected error: \(error)")
-            }
-        } catch {
-            Issue.record("wrong error type: \(error)")
-        }
-    }
-}
-
 @Suite("XcodeRunSession (macOS)")
 struct XcodeRunSessionMacTests {
     @Test("launches the macOS bundle via the app launcher on a green build")
@@ -81,7 +45,7 @@ struct XcodeRunSessionMacTests {
         )
         let collected = LineCollector()
         let outcome = await session.run(inputs: inputs, onLine: { collected.append($0) })
-        #expect(outcome == .launched)
+        #expect(outcome.isLaunched)
         #expect(launcher.openedURLs.map(\.path) == ["/tmp/Build/Demo.app"])
         #expect(collected.lines == ["compiling"])
     }
@@ -160,12 +124,21 @@ struct XcodeRunSessionMacTests {
 final class RecordingAppLauncher: AppLauncher, @unchecked Sendable {
     private let lock = NSLock()
     private var _opened: [URL] = []
+    private var _pidToReturn: Int32 = 99_999
 
     var openedURLs: [URL] {
         lock.withLock { _opened }
     }
 
-    func openApp(at url: URL) async throws {
-        lock.withLock { _opened.append(url) }
+    var pidToReturn: Int32 {
+        get { lock.withLock { _pidToReturn } }
+        set { lock.withLock { _pidToReturn = newValue } }
+    }
+
+    func openApp(at url: URL) async throws -> Int32? {
+        lock.withLock {
+            _opened.append(url)
+            return _pidToReturn
+        }
     }
 }

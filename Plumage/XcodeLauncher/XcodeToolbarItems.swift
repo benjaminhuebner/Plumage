@@ -27,7 +27,7 @@ struct XcodeToolbarItems: ToolbarContent {
             ToolbarItem(placement: .principal) {
                 BuildLogButton(model: model, isOpen: $showLog)
                     .popover(isPresented: $showLog) {
-                        BuildLogPopover(model: model)
+                        BuildLogPopover(model: model, isOpen: $showLog)
                     }
             }
             ToolbarItem(placement: .principal) {

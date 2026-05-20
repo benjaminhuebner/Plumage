@@ -3,6 +3,7 @@ import SwiftUI
 
 struct BuildLogPopover: View {
     @Bindable var model: XcodeRunModel
+    @Binding var isOpen: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -13,9 +14,19 @@ struct BuildLogPopover: View {
                 Button {
                     copyFullLog()
                 } label: {
-                    Label("Copy full log", systemImage: "doc.on.doc")
+                    Label("Copy", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
+                Button {
+                    isOpen = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.title3)
+                }
+                .buttonStyle(.borderless)
+                .help("Close")
+                .keyboardShortcut(.cancelAction)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {

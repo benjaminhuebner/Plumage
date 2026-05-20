@@ -1,10 +1,16 @@
+import AppKit
 import Foundation
 
 nonisolated enum XcodeRunOutcome: Sendable, Equatable {
-    case launched
+    case launched(pid: Int32?)
     case buildFailed(exitCode: Int32)
     case launchFailed(message: String)
     case cancelled
+
+    var isLaunched: Bool {
+        if case .launched = self { return true }
+        return false
+    }
 }
 
 nonisolated struct XcodeRunInputs: Sendable, Equatable {
@@ -16,32 +22,27 @@ nonisolated struct XcodeRunInputs: Sendable, Equatable {
 }
 
 nonisolated protocol AppLauncher: Sendable {
-    func openApp(at url: URL) async throws
+    // Returns the PID of the launched instance, or nil if the launcher can't
+    // tell (e.g. test mocks or a no-pid fallback path).
+    func openApp(at url: URL) async throws -> Int32?
 }
 
 nonisolated struct ProductionAppLauncher: AppLauncher {
-    private let runner: any XcodeProcessRunning
-    private let openPath: URL
-
-    init(
-        runner: any XcodeProcessRunning = ProductionXcodeProcessRunner(),
-        openPath: URL = URL(fileURLWithPath: "/usr/bin/open")
-    ) {
-        self.runner = runner
-        self.openPath = openPath
+    func openApp(at url: URL) async throws -> Int32? {
+        // NSWorkspace.openApplication returns the NSRunningApplication so we
+        // can both force a new instance (createsNewApplicationInstance) AND
+        // track its termination via the .didTerminateApplicationNotification.
+        // /usr/bin/open -n forced a new instance too but gave back no handle.
+        try await openOnMain(at: url)
     }
 
-    func openApp(at url: URL) async throws {
-        // -n forces a fresh instance even when the same bundle ID is already
-        // running. Without this, dogfooding (rebuilding Plumage from within
-        // Plumage) would silently just re-activate the running instance —
-        // looks like "nothing happens" from the user's perspective.
-        let result = try await runner.run(
-            binaryURL: openPath, args: ["-n", url.path], cwd: nil)
-        guard result.exitCode == 0 else {
-            let stderr = String(decoding: result.stderr, as: UTF8.self)
-            throw XcodeProcessRunnerError.nonZeroExit(code: result.exitCode, stderr: stderr)
-        }
+    @MainActor
+    private func openOnMain(at url: URL) async throws -> Int32 {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        config.activates = true
+        let app = try await NSWorkspace.shared.openApplication(at: url, configuration: config)
+        return app.processIdentifier
     }
 }
 
@@ -108,7 +109,7 @@ nonisolated struct XcodeRunSession: Sendable {
                 try await simulatorCatalog.boot(udid: udid)
                 try await simulatorCatalog.install(udid: udid, appURL: appURL)
                 try await simulatorCatalog.launch(udid: udid, bundleID: bundleID)
-                return .launched
+                return .launched(pid: nil)
             } catch is CancellationError {
                 return .cancelled
             } catch {
@@ -117,8 +118,8 @@ nonisolated struct XcodeRunSession: Sendable {
         }
 
         do {
-            try await appLauncher.openApp(at: appURL)
-            return .launched
+            let pid = try await appLauncher.openApp(at: appURL)
+            return .launched(pid: pid)
         } catch is CancellationError {
             return .cancelled
         } catch {

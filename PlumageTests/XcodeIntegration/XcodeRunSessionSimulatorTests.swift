@@ -47,7 +47,7 @@ struct XcodeRunSessionSimulatorTests {
             simulatorUDID: "AAAA-UDID"
         )
         let outcome = await session.run(inputs: inputs) { _ in }
-        #expect(outcome == .launched)
+        #expect(outcome.isLaunched)
 
         // Build → showBuildSettings → boot → install → launch.
         // xcodebuild gets `build` (stream), `-showBuildSettings` (run).
@@ -117,7 +117,7 @@ struct XcodeRunSessionSimulatorTests {
             simulatorUDID: "AAAA-UDID"
         )
         let outcome = await session.run(inputs: inputs) { _ in }
-        #expect(outcome == .launched)
+        #expect(outcome.isLaunched)
         _ = bootCount.value
     }
 
