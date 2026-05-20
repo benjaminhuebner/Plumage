@@ -96,6 +96,77 @@ struct SidebarDropTargetTests {
         #expect(outcome.rejected == [sourceFolder])
     }
 
+    @Test("Claude markdown section accepts .md, rejects .txt")
+    func claudeMarkdownAcceptsMD() throws {
+        let fixture = try DropFixture()
+        let md = try fixture.sourceFile(name: "PROJECT.md")
+        let txt = try fixture.sourceFile(name: "skip.txt")
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [md, txt], section: .claudeMarkdown, projectURL: fixture.root)
+        #expect(outcome.accepted.count == 1)
+        #expect(outcome.rejected == [txt])
+        let target = fixture.root.appendingPathComponent(".claude/PROJECT.md")
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    @Test("Claude markdown rejects folder drops")
+    func claudeMarkdownRejectsFolders() throws {
+        let fixture = try DropFixture()
+        let folder = fixture.sources.appendingPathComponent("nope", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [folder], section: .claudeMarkdown, projectURL: fixture.root)
+        #expect(outcome.accepted.isEmpty)
+        #expect(outcome.rejected == [folder])
+    }
+
+    @Test("hookSub routes drops into the nested hook folder")
+    func hookSubNestedTarget() throws {
+        let fixture = try DropFixture()
+        let source = try fixture.sourceFile(name: "lint.sh")
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [source], section: .hookSub(relativePath: "shared"),
+            projectURL: fixture.root)
+        #expect(outcome.accepted.count == 1)
+        let target = fixture.root.appendingPathComponent(".claude/hooks/shared/lint.sh")
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    @Test("skillSub routes drops into the nested skill subdirectory")
+    func skillSubNestedTarget() throws {
+        let fixture = try DropFixture()
+        let source = try fixture.sourceFile(name: "notes.md")
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [source],
+            section: .skillSub(skillName: "alpha", relativePath: "refs"),
+            projectURL: fixture.root)
+        #expect(outcome.accepted.count == 1)
+        let target = fixture.root.appendingPathComponent(".claude/skills/alpha/refs/notes.md")
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    @Test("resolveSection returns the last section whose minY is at or above y")
+    func resolveSectionPicksLastAboveTarget() {
+        let anchors: [SidebarDropTarget.Section: CGFloat] = [
+            .docs: 100,
+            .claudeMarkdown: 200,
+            .hooks: 300,
+            .skillsTopLevel: 400,
+        ]
+        #expect(SidebarDropTarget.resolveSection(at: 50, anchors: anchors) == nil)
+        #expect(SidebarDropTarget.resolveSection(at: 150, anchors: anchors) == .docs)
+        #expect(SidebarDropTarget.resolveSection(at: 250, anchors: anchors) == .claudeMarkdown)
+        #expect(SidebarDropTarget.resolveSection(at: 350, anchors: anchors) == .hooks)
+        #expect(SidebarDropTarget.resolveSection(at: 500, anchors: anchors) == .skillsTopLevel)
+        // Exact anchor sits ON the header — that section wins.
+        #expect(SidebarDropTarget.resolveSection(at: 100, anchors: anchors) == .docs)
+    }
+
+    @Test("resolveSection returns nil for an empty anchor dict")
+    func resolveSectionEmpty() {
+        #expect(SidebarDropTarget.resolveSection(at: 100, anchors: [:]) == nil)
+    }
+
     @Test("Skills top-level: file drop is wrapped into an implicit skill folder")
     func skillsTopLevelFileImpliesSkill() throws {
         let fixture = try DropFixture()

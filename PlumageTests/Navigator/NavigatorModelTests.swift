@@ -106,13 +106,88 @@ struct NavigatorModelTests {
         #expect(model.pendingCreate != nil)
     }
 
+    // flake-risk: real-time wait. The bannerDisplayDuration injection lets us
+    // shrink the timer, but we still depend on Task.sleep firing in
+    // < (5×) duration under load. A TestClock would eliminate the risk;
+    // until we adopt one this needs the generous margin.
     @Test("showBanner sets message and auto-clears after duration")
     func showBannerAutoClears() async throws {
         let model = NavigatorModel(bannerDisplayDuration: .milliseconds(80))
         model.showBanner("Only .md files allowed in Docs")
         #expect(model.dropRejectMessage == "Only .md files allowed in Docs")
-        try await Task.sleep(for: .milliseconds(400))
+        try await Task.sleep(for: .milliseconds(1000))
         #expect(model.dropRejectMessage == nil)
+    }
+
+    @Test("isPendingCreate matches the active section")
+    func isPendingCreateMatches() async {
+        let model = NavigatorModel()
+        #expect(!model.isPendingCreate(at: .docs))
+        model.beginPendingCreate(.docs)
+        #expect(model.isPendingCreate(at: .docs))
+        #expect(!model.isPendingCreate(at: .hookFile))
+        model.beginPendingCreate(.skillFile(skillName: "alpha", relativePath: "refs"))
+        #expect(model.isPendingCreate(at: .skillFile(skillName: "alpha", relativePath: "refs")))
+        #expect(!model.isPendingCreate(at: .skillFile(skillName: "alpha", relativePath: "")))
+    }
+
+    @Test("commitPendingCreate on .hookFolder returns nil route and keeps selection")
+    func commitPendingCreateHookFolderHasNoRoute() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        model.beginPendingCreate(.hookFolder)
+        model.pendingCreate?.name = "shared"
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        // Folders aren't a selectable route — caller should keep prior
+        // selection rather than getting bounced.
+        #expect(route == nil)
+        #expect(model.lastCreatedRoute == nil)
+        let folder = fixture.root.appendingPathComponent(".claude/hooks/shared")
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    @Test("commitPendingCreate on .skillFolder returns nil route")
+    func commitPendingCreateSkillFolderHasNoRoute() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        _ = try ClaudeProjectFiles.createSkill(name: "alpha", projectURL: fixture.root)
+        model.beginPendingCreate(.skillFolder(skillName: "alpha", relativePath: ""))
+        model.pendingCreate?.name = "refs"
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        #expect(route == nil)
+        #expect(model.lastCreatedRoute == nil)
+    }
+
+    @Test("handleFinderDrop copies accepted files off-Main and reloads the snapshot")
+    func handleFinderDropHappyPath() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        let source = fixture.root.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let file = source.appendingPathComponent("intro.md")
+        try "hi".write(to: file, atomically: true, encoding: .utf8)
+
+        await model.handleFinderDrop(urls: [file], section: .docs, projectURL: fixture.root)
+
+        #expect(model.docs.map(\.lastPathComponent) == ["intro.md"])
+        // Source stays in place (copy semantics).
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(model.dropRejectMessage == nil)
+    }
+
+    @Test("handleFinderDrop with all-rejected sources surfaces the banner and skips reload")
+    func handleFinderDropAllRejected() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        let source = fixture.root.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let file = source.appendingPathComponent("notes.txt")
+        try "x".write(to: file, atomically: true, encoding: .utf8)
+
+        await model.handleFinderDrop(urls: [file], section: .docs, projectURL: fixture.root)
+
+        #expect(model.docs.isEmpty)
+        #expect(model.dropRejectMessage == "Only .md files allowed in Docs")
     }
 
     @Test("commitRename moves the file and returns the new route")

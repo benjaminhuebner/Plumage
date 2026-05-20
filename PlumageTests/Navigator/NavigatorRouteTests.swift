@@ -174,4 +174,34 @@ struct NavigatorRouteTests {
     func persistedStringInvalid() {
         #expect(NavigatorRoute(persistedString: "not json") == nil)
     }
+
+    @Test("managedFileURL returns nil for routes that aren't a single managed file")
+    func managedFileURLNonFileRoutes() {
+        let project = URL(filePath: "/tmp/proj")
+        #expect(NavigatorRoute.kanban.managedFileURL(in: project) == nil)
+        #expect(NavigatorRoute.issue(folderName: "00001-x").managedFileURL(in: project) == nil)
+        #expect(NavigatorRoute.claudeMD.managedFileURL(in: project) == nil)
+        #expect(NavigatorRoute.settings(.main).managedFileURL(in: project) == nil)
+    }
+
+    @Test("managedFileURL builds the correct on-disk URL for managed files")
+    func managedFileURLForManagedFiles() {
+        let project = URL(filePath: "/tmp/proj")
+        #expect(
+            NavigatorRoute.doc(relativePath: ".claude/docs/intro.md")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/docs/intro.md")
+        #expect(
+            NavigatorRoute.claudeMarkdown(name: "PROJECT.md")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/PROJECT.md")
+        #expect(
+            NavigatorRoute.hook(name: "lint.sh")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/hooks/lint.sh")
+        #expect(
+            NavigatorRoute.skillFile(skill: "alpha", relativePath: "refs/notes.md")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/skills/alpha/refs/notes.md")
+    }
 }

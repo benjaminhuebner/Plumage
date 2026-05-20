@@ -204,6 +204,40 @@ struct ClaudeProjectFilesCreatorTests {
         #expect(free.lastPathComponent == "alpha-1")
     }
 
+    @Test("enumerateHooks lists both .sh and .py files at top level")
+    func enumerateHooksAcceptsShAndPy() throws {
+        let fixture = try CreatorFixture()
+        try fixture.makeFile(at: ".claude/hooks/a.sh", content: "#!/bin/sh")
+        try fixture.makeFile(at: ".claude/hooks/b.py", content: "#!/usr/bin/env python3")
+        try fixture.makeFile(at: ".claude/hooks/skip.txt", content: "no")
+        let urls = try ClaudeProjectFiles.enumerateHooks(projectURL: fixture.root)
+        let names = urls.map(\.lastPathComponent).sorted()
+        #expect(names == ["a.sh", "b.py"])
+    }
+
+    @Test(
+        "normalizedFileName edge cases",
+        arguments: [
+            // (raw, allowed, fallback, expected)
+            ("", ["md"], "md", "untitled.md"),
+            ("   ", ["md"], "md", "untitled.md"),
+            ("  intro.md  ", ["md"], "md", "intro.md"),
+            ("notes.txt", ["md"], "md", "notes.txt.md"),
+            ("my.docs.md", ["md"], "md", "my.docs.md"),
+            ("lint", ["sh", "py"], "sh", "lint.sh"),
+            ("run.py", ["sh", "py"], "sh", "run.py"),
+            ("FOO.MD", ["md"], "md", "FOO.md"),
+        ]
+    )
+    func normalizedFileNameEdges(
+        raw: String, allowed: [String], fallback: String, expected: String
+    ) {
+        #expect(
+            ClaudeProjectFiles.normalizedFileName(
+                raw, allowedExtensions: allowed, fallback: fallback)
+                == expected)
+    }
+
     @Test("enumerateClaudeMarkdown lists *.md at .claude/ root excluding CLAUDE.md")
     func enumerateClaudeMarkdownExcludesReserved() throws {
         let fixture = try CreatorFixture()
