@@ -190,6 +190,123 @@ struct TerminalClaudeSessionTests {
         #expect(session.conversationID == "abc-1234")
     }
 
+    // MARK: - restart()
+
+    @Test("restart() from .exited transitions to .starting and bumps restartEpoch")
+    func restartBumpsEpoch() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        session.markExited(code: 1)
+        let priorEpoch = session.restartEpoch
+        session.restart()
+        guard case .starting = session.state else {
+            Issue.record("Expected .starting after restart, got \(session.state)")
+            return
+        }
+        #expect(session.restartEpoch == priorEpoch &+ 1)
+    }
+
+    @Test("restart() from .running is a no-op")
+    func restartFromRunningIsNoOp() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        let priorEpoch = session.restartEpoch
+        let snapshot = session.state
+        session.restart()
+        #expect(session.state == snapshot)
+        #expect(session.restartEpoch == priorEpoch)
+    }
+
+    @Test("restart() from .idle is a no-op")
+    func restartFromIdleIsNoOp() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let priorEpoch = session.restartEpoch
+        session.restart()
+        #expect(session.state == .idle)
+        #expect(session.restartEpoch == priorEpoch)
+    }
+
+    // MARK: - stopHandler
+
+    @Test("stop() fires registered stopHandler exactly once")
+    func stopFiresHandler() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        var fired = 0
+        session.registerStopHandler { fired += 1 }
+        session.stop()
+        #expect(fired == 1)
+        // Second stop() is a no-op (state is .exited), handler stays untouched.
+        session.stop()
+        #expect(fired == 1)
+    }
+
+    @Test("clearStopHandler prevents stop() from firing")
+    func clearStopHandler() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        var fired = 0
+        session.registerStopHandler { fired += 1 }
+        session.clearStopHandler()
+        session.stop()
+        #expect(fired == 0)
+    }
+
+    @Test("stop() from .idle does not fire stopHandler")
+    func stopIdleSkipsHandler() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        var fired = 0
+        session.registerStopHandler { fired += 1 }
+        session.stop()
+        #expect(fired == 0)
+    }
+
+    // MARK: - rebuilt(for:replacing:)
+
+    @Test("rebuilt with same cwd returns the same instance")
+    func rebuiltSameCwdShortCircuits() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let prior = env.makeSession()
+        let rebuilt = TerminalClaudeSession.rebuilt(for: prior.cwd, replacing: prior)
+        #expect(rebuilt === prior)
+    }
+
+    @Test("rebuilt with different cwd stops prior and returns a fresh session")
+    func rebuiltDifferentCwdReplaces() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let prior = env.makeSession()
+        prior.attach()
+        prior.markStarted()
+        var stopFired = 0
+        prior.registerStopHandler { stopFired += 1 }
+        let otherCwd = env.cwdRoot.appendingPathComponent("other")
+        try FileManager.default.createDirectory(at: otherCwd, withIntermediateDirectories: true)
+        let rebuilt = TerminalClaudeSession.rebuilt(for: otherCwd, replacing: prior)
+        #expect(rebuilt !== prior)
+        #expect(rebuilt.cwd == otherCwd)
+        #expect(stopFired == 1)
+        // Prior is now .exited; rebuilt is fresh .idle.
+        #expect(rebuilt.state == .idle)
+    }
+
     // MARK: - Helpers
 
     @MainActor

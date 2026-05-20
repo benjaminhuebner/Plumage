@@ -95,6 +95,18 @@ struct ClaudeDockPanel: View {
         EmbeddedTerminalView(session: terminalSession)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            .overlay(alignment: .top) {
+                if case .exited(let code, let reason) = terminalSession.state {
+                    ExitBanner(code: code, reason: reason) {
+                        terminalSession.restart()
+                    }
+                }
+            }
+            // .id(cwd) forces SwiftUI to rebuild the bridge (and its
+            // Coordinator) when ProjectWindow swaps the session for a
+            // different handle.url — otherwise the Coordinator's `weak
+            // session` keeps pointing at the prior TerminalClaudeSession.
+            .id(terminalSession.cwd)
     }
 
     private var modeBinding: Binding<TerminalPaneMode> {

@@ -11,7 +11,13 @@ struct EmbeddedTerminalView: View {
 
     var body: some View {
         ZStack {
+            // .id(restartEpoch) forces SwiftUI to dismantle + remake the
+            // bridge when restart() bumps the epoch, which respawns the
+            // PTY-owned claude subprocess. State changes alone don't remount
+            // because the bridge already lives in the view tree across mode
+            // toggles.
             SwiftTermBridge(session: session)
+                .id(session.restartEpoch)
 
             if showsBootOverlay {
                 bootOverlay
@@ -63,10 +69,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // Defense in depth: TerminalClaudeSession's shellSpawnArgs already
         // single-quote-escapes ', but precondition on null/newline lives in
         // shellQuotedAttachArgs — bail out early to avoid spawning into a
-        // corrupt environment.
+        // corrupt environment. Mark exited so the ExitBanner surfaces instead
+        // of leaving a silent empty terminal.
         guard TerminalClaudeSession.isShellSafe(session.cwd.path),
             TerminalClaudeSession.isShellSafe(session.binaryURL.path)
         else {
+            session.markExited(code: -1)
             return view
         }
         let args = session.shellSpawnArgs()
@@ -77,6 +85,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
             args: args,
             environment: env
         )
+        // Synchronous kill path for window-close: stop() fires this before
+        // flipping state, so the subprocess dies before SwiftUI gets around
+        // to dismantling the view.
+        session.registerStopHandler { [weak view] in
+            view?.terminate()
+        }
         // SwiftTerm's startProcess returns the instant the PTY is wired up,
         // but claude itself spends ~1.6s on hooks / plugins / CLAUDE.md /
         // --resume replay. Holding the session in .starting masks that window
@@ -115,6 +129,9 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // running and the PTY fd pair leaked for the app session.
         coordinator.markStartedTask?.cancel()
         coordinator.markStartedTask = nil
+        // Drop the stop-hook before terminate() so a stop() during teardown
+        // doesn't end up calling terminate() on a half-disposed view.
+        coordinator.session?.clearStopHandler()
         nsView.stopCursorKeepAlive()
         nsView.terminate()
     }

@@ -18,6 +18,16 @@ final class TerminalClaudeSession {
 
     private(set) var state: State = .idle
     private(set) var conversationID: String
+    // Bumped by restart() so EmbeddedTerminalView can use it as a SwiftUI .id
+    // and force SwiftTermBridge to dismantle + remount, which respawns the
+    // PTY-owned claude subprocess. State alone can't drive a remount because
+    // the bridge already lives in the view tree across mode toggles.
+    private(set) var restartEpoch: Int = 0
+    // Synchronously kill the PTY subprocess on stop(). Registered by
+    // SwiftTermBridge.makeNSView so window-close → onDisappear → stop()
+    // terminates the child without relying on SwiftUI's view-tree teardown
+    // timing. The real Process lives in SwiftTerm, not in this class.
+    private var stopHandler: (() -> Void)?
 
     init(
         cwd: URL,
@@ -85,10 +95,33 @@ final class TerminalClaudeSession {
     func stop() {
         switch state {
         case .starting, .running:
+            // Kill the PTY-owned subprocess synchronously before flipping
+            // state. SwiftTermBridge.dismantleNSView is the fallback path,
+            // but it's only guaranteed to fire after the view leaves the
+            // hierarchy — which during window-close races onDisappear. Calling
+            // stopHandler here closes that race.
+            stopHandler?()
             state = .exited(code: 0, reason: .userClosed)
         case .idle, .exited:
             return
         }
+    }
+
+    // Mid-Lifecycle restart for the ExitBanner: flip state back to .starting
+    // and bump restartEpoch so SwiftTermBridge re-mounts and spawns a fresh
+    // claude. Only valid from .exited — banner is the only caller.
+    func restart() {
+        guard case .exited = state else { return }
+        state = .starting(cwd: cwd)
+        restartEpoch &+= 1
+    }
+
+    func registerStopHandler(_ handler: @escaping () -> Void) {
+        stopHandler = handler
+    }
+
+    func clearStopHandler() {
+        stopHandler = nil
     }
 
     func resumeOrInitArgs() -> [String] {
