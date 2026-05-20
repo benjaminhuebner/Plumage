@@ -1,0 +1,13 @@
+{
+  "five_hour": {
+    "utilization_pct": 42.5,
+    "resets_at": "2026-05-20T22:00:00.000Z"
+  },
+  "seven_day": {
+    "utilization_pct": 13.0,
+    "resets_at": "2026-05-26T18:00:00.000Z"
+  },
+  "extra_usage": {
+    "current_spending": 0.0
+  }
+}
