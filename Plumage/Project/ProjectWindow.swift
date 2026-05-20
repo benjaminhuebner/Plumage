@@ -21,6 +21,7 @@ struct ProjectWindow: View {
     // it warns "FocusedValue update tried to update multiple times per
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
+    @State private var beginInlineCreateAction: InlineCreateInvoker?
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -51,6 +52,7 @@ struct ProjectWindow: View {
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
+            .focusedSceneValue(\.beginInlineCreate, beginInlineCreateAction)
             .focusedSceneValue(\.terminalToggle, $isDockOpen)
             .task(id: handle.url) {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
@@ -210,8 +212,14 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
             }
-        } else if createIssueAction != nil {
-            createIssueAction = nil
+            if beginInlineCreateAction == nil {
+                beginInlineCreateAction = InlineCreateInvoker { section in
+                    navigator.beginPendingCreate(section)
+                }
+            }
+        } else {
+            if createIssueAction != nil { createIssueAction = nil }
+            if beginInlineCreateAction != nil { beginInlineCreateAction = nil }
         }
     }
 
