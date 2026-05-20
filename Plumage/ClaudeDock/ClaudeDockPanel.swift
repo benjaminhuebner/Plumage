@@ -63,21 +63,38 @@ struct ClaudeDockPanel: View {
 
     @ViewBuilder
     private var modeContent: some View {
-        switch mode {
-        case .chat:
-            ChatView(session: session)
-                .overlay(alignment: .top) {
-                    if case .exited(let code, let reason) = session.state {
-                        ExitBanner(code: code, reason: reason) {
-                            session.restart()
-                        }
+        // Both modes stay mounted so toggling between them is purely a
+        // visibility flip — no SwiftTermBridge dismantle, no claude respawn.
+        ZStack {
+            chatMode
+                .opacity(mode == .chat ? 1 : 0)
+                .allowsHitTesting(mode == .chat)
+                .accessibilityHidden(mode != .chat)
+            terminalMode
+                .opacity(mode == .terminal ? 1 : 0)
+                .allowsHitTesting(mode == .terminal)
+                .accessibilityHidden(mode != .terminal)
+        }
+        .animation(.easeInOut(duration: 0.18), value: modeRaw)
+    }
+
+    @ViewBuilder
+    private var chatMode: some View {
+        ChatView(session: session)
+            .overlay(alignment: .top) {
+                if case .exited(let code, let reason) = session.state {
+                    ExitBanner(code: code, reason: reason) {
+                        session.restart()
                     }
                 }
-        case .terminal:
-            EmbeddedTerminalView(session: terminalSession)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-        }
+            }
+    }
+
+    @ViewBuilder
+    private var terminalMode: some View {
+        EmbeddedTerminalView(session: terminalSession)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
     }
 
     private var modeBinding: Binding<TerminalPaneMode> {
