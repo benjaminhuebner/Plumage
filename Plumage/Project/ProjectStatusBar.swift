@@ -2,13 +2,26 @@ import SwiftUI
 
 struct ProjectStatusBar: View {
     let indicatorState: StatusIndicatorModel.IndicatorState
+    let usageModel: ClaudeUsageModel?
+    let statusModel: ClaudeStatusModel?
     var banner: String?
+
+    init(
+        indicatorState: StatusIndicatorModel.IndicatorState,
+        usageModel: ClaudeUsageModel? = nil,
+        statusModel: ClaudeStatusModel? = nil,
+        banner: String? = nil
+    ) {
+        self.indicatorState = indicatorState
+        self.usageModel = usageModel
+        self.statusModel = statusModel
+        self.banner = banner
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 6) {
-                Spacer()
                 statusDot
                 // Banner messages take priority over the static indicator
                 // label — for the ~3 s window the user sees the rejection
@@ -17,15 +30,34 @@ struct ProjectStatusBar: View {
                     .font(.caption)
                     .foregroundStyle(banner == nil ? .secondary : .primary)
                     .accessibilityIdentifier(banner == nil ? "indicator-label" : "drop-banner")
-                Spacer()
+                    .lineLimit(1)
+                    .layoutPriority(-1)
+                Spacer(minLength: 8)
+                if let usageModel {
+                    usagePill(usageModel: usageModel)
+                        .fixedSize()
+                        .layoutPriority(1)
+                }
+                if let statusModel {
+                    StatusPageButton(model: statusModel)
+                        .fixedSize()
+                        .layoutPriority(1)
+                }
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 22)
             .background(.bar)
             .help(banner ?? tooltip)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(banner == nil ? accessibilityLabel : "Drop rejected"))
-            .accessibilityValue(Text(banner ?? tooltip))
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    @ViewBuilder
+    private func usagePill(usageModel: ClaudeUsageModel) -> some View {
+        if usageModel.isLoggedOut {
+            LoggedOutHintButton()
+        } else {
+            UsageButton(model: usageModel)
         }
     }
 
