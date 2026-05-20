@@ -2,31 +2,39 @@ import Foundation
 
 nonisolated enum ClaudeUsageError: Error, Sendable, Equatable {
     case notLoggedIn
-    case noOrganization
     case transport(String)
     case serverError(Int)
     case unparseable(String)
 }
 
 actor ClaudeUsageClient {
-    static let claudeAIBaseURLString = "https://claude.ai"
+    // The CLI OAuth token is accepted at api.anthropic.com with a Bearer
+    // header plus the `anthropic-version` API-version header. The
+    // `/api/oauth/usage` endpoint returns per-window utilization without
+    // requiring an organization-ID lookup. Discovered empirically on
+    // 2026-05-20 (#00031, notes.md); the claude.ai/api/organizations/{id}/usage
+    // endpoint the original spec referenced rejects this token with 403
+    // account_session_invalid.
+    static let usageEndpointString = "https://api.anthropic.com/api/oauth/usage"
+    static let usageEndpoint: URL = {
+        guard let url = URL(string: usageEndpointString) else {
+            preconditionFailure("invalid usage endpoint literal")
+        }
+        return url
+    }()
 
     private let fetcher: any HTTPFetching
     private let keychain: any KeychainReading
-    private let baseURL: URL
-    private var cachedOrganizationID: String?
+    private let endpoint: URL
 
     init(
         fetcher: any HTTPFetching = ProductionHTTPFetcher(),
         keychain: any KeychainReading = ProductionKeychainReader(),
-        baseURLString: String = ClaudeUsageClient.claudeAIBaseURLString
+        endpoint: URL = ClaudeUsageClient.usageEndpoint
     ) {
         self.fetcher = fetcher
         self.keychain = keychain
-        guard let url = URL(string: baseURLString) else {
-            preconditionFailure("invalid claude.ai base URL literal: \(baseURLString)")
-        }
-        self.baseURL = url
+        self.endpoint = endpoint
     }
 
     func fetchUsage() async throws -> ClaudeUsageResponse {
@@ -39,48 +47,12 @@ actor ClaudeUsageClient {
             throw ClaudeUsageError.transport(error.localizedDescription)
         }
 
-        let orgID = try await resolveOrganizationID(token: token)
-        let url = baseURL.appending(path: "/api/organizations/\(orgID)/usage")
-        let data = try await get(url: url, token: token, mapDecode: ClaudeUsageError.unparseable)
-        do {
-            return try ClaudeUsageResponse.decode(data: data)
-        } catch {
-            throw ClaudeUsageError.unparseable(error.localizedDescription)
-        }
-    }
-
-    func resetOrganizationCache() {
-        cachedOrganizationID = nil
-    }
-
-    private func resolveOrganizationID(token: OAuthToken) async throws -> String {
-        if let cached = cachedOrganizationID { return cached }
-        let url = baseURL.appending(path: "/api/organizations")
-        let data = try await get(url: url, token: token, mapDecode: ClaudeUsageError.unparseable)
-        let orgs: [ClaudeOrganizationListing]
-        do {
-            orgs = try ClaudeOrganizationListing.decode(data: data)
-        } catch {
-            throw ClaudeUsageError.unparseable(error.localizedDescription)
-        }
-        guard let first = orgs.first else { throw ClaudeUsageError.noOrganization }
-        cachedOrganizationID = first.id
-        return first.id
-    }
-
-    private func get(
-        url: URL,
-        token: OAuthToken,
-        mapDecode: (String) -> ClaudeUsageError
-    ) async throws -> Data {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        // The CLI's token is an OAuth access token. Bearer is the form
-        // observed in the open-source Claude-Usage-Tracker reference and is
-        // what claude.ai's web client uses; if Anthropic ever rotates the
-        // call to a cookie-only path, swap to `Cookie: sessionKey=…`.
         request.setValue("Bearer \(token.value)", forHTTPHeaderField: "Authorization")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
         let (data, response): (Data, HTTPURLResponse)
         do {
             (data, response) = try await fetcher.data(for: request)
@@ -88,11 +60,14 @@ actor ClaudeUsageClient {
             throw ClaudeUsageError.transport(error.localizedDescription)
         }
         switch response.statusCode {
-        case 200..<300: return data
+        case 200..<300:
+            do {
+                return try ClaudeUsageResponse.decode(data: data)
+            } catch {
+                throw ClaudeUsageError.unparseable(error.localizedDescription)
+            }
         case 401, 403:
             throw ClaudeUsageError.notLoggedIn
-        case 500...599:
-            throw ClaudeUsageError.serverError(response.statusCode)
         default:
             throw ClaudeUsageError.serverError(response.statusCode)
         }

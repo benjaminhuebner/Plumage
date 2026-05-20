@@ -34,8 +34,8 @@ final class ClaudeUsageModel {
         return nil
     }
 
-    var extraSpendingUSD: Double? {
-        if case .usage(let response) = state { return response.extraSpendingUSD }
+    var sevenDaySonnet: ClaudeUsageResponse.WindowUsage? {
+        if case .usage(let response) = state { return response.sevenDaySonnet }
         return nil
     }
 
@@ -68,7 +68,6 @@ final class ClaudeUsageModel {
     static func message(for error: ClaudeUsageError) -> String {
         switch error {
         case .notLoggedIn: return "Not logged in"
-        case .noOrganization: return "Could not resolve organization"
         case .transport(let detail): return "Network: \(detail)"
         case .serverError(let code): return "Server error \(code)"
         case .unparseable(let detail): return "Unparseable response: \(detail)"

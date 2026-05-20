@@ -144,15 +144,10 @@ struct UsageDetailPopover: View {
             if let opus = model.sevenDayOpus, opus.utilizationPct > 0 {
                 row(label: "7-day Opus", window: opus, accent: percentColor(opus.utilizationPct))
             }
-            if let usd = model.extraSpendingUSD, usd > 0 {
-                HStack {
-                    Text("Extra usage")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(usd, format: .currency(code: "USD"))
-                        .monospacedDigit()
-                }
-                .font(.caption)
+            if let sonnet = model.sevenDaySonnet, sonnet.utilizationPct > 0 {
+                row(
+                    label: "7-day Sonnet", window: sonnet,
+                    accent: percentColor(sonnet.utilizationPct))
             }
         }
     }

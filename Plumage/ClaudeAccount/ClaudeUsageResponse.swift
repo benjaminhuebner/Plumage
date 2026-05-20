@@ -4,7 +4,7 @@ nonisolated struct ClaudeUsageResponse: Sendable, Equatable {
     let fiveHour: WindowUsage?
     let sevenDay: WindowUsage?
     let sevenDayOpus: WindowUsage?
-    let extraSpendingUSD: Double?
+    let sevenDaySonnet: WindowUsage?
 
     struct WindowUsage: Sendable, Equatable {
         let utilizationPct: Double
@@ -17,7 +17,7 @@ nonisolated struct ClaudeUsageResponse: Sendable, Equatable {
             fiveHour: envelope.fiveHour?.toWindow(),
             sevenDay: envelope.sevenDay?.toWindow(),
             sevenDayOpus: envelope.sevenDayOpus?.toWindow(),
-            extraSpendingUSD: envelope.extraUsage?.currentSpending
+            sevenDaySonnet: envelope.sevenDaySonnet?.toWindow()
         )
     }
 
@@ -25,52 +25,29 @@ nonisolated struct ClaudeUsageResponse: Sendable, Equatable {
         let fiveHour: WindowBody?
         let sevenDay: WindowBody?
         let sevenDayOpus: WindowBody?
-        let extraUsage: ExtraUsage?
+        let sevenDaySonnet: WindowBody?
 
         enum CodingKeys: String, CodingKey {
             case fiveHour = "five_hour"
             case sevenDay = "seven_day"
             case sevenDayOpus = "seven_day_opus"
-            case extraUsage = "extra_usage"
+            case sevenDaySonnet = "seven_day_sonnet"
         }
     }
 
     private struct WindowBody: Decodable {
-        let utilizationPct: Double?
+        let utilization: Double?
         let resetsAt: Date?
 
         enum CodingKeys: String, CodingKey {
-            case utilizationPct = "utilization_pct"
+            case utilization
             case resetsAt = "resets_at"
         }
 
         func toWindow() -> WindowUsage? {
-            guard let pct = utilizationPct else { return nil }
+            guard let pct = utilization else { return nil }
             return WindowUsage(utilizationPct: pct, resetsAt: resetsAt)
         }
-    }
-
-    private struct ExtraUsage: Decodable {
-        let currentSpending: Double?
-
-        enum CodingKeys: String, CodingKey {
-            case currentSpending = "current_spending"
-        }
-    }
-}
-
-nonisolated struct ClaudeOrganizationListing: Sendable, Equatable {
-    let id: String
-    let name: String?
-
-    static func decode(data: Data) throws -> [ClaudeOrganizationListing] {
-        let envelope = try JSONDecoder.usageDecoder.decode([OrgBody].self, from: data)
-        return envelope.map { ClaudeOrganizationListing(id: $0.uuid, name: $0.name) }
-    }
-
-    private struct OrgBody: Decodable {
-        let uuid: String
-        let name: String?
     }
 }
 
@@ -79,8 +56,6 @@ nonisolated extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
-            // Anthropic mixes ISO-8601 strings and Unix-seconds doubles; the
-            // shape varies per endpoint, so try both before giving up.
             if let raw = try? container.decode(String.self) {
                 let primary = ISO8601DateFormatter()
                 primary.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

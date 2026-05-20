@@ -11,8 +11,7 @@ struct ClaudeUsageModelTests {
         let model = ClaudeUsageModel()
         let client = ClaudeUsageClient(
             fetcher: StubHTTPFetcher(),
-            keychain: MockKeychainReader(outcome: .failure(.notLoggedIn)),
-            baseURLString: "https://claude.ai"
+            keychain: MockKeychainReader(outcome: .failure(.notLoggedIn))
         )
         await model.refresh(using: client)
         #expect(model.isLoggedOut)
@@ -21,7 +20,7 @@ struct ClaudeUsageModelTests {
     @Test("loading → usage on happy path")
     func loadingToUsage() async throws {
         let model = ClaudeUsageModel()
-        let client = try await Self.happyPathClient()
+        let client = Self.happyPathClient()
         await model.refresh(using: client)
         if case .usage(let response) = model.state {
             #expect(response.fiveHour?.utilizationPct == 42.5)
@@ -32,25 +31,18 @@ struct ClaudeUsageModelTests {
     }
 
     @Test("usage survives transient transport failure")
-    func usageSurvivesFailure() async throws {
+    func usageSurvivesFailure() async {
         let model = ClaudeUsageModel()
         let stub = StubHTTPFetcher()
         let token = OAuthToken(value: "sk-cache", expiresAt: nil)
         let keychain = MockKeychainReader(outcome: .token(token))
-        let baseURL = try #require(URL(string: "https://claude.ai"))
         stub.setOutcome(
-            .response(status: 200, body: Self.orgsJSON),
-            for: baseURL.appending(path: "/api/organizations"))
-        stub.setOutcome(
-            .response(status: 200, body: Self.usageJSON),
-            for: baseURL.appending(path: "/api/organizations/org-uuid/usage"))
-        let client = ClaudeUsageClient(
-            fetcher: stub, keychain: keychain, baseURLString: "https://claude.ai")
+            .response(status: 200, body: Self.usageJSON), for: ClaudeUsageClient.usageEndpoint)
+        let client = ClaudeUsageClient(fetcher: stub, keychain: keychain)
         await model.refresh(using: client)
 
         stub.setOutcome(
-            .failure(URLError(.notConnectedToInternet)),
-            for: baseURL.appending(path: "/api/organizations/org-uuid/usage"))
+            .failure(URLError(.notConnectedToInternet)), for: ClaudeUsageClient.usageEndpoint)
         await model.refresh(using: client)
         if case .usage = model.state {
             // ok — last cache retained
@@ -60,54 +52,33 @@ struct ClaudeUsageModelTests {
     }
 
     @Test("401 from server flips back to loggedOut even after usage was cached")
-    func unauthorizedFlipsToLoggedOut() async throws {
+    func unauthorizedFlipsToLoggedOut() async {
         let model = ClaudeUsageModel()
         let stub = StubHTTPFetcher()
-        let keychain = MockKeychainReader(
-            outcome: .token(OAuthToken(value: "sk-prev", expiresAt: nil)))
-        let baseURL = try #require(URL(string: "https://claude.ai"))
+        let keychain = MockKeychainReader(outcome: .token(OAuthToken(value: "sk-prev", expiresAt: nil)))
         stub.setOutcome(
-            .response(status: 200, body: Self.orgsJSON),
-            for: baseURL.appending(path: "/api/organizations"))
-        stub.setOutcome(
-            .response(status: 200, body: Self.usageJSON),
-            for: baseURL.appending(path: "/api/organizations/org-uuid/usage"))
-        let client = ClaudeUsageClient(
-            fetcher: stub, keychain: keychain, baseURLString: "https://claude.ai")
+            .response(status: 200, body: Self.usageJSON), for: ClaudeUsageClient.usageEndpoint)
+        let client = ClaudeUsageClient(fetcher: stub, keychain: keychain)
         await model.refresh(using: client)
 
-        stub.setOutcome(
-            .response(status: 401, body: Data()),
-            for: baseURL.appending(path: "/api/organizations/org-uuid/usage"))
+        stub.setOutcome(.response(status: 401, body: Data()), for: ClaudeUsageClient.usageEndpoint)
         await model.refresh(using: client)
         #expect(model.isLoggedOut)
     }
 
-    private static func happyPathClient() async throws -> ClaudeUsageClient {
+    private static func happyPathClient() -> ClaudeUsageClient {
         let stub = StubHTTPFetcher()
         let token = OAuthToken(value: "sk-test", expiresAt: nil)
         let keychain = MockKeychainReader(outcome: .token(token))
-        let baseURL = try #require(URL(string: "https://claude.ai"))
-        stub.setOutcome(
-            .response(status: 200, body: orgsJSON),
-            for: baseURL.appending(path: "/api/organizations"))
-        stub.setOutcome(
-            .response(status: 200, body: usageJSON),
-            for: baseURL.appending(path: "/api/organizations/org-uuid/usage"))
-        return ClaudeUsageClient(
-            fetcher: stub, keychain: keychain, baseURLString: "https://claude.ai")
+        stub.setOutcome(.response(status: 200, body: usageJSON), for: ClaudeUsageClient.usageEndpoint)
+        return ClaudeUsageClient(fetcher: stub, keychain: keychain)
     }
-
-    private static let orgsJSON: Data = Data(
-        #"""
-        [{ "uuid": "org-uuid", "name": "Plumage Org" }]
-        """#.utf8)
 
     private static let usageJSON: Data = Data(
         #"""
         {
-          "five_hour": { "utilization_pct": 42.5, "resets_at": "2026-05-20T22:00:00Z" },
-          "seven_day": { "utilization_pct": 13.0, "resets_at": "2026-05-26T18:00:00Z" }
+          "five_hour": { "utilization": 42.5, "resets_at": "2026-05-20T22:00:00Z" },
+          "seven_day": { "utilization": 13.0, "resets_at": "2026-05-26T18:00:00Z" }
         }
         """#.utf8)
 }

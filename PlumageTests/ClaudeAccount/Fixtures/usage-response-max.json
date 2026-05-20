@@ -1,17 +1,18 @@
 {
   "five_hour": {
-    "utilization_pct": 87.25,
+    "utilization": 87.25,
     "resets_at": "2026-05-20T23:30:00.000Z"
   },
   "seven_day": {
-    "utilization_pct": 64.0,
+    "utilization": 64.0,
     "resets_at": "2026-05-27T03:00:00.000Z"
   },
   "seven_day_opus": {
-    "utilization_pct": 18.5,
+    "utilization": 18.5,
     "resets_at": "2026-05-27T03:00:00.000Z"
   },
-  "extra_usage": {
-    "current_spending": 4.27
+  "seven_day_sonnet": {
+    "utilization": 4.0,
+    "resets_at": "2026-05-27T03:00:00.000Z"
   }
 }
