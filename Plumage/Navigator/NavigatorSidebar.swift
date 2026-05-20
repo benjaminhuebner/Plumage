@@ -19,69 +19,63 @@ struct NavigatorSidebar: View {
 
     var body: some View {
         List(selection: selectionBinding) {
-            Section {
-                Label("Board", systemImage: "rectangle.3.group.fill")
-                    .tag(NavigatorRoute.kanban)
-                    .clickableSidebarRow()
-                ForEach(IssueColumn.allCases) { column in
-                    columnRow(column)
-                }
-            } header: {
-                Text("Issues")
+            // Custom synthetic "section headers" rendered as ordinary rows
+            // so the trailing plus button stays interactive. Native
+            // `Section { } header: { … }` in `List(.sidebar)` routes the
+            // header through NSTableView's group-header path, which kills
+            // button/tap hit-testing.
+
+            SidebarSectionHeader(title: "Issues", action: nil, help: nil)
+            Label("Board", systemImage: "rectangle.3.group.fill")
+                .tag(NavigatorRoute.kanban)
+                .clickableSidebarRow()
+            ForEach(IssueColumn.allCases) { column in
+                columnRow(column)
             }
 
-            Section {
-                Group {
-                    if navigator.docs.isEmpty && !isPending(.docs) {
-                        emptyPlaceholder("No docs yet")
-                    } else {
-                        ForEach(navigator.docs, id: \.absoluteString) { url in
-                            docRow(url)
-                        }
-                        if isPending(.docs) {
-                            InlineCreateRow(projectURL: projectURL, icon: "doc.text")
-                        }
-                    }
-                }
-                .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
-            } header: {
-                sectionHeader(title: "Docs") {
-                    Button("New Doc") { navigator.beginPendingCreate(.docs) }
-                }
+            SidebarSectionHeader(title: "Docs", help: "New Doc") {
+                navigator.beginPendingCreate(.docs)
             }
-
-            Section {
-                Group {
-                    Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
-                        .tag(NavigatorRoute.claudeMD)
-                        .clickableSidebarRow()
-                    ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
-                        claudeMarkdownRow(url)
+            Group {
+                if navigator.docs.isEmpty && !isPending(.docs) {
+                    emptyPlaceholder("No docs yet")
+                } else {
+                    ForEach(navigator.docs, id: \.absoluteString) { url in
+                        docRow(url)
                     }
-                    if isPending(.claudeMarkdown) {
+                    if isPending(.docs) {
                         InlineCreateRow(projectURL: projectURL, icon: "doc.text")
                     }
                 }
-                .modifier(SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
-                Group {
-                    hooksGroup
+            }
+            .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
+
+            SidebarSectionHeader(title: "Claude", help: "New Markdown") {
+                navigator.beginPendingCreate(.claudeMarkdown)
+            }
+            Group {
+                Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
+                    .tag(NavigatorRoute.claudeMD)
+                    .clickableSidebarRow()
+                ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
+                    claudeMarkdownRow(url)
                 }
-                .modifier(SectionDropModifier(section: .hooks, projectURL: projectURL, navigator: navigator))
-                Group {
-                    skillsGroup
-                }
-                .modifier(SectionDropModifier(section: .skillsTopLevel, projectURL: projectURL, navigator: navigator))
-                settingsGroup
-            } header: {
-                sectionHeader(title: "Claude") {
-                    Button("New Markdown") { navigator.beginPendingCreate(.claudeMarkdown) }
+                if isPending(.claudeMarkdown) {
+                    InlineCreateRow(projectURL: projectURL, icon: "doc.text")
                 }
             }
+            .modifier(SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
+            Group {
+                hooksGroup
+            }
+            .modifier(SectionDropModifier(section: .hooks, projectURL: projectURL, navigator: navigator))
+            Group {
+                skillsGroup
+            }
+            .modifier(SectionDropModifier(section: .skillsTopLevel, projectURL: projectURL, navigator: navigator))
+            settingsGroup
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            sidebarFooter
-        }
         // Keyboard shortcuts on the focused list selection:
         //  - Enter on a managed row → inline rename
         //  - Backspace on a managed row → move to Trash
@@ -94,65 +88,6 @@ struct NavigatorSidebar: View {
         }
         .onDeleteCommand {
             _ = handleDeleteKey()
-        }
-    }
-
-    // Xcode-style sidebar footer: thin bar at the bottom with a single
-    // `+` pull-down Menu, no extra material (lets the sidebar's own
-    // material show through), divider on top. Matches Project Navigator
-    // and Mail's "New Mailbox" pull-down.
-    @ViewBuilder
-    private var sidebarFooter: some View {
-        HStack(spacing: 0) {
-            Menu {
-                Button("New Issue") { openCreateIssue(.draft) }
-                Divider()
-                Button("New Doc") { navigator.beginPendingCreate(.docs) }
-                Button("New Markdown") {
-                    navigator.beginPendingCreate(.claudeMarkdown)
-                }
-                Divider()
-                Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
-                Button("New Hook Folder") {
-                    navigator.beginPendingCreate(.hookFolder)
-                }
-                Divider()
-                Button("New Skill") { navigator.beginPendingCreate(.skill) }
-            } label: {
-                Image(systemName: "plus")
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("New…")
-            Spacer()
-        }
-        .padding(.horizontal, 6)
-        .frame(height: 28)
-        .overlay(alignment: .top) {
-            Divider()
-        }
-    }
-
-    // Section header with a context menu. The plain Text header is too thin
-    // a hitbox for right-click in the sidebar (List(.sidebar) renders it
-    // ~14pt high); wrapping in an HStack with maxWidth + a contentShape
-    // gives the user the full section-header bar to right-click on.
-    @ViewBuilder
-    private func sectionHeader<Menu: View>(
-        title: String, @ViewBuilder menu: () -> Menu
-    ) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-        }
-        .contentShape(Rectangle())
-        .contextMenu {
-            menu()
         }
     }
 
@@ -316,12 +251,14 @@ struct NavigatorSidebar: View {
                 }
             }
         } label: {
-            Label("Hooks", systemImage: "terminal")
-                .clickableSidebarRow()
-                .contextMenu {
-                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
-                    Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
-                }
+            SidebarRowWithMenu(
+                label: Label("Hooks", systemImage: "terminal"),
+                help: "New Hook"
+            ) {
+                Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
+            }
+            .clickableSidebarRow()
         }
     }
 
@@ -341,11 +278,13 @@ struct NavigatorSidebar: View {
                 }
             }
         } label: {
-            Label("Skills", systemImage: "puzzlepiece.extension")
-                .clickableSidebarRow()
-                .contextMenu {
-                    Button("New Skill") { navigator.beginPendingCreate(.skill) }
-                }
+            SidebarRowWithMenu(
+                label: Label("Skills", systemImage: "puzzlepiece.extension"),
+                help: "New Skill"
+            ) {
+                Button("New Skill") { navigator.beginPendingCreate(.skill) }
+            }
+            .clickableSidebarRow()
         }
     }
 
@@ -551,6 +490,103 @@ private struct ReorderDropZone: View {
             return true
         } isTargeted: { hovering in
             isTargeted = hovering
+        }
+    }
+}
+
+// Sidebar section header rendered as an ordinary list row so the
+// trailing plus button stays clickable. Native `Section { } header: { … }`
+// in `List(.sidebar)` routes the header through NSTableView's group-
+// header path, which kills button/tap hit-testing — so we synthesize
+// the look here (uppercase tertiary title, top padding) instead.
+//
+// If `action == nil` the row is plain (e.g. for the Issues section that
+// shouldn't expose a "+" per the project owner). Otherwise the plus
+// fades up on hover and right-click mirrors the same action.
+struct SidebarSectionHeader: View {
+    let title: String
+    var help: String?
+    var action: (() -> Void)?
+    @State private var hovering = false
+
+    init(title: String, action: (() -> Void)? = nil, help: String? = nil) {
+        self.title = title
+        self.action = action
+        self.help = help
+    }
+
+    init(title: String, help: String, action: @escaping () -> Void) {
+        self.title = title
+        self.help = help
+        self.action = action
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .tracking(0.3)
+            Spacer()
+            if let action {
+                Button(action: action) {
+                    Image(systemName: "plus")
+                        .imageScale(.small)
+                        .foregroundStyle(hovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(hovering ? 1 : 0.5)
+                .help(help ?? "")
+            }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .listRowSeparator(.hidden)
+        .selectionDisabled()
+        .contextMenu {
+            if let action, let help {
+                Button(help, action: action)
+            }
+        }
+    }
+}
+
+// DisclosureGroup label variant: the trailing plus opens a sub-Menu so
+// hook/skill labels can offer "New File / New Folder" without inflating
+// the sidebar. Same hover-reveal as `SidebarSectionHeader`.
+struct SidebarRowWithMenu<Label: View, MenuContent: View>: View {
+    let label: Label
+    let help: String
+    @ViewBuilder let menu: () -> MenuContent
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            label
+            Spacer()
+            Menu {
+                menu()
+            } label: {
+                Image(systemName: "plus")
+                    .imageScale(.small)
+                    .foregroundStyle(hovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(help)
+            .opacity(hovering ? 1 : 0.55)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .contextMenu {
+            menu()
         }
     }
 }
