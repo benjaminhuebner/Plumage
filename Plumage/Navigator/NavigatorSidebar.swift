@@ -89,7 +89,7 @@ struct NavigatorSidebar: View {
         let items = kanban.groupedIssues[column] ?? []
         DisclosureGroup(isExpanded: expansionBinding(for: column)) {
             ForEach(items, id: \.id) { issue in
-                issueRow(issue)
+                issueRow(issue, in: column)
             }
         } label: {
             HStack {
@@ -100,7 +100,20 @@ struct NavigatorSidebar: View {
                     .monospacedDigit()
             }
             .clickableSidebarRow()
+            .dropDestination(for: IssueDragPayload.self) { payloads, _ in
+                handleColumnDrop(payloads, into: column)
+            }
         }
+    }
+
+    @discardableResult
+    private func handleColumnDrop(
+        _ payloads: [IssueDragPayload], into column: IssueColumn
+    ) -> Bool {
+        guard let payload = payloads.first else { return false }
+        kanban.applyOptimisticDrop(
+            payload, to: .column(column), projectURL: projectURL)
+        return true
     }
 
     private func expansionBinding(for column: IssueColumn) -> Binding<Bool> {
@@ -113,7 +126,7 @@ struct NavigatorSidebar: View {
     }
 
     @ViewBuilder
-    private func issueRow(_ issue: DiscoveredIssue) -> some View {
+    private func issueRow(_ issue: DiscoveredIssue, in column: IssueColumn) -> some View {
         HStack(spacing: 6) {
             IssueTypePill(type: issue.typeForPill)
             Text(issue.titleForRow)
@@ -122,6 +135,7 @@ struct NavigatorSidebar: View {
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
         .clickableSidebarRow()
+        .modifier(IssueRowDraggable(issue: issue, column: column))
         .contextMenu {
             IssueContextMenuItems(
                 folderName: issue.id,
@@ -314,6 +328,27 @@ extension DiscoveredIssue {
         switch self {
         case .valid(let issue): issue.title
         case .invalid(let folder, _): folder.lastPathComponent
+        }
+    }
+}
+
+private struct IssueRowDraggable: ViewModifier {
+    let issue: DiscoveredIssue
+    let column: IssueColumn
+
+    func body(content: Content) -> some View {
+        // Invalid rows (frontmatter parse errors) have no canonical status —
+        // skip them; user must fix the spec first before reorder/move
+        // becomes meaningful.
+        if case .valid(let value) = issue {
+            content.draggable(
+                IssueDragPayload(
+                    folderName: value.folderName,
+                    currentStatus: value.status
+                )
+            )
+        } else {
+            content
         }
     }
 }
