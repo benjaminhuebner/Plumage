@@ -13,6 +13,22 @@ struct IssueDetailView: View {
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
+    @State private var pendingPopAction: (() -> Void)?
+    // Cached focused-scene values. Computing these inline produces a new
+    // value (or new closure) per body re-eval, which SwiftUI's focus system
+    // flags as "FocusedValue update tried to update multiple times per
+    // frame" when keystrokes / edits trigger cascading state changes. We
+    // snapshot via .onChange so the focusedSceneValue modifiers read stable
+    // identities.
+    @State private var publishedDirtyFolderName: String?
+    // Method-reference closures get a fresh allocation per body re-eval.
+    // Wrapped in EditorAction (UUID-keyed Equatable) so the focus system
+    // can compare stable identity across renders — without this the
+    // `() -> Void` value type is always "different" and triggers
+    // "FocusedValue update tried to update multiple times per frame".
+    @State private var publishedSaveAction: EditorAction?
+    @State private var publishedCloseAction: EditorAction?
+    @State private var publishedBackToBoardAction: EditorAction?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -21,6 +37,7 @@ struct IssueDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openSpec) private var openSpec
+    @Environment(\.dismissToOrigin) private var dismissToOrigin
     @Environment(ProjectKanbanModel.self) private var kanban
 
     enum DisplayMode: String, CaseIterable, Identifiable {
@@ -66,22 +83,34 @@ struct IssueDetailView: View {
         .background(backgroundTint)
         .navigationTitle(model.navigationTitle)
         .focusedSceneValue(\.specEditorIsActive, true)
-        .focusedSceneValue(\.specEditorSave, attemptSave)
-        .focusedSceneValue(\.specEditorClose, triggerPop)
-        .focusedSceneValue(\.specEditorDirtyFolderName, model.dirtyFolderName(rawDirty: isRawDirty))
+        .focusedSceneValue(\.specEditorSave, publishedSaveAction)
+        .focusedSceneValue(\.specEditorClose, publishedCloseAction)
+        .focusedSceneValue(\.specEditorDirtyFolderName, publishedDirtyFolderName)
+        .focusedSceneValue(\.issueDetailBackToBoard, publishedBackToBoardAction)
         .task(id: model.specURL) {
+            if publishedSaveAction == nil {
+                publishedSaveAction = EditorAction { attemptSave() }
+                publishedCloseAction = EditorAction { triggerPop() }
+            }
+            refreshBackToBoardCache()
             guard !model.isCreating else { return }
             await model.load()
             rawDraft = model.loadedSpecContent
             refreshEditorMessages()
+            refreshDirtyCache()
         }
+        .onChange(of: dismissToOrigin == nil) { _, _ in refreshBackToBoardCache() }
         .onChange(of: model.loadedSpecContent) { _, newContent in
             // Keep raw buffer in sync after silent reloads / form writes.
             // If user is actively editing in raw mode (rawDirty), preserve it.
             if displayMode != .raw || !isRawDirty {
                 rawDraft = newContent
             }
+            refreshDirtyCache()
         }
+        .onChange(of: model.loadedBodyContent) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.bodyDraft) { _, _ in refreshDirtyCache() }
+        .onChange(of: rawDraft) { _, _ in refreshDirtyCache() }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
         .onChange(of: currentKanbanIssue) { _, current in
             model.observeKanban(currentIssue: current)
@@ -106,6 +135,7 @@ struct IssueDetailView: View {
             if newMode == .raw && !model.isCreating {
                 rawDraft = model.loadedSpecContent
             }
+            refreshEditorMessages()
         }
         .alert(
             "Failed to save",
@@ -114,8 +144,9 @@ struct IssueDetailView: View {
         ) { alert in
             switch alert.kind {
             case .pop:
-                Button("Try again") { Task { await attemptPop() } }
-                Button("Discard changes", role: .destructive) { dismiss() }
+                let popAction = pendingPopAction ?? { dismiss() }
+                Button("Try again") { Task { await attemptPop(endAction: popAction) } }
+                Button("Discard changes", role: .destructive) { popAction() }
             case .saveOnly:
                 Button("OK", role: .cancel) {}
             }
@@ -176,10 +207,8 @@ struct IssueDetailView: View {
                 displayMode: $displayMode,
                 showsDisplayModeToggle: true,
                 showsCopyID: !model.isCreating,
-                showsRevealInFinder: !model.isCreating,
                 saveDisabled: saveDisabled,
                 onCopyID: model.copyIDToPasteboard,
-                onRevealInFinder: model.revealInFinder,
                 onSave: attemptSave
             )
             switch displayMode {
@@ -389,7 +418,35 @@ struct IssueDetailView: View {
     }
 
     private func refreshEditorMessages() {
-        editorMessages = []
+        // Markers point into the raw spec (line/column relative to frontmatter),
+        // so the detail-mode body editor would render them at meaningless rows.
+        guard displayMode == .raw, let error = model.frontmatterError else {
+            if !editorMessages.isEmpty { editorMessages = [] }
+            return
+        }
+        let next: Set<TextLocated<Message>> = [FrontmatterMessageMap.message(for: error)]
+        if editorMessages != next { editorMessages = next }
+    }
+
+    private func refreshDirtyCache() {
+        let next = model.dirtyFolderName(rawDirty: isRawDirty)
+        if publishedDirtyFolderName != next {
+            publishedDirtyFolderName = next
+        }
+    }
+
+    private func refreshBackToBoardCache() {
+        let hasOrigin = dismissToOrigin != nil
+        let isCached = publishedBackToBoardAction != nil
+        if hasOrigin && !isCached {
+            publishedBackToBoardAction = EditorAction {
+                if let action = dismissToOrigin {
+                    triggerBack(action)
+                }
+            }
+        } else if !hasOrigin && isCached {
+            publishedBackToBoardAction = nil
+        }
     }
 
     private func runFormCommit(_ work: @escaping () async throws -> Void) {
@@ -435,14 +492,22 @@ struct IssueDetailView: View {
     }
 
     private func triggerPop() {
-        Task { await attemptPop() }
+        Task { await attemptPop(endAction: { dismiss() }) }
     }
 
-    private func attemptPop() async {
+    private func triggerBack(_ action: @escaping () -> Void) {
+        Task { await attemptPop(endAction: action) }
+    }
+
+    private var backToBoardAction: (() -> Void)? {
+        dismissToOrigin.map { action in { triggerBack(action) } }
+    }
+
+    private func attemptPop(endAction: @escaping () -> Void) async {
         // Creating mode never has unsaved disk state: closing leaves no
         // trace and the in-memory drafts go away with the view.
         if model.isCreating {
-            dismiss()
+            endAction()
             return
         }
         do {
@@ -454,8 +519,9 @@ struct IssueDetailView: View {
                     try await model.saveRaw(rawDraft)
                 }
             }
-            dismiss()
+            endAction()
         } catch {
+            pendingPopAction = endAction
             presentSaveAlert(message: error.localizedDescription, kind: .pop)
         }
     }

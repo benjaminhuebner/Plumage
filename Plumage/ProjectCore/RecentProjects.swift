@@ -15,6 +15,7 @@ final class RecentProjects {
 
     private(set) var items: [RecentItem]
     private let storeURL: URL
+    private var pendingPersist: Task<Void, Never>?
 
     nonisolated private static let logger = Logger(
         subsystem: "dev.plumage",
@@ -60,6 +61,24 @@ final class RecentProjects {
     }
 
     private func persist() {
+        let snapshot = items
+        let url = storeURL
+        let prior = pendingPersist
+        pendingPersist = Task.detached(priority: .utility) {
+            // Chain so two quick add() calls write in order — otherwise a
+            // late-scheduled older snapshot could overwrite the newer one.
+            _ = await prior?.value
+            Self.persistToDisk(items: snapshot, at: url)
+        }
+    }
+
+    // Test hook so round-trip tests can deterministically wait for the
+    // detached write before re-reading the file.
+    func flushPendingWrites() async {
+        await pendingPersist?.value
+    }
+
+    nonisolated private static func persistToDisk(items: [RecentItem], at storeURL: URL) {
         do {
             let parent = storeURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -68,8 +87,8 @@ final class RecentProjects {
             let data = try encoder.encode(items)
             try data.write(to: storeURL, options: [.atomic])
         } catch {
-            Self.logger.error(
-                "Persist failed at \(self.storeURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            logger.error(
+                "Persist failed at \(storeURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
         }
     }

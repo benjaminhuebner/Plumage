@@ -7,10 +7,8 @@ struct IssueDetailTopBar: View {
     @Binding var displayMode: IssueDetailView.DisplayMode
     let showsDisplayModeToggle: Bool
     let showsCopyID: Bool
-    let showsRevealInFinder: Bool
     let saveDisabled: Bool
     let onCopyID: () -> Void
-    let onRevealInFinder: () -> Void
     let onSave: () -> Void
 
     var body: some View {
@@ -40,10 +38,6 @@ struct IssueDetailTopBar: View {
                 Button("Copy ID", systemImage: "doc.on.doc", action: onCopyID)
                     .help("Copy folder name to clipboard")
             }
-            if showsRevealInFinder {
-                Button("Reveal in Finder", systemImage: "folder", action: onRevealInFinder)
-                    .help("Show this issue's folder in Finder")
-            }
             Button("Save", systemImage: "square.and.arrow.down", action: onSave)
                 .help("Save changes (⌘S)")
                 .disabled(saveDisabled)
@@ -61,10 +55,8 @@ struct IssueDetailTopBar: View {
             displayMode: mode,
             showsDisplayModeToggle: true,
             showsCopyID: true,
-            showsRevealInFinder: true,
             saveDisabled: false,
             onCopyID: {},
-            onRevealInFinder: {},
             onSave: {}
         )
         .padding()

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NavigatorSidebar: View {
     @Binding var selection: NavigatorRoute
+    let projectURL: URL
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
@@ -10,8 +11,8 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
     @SceneStorage("nav.expansion.settings") private var settingsExpanded = false
-    @SceneStorage("nav.expansion.col.todo") private var todoExpanded = true
-    @SceneStorage("nav.expansion.col.inProgress") private var inProgressExpanded = true
+    @SceneStorage("nav.expansion.col.todo") private var todoExpanded = false
+    @SceneStorage("nav.expansion.col.inProgress") private var inProgressExpanded = false
     @SceneStorage("nav.expansion.col.waitingForReview") private var waitingExpanded = false
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
@@ -30,7 +31,7 @@ struct NavigatorSidebar: View {
                 if navigator.docs.isEmpty {
                     emptyPlaceholder("No docs yet")
                 } else {
-                    ForEach(navigator.docs, id: \.self) { url in
+                    ForEach(navigator.docs, id: \.absoluteString) { url in
                         docRow(url)
                     }
                 }
@@ -93,6 +94,22 @@ struct NavigatorSidebar: View {
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
         .clickableSidebarRow()
+        .contextMenu {
+            IssueContextMenuItems(
+                folderName: issue.id,
+                folderURL: issueFolderURL(issue),
+                projectURL: projectURL
+            )
+        }
+    }
+
+    private func issueFolderURL(_ issue: DiscoveredIssue) -> URL {
+        switch issue {
+        case .valid(let value):
+            return IssueLayout.issueFolder(in: projectURL, folderName: value.folderName)
+        case .invalid(let folder, _):
+            return folder
+        }
     }
 
     @ViewBuilder
@@ -109,7 +126,7 @@ struct NavigatorSidebar: View {
             if navigator.hooks.isEmpty {
                 emptyPlaceholder("No hooks")
             } else {
-                ForEach(navigator.hooks, id: \.self) { url in
+                ForEach(navigator.hooks, id: \.absoluteString) { url in
                     Label(url.lastPathComponent, systemImage: "scroll")
                         .tag(NavigatorRoute.hook(name: url.lastPathComponent))
                         .clickableSidebarRow()

@@ -31,25 +31,15 @@ struct IssueCardSwitch: View {
                     openSpec(.issue(folderName: issue.id))
                 }
                 .contextMenu {
-                    cardMenuItems(folderName: folder.lastPathComponent, folderURL: folder)
+                    IssueContextMenuItems(
+                        folderName: folder.lastPathComponent,
+                        folderURL: folder,
+                        projectURL: projectURL
+                    )
                 }
                 .onTapGesture {
                     openSpec(.issue(folderName: issue.id))
                 }
-        }
-    }
-
-    @ViewBuilder
-    private func cardMenuItems(folderName: String, folderURL: URL) -> some View {
-        Button("Archive") {
-            kanban.applyOptimisticArchive(folderName: folderName, projectURL: projectURL)
-        }
-        Button("Move to Trash") {
-            kanban.applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
-        }
-        Divider()
-        Button("Reveal in Finder") {
-            NSWorkspace.shared.activateFileViewerSelecting([folderURL])
         }
     }
 
@@ -76,7 +66,9 @@ struct IssueCardSwitch: View {
             // @State copy and a second onGeometryChange, doubling the
             // layout-pass cost per card.
             .reportCardFrame(folderName: value.folderName, registry: frameRegistry)
-            .accessibilityElement(children: .combine)
+            // IssueCardView already calls .accessibilityElement(children: .combine);
+            // .isButton is added here because the card-as-button trait belongs
+            // to the gesture-bearing wrapper, not the rendering view.
             .accessibilityAddTraits(.isButton)
             .accessibilityActions {
                 ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
@@ -87,10 +79,11 @@ struct IssueCardSwitch: View {
                 }
             }
             .contextMenu {
-                cardMenuItems(
+                IssueContextMenuItems(
                     folderName: value.folderName,
                     folderURL: IssueLayout.issueFolder(
-                        in: projectURL, folderName: value.folderName)
+                        in: projectURL, folderName: value.folderName),
+                    projectURL: projectURL
                 )
             }
             .modifier(

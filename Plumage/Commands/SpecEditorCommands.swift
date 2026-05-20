@@ -15,13 +15,13 @@ struct SpecEditorCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .saveItem) {
             Button("Save Spec") {
-                save?()
+                save?.run()
             }
             .keyboardShortcut("s", modifiers: .command)
             .disabled(isActive == nil || save == nil)
 
             Button("Close Spec") {
-                close?()
+                close?.run()
             }
             .keyboardShortcut("w", modifiers: .command)
             .disabled(isActive == nil || close == nil)

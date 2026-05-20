@@ -8,14 +8,22 @@ struct ProjectWindow: View {
     @State private var navigator = NavigatorModel()
     @State private var selectedRoute: NavigatorRoute = .kanban
     @SceneStorage("nav.selection") private var persistedRouteData: String = ""
+    @State private var detailOriginRoute: NavigatorRoute?
     @State private var showCreateSheet = false
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
     @SceneStorage("claudeDock.open") private var isDockOpen = false
+    // Cached focused-scene action. Computing `isLoaded ? { … } : nil` inline
+    // produces a new closure per body re-eval, which the focus system
+    // republishes; under fast state churn (kanban refresh, indicator detect)
+    // it warns "FocusedValue update tried to update multiple times per
+    // frame". State-cached + onChange keeps the published identity stable.
+    @State private var createIssueAction: EditorAction?
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
+    @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction: EditorAction?
 
     init(handle: ProjectHandle) {
         self.handle = handle
@@ -34,15 +42,7 @@ struct ProjectWindow: View {
             .frame(minWidth: 900, minHeight: 560)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
-            .focusedSceneValue(
-                \.createIssueInDefaultColumn,
-                isLoaded
-                    ? {
-                        createInitialStatus = .draft
-                        showCreateSheet = true
-                    }
-                    : nil
-            )
+            .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
             .focusedSceneValue(\.terminalToggle, $isDockOpen)
             .task(id: handle.url) {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
@@ -59,12 +59,18 @@ struct ProjectWindow: View {
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
                 _ = await (reload, run, detect, navLoad)
+                refreshCreateIssueAction()
             }
+            .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
             .onDisappear {
                 session.stop()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
+                if case .issue = new {
+                } else {
+                    detailOriginRoute = nil
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
@@ -98,11 +104,21 @@ struct ProjectWindow: View {
                     )
                 }
         }
+        .toolbar {
+            if let backToBoardAction {
+                ToolbarItem(placement: .navigation) {
+                    Button("Board", systemImage: "chevron.backward") {
+                        backToBoardAction.run()
+                    }
+                    .help("Back to kanban board")
+                }
+            }
+        }
     }
 
     @ViewBuilder
     private var sidebar: some View {
-        NavigatorSidebar(selection: $selectedRoute)
+        NavigatorSidebar(selection: $selectedRoute, projectURL: handle.url)
     }
 
     @ViewBuilder
@@ -114,11 +130,6 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let config):
             VStack(alignment: .leading, spacing: 0) {
-                ProjectHeader(
-                    title: config.name,
-                    path: handle.url.path,
-                    indicatorState: indicator.state
-                )
                 NavigatorDetail(
                     route: selectedRoute,
                     projectURL: handle.url,
@@ -135,13 +146,18 @@ struct ProjectWindow: View {
                 .id(selectedRoute)
                 .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
                 .environment(\.openSpec) { route in
+                    if selectedRoute == .kanban, case .issue = route {
+                        detailOriginRoute = .kanban
+                    }
                     selectedRoute = route
                 }
                 .environment(\.openCreateIssue) { status in
                     createInitialStatus = status
                     showCreateSheet = true
                 }
+                .environment(\.dismissToOrigin, backToOriginAction)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                ProjectStatusBar(indicatorState: indicator.state)
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
@@ -160,9 +176,27 @@ struct ProjectWindow: View {
         return handle.url.lastPathComponent
     }
 
+    private var backToOriginAction: (() -> Void)? {
+        guard let origin = detailOriginRoute, origin == .kanban else { return nil }
+        return { selectedRoute = .kanban }
+    }
+
     private var isLoaded: Bool {
         if case .loaded = model.state { return true }
         return false
+    }
+
+    private func refreshCreateIssueAction() {
+        if isLoaded {
+            if createIssueAction == nil {
+                createIssueAction = EditorAction {
+                    createInitialStatus = .draft
+                    showCreateSheet = true
+                }
+            }
+        } else if createIssueAction != nil {
+            createIssueAction = nil
+        }
     }
 
     static func message(for error: ConfigLoader.LoadError) -> String {

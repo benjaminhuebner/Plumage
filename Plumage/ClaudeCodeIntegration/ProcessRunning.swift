@@ -35,7 +35,7 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
     // MARK: - Binary discovery
 
     static func locateBinary() throws(ProcessRunnerError) -> URL {
-        if let viaPath = try? whichClaude() {
+        if let viaPath = scanPATH() {
             return viaPath
         }
         for candidate in SupportedClaudeVersion.knownInstallURLs {
@@ -46,27 +46,24 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
         throw .binaryNotFound
     }
 
-    private static func whichClaude() throws -> URL {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["which", "claude"]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        process.standardInput = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw ProcessRunnerError.binaryNotFound
+    // Replaces the previous `/usr/bin/env which claude` subprocess: spawning
+    // `env` blocks the caller on `waitUntilExit()` and shows up on MainActor
+    // hot paths (ProjectWindow.init, ClaudeSession.rebuilt). Pure PATH walk
+    // is in-process, allocation-only, and behaves identically — `which` itself
+    // does the same loop on a POSIX shell.
+    private static func scanPATH() -> URL? {
+        guard let pathEnv = ProcessInfo.processInfo.environment["PATH"], !pathEnv.isEmpty else {
+            return nil
         }
-        let data = (try? stdout.fileHandleForReading.readToEnd()) ?? Data()
-        let raw = String(decoding: data, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else {
-            throw ProcessRunnerError.binaryNotFound
+        let manager = FileManager.default
+        for entry in pathEnv.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = URL(fileURLWithPath: String(entry))
+                .appendingPathComponent("claude")
+            if manager.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
         }
-        return URL(fileURLWithPath: raw)
+        return nil
     }
 
     // MARK: - Spawning

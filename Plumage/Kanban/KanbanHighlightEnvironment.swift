@@ -11,4 +11,5 @@ extension EnvironmentValues {
     // KanbanColumnView's "+" button triggers a new issue. ProjectWindow
     // wires this to the create-issue sheet.
     @Entry var openCreateIssue: (IssueStatus) -> Void = { _ in }
+    @Entry var dismissToOrigin: (() -> Void)?
 }

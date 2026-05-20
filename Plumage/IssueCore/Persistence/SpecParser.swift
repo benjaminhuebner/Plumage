@@ -2,10 +2,12 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
-    // YAMLDecoder is stateless after init (Yams 5.4); hoisting to a shared
-    // instance saves a per-call allocation in the keystroke-frequent
-    // validate() path. nonisolated(unsafe) parallels the formatter caches
-    // below — never mutated after declaration.
+    // YAMLDecoder source review (Yams 5.4 Decoder.swift): decode(_:from:) builds
+    // a fresh Parser + _Decoder per call and only reads the immutable `options`
+    // value, which we never mutate after init. Hoisting to a shared instance
+    // saves a per-call allocation in the keystroke-frequent validate() path.
+    // nonisolated(unsafe) is sound and parallels the formatter caches below.
+    // See notes.md #00009-yams-thread-safety.
     nonisolated(unsafe) private static let sharedDecoder = YAMLDecoder()
 
     // Public hook so SpecEditorModel can skip validate() entirely when the

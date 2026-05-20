@@ -3,7 +3,7 @@ import SwiftUI
 extension FocusedValues {
     // Set by the active ProjectWindow scene. When fired, it pushes
     // IssueDetailView in creating mode with the default-column status.
-    @Entry var createIssueInDefaultColumn: (() -> Void)?
+    @Entry var createIssueInDefaultColumn: EditorAction?
 }
 
 struct NewIssueCommand: Commands {
@@ -13,8 +13,8 @@ struct NewIssueCommand: Commands {
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("New Issue") {
-                editorSave?()
-                createIssue?()
+                editorSave?.run()
+                createIssue?.run()
             }
             .keyboardShortcut("n", modifiers: .command)
             .disabled(createIssue == nil)

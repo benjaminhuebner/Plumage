@@ -51,6 +51,7 @@ struct RecentProjectsTests {
         let writer = RecentProjects(storeURL: store)
         writer.add(url: URL(fileURLWithPath: "/tmp/x"), name: "X")
         writer.add(url: URL(fileURLWithPath: "/tmp/y"), name: "Y")
+        await writer.flushPendingWrites()
 
         let reader = RecentProjects(storeURL: store)
         await reader.load()

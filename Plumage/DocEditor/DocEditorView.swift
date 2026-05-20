@@ -12,6 +12,13 @@ struct DocEditorView: View {
     @State private var loadFailed: String?
     @State private var saveAlertMessage: String?
     @State private var saveAlertVisible = false
+    @State private var probeTask: Task<Void, Never>?
+    // Cached focused-scene values. Computing them inline produces a new
+    // value (or closure) per body re-eval, which SwiftUI's focus system
+    // flags as "FocusedValue update tried to update multiple times per
+    // frame" during keystroke bursts.
+    @State private var publishedDirtyName: String?
+    @State private var publishedSaveAction: EditorAction?
 
     private let language: LanguageConfiguration
     private let editorLayout = CodeEditor.LayoutConfiguration(showMinimap: false, wrapText: true)
@@ -51,24 +58,34 @@ struct DocEditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(displayName)
         .focusedSceneValue(\.specEditorIsActive, true)
-        .focusedSceneValue(\.specEditorSave, attemptSave)
+        .focusedSceneValue(\.specEditorSave, publishedSaveAction)
         // Selection-driven detail has no pop, so the original
         // `\.specEditorClose` pop semantic is meaningless here. Reuse the
         // hook as a manual save-confirm trigger so Cmd-W mid-edit still
         // commits the current buffer before the window closes.
-        .focusedSceneValue(\.specEditorClose, attemptSave)
-        .focusedSceneValue(\.specEditorDirtyFolderName, model.isDirty ? displayName : nil)
+        .focusedSceneValue(\.specEditorClose, publishedSaveAction)
+        .focusedSceneValue(\.specEditorDirtyFolderName, publishedDirtyName)
         .task(id: model.fileURL) {
+            if publishedSaveAction == nil {
+                publishedSaveAction = EditorAction { attemptSave() }
+            }
             loadFailed = nil
             do {
                 try await model.load()
             } catch {
                 loadFailed = "Failed to load \(displayName): \(error.localizedDescription)"
             }
+            refreshDirtyCache()
         }
+        .onChange(of: model.buffer) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.loadedContent) { _, _ in refreshDirtyCache() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await model.probeExternalChange() }
+                // Cancel any in-flight probe so two quick foreground/background
+                // toggles don't race two concurrent disk reads against the
+                // same model state.
+                probeTask?.cancel()
+                probeTask = Task { await model.probeExternalChange() }
             } else {
                 attemptSave()
             }
@@ -80,6 +97,7 @@ struct DocEditorView: View {
             // task after the cancel (the model's saveGeneration check
             // prevents the cancelled one from clobbering state on return).
             attemptSave()
+            probeTask?.cancel()
             model.cancelPendingWork()
         }
         .alert(
@@ -101,6 +119,13 @@ struct DocEditorView: View {
                 saveAlertMessage = error.localizedDescription
                 saveAlertVisible = true
             }
+        }
+    }
+
+    private func refreshDirtyCache() {
+        let next = model.isDirty ? displayName : nil
+        if publishedDirtyName != next {
+            publishedDirtyName = next
         }
     }
 

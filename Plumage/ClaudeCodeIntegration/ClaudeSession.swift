@@ -456,6 +456,13 @@ final class ClaudeSession {
     }
 
     private func sessionLogURL() -> URL {
+        // `/` → `-` mirrors claude CLI's own session-log encoding scheme so
+        // Plumage finds the same .jsonl file claude writes. Two paths with
+        // `-` in directory names could theoretically collide post-encoding
+        // (`/a/b-c/d` and `/a/b/c-d` both produce `-a-b-c-d`), but matching
+        // claude's behaviour is the contract — diverging here would just
+        // silently break rehydration. Keep in sync if claude ever changes
+        // its scheme.
         let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
         return
             sessionLogRoot

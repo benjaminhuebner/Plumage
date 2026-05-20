@@ -45,7 +45,6 @@ struct ClaudeDockButton: View {
         .help("Claude (⌥⌘T)")
         .accessibilityLabel(accessibilityLabelText)
         .accessibilityValue(accessibilityValueText)
-        .accessibilityAddTraits(.isButton)
     }
 }
 
