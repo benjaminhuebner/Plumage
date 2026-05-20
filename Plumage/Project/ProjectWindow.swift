@@ -100,6 +100,11 @@ struct ProjectWindow: View {
                             }
                         }
                 }
+                // Sheets present in their own SwiftUI tree and don't inherit
+                // the presenter's environment. IssueDetailView's
+                // @Environment(ProjectKanbanModel.self) crashes without these.
+                .environment(kanban)
+                .environment(navigator)
                 .frame(minWidth: 720, minHeight: 600)
             }
     }
