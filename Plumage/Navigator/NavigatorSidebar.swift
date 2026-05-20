@@ -38,43 +38,40 @@ struct NavigatorSidebar: View {
             SidebarSectionHeader(title: "Docs", help: "New Doc") {
                 navigator.beginPendingCreate(.docs)
             }
-            Group {
-                if navigator.docs.isEmpty && !isPending(.docs) {
-                    emptyPlaceholder("No docs yet")
-                } else {
-                    ForEach(navigator.docs, id: \.absoluteString) { url in
-                        docRow(url)
-                    }
-                    if isPending(.docs) {
-                        InlineCreateRow(projectURL: projectURL, icon: "doc.text")
-                    }
+            .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
+            if navigator.docs.isEmpty && !isPending(.docs) {
+                emptyPlaceholder("No docs yet")
+                    .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
+            } else {
+                ForEach(navigator.docs, id: \.absoluteString) { url in
+                    docRow(url)
+                        .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
+                }
+                if isPending(.docs) {
+                    InlineCreateRow(projectURL: projectURL, icon: "doc.text")
                 }
             }
-            .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
 
             SidebarSectionHeader(title: "Claude", help: "New Markdown") {
                 navigator.beginPendingCreate(.claudeMarkdown)
             }
-            Group {
-                Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
-                    .tag(NavigatorRoute.claudeMD)
-                    .clickableSidebarRow()
-                ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
-                    claudeMarkdownRow(url)
-                }
-                if isPending(.claudeMarkdown) {
-                    InlineCreateRow(projectURL: projectURL, icon: "doc.text")
-                }
-            }
             .modifier(SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
-            Group {
-                hooksGroup
+            Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
+                .tag(NavigatorRoute.claudeMD)
+                .clickableSidebarRow()
+                .modifier(SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
+            ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
+                claudeMarkdownRow(url)
+                    .modifier(
+                        SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
             }
-            .modifier(SectionDropModifier(section: .hooks, projectURL: projectURL, navigator: navigator))
-            Group {
-                skillsGroup
+            if isPending(.claudeMarkdown) {
+                InlineCreateRow(projectURL: projectURL, icon: "doc.text")
             }
-            .modifier(SectionDropModifier(section: .skillsTopLevel, projectURL: projectURL, navigator: navigator))
+            hooksGroup
+                .modifier(SectionDropModifier(section: .hooks, projectURL: projectURL, navigator: navigator))
+            skillsGroup
+                .modifier(SectionDropModifier(section: .skillsTopLevel, projectURL: projectURL, navigator: navigator))
             settingsGroup
         }
         .listStyle(.sidebar)
