@@ -64,6 +64,10 @@ final class NavigatorModel {
         pendingCreate = nil
     }
 
+    func isPendingCreate(at section: PendingCreate.Section) -> Bool {
+        pendingCreate?.section == section
+    }
+
     // Resolves the active pendingCreate against disk: creates the file or
     // folder via `ClaudeProjectFiles` and returns the resulting route. Empty
     // input is a no-op (leaves the textfield focused). Disk errors land in
@@ -150,6 +154,32 @@ final class NavigatorModel {
         }
     }
 
+    // Finder-drop entry point. Copies the source URLs into the section's
+    // destination directory off-Main, then reloads the navigator snapshot.
+    // Mixed accept/reject is rolled into one banner; FS errors land in
+    // `dropRejectMessage` and the navigator state stays consistent.
+    func handleFinderDrop(
+        urls: [URL], section: SidebarDropTarget.Section, projectURL: URL
+    ) async {
+        guard !urls.isEmpty else { return }
+        do {
+            let outcome = try await Task.detached(priority: .userInitiated) {
+                try SidebarDropTarget.performDrop(
+                    sources: urls, section: section, projectURL: projectURL)
+            }.value
+            if let banner = SidebarDropTarget.bannerMessage(
+                outcome: outcome, section: section)
+            {
+                showBanner(banner)
+            }
+            if !outcome.accepted.isEmpty {
+                await reload(projectURL: projectURL)
+            }
+        } catch {
+            showBanner("Couldn't copy: \(error.localizedDescription)")
+        }
+    }
+
     func trash(url: URL, projectURL: URL) async {
         do {
             try await Task.detached(priority: .userInitiated) {
@@ -179,7 +209,7 @@ final class NavigatorModel {
 
     private static func route(
         for section: PendingCreate.Section, createdURL: URL, projectURL: URL
-    ) -> NavigatorRoute {
+    ) -> NavigatorRoute? {
         switch section {
         case .docs:
             let relative = relativePath(from: projectURL, to: createdURL)
@@ -189,14 +219,15 @@ final class NavigatorModel {
         case .hookFile:
             return .hook(name: createdURL.lastPathComponent)
         case .hookFolder:
-            // Folder-only — selection on the folder itself isn't a route, so
-            // keep current selection. Surface via lastCreatedRoute as nil-
-            // route by falling back to a sentinel: use the parent hook node.
-            return .hook(name: createdURL.lastPathComponent)
+            // Folders aren't a selectable route — sidebar keeps the previous
+            // selection so the user doesn't get bounced.
+            return nil
         case .skill:
             return .skillFile(skill: createdURL.lastPathComponent, relativePath: "SKILL.md")
-        case .skillFolder(let skill, _):
-            return .skillFile(skill: skill, relativePath: createdURL.lastPathComponent)
+        case .skillFolder:
+            // Skill sub-folder — also non-selectable; user creates files
+            // inside it as the next step.
+            return nil
         case .skillFile(let skill, let path):
             let leaf = createdURL.lastPathComponent
             let rel = path.isEmpty ? leaf : "\(path)/\(leaf)"
@@ -236,7 +267,7 @@ final class NavigatorModel {
         return nil
     }
 
-    private static func relativePath(from projectURL: URL, to url: URL) -> String {
+    static func relativePath(from projectURL: URL, to url: URL) -> String {
         let projectPath = projectURL.standardizedFileURL.path
         let urlPath = url.standardizedFileURL.path
         if urlPath.hasPrefix(projectPath + "/") {

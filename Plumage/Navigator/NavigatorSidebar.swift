@@ -96,7 +96,7 @@ struct NavigatorSidebar: View {
     }
 
     private func isPending(_ section: PendingCreate.Section) -> Bool {
-        navigator.pendingCreate?.section == section
+        navigator.isPendingCreate(at: section)
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {
@@ -140,41 +140,24 @@ struct NavigatorSidebar: View {
         return true
     }
 
-    // List-level Finder drop resolver: picks the section whose y-range
-    // contains the drop point. Each section header reports its minY into
-    // `sectionAnchors`; this walks the sorted entries top-down and returns
-    // the section whose header is the last one ABOVE the drop point.
+    // List-level Finder drop resolver. Section anchors are reported via
+    // `onGeometryChange`; we look up the section whose header is the last
+    // one above the drop point. Drops above the first anchor (e.g. on the
+    // Issues area) are rejected outright rather than silently routed to
+    // Docs. FS I/O happens off-Main via `navigator.handleFinderDrop`.
     private func handleListDrop(urls: [URL], location: CGPoint) -> Bool {
         guard !urls.isEmpty else { return false }
-        let section = resolveSection(at: location.y) ?? .docs
-        do {
-            let outcome = try SidebarDropTarget.performDrop(
-                sources: urls, section: section, projectURL: projectURL)
-            if let banner = SidebarDropTarget.bannerMessage(
-                outcome: outcome, section: section)
-            {
-                navigator.showBanner(banner)
-            }
-            if !outcome.accepted.isEmpty {
-                Task { @MainActor in
-                    await navigator.reload(projectURL: projectURL)
-                }
-            }
-            return !outcome.accepted.isEmpty
-        } catch {
-            navigator.showBanner("Couldn't copy: \(error.localizedDescription)")
+        guard
+            let section = SidebarDropTarget.resolveSection(
+                at: location.y, anchors: sectionAnchors)
+        else {
             return false
         }
-    }
-
-    private func resolveSection(at y: CGFloat) -> SidebarDropTarget.Section? {
-        // Sort by minY ascending, then pick the last whose minY <= y.
-        let sorted = sectionAnchors.sorted { $0.value < $1.value }
-        var winner: SidebarDropTarget.Section?
-        for (section, minY) in sorted where minY <= y {
-            winner = section
+        Task { @MainActor in
+            await navigator.handleFinderDrop(
+                urls: urls, section: section, projectURL: projectURL)
         }
-        return winner
+        return true
     }
 
     private func expansionBinding(for column: IssueColumn) -> Binding<Bool> {
@@ -238,7 +221,7 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private func docRow(_ url: URL) -> some View {
-        let relative = relativePath(for: url)
+        let relative = NavigatorModel.relativePath(from: projectURL, to: url)
         managedFileRow(
             url: url,
             tag: .doc(relativePath: relative),
@@ -352,14 +335,6 @@ struct NavigatorSidebar: View {
             .selectionDisabled()
     }
 
-    private func relativePath(for url: URL) -> String {
-        let components = url.pathComponents
-        if let idx = components.lastIndex(of: ".claude") {
-            return components[idx..<components.count].joined(separator: "/")
-        }
-        return url.lastPathComponent
-    }
-
     // MARK: - Keyboard
 
     private func handleReturnKey() -> KeyPress.Result {
@@ -368,7 +343,7 @@ struct NavigatorSidebar: View {
         guard navigator.pendingCreate == nil, navigator.renaming == nil else {
             return .ignored
         }
-        guard let url = selectedManagedFileURL() else { return .ignored }
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
         navigator.beginRename(url: url)
         return .handled
     }
@@ -377,39 +352,11 @@ struct NavigatorSidebar: View {
         guard navigator.pendingCreate == nil, navigator.renaming == nil else {
             return .ignored
         }
-        guard let url = selectedManagedFileURL() else { return .ignored }
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
         Task { @MainActor in
             await navigator.trash(url: url, projectURL: projectURL)
         }
         return .handled
-    }
-
-    // Resolves the current sidebar selection to the on-disk URL of a managed
-    // doc/hook/markdown/skill-file row. Returns nil for routes that don't
-    // map to a single user-owned file (kanban, issues, claudeMD, settings).
-    private func selectedManagedFileURL() -> URL? {
-        switch selection {
-        case .doc(let rel):
-            return projectURL.appendingPathComponent(rel)
-        case .claudeMarkdown(let name):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
-                .appendingPathComponent(name)
-        case .hook(let name):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.hooksRelativePath, isDirectory: true)
-                .appendingPathComponent(name)
-        case .skillFile(let skill, let path):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
-                .appendingPathComponent(skill, isDirectory: true)
-                .appendingPathComponent(path)
-        default:
-            return nil
-        }
     }
 }
 

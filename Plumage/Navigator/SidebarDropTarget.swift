@@ -82,6 +82,23 @@ nonisolated enum SidebarDropTarget {
         var rejected: [URL] = []
     }
 
+    // Resolves a y-coordinate (in the sidebar's named coordinate space) to
+    // the section whose header sits above it. Each section header reports
+    // its minY into `anchors`; this walks them sorted ascending and returns
+    // the last section whose minY <= y. Returns nil when y is above every
+    // tracked header (e.g. cursor sits in the Issues area which doesn't
+    // accept Finder drops).
+    static func resolveSection(
+        at y: CGFloat, anchors: [Section: CGFloat]
+    ) -> Section? {
+        let sorted = anchors.sorted { $0.value < $1.value }
+        var winner: Section?
+        for (section, minY) in sorted where minY <= y {
+            winner = section
+        }
+        return winner
+    }
+
     // Performs the copy + suffix walk for each source URL. Each source is
     // classified as file-or-folder, validated against the section's allowed
     // extensions / folder rule, and either copied or recorded as rejected.
