@@ -1,0 +1,41 @@
+{
+  "devices": {
+    "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
+      {
+        "name": "iPhone 17 Pro",
+        "udid": "AAAA1111-1111-1111-1111-111111111111",
+        "state": "Shutdown",
+        "isAvailable": true
+      },
+      {
+        "name": "iPad Pro 13",
+        "udid": "AAAA1111-1111-1111-1111-222222222222",
+        "state": "Booted",
+        "isAvailable": true
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.iOS-26-4": [
+      {
+        "name": "iPhone 16",
+        "udid": "BBBB2222-2222-2222-2222-111111111111",
+        "state": "Shutdown",
+        "isAvailable": true
+      },
+      {
+        "name": "iPhone 16 Pro",
+        "udid": "BBBB2222-2222-2222-2222-222222222222",
+        "state": "Shutdown",
+        "isAvailable": false
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.watchOS-26-2": [
+      {
+        "name": "Apple Watch Series 10",
+        "udid": "CCCC3333-3333-3333-3333-111111111111",
+        "state": "Shutdown",
+        "isAvailable": true
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.tvOS-26-2": []
+  }
+}
