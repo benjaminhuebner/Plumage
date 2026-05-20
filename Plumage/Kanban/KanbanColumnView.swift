@@ -58,12 +58,11 @@ struct KanbanColumnView: View {
                 openCreateIssue(column.primaryStatusForCreation)
             } label: {
                 Image(systemName: "plus")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
+                    .imageScale(.medium)
             }
-            .buttonStyle(.plain)
-            .help("New issue")
+            .buttonStyle(.borderless)
+            .controlSize(.regular)
+            .help("New issue in \(column.name)")
             .accessibilityLabel("New issue in \(column.name)")
         }
     }
