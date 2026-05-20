@@ -14,7 +14,12 @@ struct ProjectWindow: View {
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
     @State private var terminalSession: TerminalClaudeSession
+    @State private var xcodeRun = XcodeRunModel()
+    @State private var xcodeRunController: XcodeRunController?
+    @State private var showBuildLog = false
     @SceneStorage("claudeDock.open") private var isDockOpen = false
+    @SceneStorage("xcode.scheme") private var persistedScheme: String = ""
+    @SceneStorage("xcode.destination") private var persistedDestinationID: String = ""
     // Cached focused-scene action. Computing `isLoaded ? { … } : nil` inline
     // produces a new closure per body re-eval, which the focus system
     // republishes; under fast state churn (kanban refresh, indicator detect)
@@ -65,13 +70,28 @@ struct ProjectWindow: View {
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
-                _ = await (reload, run, detect, navLoad)
+                async let xcodeDiscover: Void = xcodeRun.discover(projectURL: handle.url)
+                _ = await (reload, run, detect, navLoad, xcodeDiscover)
+                xcodeRun.restoreSelections(
+                    scheme: persistedScheme.isEmpty ? nil : persistedScheme,
+                    destinationID: persistedDestinationID.isEmpty ? nil : persistedDestinationID
+                )
+                if xcodeRunController == nil {
+                    xcodeRunController = XcodeRunController(model: xcodeRun)
+                }
                 refreshCreateIssueAction()
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
+            .onChange(of: xcodeRun.selectedScheme) { _, scheme in
+                persistedScheme = scheme ?? ""
+            }
+            .onChange(of: xcodeRun.selectedDestination) { _, destination in
+                persistedDestinationID = destination?.id ?? ""
+            }
             .onDisappear {
                 session.stop()
                 terminalSession.stop()
+                xcodeRunController?.cancelRun()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
@@ -122,6 +142,15 @@ struct ProjectWindow: View {
                     .help("Back to kanban board")
                 }
             }
+            XcodeToolbarItems(
+                model: xcodeRun,
+                onRun: { xcodeRunController?.startRun() },
+                onCancel: { xcodeRunController?.cancelRun() },
+                onReload: {
+                    Task { await xcodeRun.reload(projectURL: handle.url) }
+                },
+                showLog: $showBuildLog
+            )
         }
     }
 
