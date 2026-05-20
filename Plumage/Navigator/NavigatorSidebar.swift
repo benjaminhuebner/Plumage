@@ -70,9 +70,7 @@ struct NavigatorSidebar: View {
                 InlineCreateRow(projectURL: projectURL, icon: "doc.text")
             }
             hooksGroup
-                .trackSectionAnchor(.hooks, in: $sectionAnchors)
             skillsGroup
-                .trackSectionAnchor(.skillsTopLevel, in: $sectionAnchors)
             settingsGroup
         }
         .listStyle(.sidebar)
@@ -257,7 +255,17 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private var hooksGroup: some View {
-        DisclosureGroup(isExpanded: $hooksExpanded) {
+        SidebarRowWithMenu(
+            label: Label("Hooks", systemImage: "terminal"),
+            help: "New Hook",
+            expanded: $hooksExpanded
+        ) {
+            Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+            Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
+        }
+        .clickableSidebarRow()
+        .trackSectionAnchor(.hooks, in: $sectionAnchors)
+        if hooksExpanded {
             if navigator.hooks.isEmpty && !isPending(.hookFile) && !isPending(.hookFolder) {
                 emptyPlaceholder("No hooks")
             } else {
@@ -274,21 +282,21 @@ struct NavigatorSidebar: View {
                     InlineCreateRow(projectURL: projectURL, icon: "folder")
                 }
             }
-        } label: {
-            SidebarRowWithMenu(
-                label: Label("Hooks", systemImage: "terminal"),
-                help: "New Hook"
-            ) {
-                Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
-                Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
-            }
-            .clickableSidebarRow()
         }
     }
 
     @ViewBuilder
     private var skillsGroup: some View {
-        DisclosureGroup(isExpanded: $skillsExpanded) {
+        SidebarRowWithMenu(
+            label: Label("Skills", systemImage: "puzzlepiece.extension"),
+            help: "New Skill",
+            expanded: $skillsExpanded
+        ) {
+            Button("New Skill") { navigator.beginPendingCreate(.skill) }
+        }
+        .clickableSidebarRow()
+        .trackSectionAnchor(.skillsTopLevel, in: $sectionAnchors)
+        if skillsExpanded {
             if navigator.skills.isEmpty && !isPending(.skill) {
                 emptyPlaceholder("No skills")
             } else {
@@ -301,14 +309,6 @@ struct NavigatorSidebar: View {
                     InlineCreateRow(projectURL: projectURL, icon: "puzzlepiece")
                 }
             }
-        } label: {
-            SidebarRowWithMenu(
-                label: Label("Skills", systemImage: "puzzlepiece.extension"),
-                help: "New Skill"
-            ) {
-                Button("New Skill") { navigator.beginPendingCreate(.skill) }
-            }
-            .clickableSidebarRow()
         }
     }
 
@@ -524,19 +524,35 @@ struct SidebarSectionHeader: View {
     }
 }
 
-// DisclosureGroup label variant: the trailing plus opens a sub-Menu so
-// hook/skill labels can offer "New File / New Folder" without inflating
-// the sidebar. Same hover-reveal as `SidebarSectionHeader`.
+// Disclosure-style sidebar row with its own chevron + a trailing hover-+
+// menu. Built as a hand-rolled row instead of `DisclosureGroup { } label:`
+// because `List(.sidebar)` drops the system chevron the moment the
+// label content is anything other than a primitive `Label` — same reason
+// `SidebarSectionHeader` exists as a row rather than `Section { } header:`.
 struct SidebarRowWithMenu<Label: View, MenuContent: View>: View {
     let label: Label
     let help: String
+    @Binding var expanded: Bool
     @ViewBuilder let menu: () -> MenuContent
     @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 4) {
-            label
-            Spacer()
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    label
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Menu {
                 menu()
             } label: {
@@ -552,7 +568,6 @@ struct SidebarRowWithMenu<Label: View, MenuContent: View>: View {
             .help(help)
             .opacity(hovering ? 1 : 0.55)
         }
-        .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .contextMenu {
             menu()
