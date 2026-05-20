@@ -7,6 +7,7 @@ struct NavigatorSidebar: View {
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
+    @Environment(\.openCreateIssue) private var openCreateIssue
 
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
@@ -18,7 +19,7 @@ struct NavigatorSidebar: View {
 
     var body: some View {
         List(selection: selectionBinding) {
-            Section("Issues") {
+            Section(header: sectionHeader(title: "Issues", action: { openCreateIssue(.draft) }, help: "New Issue")) {
                 Label("Board", systemImage: "rectangle.3.group.fill")
                     .tag(NavigatorRoute.kanban)
                     .clickableSidebarRow()
@@ -27,26 +28,53 @@ struct NavigatorSidebar: View {
                 }
             }
 
-            Section("Docs") {
-                if navigator.docs.isEmpty {
+            Section(
+                header: sectionHeader(title: "Docs", action: { navigator.beginPendingCreate(.docs) }, help: "New Doc")
+            ) {
+                if navigator.docs.isEmpty && !isPending(.docs) {
                     emptyPlaceholder("No docs yet")
                 } else {
                     ForEach(navigator.docs, id: \.absoluteString) { url in
                         docRow(url)
                     }
+                    if isPending(.docs) {
+                        InlineCreateRow(projectURL: projectURL, icon: "doc.text")
+                    }
                 }
             }
 
-            Section("Claude") {
+            Section(
+                header: sectionHeader(
+                    title: "Claude", action: { navigator.beginPendingCreate(.claudeMarkdown) }, help: "New Markdown")
+            ) {
                 Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
                     .tag(NavigatorRoute.claudeMD)
                     .clickableSidebarRow()
+                ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
+                    claudeMarkdownRow(url)
+                }
+                if isPending(.claudeMarkdown) {
+                    InlineCreateRow(projectURL: projectURL, icon: "doc.text")
+                }
                 hooksGroup
                 skillsGroup
                 settingsGroup
             }
         }
         .listStyle(.sidebar)
+    }
+
+    @ViewBuilder
+    private func sectionHeader(title: String, action: @escaping () -> Void, help: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            SectionHeaderAddButton(action: action, help: help)
+        }
+    }
+
+    private func isPending(_ section: PendingCreate.Section) -> Bool {
+        navigator.pendingCreate?.section == section
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {
@@ -110,6 +138,13 @@ struct NavigatorSidebar: View {
         case .invalid(let folder, _):
             return folder
         }
+    }
+
+    @ViewBuilder
+    private func claudeMarkdownRow(_ url: URL) -> some View {
+        Label(url.lastPathComponent, systemImage: "doc.text")
+            .tag(NavigatorRoute.claudeMarkdown(name: url.lastPathComponent))
+            .clickableSidebarRow()
     }
 
     @ViewBuilder

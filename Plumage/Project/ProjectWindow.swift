@@ -43,6 +43,10 @@ struct ProjectWindow: View {
         baseStack
             .environment(kanban)
             .environment(navigator)
+            .environment(\.openCreateIssue) { status in
+                createInitialStatus = status
+                showCreateSheet = true
+            }
             .frame(minWidth: 900, minHeight: 560)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
