@@ -7,29 +7,29 @@ import AppKit
 import SwiftUI
 
 struct EmbeddedTerminalView: View {
-    let session: ClaudeSession
-
-    @State private var bootingDone = false
+    let session: TerminalClaudeSession
 
     var body: some View {
         ZStack {
+            // .id(restartEpoch) forces SwiftUI to dismantle + remake the
+            // bridge when restart() bumps the epoch, which respawns the
+            // PTY-owned claude subprocess. State changes alone don't remount
+            // because the bridge already lives in the view tree across mode
+            // toggles.
             SwiftTermBridge(session: session)
+                .id(session.restartEpoch)
 
-            if !bootingDone {
+            if showsBootOverlay {
                 bootOverlay
                     .transition(.opacity)
             }
         }
-        // claude's interactive boot — hooks, plugins, CLAUDE.md, --resume log
-        // replay — sits in the ~1.5–2.0 s range. Fade the overlay just before
-        // claude usually finishes; if the user's boot is slower, the overlay
-        // disappears a moment early and they watch the banner paint in.
-        .task(id: session.conversationID) {
-            try? await Task.sleep(for: .seconds(1.6))
-            withAnimation(.easeOut(duration: 0.25)) {
-                bootingDone = true
-            }
-        }
+        .animation(.easeOut(duration: 0.25), value: showsBootOverlay)
+    }
+
+    private var showsBootOverlay: Bool {
+        if case .starting = session.state { return true }
+        return false
     }
 
     @ViewBuilder
@@ -47,7 +47,7 @@ struct EmbeddedTerminalView: View {
 }
 
 private struct SwiftTermBridge: NSViewRepresentable {
-    let session: ClaudeSession
+    let session: TerminalClaudeSession
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -66,74 +66,51 @@ private struct SwiftTermBridge: NSViewRepresentable {
         view.caretColor = NSColor.labelColor
         view.cursorStyleChanged(source: view.terminal, newStyle: .blinkBlock)
 
-        // Shell-wrap so we can set cwd (LocalProcessTerminalView has no direct
-        // cwd parameter). exec replaces the shell with claude — only one
-        // process boundary remains, and SIGHUP still propagates to claude.
-        // Resume vs create-new is decided by ClaudeSession.resumeOrInitArgs
-        // (it checks whether the session log already exists, matching claude's
-        // own "is already in use" detection).
-        let cwd = session.cwd
-        let binaryURL = session.binaryURL
-        // Defense in depth: the POSIX single-quote escape below is correct
-        // for ' characters but offers no guarantee against null bytes or
-        // embedded newlines, both of which would break `/bin/sh -c` parsing
-        // in unpredictable ways. Reject the spawn outright if either is
-        // present in cwd or claude's path — these can only originate from
-        // a corrupt environment (the user's file system); fail loudly
-        // rather than fan a malformed shell command out to /bin/sh.
-        guard Self.isShellSafe(cwd.path), Self.isShellSafe(binaryURL.path) else {
+        // Defense in depth: TerminalClaudeSession's shellSpawnArgs already
+        // single-quote-escapes ', but precondition on null/newline lives in
+        // shellQuotedAttachArgs — bail out early to avoid spawning into a
+        // corrupt environment. Mark exited so the ExitBanner surfaces instead
+        // of leaving a silent empty terminal.
+        guard TerminalClaudeSession.isShellSafe(session.cwd.path),
+            TerminalClaudeSession.isShellSafe(session.binaryURL.path)
+        else {
+            session.markExited(code: -1)
             return view
         }
-        let quotedPath = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        let claudePath = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
+        let args = session.shellSpawnArgs()
         let env = Self.environmentForClaude()
-        let session = self.session
 
-        // Cancel any prior spawn Task left over from a previous makeNSView
-        // call — SwiftUI is free to call makeNSView more than once for the
-        // same representable, and two concurrent spawn Tasks would race on
-        // the same session log lock.
-        context.coordinator.spawnTask?.cancel()
-        context.coordinator.spawnTask = Task { @MainActor [weak view, weak session] in
-            guard let session else { return }
-            await session.awaitHandOff()
-            guard !Task.isCancelled, let view else { return }
-            let attachFlag = Self.shellQuotedAttachArgs(session.resumeOrInitArgs())
-            view.startProcess(
-                executable: "/bin/sh",
-                args: [
-                    "-c",
-                    "cd '\(quotedPath)' && exec '\(claudePath)' \(attachFlag)",
-                ],
-                environment: env
-            )
-            // SwiftTerm starts unfocused inside an NSViewRepresentable. Without
-            // a firstResponder hand-off the caret renders as a hollow outline
-            // (drawCursor uses TerminalView.hasFocus) and keystrokes can be
-            // dropped (notes.md 2026-05-12 #00020-spike entry). Window may
-            // still be nil during the first layout pass — the responder hop
-            // is best-effort, not load-bearing.
-            view.window?.makeFirstResponder(view)
+        view.startProcess(
+            executable: "/bin/sh",
+            args: args,
+            environment: env
+        )
+        // Synchronous kill path for window-close: stop() fires this before
+        // flipping state, so the subprocess dies before SwiftUI gets around
+        // to dismantling the view.
+        session.registerStopHandler { [weak view] in
+            view?.terminate()
         }
+        // SwiftTerm's startProcess returns the instant the PTY is wired up,
+        // but claude itself spends ~1.6s on hooks / plugins / CLAUDE.md /
+        // --resume replay. Holding the session in .starting masks that window
+        // with the "Resuming session…" overlay; once we flip to .running the
+        // overlay fades and subsequent mode toggles see the session already
+        // running so they never re-enter .starting.
+        context.coordinator.markStartedTask?.cancel()
+        context.coordinator.markStartedTask = Task { @MainActor [weak session] in
+            try? await Task.sleep(for: .seconds(1.6))
+            guard !Task.isCancelled, let session else { return }
+            session.markStarted()
+        }
+        // SwiftTerm starts unfocused inside an NSViewRepresentable. Without
+        // a firstResponder hand-off the caret renders as a hollow outline
+        // (drawCursor uses TerminalView.hasFocus) and keystrokes can be
+        // dropped (notes.md 2026-05-12 #00020-spike entry). Window may
+        // still be nil during the first layout pass — the responder hop
+        // is best-effort, not load-bearing.
+        view.window?.makeFirstResponder(view)
         return view
-    }
-
-    private static func shellQuotedAttachArgs(_ args: [String]) -> String {
-        args.map { arg in
-            // Guard mirrors the cwd/binary-path check in makeNSView: null
-            // bytes or newlines in any arg break /bin/sh -c parsing in
-            // ways quoting cannot recover from. Today resumeOrInitArgs
-            // only returns hex UUIDs + literal flags, but the function is
-            // `internal` and a future caller could change that.
-            precondition(isShellSafe(arg), "shellQuotedAttachArgs: unsafe arg")
-            let escaped = arg.replacingOccurrences(of: "'", with: #"'\''"#)
-            return "'\(escaped)'"
-        }
-        .joined(separator: " ")
-    }
-
-    private static func isShellSafe(_ value: String) -> Bool {
-        !value.contains("\0") && !value.contains("\n") && !value.contains("\r")
     }
 
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
@@ -150,10 +127,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
     ) {
         // Without explicit terminate(), LocalProcess.deinit leaves the child
         // running and the PTY fd pair leaked for the app session.
-        coordinator.spawnTask?.cancel()
-        coordinator.spawnTask = nil
+        coordinator.markStartedTask?.cancel()
+        coordinator.markStartedTask = nil
+        // Drop the stop-hook before terminate() so a stop() during teardown
+        // doesn't end up calling terminate() on a half-disposed view.
+        coordinator.session?.clearStopHandler()
         nsView.stopCursorKeepAlive()
-        coordinator.session?.beginExternalHandOff()
         nsView.terminate()
     }
 
@@ -185,13 +164,11 @@ private struct SwiftTermBridge: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
-        weak var session: ClaudeSession?
+        weak var session: TerminalClaudeSession?
         var lastColorScheme: ColorScheme?
-        // Owned by makeNSView/dismantleNSView so a re-entered makeNSView can
-        // cancel the previous spawn before launching a new one.
-        var spawnTask: Task<Void, Never>?
+        var markStartedTask: Task<Void, Never>?
 
-        init(session: ClaudeSession) {
+        init(session: TerminalClaudeSession) {
             self.session = session
             super.init()
         }
@@ -200,9 +177,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         func processTerminated(source: TerminalView, exitCode: Int32?) {
-            // The terminal-mode claude has fully exited and released the
-            // session-id log lock; chat mode can safely spawn now.
-            session?.markExternalHandOffDone()
+            session?.markExited(code: exitCode ?? 0)
         }
     }
 }

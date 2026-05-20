@@ -13,6 +13,15 @@ struct ClaudeDockPanelTests {
         )
     }
 
+    private func makeTerminalSession() -> TerminalClaudeSession {
+        TerminalClaudeSession(
+            cwd: URL(filePath: "/tmp"),
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            sessionIDStoreOverride: FileManager.default.temporaryDirectory
+                .appendingPathComponent("plumage-panel-tests-\(UUID().uuidString)")
+        )
+    }
+
     @Test("scene storage key matches previous TerminalPaneView key")
     func sceneStorageKeyMatchesPreviousTerminalPaneViewKey() {
         // Persistence carries over from the pre-dock TerminalPaneView, so the
@@ -31,6 +40,7 @@ struct ClaudeDockPanelTests {
         )
         let panel = ClaudeDockPanel(
             session: makeSession(),
+            terminalSession: makeTerminalSession(),
             indicatorState: .loading,
             isOpen: binding
         )
@@ -43,38 +53,5 @@ struct ClaudeDockPanelTests {
         #expect(TerminalPaneMode(rawValue: "chat") == .chat)
         #expect(TerminalPaneMode(rawValue: "terminal") == .terminal)
         #expect(TerminalPaneMode(rawValue: "garbage") == nil)
-    }
-
-    @Test("handOffToExternal marks pending before tearing down")
-    func handOffToExternalSetsPendingFirst() {
-        let session = makeSession()
-        #expect(!session.handOffPending)
-        session.handOffToExternal()
-        // No process to terminate (autoSpawn:false) — handOff() then clears
-        // pending in its early-return path. The contract we verify is that
-        // markHandOffStarting fired (handOffPending was true at some point);
-        // the post-condition is observable via state transition.
-        #expect(session.state == .exited(code: 0, reason: .userClosed))
-    }
-
-    @Test("handOffFromExternal marks pending and re-enters starting state")
-    func handOffFromExternalSetsPendingAndRestarts() async {
-        let session = makeSession()
-        // Drive into a non-idle state first so resumeAfterHandOff has a
-        // before-state worth transitioning from.
-        session.beginExternalHandOff()
-        #expect(session.handOffPending)
-        session.handOffFromExternal()
-        // markHandOffStarting keeps the pending flag true; resumeAfterHandOff
-        // transitions state to .starting and queues a deferred spawn (no-op
-        // here because autoSpawn:false). handOffPending stays true until a
-        // markExternalHandOffDone signal arrives — verifying that here proves
-        // the wrapper called markHandOffStarting before resume.
-        #expect(session.handOffPending)
-        if case .starting = session.state {
-            // ok
-        } else {
-            Issue.record("expected .starting, got \(session.state)")
-        }
     }
 }

@@ -7,6 +7,7 @@ struct ClaudeDockPanel: View {
     static let preferredHeight: CGFloat = 560
 
     let session: ClaudeSession
+    let terminalSession: TerminalClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
     // The overlay measures available window height and passes it down so
@@ -62,24 +63,50 @@ struct ClaudeDockPanel: View {
 
     @ViewBuilder
     private var modeContent: some View {
-        switch mode {
-        case .chat:
-            ChatView(session: session)
-                .overlay(alignment: .top) {
-                    if case .exited(let code, let reason) = session.state {
-                        ExitBanner(code: code, reason: reason) {
-                            session.restart()
-                        }
+        // Both modes stay mounted so toggling between them is purely a
+        // visibility flip — no SwiftTermBridge dismantle, no claude respawn.
+        ZStack {
+            chatMode
+                .opacity(mode == .chat ? 1 : 0)
+                .allowsHitTesting(mode == .chat)
+                .accessibilityHidden(mode != .chat)
+            terminalMode
+                .opacity(mode == .terminal ? 1 : 0)
+                .allowsHitTesting(mode == .terminal)
+                .accessibilityHidden(mode != .terminal)
+        }
+        .animation(.easeInOut(duration: 0.18), value: modeRaw)
+    }
+
+    @ViewBuilder
+    private var chatMode: some View {
+        ChatView(session: session)
+            .overlay(alignment: .top) {
+                if case .exited(let code, let reason) = session.state {
+                    ExitBanner(code: code, reason: reason) {
+                        session.restart()
                     }
                 }
-        case .terminal:
-            // .id() forces SwiftTermBridge to dismantle+remount so the
-            // embedded claude spawn sees the fresh handoff state.
-            EmbeddedTerminalView(session: session)
-                .id(TerminalPaneMode.terminal.rawValue)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-        }
+            }
+    }
+
+    @ViewBuilder
+    private var terminalMode: some View {
+        EmbeddedTerminalView(session: terminalSession)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .overlay(alignment: .top) {
+                if case .exited(let code, let reason) = terminalSession.state {
+                    ExitBanner(code: code, reason: reason) {
+                        terminalSession.restart()
+                    }
+                }
+            }
+            // .id(cwd) forces SwiftUI to rebuild the bridge (and its
+            // Coordinator) when ProjectWindow swaps the session for a
+            // different handle.url — otherwise the Coordinator's `weak
+            // session` keeps pointing at the prior TerminalClaudeSession.
+            .id(terminalSession.cwd)
     }
 
     private var modeBinding: Binding<TerminalPaneMode> {
@@ -87,10 +114,6 @@ struct ClaudeDockPanel: View {
             get: { mode },
             set: { newMode in
                 guard mode != newMode else { return }
-                switch newMode {
-                case .terminal: session.handOffToExternal()
-                case .chat: session.handOffFromExternal()
-                }
                 modeRaw = newMode.rawValue
             }
         )
@@ -129,8 +152,13 @@ private struct DockPanelHeader: View {
         binaryURL: URL(filePath: "/usr/bin/true"),
         autoSpawn: false
     )
+    let terminalSession = TerminalClaudeSession(
+        cwd: URL(filePath: "/tmp"),
+        binaryURL: URL(filePath: "/usr/bin/true")
+    )
     return ClaudeDockPanel(
         session: session,
+        terminalSession: terminalSession,
         indicatorState: .loading,
         isOpen: $open
     )

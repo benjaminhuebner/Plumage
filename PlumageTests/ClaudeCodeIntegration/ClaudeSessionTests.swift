@@ -225,6 +225,31 @@ struct ClaudeSessionTests {
         #expect(session.conversationID != originalID)
     }
 
+    @Test("Conversation-ID is persisted and reused on second init")
+    func uuidPersistenceAcrossInits() async throws {
+        let store = FileManager.default.temporaryDirectory
+            .appendingPathComponent("plumage-chat-id-persist-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: store) }
+        let first = makeSession(sessionIDStoreOverride: store)
+        let firstID = first.conversationID
+        let second = makeSession(sessionIDStoreOverride: store)
+        #expect(second.conversationID == firstID)
+    }
+
+    @Test("/clear persists the regenerated ID so the next init resumes it")
+    func slashClearPersistsNewID() async throws {
+        let store = FileManager.default.temporaryDirectory
+            .appendingPathComponent("plumage-chat-clear-persist-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: store) }
+        let session = makeSession(sessionIDStoreOverride: store)
+        session.start()
+        session.handleEvent(.systemInit(sessionID: "test"))
+        await session.send("/clear")
+        let postClearID = session.conversationID
+        let reloaded = makeSession(sessionIDStoreOverride: store)
+        #expect(reloaded.conversationID == postClearID)
+    }
+
     @Test("restart() from .running is a no-op")
     func restartFromRunningIsNoOp() {
         let session = startedSession()
@@ -238,59 +263,6 @@ struct ClaudeSessionTests {
         let session = makeSession()
         session.restart()
         #expect(session.state == .idle)
-    }
-
-    // MARK: - awaitHandOff
-
-    @Test("awaitHandOff returns immediately when not pending")
-    func awaitHandOffEarlyExit() async {
-        let session = makeSession()
-        let start = ContinuousClock().now
-        await session.awaitHandOff(timeout: .seconds(1))
-        let elapsed = ContinuousClock().now - start
-        // No suspension expected — should be well under the timeout.
-        #expect(elapsed < .milliseconds(100))
-    }
-
-    @Test("awaitHandOff resolves when markExternalHandOffDone fires")
-    func awaitHandOffResolvesOnSignal() async {
-        let session = makeSession()
-        session.beginExternalHandOff()
-        #expect(session.handOffPending)
-
-        let waiter = Task { @MainActor in
-            await session.awaitHandOff(timeout: .seconds(2))
-        }
-
-        // Drive the scheduler until the waiter's continuation lands inside
-        // awaitHandOff's withCheckedContinuation. Polling via Task.yield()
-        // is deterministic — it returns control as soon as the awaiting
-        // task has run far enough to register, with no wall-clock guess. A
-        // single yield is usually enough; the loop bounds the wait at 64
-        // hops as a safety net for CI scheduling oddities.
-        for _ in 0..<64 {
-            if session.handOffWaiterCountForTesting() > 0 { break }
-            await Task.yield()
-        }
-        session.markExternalHandOffDone()
-
-        await waiter.value
-        #expect(!session.handOffPending)
-    }
-
-    @Test("awaitHandOff returns after timeout when no signal arrives")
-    func awaitHandOffTimesOut() async {
-        let session = makeSession()
-        session.beginExternalHandOff()
-
-        let start = ContinuousClock().now
-        await session.awaitHandOff(timeout: .milliseconds(100))
-        let elapsed = ContinuousClock().now - start
-
-        #expect(elapsed >= .milliseconds(80))
-        #expect(elapsed < .seconds(1))
-        // Timeout doesn't clear the flag — only an external signal does.
-        #expect(session.handOffPending)
     }
 
     // MARK: - resumeOrInitArgs
@@ -420,13 +392,19 @@ struct ClaudeSessionTests {
 
     private func makeSession(
         cwd: URL = URL(filePath: "/tmp"),
-        sessionLogRoot: URL? = nil
+        sessionLogRoot: URL? = nil,
+        sessionIDStoreOverride: URL? = nil
     ) -> ClaudeSession {
         ClaudeSession(
             cwd: cwd,
             binaryURL: URL(filePath: "/usr/bin/true"),
             autoSpawn: false,
-            sessionLogRoot: sessionLogRoot
+            sessionLogRoot: sessionLogRoot,
+            // Per-test temp store so persisted UUIDs don't leak across runs
+            // (default would write to /tmp/.plumage/sessions/chat-id).
+            sessionIDStoreOverride: sessionIDStoreOverride
+                ?? FileManager.default.temporaryDirectory
+                .appendingPathComponent("plumage-chat-tests-\(UUID().uuidString)")
         )
     }
 

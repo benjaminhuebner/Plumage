@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ClaudeDockOverlay: View {
     let session: ClaudeSession
+    let terminalSession: TerminalClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
 
@@ -27,17 +28,23 @@ struct ClaudeDockOverlay: View {
                     } action: { height in
                         availableHeight = height
                     }
-                if isOpen {
-                    ClaudeDockPanel(
-                        session: session,
-                        indicatorState: indicatorState,
-                        isOpen: $isOpen,
-                        availableHeight: availableHeight
-                    )
-                    .padding(.trailing, Self.panelTrailingPadding)
-                    .padding(.bottom, Self.panelBottomPadding)
-                    .transition(panelTransition)
-                }
+                // Always mounted — visibility is purely an opacity flip so
+                // both ClaudeSession (chat) and TerminalClaudeSession
+                // (terminal) stay attached to a live SwiftUI view tree across
+                // dock open/close cycles.
+                ClaudeDockPanel(
+                    session: session,
+                    terminalSession: terminalSession,
+                    indicatorState: indicatorState,
+                    isOpen: $isOpen,
+                    availableHeight: availableHeight
+                )
+                .padding(.trailing, Self.panelTrailingPadding)
+                .padding(.bottom, Self.panelBottomPadding)
+                .opacity(isOpen ? 1 : 0)
+                .scaleEffect(panelScale, anchor: .bottomTrailing)
+                .allowsHitTesting(isOpen)
+                .accessibilityHidden(!isOpen)
                 ClaudeDockButton(
                     isOpen: isOpen,
                     isWorking: session.awaitingResponse,
@@ -61,10 +68,9 @@ struct ClaudeDockOverlay: View {
             : .spring(response: 0.35, dampingFraction: 0.78)
     }
 
-    private var panelTransition: AnyTransition {
-        reduceMotion
-            ? .opacity
-            : .scale(scale: 0.05, anchor: .bottomTrailing).combined(with: .opacity)
+    private var panelScale: CGFloat {
+        if reduceMotion { return 1 }
+        return isOpen ? 1 : 0.05
     }
 }
 
@@ -75,10 +81,15 @@ struct ClaudeDockOverlay: View {
         binaryURL: URL(filePath: "/usr/bin/true"),
         autoSpawn: false
     )
+    let terminalSession = TerminalClaudeSession(
+        cwd: URL(filePath: "/tmp"),
+        binaryURL: URL(filePath: "/usr/bin/true")
+    )
     return Color.gray.opacity(0.1)
         .overlay(alignment: .bottomTrailing) {
             ClaudeDockOverlay(
                 session: session,
+                terminalSession: terminalSession,
                 indicatorState: .loading,
                 isOpen: $open
             )

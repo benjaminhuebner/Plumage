@@ -42,43 +42,55 @@ final class ClaudeSession {
     let binaryURL: URL
     private let autoSpawn: Bool
     private let sessionLogRoot: URL
+    private let sessionIDStoreURL: URL
     private let rehydrationCap: Int
 
     private(set) var state: State = .idle
     private(set) var messages: [ChatMessage] = []
     private(set) var awaitingResponse: Bool = false
     private(set) var conversationID: String
-    // True while a previous claude (chat or terminal) is mid-shutdown and
-    // still owns the session-id log lock. The next mode's spawn must wait
-    // for this to flip back to false or the new claude exits with
-    // "Session ID … is already in use."
-    private(set) var handOffPending: Bool = false
 
     private var process: Process?
     private var stdinHandle: FileHandle?
     private var readTask: Task<Void, Never>?
     private var subcommandTask: Task<Void, Never>?
-    private var handOffWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     // Defaults to ~/.claude/projects but is injectable so tests can point at
     // a temp directory and exercise resumeOrInitArgs / rehydrate without
-    // polluting the real home.
+    // polluting the real home. sessionIDStoreOverride is the per-project
+    // file that persists the conversation UUID across project re-opens —
+    // mirror to TerminalClaudeSession so chat mode also resumes its claude
+    // session via --resume <uuid>.
     init(
         cwd: URL,
         binaryURL: URL,
         autoSpawn: Bool = true,
         sessionLogRoot: URL? = nil,
+        sessionIDStoreOverride: URL? = nil,
         rehydrationCap: Int = ClaudeSession.defaultRehydrationCap
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.autoSpawn = autoSpawn
-        self.conversationID = UUID().uuidString.lowercased()
         self.rehydrationCap = rehydrationCap
         self.sessionLogRoot =
             sessionLogRoot
             ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
+        self.sessionIDStoreURL =
+            sessionIDStoreOverride
+            ?? cwd
+            .appendingPathComponent(".plumage", isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("chat-id")
+
+        if let persisted = Self.loadPersistedID(from: self.sessionIDStoreURL) {
+            self.conversationID = persisted
+        } else {
+            let fresh = UUID().uuidString.lowercased()
+            self.conversationID = fresh
+            Self.persistID(fresh, to: self.sessionIDStoreURL)
+        }
     }
 
     // Safety net for abnormal teardown paths (scene killed, owner replaced
@@ -279,8 +291,11 @@ final class ClaudeSession {
         subcommandTask = nil
         process = nil
 
-        // Fresh context: new session ID, dropped history.
+        // Fresh context: new session ID, dropped history. Persist so the
+        // next project-open's --resume targets the new conversation, not the
+        // stale pre-clear one.
         conversationID = UUID().uuidString.lowercased()
+        Self.persistID(conversationID, to: sessionIDStoreURL)
         messages = []
         awaitingResponse = false
         state = .starting(cwd: cwd)
@@ -302,141 +317,13 @@ final class ClaudeSession {
         process = nil
     }
 
-    // Restart keeps messages and conversationID — Banner-Restart + mode-toggle
-    // resume both want to land back in the same conversation; only /clear
-    // creates a fresh one (see clearAndRestart).
+    // Restart keeps messages and conversationID — Banner-Restart resumes the
+    // same conversation; only /clear creates a fresh one (see clearAndRestart).
     func restart() {
         guard case .exited = state else { return }
         awaitingResponse = false
         state = .starting(cwd: cwd)
         if autoSpawn { spawn() }
-    }
-
-    // Mode-switch path back to chat — wait for the SwiftTerm-side claude to
-    // actually exit (signalled via markExternalHandOffDone from the bridge's
-    // processTerminated delegate) before spawning chat-claude under the same
-    // session-id, otherwise the lock race produces "Session ID … in use".
-    func resumeAfterHandOff() {
-        awaitingResponse = false
-        state = .starting(cwd: cwd)
-        guard autoSpawn else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.awaitHandOff()
-            guard case .starting = self.state else { return }
-            self.spawn()
-        }
-    }
-
-    // Synchronous tear-down for mode switches: the other pane is about to
-    // claim the same session log, so this subprocess must release it before
-    // the next spawn — otherwise the two claude processes race the file lock.
-    // Synchronous tear-down for mode switches. handOffPending tracks the
-    // actual death of the chat subprocess (claude's session-id lock outlives
-    // the SIGTERM by some hundreds of ms while it flushes).
-    func handOff() {
-        guard let dying = process else {
-            clearHandOffPending()
-            try? stdinHandle?.close()
-            stdinHandle = nil
-            readTask?.cancel()
-            readTask = nil
-            subcommandTask?.cancel()
-            subcommandTask = nil
-            awaitingResponse = false
-            state = .exited(code: 0, reason: .userClosed)
-            return
-        }
-        handOffPending = true
-        // Replace the original terminationHandler so handleExit doesn't fire
-        // (we're shutting down deliberately) and we can observe the death.
-        dying.terminationHandler = { _ in
-            Task { @MainActor [weak self] in
-                self?.clearHandOffPending()
-            }
-        }
-        dying.terminate()
-        try? stdinHandle?.close()
-        stdinHandle = nil
-        readTask?.cancel()
-        readTask = nil
-        subcommandTask?.cancel()
-        subcommandTask = nil
-        process = nil
-        awaitingResponse = false
-        state = .exited(code: 0, reason: .userClosed)
-    }
-
-    // External hooks for the terminal-mode subprocess (owned by SwiftTerm,
-    // not by ClaudeSession). The bridge calls beginExternalHandOff() in
-    // dismantleNSView() and markExternalHandOffDone() in processTerminated.
-    func beginExternalHandOff() {
-        handOffPending = true
-    }
-
-    func markExternalHandOffDone() {
-        clearHandOffPending()
-    }
-
-    // Called from the toggle's Binding setter BEFORE modeRaw mutates, so the
-    // about-to-mount view's spawn Task sees handOffPending=true and waits.
-    func markHandOffStarting() {
-        handOffPending = true
-    }
-
-    // markHandOffStarting must fire BEFORE the caller flips persisted mode
-    // state — otherwise the new mode's spawn races the chat/terminal claude
-    // file-lock release ("Session ID … already in use").
-    func handOffToExternal() {
-        markHandOffStarting()
-        handOff()
-    }
-
-    func handOffFromExternal() {
-        markHandOffStarting()
-        resumeAfterHandOff()
-    }
-
-    // Drains any awaiters before flipping the flag — keeps the @Observable
-    // mutation visible to view-side reads while letting the continuation
-    // waiters wake up exactly once per pending-cycle.
-    private func clearHandOffPending() {
-        let waiters = handOffWaiters
-        handOffWaiters = [:]
-        handOffPending = false
-        for cont in waiters.values { cont.resume() }
-    }
-
-    // Signal-driven rather than polling: callers register a checked
-    // continuation; the next clearHandOffPending() resumes them. A timeout
-    // Task races the signal and cleans up its own waiter slot if it wins, so
-    // a never-arriving handoff completion releases the caller after `timeout`
-    // without leaking the continuation.
-    #if DEBUG
-    // Test hook so awaitHandOff tests can poll for waiter registration
-    // deterministically (via Task.yield) instead of sleeping for an
-    // arbitrary stabilisation window.
-    func handOffWaiterCountForTesting() -> Int { handOffWaiters.count }
-    #endif
-
-    func awaitHandOff(timeout: Duration = .seconds(3)) async {
-        guard handOffPending else { return }
-        let id = UUID()
-        let timeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: timeout)
-            guard let self else { return }
-            if let cont = self.handOffWaiters.removeValue(forKey: id) {
-                cont.resume()
-            }
-        }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            guard handOffPending else {
-                cont.resume()
-                return
-            }
-            handOffWaiters[id] = cont
-        }
-        timeoutTask.cancel()
     }
 
     // Returns the spawn args for a fresh claude attach: --session-id when the
@@ -757,5 +644,21 @@ final class ClaudeSession {
         case 128...159: return .killed
         default: return .crashed
         }
+    }
+
+    private nonisolated static func loadPersistedID(from url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+            let raw = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else { return nil }
+        return raw
+    }
+
+    private nonisolated static func persistID(_ id: String, to url: URL) {
+        let parent = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: parent, withIntermediateDirectories: true)
+        try? id.write(to: url, atomically: true, encoding: .utf8)
     }
 }

@@ -72,6 +72,11 @@ DerivedData/
 *.hmap
 *.ipa
 
+# LLVM code-coverage raw output (dropped in repo root by xcodebuild test
+# when run without -resultBundlePath)
+*.profraw
+*.profdata
+
 *.xcuserstate
 *.xcscmblueprint
 *.xcscheme
