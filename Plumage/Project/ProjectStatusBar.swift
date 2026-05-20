@@ -21,28 +21,28 @@ struct ProjectStatusBar: View {
     var body: some View {
         VStack(spacing: 0) {
             Divider()
-            HStack(spacing: 6) {
-                statusDot
-                // Banner messages take priority over the static indicator
-                // label — for the ~3 s window the user sees the rejection
-                // reason instead of "claude X ready".
-                Text(banner ?? label)
-                    .font(.caption)
-                    .foregroundStyle(banner == nil ? .secondary : .primary)
-                    .accessibilityIdentifier(banner == nil ? "indicator-label" : "drop-banner")
-                    .lineLimit(1)
-                    .layoutPriority(-1)
-                Spacer(minLength: 8)
-                if let usageModel {
-                    usagePill(usageModel: usageModel)
-                        .fixedSize()
-                        .layoutPriority(1)
-                }
+            HStack(spacing: 8) {
                 if let statusModel {
                     StatusPageButton(model: statusModel)
                         .fixedSize()
-                        .layoutPriority(1)
                 }
+                HStack(spacing: 6) {
+                    statusDot
+                    // Banner messages take priority over the static indicator
+                    // label — for the ~3 s window the user sees the rejection
+                    // reason instead of "claude X ready".
+                    Text(banner ?? label)
+                        .font(.caption)
+                        .foregroundStyle(banner == nil ? .secondary : .primary)
+                        .accessibilityIdentifier(banner == nil ? "indicator-label" : "drop-banner")
+                        .lineLimit(1)
+                }
+                .fixedSize()
+                if let usageModel {
+                    usagePill(usageModel: usageModel)
+                        .fixedSize()
+                }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 22)
