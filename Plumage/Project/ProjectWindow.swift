@@ -80,10 +80,12 @@ struct ProjectWindow: View {
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
             .onChange(of: xcodeRun.discoveryState) { _, state in
                 if state == .ready {
-                    xcodeRun.restoreSelections(
-                        scheme: persistedScheme.isEmpty ? nil : persistedScheme,
-                        destinationID: persistedDestinationID.isEmpty ? nil : persistedDestinationID
-                    )
+                    Task {
+                        await xcodeRun.restoreSelections(
+                            scheme: persistedScheme.isEmpty ? nil : persistedScheme,
+                            destinationID: persistedDestinationID.isEmpty ? nil : persistedDestinationID
+                        )
+                    }
                 }
             }
             .onChange(of: xcodeRun.selectedScheme) { _, scheme in
@@ -152,6 +154,11 @@ struct ProjectWindow: View {
                 onCancel: { xcodeRunController.cancelRun() },
                 onReload: {
                     Task { await xcodeRun.reload(projectURL: handle.url) }
+                },
+                onInstallXcode: {
+                    if let url = xcodeRun.installXcodeURL {
+                        NSWorkspace.shared.open(url)
+                    }
                 },
                 showLog: $showBuildLog
             )

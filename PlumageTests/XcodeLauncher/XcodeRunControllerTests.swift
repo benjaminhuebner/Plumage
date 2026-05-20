@@ -42,13 +42,14 @@ struct XcodeRunControllerTests {
                 toolchain: { URL(fileURLWithPath: "/usr/bin/xcrun") }),
             appLauncher: appLauncher
         )
-        let model = await stubbedModel()
-        let controller = XcodeRunController(model: model, runSession: session)
+        let stub = await stubbedModel()
+        defer { try? FileManager.default.removeItem(at: stub.tempDir) }
+        let controller = XcodeRunController(model: stub.model, runSession: session)
 
         controller.startRun()
-        #expect(model.runState == .building)
+        #expect(stub.model.runState == .building)
         await controller.runTask?.value
-        #expect(model.runState == .running)
+        #expect(stub.model.runState == .running)
         #expect(appLauncher.openedURLs.map(\.path) == ["/tmp/Build/Demo.app"])
     }
 
@@ -68,29 +69,31 @@ struct XcodeRunControllerTests {
                 toolchain: { URL(fileURLWithPath: "/usr/bin/xcrun") }),
             appLauncher: RecordingAppLauncher()
         )
-        let model = await stubbedModel()
-        let controller = XcodeRunController(model: model, runSession: session)
+        let stub = await stubbedModel()
+        defer { try? FileManager.default.removeItem(at: stub.tempDir) }
+        let controller = XcodeRunController(model: stub.model, runSession: session)
 
         controller.startRun()
         await controller.runTask?.value
-        if case .failed = model.runState {
+        if case .failed = stub.model.runState {
             // expected
         } else {
-            Issue.record("expected .failed, got \(model.runState)")
+            Issue.record("expected .failed, got \(stub.model.runState)")
         }
     }
 
     @Test("cancelRun resets state to idle")
     func cancelResetsState() async throws {
-        let model = await stubbedModel()
-        let controller = XcodeRunController(model: model)
-        model.setRunState(.building)
+        let stub = await stubbedModel()
+        defer { try? FileManager.default.removeItem(at: stub.tempDir) }
+        let controller = XcodeRunController(model: stub.model)
+        stub.model.setRunState(.building)
         controller.cancelRun()
-        #expect(model.runState == .idle)
+        #expect(stub.model.runState == .idle)
     }
 
     @MainActor
-    private func stubbedModel() async -> XcodeRunModel {
+    private func stubbedModel() async -> (model: XcodeRunModel, tempDir: URL) {
         // Build a model that "discovered" a project so startRun has all it needs.
         let listJSON =
             """
@@ -125,6 +128,6 @@ struct XcodeRunControllerTests {
             xcrunLocator: { URL(fileURLWithPath: "/usr/bin/xcrun") }
         )
         await model.discover(projectURL: dir)
-        return model
+        return (model, dir)
     }
 }

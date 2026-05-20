@@ -108,6 +108,12 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
         let handle = pipe.fileHandleForReading
         let buffer = XcodeLineBuffer()
         let stream = AsyncStream<String>(bufferingPolicy: .unbounded) { continuation in
+            // readabilityHandler fires on an OS-provided background thread
+            // outside the Swift Concurrency cooperative pool, and its closure
+            // type isn't @Sendable — the compiler does not check captures here.
+            // We enforce Sendability by hand: buffer is @unchecked Sendable
+            // (NSLock-protected), continuation is Sendable. Don't add captures
+            // without verifying that contract.
             handle.readabilityHandler = { fileHandle in
                 let data = fileHandle.availableData
                 if data.isEmpty {
@@ -139,6 +145,12 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
     }
 
     static func cancelProcess(_ process: Process) {
+        // SIGTERM → 2 s grace → SIGKILL. The `process.isRunning` re-check
+        // after the sleep is load-bearing: it closes the PID-recycling race
+        // (kernel can hand the same pid to an unrelated process once Foundation
+        // has reaped our child). Double-scheduling this task (rapid cancel/run
+        // cycles) is harmless — the second SIGKILL no-ops because the first
+        // run already cleared isRunning. See notes.md 2026-05-15 (#00019).
         if process.isRunning { process.terminate() }
         let pid = process.processIdentifier
         Task.detached { [process] in

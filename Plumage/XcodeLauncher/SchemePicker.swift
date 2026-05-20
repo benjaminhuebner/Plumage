@@ -8,7 +8,7 @@ struct SchemePicker: View {
         Menu {
             ForEach(model.schemes, id: \.self) { scheme in
                 Button {
-                    model.selectScheme(scheme)
+                    Task { await model.selectScheme(scheme) }
                 } label: {
                     if scheme == model.selectedScheme {
                         Label(scheme, systemImage: "checkmark")

@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct XcodeToolbarItems: ToolbarContent {
@@ -6,16 +5,13 @@ struct XcodeToolbarItems: ToolbarContent {
     let onRun: () -> Void
     let onCancel: () -> Void
     let onReload: () -> Void
+    let onInstallXcode: () -> Void
     @Binding var showLog: Bool
 
     var body: some ToolbarContent {
         if !model.toolchainAvailable {
             ToolbarItem(placement: .principal) {
-                Button {
-                    if let url = ToolchainLocator.installXcodeURL {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
+                Button(action: onInstallXcode) {
                     Label("Install Xcode", systemImage: "arrow.down.app")
                 }
                 .help("Install Xcode from the App Store")

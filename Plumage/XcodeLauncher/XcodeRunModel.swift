@@ -70,6 +70,10 @@ final class XcodeRunModel {
         toolchainAvailable = true
 
         discoveryState = .discovering
+        // Task.detached for synchronous Disk-I/O off MainActor — same pattern
+        // as ProjectModel.reload (see notes.md 2026-05-13, #00004). `Task { }`
+        // without detach would keep findAll on MainActor because the helper
+        // is sync nonisolated.
         let projects = await Task.detached(priority: .userInitiated) {
             XcodeProjectDiscovery.findAll(in: projectURL)
         }.value
@@ -138,14 +142,12 @@ final class XcodeRunModel {
         await discover(projectURL: projectURL)
     }
 
-    func selectScheme(_ name: String) {
+    func selectScheme(_ name: String) async {
         guard schemes.contains(name) else { return }
         selectedScheme = name
-        let projectRef = self.projectRef
-        Task { [weak self] in
-            guard let self, let projectRef else { return }
-            await self.refreshCompatibility(for: name, project: projectRef)
-            self.ensureSelectedDestinationFitsCurrentScheme()
+        if let projectRef {
+            await refreshCompatibility(for: name, project: projectRef)
+            ensureSelectedDestinationFitsCurrentScheme()
         }
     }
 
@@ -170,15 +172,12 @@ final class XcodeRunModel {
         }
     }
 
-    func restoreSelections(scheme: String?, destinationID: String?) {
+    func restoreSelections(scheme: String?, destinationID: String?) async {
         if let scheme, schemes.contains(scheme), scheme != selectedScheme {
             selectedScheme = scheme
             if let projectRef, schemeCompatibility[scheme] == nil {
-                Task { [weak self] in
-                    guard let self else { return }
-                    await self.refreshCompatibility(for: scheme, project: projectRef)
-                    self.ensureSelectedDestinationFitsCurrentScheme()
-                }
+                await refreshCompatibility(for: scheme, project: projectRef)
+                ensureSelectedDestinationFitsCurrentScheme()
             }
         }
         guard let destinationID else { return }
@@ -229,6 +228,10 @@ final class XcodeRunModel {
 
     var fullLogText: String {
         logBuffer.joined(separator: "\n")
+    }
+
+    var installXcodeURL: URL? {
+        ToolchainLocator.installXcodeURL
     }
 
     private func applyMissingToolchain() {

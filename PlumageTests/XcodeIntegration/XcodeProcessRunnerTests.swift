@@ -47,16 +47,22 @@ struct ProductionXcodeProcessRunnerTests {
     @Test("stream cancellation terminates the child process")
     func streamCancellationTerminatesProcess() async throws {
         let runner = ProductionXcodeProcessRunner()
+        // /bin/sh emits the marker line, then blocks in sleep. We wait on the
+        // marker via an AsyncStream instead of a wallclock sleep — that keeps
+        // the cancel happening AFTER the subprocess is verifiably running.
+        let (signal, continuation) = AsyncStream<Void>.makeStream()
         let task = Task {
             try await runner.stream(
-                binaryURL: URL(fileURLWithPath: "/bin/sleep"),
-                args: ["10"],
+                binaryURL: URL(fileURLWithPath: "/bin/sh"),
+                args: ["-c", "echo started; sleep 10"],
                 cwd: nil,
-                onLine: { _ in }
+                onLine: { line in
+                    if line == "started" { continuation.yield() }
+                }
             )
         }
-        // Let the process start up before we cancel it.
-        try await Task.sleep(for: .milliseconds(80))
+        var iterator = signal.makeAsyncIterator()
+        _ = await iterator.next()
         task.cancel()
         do {
             _ = try await task.value

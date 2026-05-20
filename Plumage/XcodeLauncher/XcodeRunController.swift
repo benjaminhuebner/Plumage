@@ -12,7 +12,10 @@ final class XcodeRunController {
     private let runSession: XcodeRunSession
     private var terminationObserver: NSObjectProtocol?
 
-    init(model: XcodeRunModel, runSession: XcodeRunSession = XcodeRunSession()) {
+    init(
+        model: XcodeRunModel,
+        runSession: XcodeRunSession = XcodeRunSession(appLauncher: ProductionAppLauncher())
+    ) {
         self.model = model
         self.runSession = runSession
     }
@@ -54,18 +57,22 @@ final class XcodeRunController {
 
         let session = runSession
         let model = model
-        runTask = Task { [weak self] in
+        // Controller is strongly retained for the build's lifetime. cancelRun
+        // (called from ProjectWindow.onDisappear and the toolbar Stop button)
+        // is the cancellation trigger — the task always tears down via either
+        // an outcome from session.run or a CancellationError surfaced through
+        // xcodebuildRunner. A [weak self] capture here would risk losing the
+        // applyOutcome call if the controller deallocs mid-build.
+        runTask = Task {
             let outcome = await session.run(inputs: inputs) { @Sendable line in
-                Task { @MainActor [weak model] in
-                    model?.appendLog(line)
+                Task { @MainActor in
+                    model.appendLog(line)
                 }
             }
             await MainActor.run {
-                guard let self else { return }
                 self.applyOutcome(outcome)
                 self.runTask = nil
             }
-            _ = self
         }
     }
 
@@ -73,27 +80,30 @@ final class XcodeRunController {
         switch model.runState {
         case .running:
             // Stop button on a running app terminates the launched instance.
-            // The termination observer fires .didTerminateApplicationNotification
-            // which flips state back to .idle.
+            // Drop the observer + reset state synchronously: a window-close
+            // while a run is active otherwise leaves the NSWorkspace observer
+            // dangling until SwiftUI deallocs the @State-held controller, and
+            // it can fire against a stale handler.
+            stopObservingTermination()
             if let pid = launchedPID,
                 let app = NSRunningApplication(processIdentifier: pid)
             {
                 model.appendLog("× Stopping app…")
                 _ = app.terminate()
                 // Force-kill if it doesn't go down within 2 seconds — same
-                // grace-period pattern we use for xcodebuild itself.
-                Task { @MainActor [weak self] in
+                // grace-period pattern we use for xcodebuild itself. The pid
+                // is captured locally so launchedPID = nil below doesn't race.
+                Task { @MainActor in
                     try? await Task.sleep(for: .seconds(2))
-                    guard let self,
-                        let pid = self.launchedPID,
-                        let app = NSRunningApplication(processIdentifier: pid),
+                    if let app = NSRunningApplication(processIdentifier: pid),
                         !app.isTerminated
-                    else { return }
-                    _ = app.forceTerminate()
+                    {
+                        _ = app.forceTerminate()
+                    }
                 }
-            } else {
-                model.setRunState(.idle)
             }
+            launchedPID = nil
+            model.setRunState(.idle)
         case .building:
             runTask?.cancel()
             runTask = nil

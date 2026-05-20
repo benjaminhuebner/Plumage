@@ -63,9 +63,9 @@ struct XcodeRunModelTests {
 
         let model = await makeModel()
         await model.discover(projectURL: dir)
-        model.selectScheme("PlumageTests")
+        await model.selectScheme("PlumageTests")
         #expect(model.selectedScheme == "PlumageTests")
-        model.selectScheme("Bogus")
+        await model.selectScheme("Bogus")
         #expect(model.selectedScheme == "PlumageTests")
     }
 
@@ -102,7 +102,7 @@ struct XcodeRunModelTests {
 
         let model = await makeModel()
         await model.discover(projectURL: dir)
-        model.restoreSelections(
+        await model.restoreSelections(
             scheme: "PlumageTests",
             destinationID: "sim:AAAA1111-1111-1111-1111-222222222222"
         )

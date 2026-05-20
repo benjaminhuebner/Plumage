@@ -38,30 +38,24 @@ struct XcodebuildRunnerBuildTests {
 
     @Test("build can be cancelled mid-stream (real /bin/sh subprocess)")
     func buildCancellation() async {
-        let runner = XcodebuildRunner(
-            runner: ProductionXcodeProcessRunner(),
-            toolchain: { URL(fileURLWithPath: "/bin/sh") }
-        )
-        let project = XcodeProjectRef(
-            url: URL(fileURLWithPath: "/tmp/Demo/Demo.xcodeproj"),
-            kind: .project
-        )
-        // We point "xcodebuild" at /bin/sh so the args become harmless to sh.
-        // We just want to exercise the cancellation path; the real verification
-        // is in ProductionXcodeProcessRunner.streamCancellationTerminatesProcess.
+        // build() is a thin wrapper around runner.stream(). The
+        // cancellation path is fully verified in
+        // ProductionXcodeProcessRunnerTests.streamCancellationTerminatesProcess
+        // — we keep this drill light, exercising the same stream() path with
+        // a deterministic wait-on-marker rather than wallclock sleep.
+        let (signal, continuation) = AsyncStream<Void>.makeStream()
         let task = Task {
-            // /bin/sh ignores -project etc. so it'd exit fast; force a sleep
-            // by replacing the args via a stream-only mock isn't useful here.
-            // Instead use the direct stream API for the cancellation drill.
-            let stream = ProductionXcodeProcessRunner()
-            return try await stream.stream(
-                binaryURL: URL(fileURLWithPath: "/bin/sleep"),
-                args: ["5"],
+            try await ProductionXcodeProcessRunner().stream(
+                binaryURL: URL(fileURLWithPath: "/bin/sh"),
+                args: ["-c", "echo started; sleep 5"],
                 cwd: nil,
-                onLine: { _ in }
+                onLine: { line in
+                    if line == "started" { continuation.yield() }
+                }
             )
         }
-        try? await Task.sleep(for: .milliseconds(60))
+        var iterator = signal.makeAsyncIterator()
+        _ = await iterator.next()
         task.cancel()
         do {
             _ = try await task.value
@@ -71,10 +65,6 @@ struct XcodebuildRunnerBuildTests {
         } catch {
             // Any propagated error proves the process died.
         }
-        // build() itself is a thin wrapper; the routing-test above asserts the
-        // args, this branch keeps the suite name truthful about cancellation.
-        _ = project
-        _ = runner
     }
 
     @Test("build propagates a non-zero exit through stream's return value")

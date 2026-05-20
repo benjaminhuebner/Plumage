@@ -80,10 +80,7 @@ struct XcodeRunSessionSimulatorTests {
             toolchain: { URL(fileURLWithPath: "/usr/bin/xcodebuild") }
         )
         let simMock = MockXcodeProcessRunner()
-        // boot returns exit-code 149 with the canonical message; SimulatorCatalog
-        // swallows it. install + launch should still run.
         let xcrunURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        let bootCount = MutableCounter()
         simMock.setRunOutcome(
             .success(
                 XcodeSpawnResult(
@@ -91,13 +88,9 @@ struct XcodeRunSessionSimulatorTests {
                 )),
             forBinary: xcrunURL
         )
-        // Need a per-call outcome: first invocation returns 149, subsequent
-        // succeed. The MockXcodeProcessRunner only supports per-binary outcomes,
-        // so we override via the defaultRunOutcome path with a sentinel that
-        // triggers the catalog's "already booted" branch on the first hit.
-        // Simpler: directly verify catalog idempotency in SimulatorCatalogTests
-        // (already covered there). Here we keep the assertion to the launch
-        // path: when boot succeeds, install + launch still chain.
+        // The per-call "boot returns 149 (already booted)" branch is covered
+        // exhaustively in SimulatorCatalogTests. Here we just assert that with
+        // a green boot, install + launch chain through to a .launched outcome.
         let session = XcodeRunSession(
             xcodebuildRunner: xcodebuild,
             simulatorCatalog: SimulatorCatalog(
@@ -118,7 +111,6 @@ struct XcodeRunSessionSimulatorTests {
         )
         let outcome = await session.run(inputs: inputs) { _ in }
         #expect(outcome.isLaunched)
-        _ = bootCount.value
     }
 
     @Test("missing simulator UDID → launchFailed")
@@ -212,11 +204,4 @@ struct XcodeRunSessionSimulatorTests {
             Issue.record("expected .launchFailed, got \(outcome)")
         }
     }
-}
-
-final class MutableCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _value: Int = 0
-    var value: Int { lock.withLock { _value } }
-    func increment() { lock.withLock { _value += 1 } }
 }
