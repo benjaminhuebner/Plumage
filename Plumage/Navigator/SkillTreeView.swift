@@ -5,6 +5,7 @@ struct SkillTreeView: View {
     let children: [SkillNode]
     let projectURL: URL
 
+    @Environment(NavigatorModel.self) private var navigator
     @State private var expanded: Bool = false
 
     var body: some View {
@@ -12,8 +13,15 @@ struct SkillTreeView: View {
             ForEach(children, id: \.self) { node in
                 nodeView(skillName: skillName, relativePath: "", node: node)
             }
+            if isPendingHere(relativePath: "") {
+                inlineRow
+            }
         } label: {
-            Label(skillName, systemImage: "puzzlepiece")
+            HStack {
+                Label(skillName, systemImage: "puzzlepiece")
+                Spacer()
+                addMenu(relativePath: "")
+            }
         }
     }
 
@@ -29,9 +37,56 @@ struct SkillTreeView: View {
                 skillName: skillName,
                 folderName: name,
                 parentPath: relativePath,
-                children: children
+                children: children,
+                projectURL: projectURL
             )
         }
+    }
+
+    @ViewBuilder
+    private var inlineRow: some View {
+        if let pending = navigator.pendingCreate {
+            switch pending.section {
+            case .skillFile:
+                InlineCreateRow(projectURL: projectURL, icon: "doc")
+            case .skillFolder:
+                InlineCreateRow(projectURL: projectURL, icon: "folder")
+            default:
+                EmptyView()
+            }
+        }
+    }
+
+    private func isPendingHere(relativePath: String) -> Bool {
+        switch navigator.pendingCreate?.section {
+        case .skillFile(let skill, let path):
+            return skill == skillName && path == relativePath
+        case .skillFolder(let skill, let path):
+            return skill == skillName && path == relativePath
+        default:
+            return false
+        }
+    }
+
+    @ViewBuilder
+    private func addMenu(relativePath: String) -> some View {
+        Menu {
+            Button("New File") {
+                navigator.beginPendingCreate(
+                    .skillFile(skillName: skillName, relativePath: relativePath))
+            }
+            Button("New Folder") {
+                navigator.beginPendingCreate(
+                    .skillFolder(skillName: skillName, relativePath: relativePath))
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Add to \(skillName)")
     }
 
     private func childPath(parent: String, name: String) -> String {
@@ -44,7 +99,9 @@ private struct SkillFolderRow: View {
     let folderName: String
     let parentPath: String
     let children: [SkillNode]
+    let projectURL: URL
 
+    @Environment(NavigatorModel.self) private var navigator
     @State private var expanded: Bool = false
 
     var body: some View {
@@ -53,8 +110,15 @@ private struct SkillFolderRow: View {
             ForEach(children, id: \.self) { node in
                 childView(node: node, path: path)
             }
+            if isPendingHere(path: path) {
+                inlineRow
+            }
         } label: {
-            Label(folderName, systemImage: "folder")
+            HStack {
+                Label(folderName, systemImage: "folder")
+                Spacer()
+                addMenu(path: path)
+            }
         }
     }
 
@@ -70,8 +134,55 @@ private struct SkillFolderRow: View {
                 skillName: skillName,
                 folderName: name,
                 parentPath: path,
-                children: children
+                children: children,
+                projectURL: projectURL
             )
         }
+    }
+
+    @ViewBuilder
+    private var inlineRow: some View {
+        if let pending = navigator.pendingCreate {
+            switch pending.section {
+            case .skillFile:
+                InlineCreateRow(projectURL: projectURL, icon: "doc")
+            case .skillFolder:
+                InlineCreateRow(projectURL: projectURL, icon: "folder")
+            default:
+                EmptyView()
+            }
+        }
+    }
+
+    private func isPendingHere(path: String) -> Bool {
+        switch navigator.pendingCreate?.section {
+        case .skillFile(let skill, let pendingPath):
+            return skill == skillName && pendingPath == path
+        case .skillFolder(let skill, let pendingPath):
+            return skill == skillName && pendingPath == path
+        default:
+            return false
+        }
+    }
+
+    @ViewBuilder
+    private func addMenu(path: String) -> some View {
+        Menu {
+            Button("New File") {
+                navigator.beginPendingCreate(
+                    .skillFile(skillName: skillName, relativePath: path))
+            }
+            Button("New Folder") {
+                navigator.beginPendingCreate(
+                    .skillFolder(skillName: skillName, relativePath: path))
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Add to \(folderName)")
     }
 }
