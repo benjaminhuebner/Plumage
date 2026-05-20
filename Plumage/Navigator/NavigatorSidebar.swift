@@ -9,6 +9,12 @@ struct NavigatorSidebar: View {
     @Environment(NavigatorModel.self) private var navigator
     @Environment(\.openCreateIssue) private var openCreateIssue
 
+    // Section-header y-anchors so the list-level dropDestination can
+    // resolve which section a drop lands in based on cursor position.
+    // Each header reports its own minY into this dict; the lookup
+    // walks the entries top-down to find the matching section range.
+    @State private var sectionAnchors: [SidebarDropTarget.Section: CGFloat] = [:]
+
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
     @SceneStorage("nav.expansion.settings") private var settingsExpanded = false
@@ -38,14 +44,12 @@ struct NavigatorSidebar: View {
             SidebarSectionHeader(title: "Docs", help: "New Doc") {
                 navigator.beginPendingCreate(.docs)
             }
-            .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
+            .trackSectionAnchor(.docs, in: $sectionAnchors)
             if navigator.docs.isEmpty && !isPending(.docs) {
                 emptyPlaceholder("No docs yet")
-                    .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
             } else {
                 ForEach(navigator.docs, id: \.absoluteString) { url in
                     docRow(url)
-                        .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
                 }
                 if isPending(.docs) {
                     InlineCreateRow(projectURL: projectURL, icon: "doc.text")
@@ -55,26 +59,27 @@ struct NavigatorSidebar: View {
             SidebarSectionHeader(title: "Claude", help: "New Markdown") {
                 navigator.beginPendingCreate(.claudeMarkdown)
             }
-            .modifier(SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
+            .trackSectionAnchor(.claudeMarkdown, in: $sectionAnchors)
             Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
                 .tag(NavigatorRoute.claudeMD)
                 .clickableSidebarRow()
-                .modifier(SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
             ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
                 claudeMarkdownRow(url)
-                    .modifier(
-                        SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
             }
             if isPending(.claudeMarkdown) {
                 InlineCreateRow(projectURL: projectURL, icon: "doc.text")
             }
             hooksGroup
-                .modifier(SectionDropModifier(section: .hooks, projectURL: projectURL, navigator: navigator))
+                .trackSectionAnchor(.hooks, in: $sectionAnchors)
             skillsGroup
-                .modifier(SectionDropModifier(section: .skillsTopLevel, projectURL: projectURL, navigator: navigator))
+                .trackSectionAnchor(.skillsTopLevel, in: $sectionAnchors)
             settingsGroup
         }
         .listStyle(.sidebar)
+        .coordinateSpace(.named("navigator.sidebar"))
+        .dropDestination(for: URL.self) { urls, location in
+            handleListDrop(urls: urls, location: location)
+        }
         // Keyboard shortcuts on the focused list selection:
         //  - Enter on a managed row → inline rename
         //  - Backspace on a managed row → move to Trash
@@ -133,6 +138,43 @@ struct NavigatorSidebar: View {
         kanban.applyOptimisticDrop(
             payload, to: .column(column), projectURL: projectURL)
         return true
+    }
+
+    // List-level Finder drop resolver: picks the section whose y-range
+    // contains the drop point. Each section header reports its minY into
+    // `sectionAnchors`; this walks the sorted entries top-down and returns
+    // the section whose header is the last one ABOVE the drop point.
+    private func handleListDrop(urls: [URL], location: CGPoint) -> Bool {
+        guard !urls.isEmpty else { return false }
+        let section = resolveSection(at: location.y) ?? .docs
+        do {
+            let outcome = try SidebarDropTarget.performDrop(
+                sources: urls, section: section, projectURL: projectURL)
+            if let banner = SidebarDropTarget.bannerMessage(
+                outcome: outcome, section: section)
+            {
+                navigator.showBanner(banner)
+            }
+            if !outcome.accepted.isEmpty {
+                Task { @MainActor in
+                    await navigator.reload(projectURL: projectURL)
+                }
+            }
+            return !outcome.accepted.isEmpty
+        } catch {
+            navigator.showBanner("Couldn't copy: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func resolveSection(at y: CGFloat) -> SidebarDropTarget.Section? {
+        // Sort by minY ascending, then pick the last whose minY <= y.
+        let sorted = sectionAnchors.sorted { $0.value < $1.value }
+        var winner: SidebarDropTarget.Section?
+        for (section, minY) in sorted where minY <= y {
+            winner = section
+        }
+        return winner
     }
 
     private func expansionBinding(for column: IssueColumn) -> Binding<Bool> {
@@ -418,37 +460,18 @@ extension DiscoveredIssue {
     }
 }
 
-private struct SectionDropModifier: ViewModifier {
-    let section: SidebarDropTarget.Section
-    let projectURL: URL
-    let navigator: NavigatorModel
-
-    func body(content: Content) -> some View {
-        content.dropDestination(for: URL.self) { urls, _ in
-            performDrop(urls)
-        }
-    }
-
-    @discardableResult
-    private func performDrop(_ urls: [URL]) -> Bool {
-        guard !urls.isEmpty else { return false }
-        do {
-            let outcome = try SidebarDropTarget.performDrop(
-                sources: urls, section: section, projectURL: projectURL)
-            if let banner = SidebarDropTarget.bannerMessage(
-                outcome: outcome, section: section)
-            {
-                navigator.showBanner(banner)
-            }
-            if !outcome.accepted.isEmpty {
-                Task { @MainActor in
-                    await navigator.reload(projectURL: projectURL)
-                }
-            }
-            return !outcome.accepted.isEmpty
-        } catch {
-            navigator.showBanner("Couldn't copy: \(error.localizedDescription)")
-            return false
+// Tracks the section header's minY in the sidebar coordinate space.
+// The list-level dropDestination uses these anchors to dispatch drops
+// to the right section based on cursor position.
+extension View {
+    fileprivate func trackSectionAnchor(
+        _ section: SidebarDropTarget.Section,
+        in anchors: Binding<[SidebarDropTarget.Section: CGFloat]>
+    ) -> some View {
+        self.onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.frame(in: .named("navigator.sidebar")).minY
+        } action: { minY in
+            anchors.wrappedValue[section] = minY
         }
     }
 }
