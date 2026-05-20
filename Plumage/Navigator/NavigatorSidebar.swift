@@ -7,6 +7,7 @@ struct NavigatorSidebar: View {
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
+    @Environment(\.openCreateIssue) private var openCreateIssue
 
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
@@ -78,6 +79,9 @@ struct NavigatorSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            sidebarFooter
+        }
         // Keyboard shortcuts on the focused list selection:
         //  - Enter on a managed row → inline rename
         //  - Backspace on a managed row → move to Trash
@@ -90,6 +94,46 @@ struct NavigatorSidebar: View {
         }
         .onDeleteCommand {
             _ = handleDeleteKey()
+        }
+    }
+
+    // Xcode-style footer: a single + Menu pinned to the bottom of the
+    // sidebar. Mirrors the macOS Project Navigator footer pattern instead
+    // of scattering plus buttons across section headers.
+    @ViewBuilder
+    private var sidebarFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 0) {
+                Menu {
+                    Button("New Issue") { openCreateIssue(.draft) }
+                    Divider()
+                    Button("New Doc") { navigator.beginPendingCreate(.docs) }
+                    Button("New Markdown") {
+                        navigator.beginPendingCreate(.claudeMarkdown)
+                    }
+                    Divider()
+                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                    Button("New Hook Folder") {
+                        navigator.beginPendingCreate(.hookFolder)
+                    }
+                    Divider()
+                    Button("New Skill") { navigator.beginPendingCreate(.skill) }
+                } label: {
+                    Image(systemName: "plus")
+                        .imageScale(.medium)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("New…")
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.bar)
         }
     }
 
