@@ -2,30 +2,65 @@ import SwiftUI
 
 struct ProjectStatusBar: View {
     let indicatorState: StatusIndicatorModel.IndicatorState
+    let usageModel: ClaudeUsageModel?
+    let statusModel: ClaudeStatusModel?
     var banner: String?
+
+    init(
+        indicatorState: StatusIndicatorModel.IndicatorState,
+        usageModel: ClaudeUsageModel? = nil,
+        statusModel: ClaudeStatusModel? = nil,
+        banner: String? = nil
+    ) {
+        self.indicatorState = indicatorState
+        self.usageModel = usageModel
+        self.statusModel = statusModel
+        self.banner = banner
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
-            HStack(spacing: 6) {
-                Spacer()
-                statusDot
-                // Banner messages take priority over the static indicator
-                // label — for the ~3 s window the user sees the rejection
-                // reason instead of "claude X ready".
-                Text(banner ?? label)
-                    .font(.caption)
-                    .foregroundStyle(banner == nil ? .secondary : .primary)
-                    .accessibilityIdentifier(banner == nil ? "indicator-label" : "drop-banner")
-                Spacer()
+            HStack(spacing: 8) {
+                if let statusModel {
+                    StatusPageButton(model: statusModel)
+                        .fixedSize()
+                        .layoutPriority(0)
+                }
+                HStack(spacing: 6) {
+                    statusDot
+                    // Banner messages take priority over the static indicator
+                    // label — for the ~3 s window the user sees the rejection
+                    // reason instead of "claude X ready".
+                    Text(banner ?? label)
+                        .font(.caption)
+                        .foregroundStyle(banner == nil ? .secondary : .primary)
+                        .accessibilityIdentifier(banner == nil ? "indicator-label" : "drop-banner")
+                        .lineLimit(1)
+                }
+                .fixedSize()
+                .layoutPriority(1)
+                if let usageModel {
+                    usagePill(usageModel: usageModel)
+                        .fixedSize()
+                        .layoutPriority(0)
+                }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 22)
             .background(.bar)
             .help(banner ?? tooltip)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(banner == nil ? accessibilityLabel : "Drop rejected"))
-            .accessibilityValue(Text(banner ?? tooltip))
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    @ViewBuilder
+    private func usagePill(usageModel: ClaudeUsageModel) -> some View {
+        if usageModel.isLoggedOut {
+            LoggedOutHintButton()
+        } else {
+            UsageButton(model: usageModel)
         }
     }
 
@@ -81,16 +116,6 @@ struct ProjectStatusBar: View {
                 """
         case .failed(let error):
             return error.detectionMessage
-        }
-    }
-
-    private var accessibilityLabel: String {
-        switch indicatorState {
-        case .loading: return "Claude status: checking"
-        case .ok: return "Claude status: ready"
-        case .unsupported: return "Claude status: unsupported"
-        case .missing: return "Claude status: not found"
-        case .failed: return "Claude status: failed"
         }
     }
 }

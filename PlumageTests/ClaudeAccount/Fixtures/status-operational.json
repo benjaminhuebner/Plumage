@@ -1,0 +1,25 @@
+{
+  "page": {
+    "id": "abcdef",
+    "name": "Anthropic",
+    "url": "https://status.claude.com",
+    "updated_at": "2026-05-20T18:00:00.000Z"
+  },
+  "status": {
+    "indicator": "none",
+    "description": "All Systems Operational"
+  },
+  "components": [
+    {
+      "id": "comp-claude-code",
+      "name": "Claude Code",
+      "status": "operational"
+    },
+    {
+      "id": "comp-claude-ai",
+      "name": "claude.ai",
+      "status": "operational"
+    }
+  ],
+  "incidents": []
+}

@@ -12,6 +12,10 @@ struct ProjectWindow: View {
     @State private var showCreateSheet = false
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
+    @State private var claudeUsage = ClaudeUsageModel()
+    @State private var claudeStatus = ClaudeStatusModel()
+    @State private var usageClient = ClaudeUsageClient()
+    @State private var statusClient = ClaudeStatusPageClient()
     @State private var session: ClaudeSession
     @State private var terminalSession: TerminalClaudeSession
     @State private var xcodeRun: XcodeRunModel
@@ -80,7 +84,9 @@ struct ProjectWindow: View {
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
                 async let xcodeDiscover: Void = xcodeRun.discover(projectURL: handle.url)
-                _ = await (reload, run, detect, navLoad, xcodeDiscover)
+                async let usagePoll: Void = pollClaudeUsage()
+                async let statusPoll: Void = pollClaudeStatus()
+                _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
                 refreshCreateIssueAction()
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
@@ -219,6 +225,8 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 ProjectStatusBar(
                     indicatorState: indicator.state,
+                    usageModel: claudeUsage,
+                    statusModel: claudeStatus,
                     banner: navigator.dropRejectMessage
                 )
             }
@@ -247,6 +255,33 @@ struct ProjectWindow: View {
     private var isLoaded: Bool {
         if case .loaded = model.state { return true }
         return false
+    }
+
+    // Polling cadence: 90s for usage (spec'd) and 60s for status. Both loops
+    // exit via Task cancellation when .task(id:) re-fires or onDisappear stops
+    // the parent; Task.sleep is the natural cancellation point.
+    private func pollClaudeUsage() async {
+        await claudeUsage.refresh(using: usageClient)
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .seconds(90))
+            } catch {
+                return
+            }
+            await claudeUsage.refresh(using: usageClient)
+        }
+    }
+
+    private func pollClaudeStatus() async {
+        await claudeStatus.refresh(using: statusClient)
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                return
+            }
+            await claudeStatus.refresh(using: statusClient)
+        }
     }
 
     private func refreshCreateIssueAction() {

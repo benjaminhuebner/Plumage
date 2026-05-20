@@ -1,0 +1,33 @@
+{
+  "page": {
+    "id": "abcdef",
+    "name": "Anthropic",
+    "url": "https://status.claude.com",
+    "updated_at": "2026-05-20T19:30:00.000Z"
+  },
+  "status": {
+    "indicator": "major",
+    "description": "Elevated API errors"
+  },
+  "components": [
+    {
+      "id": "comp-claude-code",
+      "name": "Claude Code",
+      "status": "degraded_performance"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "inc-001",
+      "name": "Increased latency on Sonnet",
+      "status": "investigating",
+      "impact": "major"
+    },
+    {
+      "id": "inc-002",
+      "name": "Console intermittent 502",
+      "status": "monitoring",
+      "impact": "minor"
+    }
+  ]
+}
