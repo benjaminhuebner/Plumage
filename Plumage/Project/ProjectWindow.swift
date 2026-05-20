@@ -170,7 +170,10 @@ struct ProjectWindow: View {
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                ProjectStatusBar(indicatorState: indicator.state)
+                ProjectStatusBar(
+                    indicatorState: indicator.state,
+                    banner: navigator.dropRejectMessage
+                )
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
