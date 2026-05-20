@@ -14,6 +14,21 @@ struct IssueDetailView: View {
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
     @State private var pendingPopAction: (() -> Void)?
+    // Cached focused-scene values. Computing these inline produces a new
+    // value (or new closure) per body re-eval, which SwiftUI's focus system
+    // flags as "FocusedValue update tried to update multiple times per
+    // frame" when keystrokes / edits trigger cascading state changes. We
+    // snapshot via .onChange so the focusedSceneValue modifiers read stable
+    // identities.
+    @State private var publishedDirtyFolderName: String?
+    // Method-reference closures get a fresh allocation per body re-eval.
+    // Wrapped in EditorAction (UUID-keyed Equatable) so the focus system
+    // can compare stable identity across renders — without this the
+    // `() -> Void` value type is always "different" and triggers
+    // "FocusedValue update tried to update multiple times per frame".
+    @State private var publishedSaveAction: EditorAction?
+    @State private var publishedCloseAction: EditorAction?
+    @State private var publishedBackToBoardAction: EditorAction?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -68,23 +83,34 @@ struct IssueDetailView: View {
         .background(backgroundTint)
         .navigationTitle(model.navigationTitle)
         .focusedSceneValue(\.specEditorIsActive, true)
-        .focusedSceneValue(\.specEditorSave, attemptSave)
-        .focusedSceneValue(\.specEditorClose, triggerPop)
-        .focusedSceneValue(\.specEditorDirtyFolderName, model.dirtyFolderName(rawDirty: isRawDirty))
-        .focusedSceneValue(\.issueDetailBackToBoard, backToBoardAction)
+        .focusedSceneValue(\.specEditorSave, publishedSaveAction)
+        .focusedSceneValue(\.specEditorClose, publishedCloseAction)
+        .focusedSceneValue(\.specEditorDirtyFolderName, publishedDirtyFolderName)
+        .focusedSceneValue(\.issueDetailBackToBoard, publishedBackToBoardAction)
         .task(id: model.specURL) {
+            if publishedSaveAction == nil {
+                publishedSaveAction = EditorAction { attemptSave() }
+                publishedCloseAction = EditorAction { triggerPop() }
+            }
+            refreshBackToBoardCache()
             guard !model.isCreating else { return }
             await model.load()
             rawDraft = model.loadedSpecContent
             refreshEditorMessages()
+            refreshDirtyCache()
         }
+        .onChange(of: dismissToOrigin == nil) { _, _ in refreshBackToBoardCache() }
         .onChange(of: model.loadedSpecContent) { _, newContent in
             // Keep raw buffer in sync after silent reloads / form writes.
             // If user is actively editing in raw mode (rawDirty), preserve it.
             if displayMode != .raw || !isRawDirty {
                 rawDraft = newContent
             }
+            refreshDirtyCache()
         }
+        .onChange(of: model.loadedBodyContent) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.bodyDraft) { _, _ in refreshDirtyCache() }
+        .onChange(of: rawDraft) { _, _ in refreshDirtyCache() }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
         .onChange(of: currentKanbanIssue) { _, current in
             model.observeKanban(currentIssue: current)
@@ -109,6 +135,7 @@ struct IssueDetailView: View {
             if newMode == .raw && !model.isCreating {
                 rawDraft = model.loadedSpecContent
             }
+            refreshEditorMessages()
         }
         .alert(
             "Failed to save",
@@ -391,7 +418,35 @@ struct IssueDetailView: View {
     }
 
     private func refreshEditorMessages() {
-        editorMessages = []
+        // Markers point into the raw spec (line/column relative to frontmatter),
+        // so the detail-mode body editor would render them at meaningless rows.
+        guard displayMode == .raw, let error = model.frontmatterError else {
+            if !editorMessages.isEmpty { editorMessages = [] }
+            return
+        }
+        let next: Set<TextLocated<Message>> = [FrontmatterMessageMap.message(for: error)]
+        if editorMessages != next { editorMessages = next }
+    }
+
+    private func refreshDirtyCache() {
+        let next = model.dirtyFolderName(rawDirty: isRawDirty)
+        if publishedDirtyFolderName != next {
+            publishedDirtyFolderName = next
+        }
+    }
+
+    private func refreshBackToBoardCache() {
+        let hasOrigin = dismissToOrigin != nil
+        let isCached = publishedBackToBoardAction != nil
+        if hasOrigin && !isCached {
+            publishedBackToBoardAction = EditorAction {
+                if let action = dismissToOrigin {
+                    triggerBack(action)
+                }
+            }
+        } else if !hasOrigin && isCached {
+            publishedBackToBoardAction = nil
+        }
     }
 
     private func runFormCommit(_ work: @escaping () async throws -> Void) {

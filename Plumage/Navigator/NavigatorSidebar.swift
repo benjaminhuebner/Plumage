@@ -31,7 +31,7 @@ struct NavigatorSidebar: View {
                 if navigator.docs.isEmpty {
                     emptyPlaceholder("No docs yet")
                 } else {
-                    ForEach(navigator.docs, id: \.self) { url in
+                    ForEach(navigator.docs, id: \.absoluteString) { url in
                         docRow(url)
                     }
                 }
@@ -126,7 +126,7 @@ struct NavigatorSidebar: View {
             if navigator.hooks.isEmpty {
                 emptyPlaceholder("No hooks")
             } else {
-                ForEach(navigator.hooks, id: \.self) { url in
+                ForEach(navigator.hooks, id: \.absoluteString) { url in
                     Label(url.lastPathComponent, systemImage: "scroll")
                         .tag(NavigatorRoute.hook(name: url.lastPathComponent))
                         .clickableSidebarRow()

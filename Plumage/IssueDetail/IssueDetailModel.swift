@@ -245,6 +245,7 @@ final class IssueDetailModel {
             try await Task.detached(priority: .userInitiated) {
                 try mutator.mutate(specURL: allocatedURL, mutation: mutation, now: now)
             }.value
+            allocationError = nil
         } catch {
             // Allocation already produced the folder on disk; surface the
             // error to the user, but still transition to .loaded so they
@@ -252,7 +253,6 @@ final class IssueDetailModel {
             allocationError = "\(error)"
         }
 
-        allocationError = nil
         specURL = allocatedURL
         let newFolderName = allocatedURL.deletingLastPathComponent().lastPathComponent
         kind = .loaded(folderName: newFolderName)

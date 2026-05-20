@@ -123,17 +123,17 @@ struct KanbanView: View {
                 NSEvent.removeMonitor(monitor)
             }
         }
-        // try (no `?`) so a cooperative cancellation from .task(id:) exits
-        // the loop promptly via CancellationError instead of being silently
-        // swallowed and leaving the monitor running past drag-end.
-        while !Task.isCancelled, kanbanDrag.isActive {
-            // 50ms cap: cancellation arrives at most ~50ms after the drag
-            // ends, so the monitor stops listening before the next user
-            // gesture begins. The 100ms used previously was tight enough
-            // not to be noticed in practice but left a longer trailing
-            // window where Escape still cancelled a no-longer-active drag.
+        // Suspend until .task(id:) cancels this task — the cancellation
+        // triggers when kanbanDrag.isActive flips. Previously a 50ms poll
+        // loop did the same job, but left a ~50ms trailing window where the
+        // monitor still listened past drag-end. Cancellation runs the
+        // defer-block above and removes the monitor synchronously.
+        while !Task.isCancelled {
             do {
-                try await Task.sleep(for: .milliseconds(50))
+                // Long suspend with no work to do: .task(id:) will throw
+                // CancellationError into Task.sleep when isActive flips, the
+                // catch breaks out, and defer fires immediately.
+                try await Task.sleep(for: .seconds(60))
             } catch {
                 break
             }

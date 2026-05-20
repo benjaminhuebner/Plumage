@@ -49,8 +49,10 @@ struct IssueDetailBanner: View {
             Spacer()
             Button("Use disk", action: onReload)
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Discard my edits and load disk version")
             Button("Keep mine", action: onKeep)
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Keep my unsaved edits, ignore disk version")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

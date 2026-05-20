@@ -92,15 +92,21 @@ struct ProjectStatusBar: View {
 
 private struct PulseModifier: ViewModifier {
     @State private var pulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
-            .opacity(pulsing ? 1.0 : 0.4)
+            .opacity(reduceMotion ? 0.6 : (pulsing ? 1.0 : 0.4))
             .animation(
-                .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                reduceMotion
+                    ? nil
+                    : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
                 value: pulsing
             )
-            .onAppear { pulsing = true }
+            .onAppear {
+                guard !reduceMotion else { return }
+                pulsing = true
+            }
     }
 }
 

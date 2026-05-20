@@ -66,7 +66,9 @@ struct IssueCardSwitch: View {
             // @State copy and a second onGeometryChange, doubling the
             // layout-pass cost per card.
             .reportCardFrame(folderName: value.folderName, registry: frameRegistry)
-            .accessibilityElement(children: .combine)
+            // IssueCardView already calls .accessibilityElement(children: .combine);
+            // .isButton is added here because the card-as-button trait belongs
+            // to the gesture-bearing wrapper, not the rendering view.
             .accessibilityAddTraits(.isButton)
             .accessibilityActions {
                 ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in

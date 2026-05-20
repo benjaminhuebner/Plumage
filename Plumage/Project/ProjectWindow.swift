@@ -14,10 +14,16 @@ struct ProjectWindow: View {
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
     @SceneStorage("claudeDock.open") private var isDockOpen = false
+    // Cached focused-scene action. Computing `isLoaded ? { … } : nil` inline
+    // produces a new closure per body re-eval, which the focus system
+    // republishes; under fast state churn (kanban refresh, indicator detect)
+    // it warns "FocusedValue update tried to update multiple times per
+    // frame". State-cached + onChange keeps the published identity stable.
+    @State private var createIssueAction: EditorAction?
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
-    @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction
+    @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction: EditorAction?
 
     init(handle: ProjectHandle) {
         self.handle = handle
@@ -36,15 +42,7 @@ struct ProjectWindow: View {
             .frame(minWidth: 900, minHeight: 560)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
-            .focusedSceneValue(
-                \.createIssueInDefaultColumn,
-                isLoaded
-                    ? {
-                        createInitialStatus = .draft
-                        showCreateSheet = true
-                    }
-                    : nil
-            )
+            .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
             .focusedSceneValue(\.terminalToggle, $isDockOpen)
             .task(id: handle.url) {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
@@ -61,7 +59,9 @@ struct ProjectWindow: View {
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
                 _ = await (reload, run, detect, navLoad)
+                refreshCreateIssueAction()
             }
+            .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
             .onDisappear {
                 session.stop()
             }
@@ -108,7 +108,7 @@ struct ProjectWindow: View {
             if let backToBoardAction {
                 ToolbarItem(placement: .navigation) {
                     Button("Board", systemImage: "chevron.backward") {
-                        backToBoardAction()
+                        backToBoardAction.run()
                     }
                     .help("Back to kanban board")
                 }
@@ -184,6 +184,19 @@ struct ProjectWindow: View {
     private var isLoaded: Bool {
         if case .loaded = model.state { return true }
         return false
+    }
+
+    private func refreshCreateIssueAction() {
+        if isLoaded {
+            if createIssueAction == nil {
+                createIssueAction = EditorAction {
+                    createInitialStatus = .draft
+                    showCreateSheet = true
+                }
+            }
+        } else if createIssueAction != nil {
+            createIssueAction = nil
+        }
     }
 
     static func message(for error: ConfigLoader.LoadError) -> String {

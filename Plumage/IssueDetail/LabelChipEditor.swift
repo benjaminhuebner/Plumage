@@ -11,7 +11,11 @@ struct LabelChipEditor: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 4) {
-            ForEach(labels, id: \.self) { label in
+            // Index-keyed identity: an imported spec.md could carry duplicate
+            // labels (the in-app commit path strips them via `isValid`, but
+            // hand-edited frontmatter doesn't). `id: \.self` would collapse
+            // duplicates to one ForEach row; positional IDs render them all.
+            ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
                 LabelChip(text: label, onRemove: { onRemove(label) })
             }
             if isEditing {

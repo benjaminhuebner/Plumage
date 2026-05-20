@@ -6,7 +6,7 @@ import SwiftUI
 // command wiring stays stable across the move.
 extension FocusedValues {
     @Entry var specEditorIsActive: Bool?
-    @Entry var specEditorSave: (() -> Void)?
-    @Entry var specEditorClose: (() -> Void)?
+    @Entry var specEditorSave: EditorAction?
+    @Entry var specEditorClose: EditorAction?
     @Entry var specEditorDirtyFolderName: String?
 }
