@@ -31,33 +31,45 @@ struct NavigatorSidebar: View {
             Section(
                 header: sectionHeader(title: "Docs", action: { navigator.beginPendingCreate(.docs) }, help: "New Doc")
             ) {
-                if navigator.docs.isEmpty && !isPending(.docs) {
-                    emptyPlaceholder("No docs yet")
-                } else {
-                    ForEach(navigator.docs, id: \.absoluteString) { url in
-                        docRow(url)
-                    }
-                    if isPending(.docs) {
-                        InlineCreateRow(projectURL: projectURL, icon: "doc.text")
+                Group {
+                    if navigator.docs.isEmpty && !isPending(.docs) {
+                        emptyPlaceholder("No docs yet")
+                    } else {
+                        ForEach(navigator.docs, id: \.absoluteString) { url in
+                            docRow(url)
+                        }
+                        if isPending(.docs) {
+                            InlineCreateRow(projectURL: projectURL, icon: "doc.text")
+                        }
                     }
                 }
+                .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
             }
 
             Section(
                 header: sectionHeader(
                     title: "Claude", action: { navigator.beginPendingCreate(.claudeMarkdown) }, help: "New Markdown")
             ) {
-                Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
-                    .tag(NavigatorRoute.claudeMD)
-                    .clickableSidebarRow()
-                ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
-                    claudeMarkdownRow(url)
+                Group {
+                    Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
+                        .tag(NavigatorRoute.claudeMD)
+                        .clickableSidebarRow()
+                    ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
+                        claudeMarkdownRow(url)
+                    }
+                    if isPending(.claudeMarkdown) {
+                        InlineCreateRow(projectURL: projectURL, icon: "doc.text")
+                    }
                 }
-                if isPending(.claudeMarkdown) {
-                    InlineCreateRow(projectURL: projectURL, icon: "doc.text")
+                .modifier(SectionDropModifier(section: .claudeMarkdown, projectURL: projectURL, navigator: navigator))
+                Group {
+                    hooksGroup
                 }
-                hooksGroup
-                skillsGroup
+                .modifier(SectionDropModifier(section: .hooks, projectURL: projectURL, navigator: navigator))
+                Group {
+                    skillsGroup
+                }
+                .modifier(SectionDropModifier(section: .skillsTopLevel, projectURL: projectURL, navigator: navigator))
                 settingsGroup
             }
         }
@@ -352,6 +364,41 @@ extension DiscoveredIssue {
         switch self {
         case .valid(let issue): issue.title
         case .invalid(let folder, _): folder.lastPathComponent
+        }
+    }
+}
+
+private struct SectionDropModifier: ViewModifier {
+    let section: SidebarDropTarget.Section
+    let projectURL: URL
+    let navigator: NavigatorModel
+
+    func body(content: Content) -> some View {
+        content.dropDestination(for: URL.self) { urls, _ in
+            performDrop(urls)
+        }
+    }
+
+    @discardableResult
+    private func performDrop(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
+        do {
+            let outcome = try SidebarDropTarget.performDrop(
+                sources: urls, section: section, projectURL: projectURL)
+            if let banner = SidebarDropTarget.bannerMessage(
+                outcome: outcome, section: section)
+            {
+                navigator.showBanner(banner)
+            }
+            if !outcome.accepted.isEmpty {
+                Task { @MainActor in
+                    await navigator.reload(projectURL: projectURL)
+                }
+            }
+            return !outcome.accepted.isEmpty
+        } catch {
+            navigator.showBanner("Couldn't copy: \(error.localizedDescription)")
+            return false
         }
     }
 }
