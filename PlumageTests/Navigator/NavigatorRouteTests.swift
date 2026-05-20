@@ -107,6 +107,24 @@ struct NavigatorRouteTests {
         #expect(decoded == route)
     }
 
+    @Test("Codable round-trip for claudeMarkdown")
+    func codableClaudeMarkdown() throws {
+        let route: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
+        let data = try JSONEncoder().encode(route)
+        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
+        #expect(decoded == route)
+    }
+
+    @Test("claudeMarkdown equality is name based and distinct from claudeMD")
+    func claudeMarkdownEquality() {
+        let first: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
+        let same: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
+        let other: NavigatorRoute = .claudeMarkdown(name: "notes.md")
+        #expect(first == same)
+        #expect(first != other)
+        #expect(first != .claudeMD)
+    }
+
     @Test("Codable round-trip for settings(.main)")
     func codableSettingsMain() throws {
         let data = try JSONEncoder().encode(NavigatorRoute.settings(.main))
