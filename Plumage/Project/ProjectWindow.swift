@@ -8,10 +8,6 @@ struct ProjectWindow: View {
     @State private var navigator = NavigatorModel()
     @State private var selectedRoute: NavigatorRoute = .kanban
     @SceneStorage("nav.selection") private var persistedRouteData: String = ""
-    // Tracks where the current detail view was reached from, so issue detail
-    // can offer a back button when opened via the kanban board (sidebar
-    // clicks set selection directly via Binding, not through openSpec, so
-    // they don't populate this).
     @State private var detailOriginRoute: NavigatorRoute?
     @State private var showCreateSheet = false
     @State private var createInitialStatus: IssueStatus = .draft
@@ -21,6 +17,7 @@ struct ProjectWindow: View {
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
+    @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction
 
     init(handle: ProjectHandle) {
         self.handle = handle
@@ -106,6 +103,16 @@ struct ProjectWindow: View {
                         isOpen: $isDockOpen
                     )
                 }
+        }
+        .toolbar {
+            if let backToBoardAction {
+                ToolbarItem(placement: .navigation) {
+                    Button("Board", systemImage: "chevron.backward") {
+                        backToBoardAction()
+                    }
+                    .help("Back to kanban board")
+                }
+            }
         }
         .background(
             WindowBottomBar {

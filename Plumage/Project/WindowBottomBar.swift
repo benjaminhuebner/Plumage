@@ -1,13 +1,6 @@
 import AppKit
 import SwiftUI
 
-// Installs a native NSWindow bottom bar (NSTitlebarAccessoryViewController
-// with .bottom layoutAttribute) wrapping the given SwiftUI content. Unlike
-// a plain SwiftUI footer, this lives in the window's chrome — same material,
-// border, and integrated look as Finder's status bar or Xcode's mini-toolbar.
-//
-// Usage: attach as an invisible background to any view that's already mounted
-// in the target window. The NSView itself has zero frame and renders nothing.
 struct WindowBottomBar<Content: View>: NSViewRepresentable {
     let content: Content
 
@@ -48,8 +41,7 @@ struct WindowBottomBar<Content: View>: NSViewRepresentable {
         func attach(to window: NSWindow, rootView: Content) {
             guard accessoryController == nil else { return }
             let hosting = NSHostingController(rootView: rootView)
-            // .preferredContentSize lets the SwiftUI content drive its own
-            // height; without it the accessory view collapses to 0pt.
+            // Without .preferredContentSize the accessory view collapses to 0pt.
             hosting.sizingOptions = [.preferredContentSize]
             let accessory = NSTitlebarAccessoryViewController()
             accessory.view = hosting.view

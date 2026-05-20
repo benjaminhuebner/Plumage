@@ -10,16 +10,9 @@ struct IssueDetailTopBar: View {
     let saveDisabled: Bool
     let onCopyID: () -> Void
     let onSave: () -> Void
-    // Set when the detail was opened from the kanban board; renders a back
-    // button that runs save-then-navigate. nil when reached via the sidebar.
-    var onBack: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            if let onBack {
-                Button("Board", systemImage: "chevron.backward", action: onBack)
-                    .help("Back to kanban board")
-            }
             if paddedID != nil || branch != nil {
                 VStack(alignment: .leading, spacing: 2) {
                     if let paddedID {

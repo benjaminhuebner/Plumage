@@ -13,9 +13,6 @@ struct IssueDetailView: View {
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
-    // Captured end-action for the pending pop attempt — re-used by the
-    // "Try again" / "Discard changes" alert buttons so both back-to-origin
-    // and dismiss-sheet paths land in the right place.
     @State private var pendingPopAction: (() -> Void)?
 
     private let markdownLanguage = LanguageConfiguration.markdown()
@@ -74,6 +71,7 @@ struct IssueDetailView: View {
         .focusedSceneValue(\.specEditorSave, attemptSave)
         .focusedSceneValue(\.specEditorClose, triggerPop)
         .focusedSceneValue(\.specEditorDirtyFolderName, model.dirtyFolderName(rawDirty: isRawDirty))
+        .focusedSceneValue(\.issueDetailBackToBoard, backToBoardAction)
         .task(id: model.specURL) {
             guard !model.isCreating else { return }
             await model.load()
@@ -184,8 +182,7 @@ struct IssueDetailView: View {
                 showsCopyID: !model.isCreating,
                 saveDisabled: saveDisabled,
                 onCopyID: model.copyIDToPasteboard,
-                onSave: attemptSave,
-                onBack: dismissToOrigin.map { action in { triggerBack(action) } }
+                onSave: attemptSave
             )
             switch displayMode {
             case .detail:
@@ -445,6 +442,10 @@ struct IssueDetailView: View {
 
     private func triggerBack(_ action: @escaping () -> Void) {
         Task { await attemptPop(endAction: action) }
+    }
+
+    private var backToBoardAction: (() -> Void)? {
+        dismissToOrigin.map { action in { triggerBack(action) } }
     }
 
     private func attemptPop(endAction: @escaping () -> Void) async {
