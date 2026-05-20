@@ -4,20 +4,24 @@ struct ProjectStatusBar: View {
     let indicatorState: StatusIndicatorModel.IndicatorState
 
     var body: some View {
-        HStack(spacing: 6) {
-            Spacer()
-            statusDot
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 6) {
+                Spacer()
+                statusDot
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 22)
+            .background(.bar)
+            .help(tooltip)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(accessibilityLabel))
+            .accessibilityValue(Text(tooltip))
         }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, minHeight: 22)
-        .help(tooltip)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(accessibilityLabel))
-        .accessibilityValue(Text(tooltip))
     }
 
     @ViewBuilder
