@@ -9,18 +9,19 @@ struct SkillTreeView: View {
     @State private var expanded: Bool = false
 
     var body: some View {
-        skillFolderHeader(
-            folderName: skillName,
-            icon: "puzzlepiece",
-            path: "",
-            url: skillFolderURL(skillName: skillName, relativePath: ""))
-        if expanded {
+        DisclosureGroup(isExpanded: $expanded) {
             ForEach(children, id: \.self) { node in
                 nodeView(skillName: skillName, relativePath: "", node: node)
             }
             if isPendingHere(relativePath: "") {
                 inlineCreateRow
             }
+        } label: {
+            folderLabel(
+                folderName: skillName,
+                icon: "puzzlepiece",
+                path: "",
+                url: skillFolderURL(skillName: skillName, relativePath: ""))
         }
     }
 
@@ -99,30 +100,11 @@ struct SkillTreeView: View {
     }
 
     @ViewBuilder
-    fileprivate func skillFolderHeader(
+    fileprivate func folderLabel(
         folderName: String, icon: String, path: String, url: URL
     ) -> some View {
-        SidebarRowWithMenu(
-            label: Label(folderName, systemImage: icon),
-            help: "New File or Folder",
-            expanded: $expanded
-        ) {
-            Button("New File") {
-                navigator.beginPendingCreate(
-                    .skillFile(skillName: skillName, relativePath: path))
-            }
-            Button("New Folder") {
-                navigator.beginPendingCreate(
-                    .skillFolder(skillName: skillName, relativePath: path))
-            }
-            Divider()
-            Button("Rename") { navigator.beginRename(url: url) }
-            Button("Move to Trash", role: .destructive) {
-                Task { @MainActor in
-                    await navigator.trash(url: url, projectURL: projectURL)
-                }
-            }
-        }
+        Label(folderName, systemImage: icon)
+            .clickableSidebarRow()
     }
 }
 
@@ -138,14 +120,15 @@ private struct SkillFolderRow: View {
 
     var body: some View {
         let path = parentPath.isEmpty ? folderName : parentPath + "/" + folderName
-        folderHeader(path: path)
-        if expanded {
+        DisclosureGroup(isExpanded: $expanded) {
             ForEach(children, id: \.self) { node in
                 childView(node: node, path: path)
             }
             if isPendingHere(path: path) {
                 inlineCreateRow
             }
+        } label: {
+            folderLabel(path: path)
         }
     }
 
@@ -201,32 +184,30 @@ private struct SkillFolderRow: View {
     }
 
     @ViewBuilder
-    private func folderHeader(path: String) -> some View {
+    private func folderLabel(path: String) -> some View {
         let url = folderURL(path: path)
         if navigator.renaming?.url == url {
             InlineRenameRow(projectURL: projectURL, icon: "folder")
         } else {
-            SidebarRowWithMenu(
-                label: Label(folderName, systemImage: "folder"),
-                help: "New File or Folder",
-                expanded: $expanded
-            ) {
-                Button("New File") {
-                    navigator.beginPendingCreate(
-                        .skillFile(skillName: skillName, relativePath: path))
-                }
-                Button("New Folder") {
-                    navigator.beginPendingCreate(
-                        .skillFolder(skillName: skillName, relativePath: path))
-                }
-                Divider()
-                Button("Rename") { navigator.beginRename(url: url) }
-                Button("Move to Trash", role: .destructive) {
-                    Task { @MainActor in
-                        await navigator.trash(url: url, projectURL: projectURL)
+            Label(folderName, systemImage: "folder")
+                .clickableSidebarRow()
+                .contextMenu {
+                    Button("New File") {
+                        navigator.beginPendingCreate(
+                            .skillFile(skillName: skillName, relativePath: path))
+                    }
+                    Button("New Folder") {
+                        navigator.beginPendingCreate(
+                            .skillFolder(skillName: skillName, relativePath: path))
+                    }
+                    Divider()
+                    Button("Rename") { navigator.beginRename(url: url) }
+                    Button("Move to Trash", role: .destructive) {
+                        Task { @MainActor in
+                            await navigator.trash(url: url, projectURL: projectURL)
+                        }
                     }
                 }
-            }
         }
     }
 

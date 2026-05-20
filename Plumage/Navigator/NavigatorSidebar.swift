@@ -9,10 +9,6 @@ struct NavigatorSidebar: View {
     @Environment(NavigatorModel.self) private var navigator
     @Environment(\.openCreateIssue) private var openCreateIssue
 
-    // Section-header y-anchors so the list-level dropDestination can
-    // resolve which section a drop lands in based on cursor position.
-    // Each header reports its own minY into this dict; the lookup
-    // walks the entries top-down to find the matching section range.
     @State private var sectionAnchors: [SidebarDropTarget.Section: CGFloat] = [:]
 
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
@@ -25,12 +21,6 @@ struct NavigatorSidebar: View {
 
     var body: some View {
         List(selection: selectionBinding) {
-            // Custom synthetic "section headers" rendered as ordinary rows
-            // so the trailing plus button stays interactive. Native
-            // `Section { } header: { … }` in `List(.sidebar)` routes the
-            // header through NSTableView's group-header path, which kills
-            // button/tap hit-testing.
-
             SidebarSectionHeader(title: "Issues", help: "New Issue") {
                 openCreateIssue(.draft)
             }
@@ -78,13 +68,6 @@ struct NavigatorSidebar: View {
         .dropDestination(for: URL.self) { urls, location in
             handleListDrop(urls: urls, location: location)
         }
-        // Keyboard shortcuts on the focused list selection:
-        //  - Enter on a managed row → inline rename
-        //  - Backspace on a managed row → move to Trash
-        // `.onDeleteCommand` is the macOS responder-chain entry point for
-        // backspace; `.onKeyPress(.delete)` doesn't fire on List(.sidebar)
-        // because the underlying NSTableView absorbs the keystroke. Return
-        // works fine via `.onKeyPress` because no AppKit handler claims it.
         .onKeyPress(.return) {
             handleReturnKey()
         }
@@ -103,8 +86,6 @@ struct NavigatorSidebar: View {
             set: { if let value = $0 { selection = value } }
         )
     }
-
-    // MARK: - Issues / columns
 
     @ViewBuilder
     private func columnRow(_ column: IssueColumn) -> some View {
@@ -138,11 +119,6 @@ struct NavigatorSidebar: View {
         return true
     }
 
-    // List-level Finder drop resolver. Section anchors are reported via
-    // `onGeometryChange`; we look up the section whose header is the last
-    // one above the drop point. Drops above the first anchor (e.g. on the
-    // Issues area) are rejected outright rather than silently routed to
-    // Docs. FS I/O happens off-Main via `navigator.handleFinderDrop`.
     private func handleListDrop(urls: [URL], location: CGPoint) -> Bool {
         guard !urls.isEmpty else { return false }
         guard
@@ -206,8 +182,6 @@ struct NavigatorSidebar: View {
         }
     }
 
-    // MARK: - Managed file rows (Docs / Claude markdown / Hooks)
-
     @ViewBuilder
     private func claudeMarkdownRow(_ url: URL) -> some View {
         managedFileRow(
@@ -227,9 +201,6 @@ struct NavigatorSidebar: View {
         )
     }
 
-    // Shared row layout used by docs, claude markdown, hooks, and skill-files.
-    // When `navigator.renaming?.url == url`, the row swaps to an inline
-    // TextField for rename. Otherwise it's the normal Label + context menu.
     @ViewBuilder
     private func managedFileRow(
         url: URL, tag: NavigatorRoute, icon: String
@@ -255,17 +226,7 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private var hooksGroup: some View {
-        SidebarRowWithMenu(
-            label: Label("Hooks", systemImage: "terminal"),
-            help: "New Hook",
-            expanded: $hooksExpanded
-        ) {
-            Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
-            Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
-        }
-        .clickableSidebarRow()
-        .trackSectionAnchor(.hooks, in: $sectionAnchors)
-        if hooksExpanded {
+        DisclosureGroup(isExpanded: $hooksExpanded) {
             if navigator.hooks.isEmpty && !isPending(.hookFile) && !isPending(.hookFolder) {
                 emptyPlaceholder("No hooks")
             } else {
@@ -282,21 +243,20 @@ struct NavigatorSidebar: View {
                     InlineCreateRow(projectURL: projectURL, icon: "folder")
                 }
             }
+        } label: {
+            Label("Hooks", systemImage: "terminal")
+                .clickableSidebarRow()
+                .trackSectionAnchor(.hooks, in: $sectionAnchors)
+                .contextMenu {
+                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                    Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
+                }
         }
     }
 
     @ViewBuilder
     private var skillsGroup: some View {
-        SidebarRowWithMenu(
-            label: Label("Skills", systemImage: "puzzlepiece.extension"),
-            help: "New Skill",
-            expanded: $skillsExpanded
-        ) {
-            Button("New Skill") { navigator.beginPendingCreate(.skill) }
-        }
-        .clickableSidebarRow()
-        .trackSectionAnchor(.skillsTopLevel, in: $sectionAnchors)
-        if skillsExpanded {
+        DisclosureGroup(isExpanded: $skillsExpanded) {
             if navigator.skills.isEmpty && !isPending(.skill) {
                 emptyPlaceholder("No skills")
             } else {
@@ -309,22 +269,27 @@ struct NavigatorSidebar: View {
                     InlineCreateRow(projectURL: projectURL, icon: "puzzlepiece")
                 }
             }
+        } label: {
+            Label("Skills", systemImage: "puzzlepiece.extension")
+                .clickableSidebarRow()
+                .trackSectionAnchor(.skillsTopLevel, in: $sectionAnchors)
+                .contextMenu {
+                    Button("New Skill") { navigator.beginPendingCreate(.skill) }
+                }
         }
     }
 
     @ViewBuilder
     private var settingsGroup: some View {
-        SidebarRowWithMenu(
-            label: Label("Settings", systemImage: "gearshape.2"),
-            expanded: $settingsExpanded
-        )
-        .clickableSidebarRow()
-        if settingsExpanded {
+        DisclosureGroup(isExpanded: $settingsExpanded) {
             ForEach(SettingsFile.allCases, id: \.self) { file in
                 Label(file.rawValue, systemImage: "gearshape")
                     .tag(NavigatorRoute.settings(file))
                     .clickableSidebarRow()
             }
+        } label: {
+            Label("Settings", systemImage: "gearshape.2")
+                .clickableSidebarRow()
         }
     }
 
@@ -337,11 +302,7 @@ struct NavigatorSidebar: View {
             .selectionDisabled()
     }
 
-    // MARK: - Keyboard
-
     private func handleReturnKey() -> KeyPress.Result {
-        // Don't fight the existing Inline-Create / Inline-Rename TextFields
-        // for the Enter key — both forward Enter to commit via .onSubmit.
         guard navigator.pendingCreate == nil, navigator.renaming == nil else {
             return .ignored
         }
@@ -359,239 +320,5 @@ struct NavigatorSidebar: View {
             await navigator.trash(url: url, projectURL: projectURL)
         }
         return .handled
-    }
-}
-
-private struct ClickableSidebarRowModifier: ViewModifier {
-    @State private var pushed = false
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { hovering in
-                if hovering {
-                    if !pushed {
-                        NSCursor.pointingHand.push()
-                        pushed = true
-                    }
-                } else if pushed {
-                    NSCursor.pop()
-                    pushed = false
-                }
-            }
-            .onDisappear {
-                if pushed {
-                    NSCursor.pop()
-                    pushed = false
-                }
-            }
-    }
-}
-
-extension View {
-    fileprivate func clickableSidebarRow() -> some View {
-        modifier(ClickableSidebarRowModifier())
-    }
-}
-
-extension DiscoveredIssue {
-    fileprivate var typeForPill: IssueType {
-        switch self {
-        case .valid(let issue): issue.type
-        case .invalid: .chore
-        }
-    }
-
-    fileprivate var titleForRow: String {
-        switch self {
-        case .valid(let issue): issue.title
-        case .invalid(let folder, _): folder.lastPathComponent
-        }
-    }
-}
-
-// Tracks the section header's minY in the sidebar coordinate space.
-// The list-level dropDestination uses these anchors to dispatch drops
-// to the right section based on cursor position.
-extension View {
-    fileprivate func trackSectionAnchor(
-        _ section: SidebarDropTarget.Section,
-        in anchors: Binding<[SidebarDropTarget.Section: CGFloat]>
-    ) -> some View {
-        self.onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.frame(in: .named("navigator.sidebar")).minY
-        } action: { minY in
-            anchors.wrappedValue[section] = minY
-        }
-    }
-}
-
-enum ReorderPosition {
-    case above
-    case below
-}
-
-private struct ReorderDropZone: View {
-    let folderName: String
-    let column: IssueColumn
-    let position: ReorderPosition
-    let projectURL: URL
-    let kanban: ProjectKanbanModel
-
-    @State private var isTargeted = false
-
-    var body: some View {
-        ZStack {
-            Color.clear
-                .contentShape(Rectangle())
-                .frame(height: 8)
-            if isTargeted {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(height: 2)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .dropDestination(for: IssueDragPayload.self) { payloads, _ in
-            guard let payload = payloads.first else { return false }
-            let target: ProjectKanbanModel.DropTarget =
-                position == .above
-                ? .aboveCard(folderName: folderName, column: column)
-                : .belowCard(folderName: folderName, column: column)
-            kanban.applyOptimisticDrop(payload, to: target, projectURL: projectURL)
-            return true
-        } isTargeted: { hovering in
-            isTargeted = hovering
-        }
-    }
-}
-
-// Sidebar section header rendered as an ordinary list row so the
-// trailing plus button stays clickable. Native `Section { } header: { … }`
-// in `List(.sidebar)` routes the header through NSTableView's group-
-// header path, which kills button/tap hit-testing — so we synthesize
-// the look here (uppercase tertiary title, top padding) instead.
-//
-// If `action == nil` the row is plain (e.g. for the Issues section that
-// shouldn't expose a "+" per the project owner). Otherwise the plus
-// fades up on hover and right-click mirrors the same action.
-struct SidebarSectionHeader: View {
-    let title: String
-    var help: String?
-    var action: (() -> Void)?
-    @State private var hovering = false
-
-    init(title: String, action: (() -> Void)? = nil, help: String? = nil) {
-        self.title = title
-        self.action = action
-        self.help = help
-    }
-
-    init(title: String, help: String, action: @escaping () -> Void) {
-        self.title = title
-        self.help = help
-        self.action = action
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .tracking(0.3)
-            Spacer()
-            if let action {
-                Button(action: action) {
-                    Image(systemName: "plus")
-                        .imageScale(.small)
-                        .foregroundStyle(hovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity(hovering ? 1 : 0.5)
-                .help(help ?? "")
-            }
-        }
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .listRowSeparator(.hidden)
-        .selectionDisabled()
-        .contextMenu {
-            if let action, let help {
-                Button(help, action: action)
-            }
-        }
-    }
-}
-
-// Disclosure-style sidebar row used by Hooks, Skills, Settings, and the
-// per-skill folder rows. Hand-rolled instead of `DisclosureGroup { }
-// label:` because `List(.sidebar)` drops the system chevron AND silently
-// kills the toggle as soon as the label is anything more than a primitive
-// `Label`. Same rationale as `SidebarSectionHeader` (which exists as a
-// row rather than `Section { } header:`).
-//
-// New-File / New-Folder actions ride on the row's `.contextMenu`
-// (right-click) plus the File-menu shortcuts. We previously rendered a
-// hover-+ menu via `.overlay(alignment: .trailing) { Menu }`, but that
-// shifted the row's measured width and pushed the chevron one indent
-// level deeper than peer rows (Settings was 6 pt further left). Trading
-// the hover affordance for a consistent layout — context menu + File
-// menu cover the same intents.
-struct SidebarRowWithMenu<Label: View, MenuContent: View>: View {
-    let label: Label
-    let help: String
-    @Binding var expanded: Bool
-    @ViewBuilder let menu: () -> MenuContent
-
-    var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "chevron.right")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 12)
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
-                label
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-        .contextMenu {
-            menu()
-        }
-    }
-}
-
-extension SidebarRowWithMenu where MenuContent == EmptyView {
-    init(label: Label, expanded: Binding<Bool>) {
-        self.label = label
-        self.help = ""
-        self._expanded = expanded
-        self.menu = { EmptyView() }
-    }
-}
-
-private struct IssueRowDraggable: ViewModifier {
-    let issue: DiscoveredIssue
-    let column: IssueColumn
-
-    func body(content: Content) -> some View {
-        if case .valid(let value) = issue {
-            content.draggable(
-                IssueDragPayload(
-                    folderName: value.folderName,
-                    currentStatus: value.status
-                )
-            )
-        } else {
-            content
-        }
     }
 }
