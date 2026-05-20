@@ -32,7 +32,12 @@ nonisolated struct ProductionAppLauncher: AppLauncher {
     }
 
     func openApp(at url: URL) async throws {
-        let result = try await runner.run(binaryURL: openPath, args: [url.path], cwd: nil)
+        // -n forces a fresh instance even when the same bundle ID is already
+        // running. Without this, dogfooding (rebuilding Plumage from within
+        // Plumage) would silently just re-activate the running instance —
+        // looks like "nothing happens" from the user's perspective.
+        let result = try await runner.run(
+            binaryURL: openPath, args: ["-n", url.path], cwd: nil)
         guard result.exitCode == 0 else {
             let stderr = String(decoding: result.stderr, as: UTF8.self)
             throw XcodeProcessRunnerError.nonZeroExit(code: result.exitCode, stderr: stderr)

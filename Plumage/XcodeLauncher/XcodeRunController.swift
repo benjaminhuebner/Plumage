@@ -23,6 +23,11 @@ final class XcodeRunController {
 
         model.setRunState(.building)
         model.clearLog()
+        // Make the click visible immediately — xcodebuild's first stdout line
+        // can be several seconds away (resolving dependencies, etc.), and
+        // without a prelude line the user sees an empty log popover and may
+        // think nothing happened.
+        model.appendLog("→ Starting build for \(scheme) (\(destination.displayName))…")
         let inputs = XcodeRunInputs(
             project: project,
             scheme: scheme,
@@ -57,16 +62,20 @@ final class XcodeRunController {
     private func applyOutcome(_ outcome: XcodeRunOutcome) {
         switch outcome {
         case .launched:
+            model.appendLog("✓ Launched.")
             model.setRunState(.running)
         case .buildFailed(let exitCode):
             let errorCount = countErrors(in: model.logBuffer)
             let message =
                 errorCount > 0
                 ? "Failed (\(errorCount) errors)" : "Failed (exit \(exitCode))"
+            model.appendLog("✗ Build failed (exit \(exitCode)).")
             model.setRunState(.failed(message: message))
         case .launchFailed(let message):
+            model.appendLog("✗ Launch failed: \(message)")
             model.setRunState(.failed(message: message))
         case .cancelled:
+            model.appendLog("× Cancelled.")
             model.setRunState(.idle)
         }
     }
