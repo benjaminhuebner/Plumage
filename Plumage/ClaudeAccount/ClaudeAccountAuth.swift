@@ -33,13 +33,17 @@ nonisolated struct ProductionKeychainReader: KeychainReading {
     }
 
     func readToken() throws -> OAuthToken {
-        var query: [String: Any] = [
+        // Requesting both kSecReturnData AND kSecReturnAttributes triggered
+        // errSecItemNotFound for items written by another signed app (the
+        // claude CLI) even though the item is visible to an existence-check.
+        // Data-only avoids that path; we don't need the attributes for the
+        // OAuth-only payload. (#00031, notes.md 2026-05-20.)
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        query[kSecReturnAttributes as String] = true
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
@@ -49,13 +53,9 @@ nonisolated struct ProductionKeychainReader: KeychainReading {
         guard status == errSecSuccess else {
             throw ClaudeAccountAuthError.keychainFailure(status)
         }
-
-        guard let dict = item as? [String: Any],
-            let data = dict[kSecValueData as String] as? Data
-        else {
+        guard let data = item as? Data else {
             throw ClaudeAccountAuthError.malformedItem("missing v_Data")
         }
-
         return try Self.decode(data: data)
     }
 
