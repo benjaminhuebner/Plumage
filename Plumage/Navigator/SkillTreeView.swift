@@ -57,14 +57,8 @@ struct SkillTreeView: View {
     }
 
     private func isPendingHere(relativePath: String) -> Bool {
-        switch navigator.pendingCreate?.section {
-        case .skillFile(let skill, let path):
-            return skill == skillName && path == relativePath
-        case .skillFolder(let skill, let path):
-            return skill == skillName && path == relativePath
-        default:
-            return false
-        }
+        navigator.isPendingCreate(at: .skillFile(skillName: skillName, relativePath: relativePath))
+            || navigator.isPendingCreate(at: .skillFolder(skillName: skillName, relativePath: relativePath))
     }
 
     private func childPath(parent: String, name: String) -> String {
@@ -201,14 +195,8 @@ private struct SkillFolderRow: View {
     }
 
     private func isPendingHere(path: String) -> Bool {
-        switch navigator.pendingCreate?.section {
-        case .skillFile(let skill, let pendingPath):
-            return skill == skillName && pendingPath == path
-        case .skillFolder(let skill, let pendingPath):
-            return skill == skillName && pendingPath == path
-        default:
-            return false
-        }
+        navigator.isPendingCreate(at: .skillFile(skillName: skillName, relativePath: path))
+            || navigator.isPendingCreate(at: .skillFolder(skillName: skillName, relativePath: path))
     }
 
     @ViewBuilder
