@@ -13,6 +13,7 @@ struct ProjectWindow: View {
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
+    @State private var terminalSession: TerminalClaudeSession
     @SceneStorage("claudeDock.open") private var isDockOpen = false
     // Cached focused-scene action. Computing `isLoaded ? { … } : nil` inline
     // produces a new closure per body re-eval, which the focus system
@@ -32,6 +33,9 @@ struct ProjectWindow: View {
             ?? URL(filePath: "/dev/null")
         self._session = State(
             initialValue: ClaudeSession(cwd: handle.url, binaryURL: binary)
+        )
+        self._terminalSession = State(
+            initialValue: TerminalClaudeSession(cwd: handle.url, binaryURL: binary)
         )
     }
 
@@ -53,7 +57,10 @@ struct ProjectWindow: View {
                 // we rebuild here. attach() then handles the
                 // start/restart/no-op decision.
                 session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
+                terminalSession = TerminalClaudeSession.rebuilt(
+                    for: handle.url, replacing: terminalSession)
                 session.attach()
+                terminalSession.attach()
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
@@ -64,6 +71,7 @@ struct ProjectWindow: View {
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
             .onDisappear {
                 session.stop()
+                terminalSession.stop()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
