@@ -136,6 +136,62 @@ struct XcodebuildRunnerBuildTests {
         #expect(settings["PRODUCT_BUNDLE_IDENTIFIER"] == "com.example.demo")
     }
 
+    @Test("parseSchemeCompatibility recognises macOS-only schemes")
+    func parsesMacOnly() {
+        let raw = """
+            \tAvailable destinations for the "Plumage" scheme:
+            \t\t{ platform:macOS, arch:arm64, id:abc, name:My Mac }
+            \t\t{ platform:macOS, name:Any Mac }
+            """
+        let compat = XcodebuildRunner.parseSchemeCompatibility(raw)
+        #expect(compat.supportsMac == true)
+        #expect(compat.supportsIOSSimulator == false)
+    }
+
+    @Test("parseSchemeCompatibility recognises iOS apps")
+    func parsesIOS() {
+        let raw = """
+            \tAvailable destinations for the "DemoApp" scheme:
+            \t\t{ platform:iOS, id:..., name:Any iOS Device }
+            \t\t{ platform:iOS Simulator, id:..., OS:26.5, name:iPhone 17 Pro }
+            \t\t{ platform:iOS Simulator, id:..., OS:26.5, name:iPad Pro 13 }
+            """
+        let compat = XcodebuildRunner.parseSchemeCompatibility(raw)
+        #expect(compat.supportsMac == false)
+        #expect(compat.supportsIOSSimulator == true)
+    }
+
+    @Test("parseSchemeCompatibility recognises Catalyst (mac + iOS)")
+    func parsesMacAndIOS() {
+        let raw = """
+            \t\t{ platform:macOS, arch:arm64, variant:Mac Catalyst, name:My Mac }
+            \t\t{ platform:iOS Simulator, id:..., name:iPhone 17 Pro }
+            """
+        let compat = XcodebuildRunner.parseSchemeCompatibility(raw)
+        #expect(compat.supportsMac == true)
+        #expect(compat.supportsIOSSimulator == true)
+    }
+
+    @Test("parseSchemeCompatibility falls back to .unknown on empty output")
+    func failsOpenOnEmpty() {
+        let compat = XcodebuildRunner.parseSchemeCompatibility("")
+        #expect(compat == .unknown)
+    }
+
+    @Test("parseSchemeCompatibility falls back to .unknown when no platform: row")
+    func failsOpenWithoutPlatform() {
+        let compat = XcodebuildRunner.parseSchemeCompatibility(
+            """
+            {
+              "project": {
+                "schemes": ["Plumage"]
+              }
+            }
+            """
+        )
+        #expect(compat == .unknown)
+    }
+
     @Test("appBundleURL composes from build settings")
     func appBundleURLComposes() {
         let url = XcodebuildRunner.appBundleURL(from: [

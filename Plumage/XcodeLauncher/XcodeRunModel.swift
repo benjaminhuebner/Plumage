@@ -30,7 +30,7 @@ final class XcodeRunModel {
     private(set) var projectRef: XcodeProjectRef?
     private(set) var schemes: [String] = []
     private(set) var selectedScheme: String?
-    private(set) var destinationList: DestinationList = DestinationList(
+    private(set) var rawDestinationList: DestinationList = DestinationList(
         macSupported: false, simulatorGroups: [])
     private(set) var selectedDestination: XcodeDestination?
     private(set) var discoveryState: DiscoveryState = .idle
@@ -38,6 +38,7 @@ final class XcodeRunModel {
     private(set) var logBuffer: [String] = []
     private(set) var multipleProjectsFound: Bool = false
     private(set) var toolchainAvailable: Bool = true
+    private(set) var schemeCompatibility: [String: SchemeCompatibility] = [:]
 
     private let xcodebuildRunner: XcodebuildRunner
     private let simulatorCatalog: SimulatorCatalog
@@ -77,7 +78,7 @@ final class XcodeRunModel {
             projectRef = nil
             schemes = []
             selectedScheme = nil
-            destinationList = DestinationList(macSupported: false, simulatorGroups: [])
+            rawDestinationList = DestinationList(macSupported: false, simulatorGroups: [])
             selectedDestination = nil
             discoveryState = .noProject
             return
@@ -100,12 +101,16 @@ final class XcodeRunModel {
         do {
             let sims = try await simulatorCatalog.listDevices()
             let iosSims = sims.filter { $0.runtime.platform == .iOS && $0.isAvailable }
-            destinationList = DestinationList(
+            rawDestinationList = DestinationList(
                 macSupported: true,
                 simulatorGroups: SimulatorCatalog.groupedByRuntime(iosSims)
             )
         } catch {
-            destinationList = DestinationList(macSupported: true, simulatorGroups: [])
+            rawDestinationList = DestinationList(macSupported: true, simulatorGroups: [])
+        }
+
+        if let scheme = selectedScheme {
+            await refreshCompatibility(for: scheme, project: firstProject)
         }
 
         if selectedDestination == nil
@@ -116,6 +121,19 @@ final class XcodeRunModel {
         discoveryState = .ready
     }
 
+    private func refreshCompatibility(for scheme: String, project: XcodeProjectRef) async {
+        guard schemeCompatibility[scheme] == nil else { return }
+        do {
+            let compat = try await xcodebuildRunner.showDestinations(
+                project: project, scheme: scheme)
+            schemeCompatibility[scheme] = compat
+        } catch {
+            // Unknown compat → leave both true so we don't accidentally hide
+            // valid destinations on a transient xcodebuild hiccup.
+            schemeCompatibility[scheme] = .unknown
+        }
+    }
+
     func reload(projectURL: URL) async {
         await discover(projectURL: projectURL)
     }
@@ -123,6 +141,18 @@ final class XcodeRunModel {
     func selectScheme(_ name: String) {
         guard schemes.contains(name) else { return }
         selectedScheme = name
+        let projectRef = self.projectRef
+        Task { [weak self] in
+            guard let self, let projectRef else { return }
+            await self.refreshCompatibility(for: name, project: projectRef)
+            self.ensureSelectedDestinationFitsCurrentScheme()
+        }
+    }
+
+    private func ensureSelectedDestinationFitsCurrentScheme() {
+        if !Self.destinationStillPresent(selectedDestination, in: destinationList) {
+            selectedDestination = destinationList.defaultDestination
+        }
     }
 
     func selectDestination(_ destination: XcodeDestination) {
@@ -141,8 +171,15 @@ final class XcodeRunModel {
     }
 
     func restoreSelections(scheme: String?, destinationID: String?) {
-        if let scheme, schemes.contains(scheme) {
+        if let scheme, schemes.contains(scheme), scheme != selectedScheme {
             selectedScheme = scheme
+            if let projectRef, schemeCompatibility[scheme] == nil {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.refreshCompatibility(for: scheme, project: projectRef)
+                    self.ensureSelectedDestinationFitsCurrentScheme()
+                }
+            }
         }
         guard let destinationID else { return }
         if destinationID == XcodeDestination.myMac.id, destinationList.macSupported {
@@ -183,6 +220,13 @@ final class XcodeRunModel {
         Array(logBuffer.suffix(Self.logTail))
     }
 
+    var destinationList: DestinationList {
+        let compat = selectedScheme.flatMap { schemeCompatibility[$0] } ?? .unknown
+        let macSupported = rawDestinationList.macSupported && compat.supportsMac
+        let simulatorGroups = compat.supportsIOSSimulator ? rawDestinationList.simulatorGroups : []
+        return DestinationList(macSupported: macSupported, simulatorGroups: simulatorGroups)
+    }
+
     var fullLogText: String {
         logBuffer.joined(separator: "\n")
     }
@@ -192,7 +236,7 @@ final class XcodeRunModel {
         projectRef = nil
         schemes = []
         selectedScheme = nil
-        destinationList = DestinationList(macSupported: false, simulatorGroups: [])
+        rawDestinationList = DestinationList(macSupported: false, simulatorGroups: [])
         selectedDestination = nil
         discoveryState = .missingToolchain
     }

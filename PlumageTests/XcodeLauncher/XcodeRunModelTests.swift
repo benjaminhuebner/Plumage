@@ -124,6 +124,86 @@ struct XcodeRunModelTests {
         #expect(model.tailLog.count == XcodeRunModel.logTail)
     }
 
+    @Test("destinationList hides iOS sims when the selected scheme is mac-only")
+    func filtersSimsForMacOnlyScheme() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let proj = dir.appendingPathComponent("Demo.xcodeproj")
+        try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
+
+        let listJSON = try loadFixture("list-project.json")
+        let simJSON = try loadFixture("simctl-devices.json")
+        let xcodebuildMock = TwoStageMockRunner(
+            firstStdout: listJSON,
+            laterStdout: Data(
+                """
+                \tAvailable destinations for the "Plumage" scheme:
+                \t\t{ platform:macOS, arch:arm64, id:abc, name:My Mac }
+                """.utf8
+            )
+        )
+        let simMock = MockXcodeProcessRunner()
+        simMock.defaultRunOutcome = .success(
+            XcodeSpawnResult(exitCode: 0, stdout: simJSON, stderr: Data()))
+        let model = XcodeRunModel(
+            xcodebuildRunner: XcodebuildRunner(
+                runner: xcodebuildMock,
+                toolchain: { URL(fileURLWithPath: "/usr/bin/xcodebuild") }),
+            simulatorCatalog: SimulatorCatalog(
+                runner: simMock,
+                toolchain: { URL(fileURLWithPath: "/usr/bin/xcrun") }),
+            xcodebuildLocator: { URL(fileURLWithPath: "/usr/bin/xcodebuild") },
+            xcrunLocator: { URL(fileURLWithPath: "/usr/bin/xcrun") }
+        )
+        await model.discover(projectURL: dir)
+        #expect(model.destinationList.macSupported == true)
+        #expect(model.destinationList.simulatorGroups.isEmpty == true)
+        #expect(model.selectedDestination == .myMac)
+    }
+
+    @Test("destinationList shows iOS sims when scheme supports them")
+    func keepsSimsForIOSScheme() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let proj = dir.appendingPathComponent("Demo.xcodeproj")
+        try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
+
+        let listJSON = try loadFixture("list-project.json")
+        let simJSON = try loadFixture("simctl-devices.json")
+        let xcodebuildMock = TwoStageMockRunner(
+            firstStdout: listJSON,
+            laterStdout: Data(
+                """
+                \tAvailable destinations for the "Plumage" scheme:
+                \t\t{ platform:iOS, id:foo, name:Any iOS Device }
+                \t\t{ platform:iOS Simulator, id:bar, OS:26.5, name:iPhone 17 Pro }
+                """.utf8
+            )
+        )
+        let simMock = MockXcodeProcessRunner()
+        simMock.defaultRunOutcome = .success(
+            XcodeSpawnResult(exitCode: 0, stdout: simJSON, stderr: Data()))
+        let model = XcodeRunModel(
+            xcodebuildRunner: XcodebuildRunner(
+                runner: xcodebuildMock,
+                toolchain: { URL(fileURLWithPath: "/usr/bin/xcodebuild") }),
+            simulatorCatalog: SimulatorCatalog(
+                runner: simMock,
+                toolchain: { URL(fileURLWithPath: "/usr/bin/xcrun") }),
+            xcodebuildLocator: { URL(fileURLWithPath: "/usr/bin/xcodebuild") },
+            xcrunLocator: { URL(fileURLWithPath: "/usr/bin/xcrun") }
+        )
+        await model.discover(projectURL: dir)
+        #expect(model.destinationList.macSupported == false)
+        #expect(model.destinationList.simulatorGroups.isEmpty == false)
+        // Default destination falls back to the newest sim of the highest runtime.
+        if case .simulator = model.selectedDestination {
+            // expected
+        } else {
+            Issue.record("expected simulator default, got \(String(describing: model.selectedDestination))")
+        }
+    }
+
     @Test("discover surfaces a parse error from xcodebuild as .failed")
     func failedListSchemes() async throws {
         let dir = try makeTempDir()
@@ -203,5 +283,37 @@ struct XcodeRunModelTests {
             .deletingLastPathComponent()  // PlumageTests/
             .appending(path: "XcodeIntegration/Fixtures/\(name)")
         return try Data(contentsOf: url)
+    }
+}
+
+// Returns `firstStdout` on the first run() call and `laterStdout` on every
+// subsequent one. Useful to mock xcodebuild's two-step interaction in
+// discover() (-list -json first, -showdestinations second).
+final class TwoStageMockRunner: XcodeProcessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls: Int = 0
+    private let firstStdout: Data
+    private let laterStdout: Data
+
+    init(firstStdout: Data, laterStdout: Data) {
+        self.firstStdout = firstStdout
+        self.laterStdout = laterStdout
+    }
+
+    func run(binaryURL: URL, args: [String], cwd: URL?) async throws -> XcodeSpawnResult {
+        let stdout: Data = lock.withLock {
+            defer { _calls += 1 }
+            return _calls == 0 ? firstStdout : laterStdout
+        }
+        return XcodeSpawnResult(exitCode: 0, stdout: stdout, stderr: Data())
+    }
+
+    func stream(
+        binaryURL: URL,
+        args: [String],
+        cwd: URL?,
+        onLine: @escaping @Sendable (String) -> Void
+    ) async throws -> Int32 {
+        0
     }
 }

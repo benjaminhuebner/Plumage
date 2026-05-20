@@ -5,6 +5,13 @@ nonisolated struct XcodebuildListing: Sendable, Equatable {
     let schemes: [String]
 }
 
+nonisolated struct SchemeCompatibility: Sendable, Equatable {
+    let supportsMac: Bool
+    let supportsIOSSimulator: Bool
+
+    static let unknown = SchemeCompatibility(supportsMac: true, supportsIOSSimulator: true)
+}
+
 nonisolated struct XcodebuildRunner: Sendable {
     let runner: any XcodeProcessRunning
     let toolchain: @Sendable () -> URL?
@@ -84,6 +91,51 @@ nonisolated struct XcodebuildRunner: Sendable {
 
     static func appBundleID(from settings: [String: String]) -> String? {
         settings["PRODUCT_BUNDLE_IDENTIFIER"]
+    }
+
+    func showDestinations(
+        project: XcodeProjectRef,
+        scheme: String
+    ) async throws -> SchemeCompatibility {
+        guard let binary = toolchain() else { throw XcodeProcessRunnerError.toolchainNotFound }
+        let args: [String] = [
+            project.listFlag, project.url.path,
+            "-scheme", scheme,
+            "-showdestinations",
+        ]
+        let result = try await runner.run(binaryURL: binary, args: args, cwd: nil)
+        guard result.exitCode == 0 else {
+            let stderr = String(decoding: result.stderr, as: UTF8.self)
+            throw XcodeProcessRunnerError.nonZeroExit(code: result.exitCode, stderr: stderr)
+        }
+        return Self.parseSchemeCompatibility(String(decoding: result.stdout, as: UTF8.self))
+    }
+
+    static func parseSchemeCompatibility(_ stdout: String) -> SchemeCompatibility {
+        // -showdestinations lists `{ platform:<X>, ... }` rows after the
+        // "Available destinations for the \"<scheme>\" scheme:" header.
+        // We treat a row as relevant only if it actually contains "platform:";
+        // unrelated `{`-starting lines (e.g. JSON wrapper bracket from a wrong
+        // mock injection in tests) don't disable destination filtering.
+        var sawMac = false
+        var sawIOSSim = false
+        var sawPlatform = false
+        for line in stdout.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("{"), trimmed.contains("platform:") else { continue }
+            sawPlatform = true
+            if trimmed.contains("platform:macOS") {
+                sawMac = true
+            }
+            if trimmed.contains("platform:iOS Simulator") {
+                sawIOSSim = true
+            }
+        }
+        // Fail-open: if we can't see ANY platform row, default to .unknown so
+        // the picker keeps showing whatever the simulator catalog already
+        // discovered.
+        guard sawPlatform else { return .unknown }
+        return SchemeCompatibility(supportsMac: sawMac, supportsIOSSimulator: sawIOSSim)
     }
 
     func listSchemes(at project: XcodeProjectRef) async throws -> XcodebuildListing {
