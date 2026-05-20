@@ -1,0 +1,18 @@
+{
+  "project" : {
+    "configurations" : [
+      "Debug",
+      "Release"
+    ],
+    "name" : "Plumage",
+    "schemes" : [
+      "Plumage",
+      "PlumageTests"
+    ],
+    "targets" : [
+      "Plumage",
+      "PlumageTests",
+      "PlumageUITests"
+    ]
+  }
+}

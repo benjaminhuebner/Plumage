@@ -1,0 +1,10 @@
+{
+  "workspace" : {
+    "name" : "Demo",
+    "schemes" : [
+      "App",
+      "Tests",
+      "WatchApp"
+    ]
+  }
+}
