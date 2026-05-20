@@ -136,6 +136,12 @@ struct NavigatorSidebar: View {
         .tag(NavigatorRoute.issue(folderName: issue.id))
         .clickableSidebarRow()
         .modifier(IssueRowDraggable(issue: issue, column: column))
+        .overlay(alignment: .top) {
+            reorderDropZone(folderName: issue.id, column: column, position: .above)
+        }
+        .overlay(alignment: .bottom) {
+            reorderDropZone(folderName: issue.id, column: column, position: .below)
+        }
         .contextMenu {
             IssueContextMenuItems(
                 folderName: issue.id,
@@ -143,6 +149,24 @@ struct NavigatorSidebar: View {
                 projectURL: projectURL
             )
         }
+    }
+
+    // Half-height transparent slot — splitting the row into two SwiftUI drop
+    // targets is the pattern used historically (decisions.md 2026-05-14
+    // #00013 above/below zones) and avoids the location-math fragility of a
+    // single drop target. Each zone holds its own `isTargeted` state so the
+    // 2pt indicator line can flip independently.
+    @ViewBuilder
+    private func reorderDropZone(
+        folderName: String, column: IssueColumn, position: ReorderPosition
+    ) -> some View {
+        ReorderDropZone(
+            folderName: folderName,
+            column: column,
+            position: position,
+            projectURL: projectURL,
+            kanban: kanban
+        )
     }
 
     private func issueFolderURL(_ issue: DiscoveredIssue) -> URL {
@@ -328,6 +352,49 @@ extension DiscoveredIssue {
         switch self {
         case .valid(let issue): issue.title
         case .invalid(let folder, _): folder.lastPathComponent
+        }
+    }
+}
+
+enum ReorderPosition {
+    case above
+    case below
+}
+
+private struct ReorderDropZone: View {
+    let folderName: String
+    let column: IssueColumn
+    let position: ReorderPosition
+    let projectURL: URL
+    let kanban: ProjectKanbanModel
+
+    @State private var isTargeted = false
+
+    var body: some View {
+        // 8pt slot at the row's top/bottom. The 2pt indicator centers in the
+        // slot when targeted; otherwise the slot is fully transparent so the
+        // row's normal hit-testing keeps working.
+        ZStack {
+            Color.clear
+                .contentShape(Rectangle())
+                .frame(height: 8)
+            if isTargeted {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .dropDestination(for: IssueDragPayload.self) { payloads, _ in
+            guard let payload = payloads.first else { return false }
+            let target: ProjectKanbanModel.DropTarget =
+                position == .above
+                ? .aboveCard(folderName: folderName, column: column)
+                : .belowCard(folderName: folderName, column: column)
+            kanban.applyOptimisticDrop(payload, to: target, projectURL: projectURL)
+            return true
+        } isTargeted: { hovering in
+            isTargeted = hovering
         }
     }
 }
