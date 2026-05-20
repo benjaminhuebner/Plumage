@@ -42,6 +42,7 @@ final class ClaudeSession {
     let binaryURL: URL
     private let autoSpawn: Bool
     private let sessionLogRoot: URL
+    private let sessionIDStoreURL: URL
     private let rehydrationCap: Int
 
     private(set) var state: State = .idle
@@ -56,23 +57,40 @@ final class ClaudeSession {
 
     // Defaults to ~/.claude/projects but is injectable so tests can point at
     // a temp directory and exercise resumeOrInitArgs / rehydrate without
-    // polluting the real home.
+    // polluting the real home. sessionIDStoreOverride is the per-project
+    // file that persists the conversation UUID across project re-opens —
+    // mirror to TerminalClaudeSession so chat mode also resumes its claude
+    // session via --resume <uuid>.
     init(
         cwd: URL,
         binaryURL: URL,
         autoSpawn: Bool = true,
         sessionLogRoot: URL? = nil,
+        sessionIDStoreOverride: URL? = nil,
         rehydrationCap: Int = ClaudeSession.defaultRehydrationCap
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.autoSpawn = autoSpawn
-        self.conversationID = UUID().uuidString.lowercased()
         self.rehydrationCap = rehydrationCap
         self.sessionLogRoot =
             sessionLogRoot
             ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
+        self.sessionIDStoreURL =
+            sessionIDStoreOverride
+            ?? cwd
+            .appendingPathComponent(".plumage", isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("chat-id")
+
+        if let persisted = Self.loadPersistedID(from: self.sessionIDStoreURL) {
+            self.conversationID = persisted
+        } else {
+            let fresh = UUID().uuidString.lowercased()
+            self.conversationID = fresh
+            Self.persistID(fresh, to: self.sessionIDStoreURL)
+        }
     }
 
     // Safety net for abnormal teardown paths (scene killed, owner replaced
@@ -273,8 +291,11 @@ final class ClaudeSession {
         subcommandTask = nil
         process = nil
 
-        // Fresh context: new session ID, dropped history.
+        // Fresh context: new session ID, dropped history. Persist so the
+        // next project-open's --resume targets the new conversation, not the
+        // stale pre-clear one.
         conversationID = UUID().uuidString.lowercased()
+        Self.persistID(conversationID, to: sessionIDStoreURL)
         messages = []
         awaitingResponse = false
         state = .starting(cwd: cwd)
@@ -623,5 +644,21 @@ final class ClaudeSession {
         case 128...159: return .killed
         default: return .crashed
         }
+    }
+
+    private nonisolated static func loadPersistedID(from url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+            let raw = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else { return nil }
+        return raw
+    }
+
+    private nonisolated static func persistID(_ id: String, to url: URL) {
+        let parent = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: parent, withIntermediateDirectories: true)
+        try? id.write(to: url, atomically: true, encoding: .utf8)
     }
 }

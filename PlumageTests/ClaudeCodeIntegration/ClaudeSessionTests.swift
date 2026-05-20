@@ -225,6 +225,31 @@ struct ClaudeSessionTests {
         #expect(session.conversationID != originalID)
     }
 
+    @Test("Conversation-ID is persisted and reused on second init")
+    func uuidPersistenceAcrossInits() async throws {
+        let store = FileManager.default.temporaryDirectory
+            .appendingPathComponent("plumage-chat-id-persist-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: store) }
+        let first = makeSession(sessionIDStoreOverride: store)
+        let firstID = first.conversationID
+        let second = makeSession(sessionIDStoreOverride: store)
+        #expect(second.conversationID == firstID)
+    }
+
+    @Test("/clear persists the regenerated ID so the next init resumes it")
+    func slashClearPersistsNewID() async throws {
+        let store = FileManager.default.temporaryDirectory
+            .appendingPathComponent("plumage-chat-clear-persist-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: store) }
+        let session = makeSession(sessionIDStoreOverride: store)
+        session.start()
+        session.handleEvent(.systemInit(sessionID: "test"))
+        await session.send("/clear")
+        let postClearID = session.conversationID
+        let reloaded = makeSession(sessionIDStoreOverride: store)
+        #expect(reloaded.conversationID == postClearID)
+    }
+
     @Test("restart() from .running is a no-op")
     func restartFromRunningIsNoOp() {
         let session = startedSession()
@@ -367,13 +392,19 @@ struct ClaudeSessionTests {
 
     private func makeSession(
         cwd: URL = URL(filePath: "/tmp"),
-        sessionLogRoot: URL? = nil
+        sessionLogRoot: URL? = nil,
+        sessionIDStoreOverride: URL? = nil
     ) -> ClaudeSession {
         ClaudeSession(
             cwd: cwd,
             binaryURL: URL(filePath: "/usr/bin/true"),
             autoSpawn: false,
-            sessionLogRoot: sessionLogRoot
+            sessionLogRoot: sessionLogRoot,
+            // Per-test temp store so persisted UUIDs don't leak across runs
+            // (default would write to /tmp/.plumage/sessions/chat-id).
+            sessionIDStoreOverride: sessionIDStoreOverride
+                ?? FileManager.default.temporaryDirectory
+                .appendingPathComponent("plumage-chat-tests-\(UUID().uuidString)")
         )
     }
 
