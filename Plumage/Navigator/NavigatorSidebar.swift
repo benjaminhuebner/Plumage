@@ -25,7 +25,9 @@ struct NavigatorSidebar: View {
             // header through NSTableView's group-header path, which kills
             // button/tap hit-testing.
 
-            SidebarSectionHeader(title: "Issues", action: nil, help: nil)
+            SidebarSectionHeader(title: "Issues", help: "New Issue") {
+                openCreateIssue(.draft)
+            }
             Label("Board", systemImage: "rectangle.3.group.fill")
                 .tag(NavigatorRoute.kanban)
                 .clickableSidebarRow()
