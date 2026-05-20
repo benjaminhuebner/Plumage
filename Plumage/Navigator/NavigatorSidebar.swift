@@ -97,43 +97,44 @@ struct NavigatorSidebar: View {
         }
     }
 
-    // Xcode-style footer: a single + Menu pinned to the bottom of the
-    // sidebar. Mirrors the macOS Project Navigator footer pattern instead
-    // of scattering plus buttons across section headers.
+    // Xcode-style sidebar footer: thin bar at the bottom with a single
+    // `+` pull-down Menu, no extra material (lets the sidebar's own
+    // material show through), divider on top. Matches Project Navigator
+    // and Mail's "New Mailbox" pull-down.
     @ViewBuilder
     private var sidebarFooter: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 0) {
-                Menu {
-                    Button("New Issue") { openCreateIssue(.draft) }
-                    Divider()
-                    Button("New Doc") { navigator.beginPendingCreate(.docs) }
-                    Button("New Markdown") {
-                        navigator.beginPendingCreate(.claudeMarkdown)
-                    }
-                    Divider()
-                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
-                    Button("New Hook Folder") {
-                        navigator.beginPendingCreate(.hookFolder)
-                    }
-                    Divider()
-                    Button("New Skill") { navigator.beginPendingCreate(.skill) }
-                } label: {
-                    Image(systemName: "plus")
-                        .imageScale(.medium)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+        HStack(spacing: 0) {
+            Menu {
+                Button("New Issue") { openCreateIssue(.draft) }
+                Divider()
+                Button("New Doc") { navigator.beginPendingCreate(.docs) }
+                Button("New Markdown") {
+                    navigator.beginPendingCreate(.claudeMarkdown)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("New…")
-                Spacer()
+                Divider()
+                Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                Button("New Hook Folder") {
+                    navigator.beginPendingCreate(.hookFolder)
+                }
+                Divider()
+                Button("New Skill") { navigator.beginPendingCreate(.skill) }
+            } label: {
+                Image(systemName: "plus")
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 22)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.bar)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("New…")
+            Spacer()
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 28)
+        .overlay(alignment: .top) {
+            Divider()
         }
     }
 
