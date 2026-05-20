@@ -7,6 +7,7 @@ struct ClaudeDockPanel: View {
     static let preferredHeight: CGFloat = 560
 
     let session: ClaudeSession
+    let terminalSession: TerminalClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
     // The overlay measures available window height and passes it down so
@@ -73,10 +74,7 @@ struct ClaudeDockPanel: View {
                     }
                 }
         case .terminal:
-            // .id() forces SwiftTermBridge to dismantle+remount so the
-            // embedded claude spawn sees the fresh handoff state.
-            EmbeddedTerminalView(session: session)
-                .id(TerminalPaneMode.terminal.rawValue)
+            EmbeddedTerminalView(session: terminalSession)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
         }
@@ -87,10 +85,6 @@ struct ClaudeDockPanel: View {
             get: { mode },
             set: { newMode in
                 guard mode != newMode else { return }
-                switch newMode {
-                case .terminal: session.handOffToExternal()
-                case .chat: session.handOffFromExternal()
-                }
                 modeRaw = newMode.rawValue
             }
         )
@@ -129,8 +123,13 @@ private struct DockPanelHeader: View {
         binaryURL: URL(filePath: "/usr/bin/true"),
         autoSpawn: false
     )
+    let terminalSession = TerminalClaudeSession(
+        cwd: URL(filePath: "/tmp"),
+        binaryURL: URL(filePath: "/usr/bin/true")
+    )
     return ClaudeDockPanel(
         session: session,
+        terminalSession: terminalSession,
         indicatorState: .loading,
         isOpen: $open
     )

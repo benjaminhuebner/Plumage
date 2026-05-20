@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ClaudeDockOverlay: View {
     let session: ClaudeSession
+    let terminalSession: TerminalClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
 
@@ -30,6 +31,7 @@ struct ClaudeDockOverlay: View {
                 if isOpen {
                     ClaudeDockPanel(
                         session: session,
+                        terminalSession: terminalSession,
                         indicatorState: indicatorState,
                         isOpen: $isOpen,
                         availableHeight: availableHeight
@@ -75,10 +77,15 @@ struct ClaudeDockOverlay: View {
         binaryURL: URL(filePath: "/usr/bin/true"),
         autoSpawn: false
     )
+    let terminalSession = TerminalClaudeSession(
+        cwd: URL(filePath: "/tmp"),
+        binaryURL: URL(filePath: "/usr/bin/true")
+    )
     return Color.gray.opacity(0.1)
         .overlay(alignment: .bottomTrailing) {
             ClaudeDockOverlay(
                 session: session,
+                terminalSession: terminalSession,
                 indicatorState: .loading,
                 isOpen: $open
             )
