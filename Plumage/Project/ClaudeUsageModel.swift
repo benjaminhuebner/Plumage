@@ -65,7 +65,7 @@ final class ClaudeUsageModel {
         }
     }
 
-    static func message(for error: ClaudeUsageError) -> String {
+    nonisolated static func message(for error: ClaudeUsageError) -> String {
         switch error {
         case .notLoggedIn: return "Not logged in"
         case .transport(let detail): return "Network: \(detail)"

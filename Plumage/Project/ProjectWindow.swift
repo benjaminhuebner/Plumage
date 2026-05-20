@@ -14,8 +14,8 @@ struct ProjectWindow: View {
     @State private var indicator = StatusIndicatorModel()
     @State private var claudeUsage = ClaudeUsageModel()
     @State private var claudeStatus = ClaudeStatusModel()
-    private let usageClient = ClaudeUsageClient()
-    private let statusClient = ClaudeStatusPageClient()
+    @State private var usageClient = ClaudeUsageClient()
+    @State private var statusClient = ClaudeStatusPageClient()
     @State private var session: ClaudeSession
     @State private var terminalSession: TerminalClaudeSession
     @State private var xcodeRun: XcodeRunModel

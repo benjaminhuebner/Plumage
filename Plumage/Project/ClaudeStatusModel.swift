@@ -54,7 +54,7 @@ final class ClaudeStatusModel {
         }
     }
 
-    static func message(for error: ClaudeStatusPageError) -> String {
+    nonisolated static func message(for error: ClaudeStatusPageError) -> String {
         switch error {
         case .transport(let detail): return "Network: \(detail)"
         case .unparseable(let detail): return "Unparseable response: \(detail)"

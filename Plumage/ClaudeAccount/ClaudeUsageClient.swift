@@ -56,6 +56,10 @@ actor ClaudeUsageClient {
         let (data, response): (Data, HTTPURLResponse)
         do {
             (data, response) = try await fetcher.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw ClaudeUsageError.transport(error.localizedDescription)
         }

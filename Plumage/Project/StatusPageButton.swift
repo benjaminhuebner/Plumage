@@ -1,29 +1,8 @@
 import SwiftUI
 
-struct StatusPageButton: View {
-    let model: ClaudeStatusModel
-    @State private var showPopover = false
-
-    var body: some View {
-        Button {
-            showPopover.toggle()
-        } label: {
-            Image(systemName: iconName)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(tintColor)
-                .frame(width: 18, height: 18)
-        }
-        .buttonStyle(.borderless)
-        .help(helpText)
-        .accessibilityIdentifier("statuspage-icon")
-        .accessibilityLabel(Text(accessibilityLabel))
-        .popover(isPresented: $showPopover, arrowEdge: .top) {
-            StatusPageDetailPopover(model: model)
-        }
-    }
-
-    private var iconName: String {
-        switch model.indicator {
+enum ClaudeStatusVisual {
+    static func iconName(for indicator: ClaudeStatusIndicator) -> String {
+        switch indicator {
         case .none: return "checkmark.circle.fill"
         case .minor: return "exclamationmark.triangle.fill"
         case .major, .critical: return "xmark.octagon.fill"
@@ -32,13 +11,36 @@ struct StatusPageButton: View {
         }
     }
 
-    private var tintColor: Color {
-        switch model.indicator {
+    static func tint(for indicator: ClaudeStatusIndicator) -> Color {
+        switch indicator {
         case .none: return .green
         case .minor: return .yellow
         case .major, .critical: return .red
         case .maintenance: return .blue
         case .unknown: return .secondary
+        }
+    }
+}
+
+struct StatusPageButton: View {
+    let model: ClaudeStatusModel
+    @State private var showPopover = false
+
+    var body: some View {
+        Button {
+            showPopover.toggle()
+        } label: {
+            Image(systemName: ClaudeStatusVisual.iconName(for: model.indicator))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ClaudeStatusVisual.tint(for: model.indicator))
+                .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.borderless)
+        .help(helpText)
+        .accessibilityIdentifier("statuspage-icon")
+        .accessibilityLabel(Text(accessibilityLabel))
+        .popover(isPresented: $showPopover, arrowEdge: .top) {
+            StatusPageDetailPopover(model: model)
         }
     }
 
@@ -90,8 +92,8 @@ struct StatusPageDetailPopover: View {
     @ViewBuilder
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: headerIcon)
-                .foregroundStyle(headerTint)
+            Image(systemName: ClaudeStatusVisual.iconName(for: model.indicator))
+                .foregroundStyle(ClaudeStatusVisual.tint(for: model.indicator))
             Text("Anthropic status")
                 .font(.headline)
         }
@@ -134,14 +136,6 @@ struct StatusPageDetailPopover: View {
         }
     }
 
-    private var headerIcon: String {
-        StatusPageButton(model: model).iconNamePreview
-    }
-
-    private var headerTint: Color {
-        StatusPageButton(model: model).tintColorPreview
-    }
-
     private func incidentTint(for impact: String) -> Color {
         switch impact {
         case "critical", "major": return .red
@@ -163,11 +157,4 @@ struct StatusPageDetailPopover: View {
                 .foregroundStyle(.secondary)
         }
     }
-}
-
-extension StatusPageButton {
-    // Internal mirror so StatusPageDetailPopover can render the same icon/tint
-    // for its header without duplicating the switch logic.
-    var iconNamePreview: String { iconName }
-    var tintColorPreview: Color { tintColor }
 }

@@ -93,8 +93,11 @@ struct UsageButton: View {
     }
 
     static func format(percent value: Double) -> String {
+        // Branch on the raw value so 9.95 doesn't jump straight to "10%" by
+        // way of clamped+rounded — sub-10 values stay in the one-decimal form
+        // ("9.4%", "10.0%") and 10+ collapse to integers ("42%", "100%").
         let clamped = max(0, min(value, 999))
-        return clamped >= 10
+        return value >= 10
             ? "\(Int(clamped.rounded()))%"
             : String(format: "%.1f%%", clamped)
     }

@@ -25,6 +25,7 @@ struct ProjectStatusBar: View {
                 if let statusModel {
                     StatusPageButton(model: statusModel)
                         .fixedSize()
+                        .layoutPriority(0)
                 }
                 HStack(spacing: 6) {
                     statusDot
@@ -38,9 +39,11 @@ struct ProjectStatusBar: View {
                         .lineLimit(1)
                 }
                 .fixedSize()
+                .layoutPriority(1)
                 if let usageModel {
                     usagePill(usageModel: usageModel)
                         .fixedSize()
+                        .layoutPriority(0)
                 }
                 Spacer(minLength: 0)
             }
@@ -113,16 +116,6 @@ struct ProjectStatusBar: View {
                 """
         case .failed(let error):
             return error.detectionMessage
-        }
-    }
-
-    private var accessibilityLabel: String {
-        switch indicatorState {
-        case .loading: return "Claude status: checking"
-        case .ok: return "Claude status: ready"
-        case .unsupported: return "Claude status: unsupported"
-        case .missing: return "Claude status: not found"
-        case .failed: return "Claude status: failed"
         }
     }
 }
