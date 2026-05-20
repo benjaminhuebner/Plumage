@@ -7,6 +7,9 @@ struct NavigatorSidebar: View {
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
+    @Environment(\.openCreateIssue) private var openCreateIssue
+
+    @State private var sectionAnchors: [SidebarDropTarget.Section: CGFloat] = [:]
 
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
@@ -18,35 +21,63 @@ struct NavigatorSidebar: View {
 
     var body: some View {
         List(selection: selectionBinding) {
-            Section("Issues") {
-                Label("Board", systemImage: "rectangle.3.group.fill")
-                    .tag(NavigatorRoute.kanban)
-                    .clickableSidebarRow()
-                ForEach(IssueColumn.allCases) { column in
-                    columnRow(column)
+            SidebarSectionHeader(title: "Issues", help: "New Issue") {
+                openCreateIssue(.draft)
+            }
+            Label("Board", systemImage: "rectangle.3.group.fill")
+                .tag(NavigatorRoute.kanban)
+                .clickableSidebarRow()
+            ForEach(IssueColumn.allCases) { column in
+                columnRow(column)
+            }
+
+            SidebarSectionHeader(title: "Docs", help: "New Doc") {
+                navigator.beginPendingCreate(.docs)
+            }
+            .trackSectionAnchor(.docs, in: $sectionAnchors)
+            if navigator.docs.isEmpty && !isPending(.docs) {
+                emptyPlaceholder("No docs yet")
+            } else {
+                ForEach(navigator.docs, id: \.absoluteString) { url in
+                    docRow(url)
+                }
+                if isPending(.docs) {
+                    InlineCreateRow(projectURL: projectURL, icon: "doc.text")
                 }
             }
 
-            Section("Docs") {
-                if navigator.docs.isEmpty {
-                    emptyPlaceholder("No docs yet")
-                } else {
-                    ForEach(navigator.docs, id: \.absoluteString) { url in
-                        docRow(url)
-                    }
-                }
+            SidebarSectionHeader(title: "Claude", help: "New Markdown") {
+                navigator.beginPendingCreate(.claudeMarkdown)
             }
-
-            Section("Claude") {
-                Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
-                    .tag(NavigatorRoute.claudeMD)
-                    .clickableSidebarRow()
-                hooksGroup
-                skillsGroup
-                settingsGroup
+            .trackSectionAnchor(.claudeMarkdown, in: $sectionAnchors)
+            Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
+                .tag(NavigatorRoute.claudeMD)
+                .clickableSidebarRow()
+            ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
+                claudeMarkdownRow(url)
             }
+            if isPending(.claudeMarkdown) {
+                InlineCreateRow(projectURL: projectURL, icon: "doc.text")
+            }
+            hooksGroup
+            skillsGroup
+            settingsGroup
         }
         .listStyle(.sidebar)
+        .coordinateSpace(.named("navigator.sidebar"))
+        .dropDestination(for: URL.self) { urls, location in
+            handleListDrop(urls: urls, location: location)
+        }
+        .onKeyPress(.return) {
+            handleReturnKey()
+        }
+        .onDeleteCommand {
+            _ = handleDeleteKey()
+        }
+    }
+
+    private func isPending(_ section: PendingCreate.Section) -> Bool {
+        navigator.isPendingCreate(at: section)
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {
@@ -61,7 +92,7 @@ struct NavigatorSidebar: View {
         let items = kanban.groupedIssues[column] ?? []
         DisclosureGroup(isExpanded: expansionBinding(for: column)) {
             ForEach(items, id: \.id) { issue in
-                issueRow(issue)
+                issueRow(issue, in: column)
             }
         } label: {
             HStack {
@@ -72,7 +103,35 @@ struct NavigatorSidebar: View {
                     .monospacedDigit()
             }
             .clickableSidebarRow()
+            .dropDestination(for: IssueDragPayload.self) { payloads, _ in
+                handleColumnDrop(payloads, into: column)
+            }
         }
+    }
+
+    @discardableResult
+    private func handleColumnDrop(
+        _ payloads: [IssueDragPayload], into column: IssueColumn
+    ) -> Bool {
+        guard let payload = payloads.first else { return false }
+        kanban.applyOptimisticDrop(
+            payload, to: .column(column), projectURL: projectURL)
+        return true
+    }
+
+    private func handleListDrop(urls: [URL], location: CGPoint) -> Bool {
+        guard !urls.isEmpty else { return false }
+        guard
+            let section = SidebarDropTarget.resolveSection(
+                at: location.y, anchors: sectionAnchors)
+        else {
+            return false
+        }
+        Task { @MainActor in
+            await navigator.handleFinderDrop(
+                urls: urls, section: section, projectURL: projectURL)
+        }
+        return true
     }
 
     private func expansionBinding(for column: IssueColumn) -> Binding<Bool> {
@@ -85,7 +144,7 @@ struct NavigatorSidebar: View {
     }
 
     @ViewBuilder
-    private func issueRow(_ issue: DiscoveredIssue) -> some View {
+    private func issueRow(_ issue: DiscoveredIssue, in column: IssueColumn) -> some View {
         HStack(spacing: 6) {
             IssueTypePill(type: issue.typeForPill)
             Text(issue.titleForRow)
@@ -94,6 +153,17 @@ struct NavigatorSidebar: View {
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
         .clickableSidebarRow()
+        .modifier(IssueRowDraggable(issue: issue, column: column))
+        .overlay(alignment: .top) {
+            ReorderDropZone(
+                folderName: issue.id, column: column, position: .above,
+                projectURL: projectURL, kanban: kanban)
+        }
+        .overlay(alignment: .bottom) {
+            ReorderDropZone(
+                folderName: issue.id, column: column, position: .below,
+                projectURL: projectURL, kanban: kanban)
+        }
         .contextMenu {
             IssueContextMenuItems(
                 folderName: issue.id,
@@ -113,46 +183,99 @@ struct NavigatorSidebar: View {
     }
 
     @ViewBuilder
+    private func claudeMarkdownRow(_ url: URL) -> some View {
+        managedFileRow(
+            url: url,
+            tag: .claudeMarkdown(name: url.lastPathComponent),
+            icon: "doc.text"
+        )
+    }
+
+    @ViewBuilder
     private func docRow(_ url: URL) -> some View {
-        let relative = relativePath(for: url)
-        Label(url.lastPathComponent, systemImage: "doc.text")
-            .tag(NavigatorRoute.doc(relativePath: relative))
-            .clickableSidebarRow()
+        let relative = NavigatorModel.relativePath(from: projectURL, to: url)
+        managedFileRow(
+            url: url,
+            tag: .doc(relativePath: relative),
+            icon: "doc.text"
+        )
+    }
+
+    @ViewBuilder
+    private func managedFileRow(
+        url: URL, tag: NavigatorRoute, icon: String
+    ) -> some View {
+        if navigator.renaming?.url == url {
+            InlineRenameRow(projectURL: projectURL, icon: icon)
+                .tag(tag)
+        } else {
+            Label(url.lastPathComponent, systemImage: icon)
+                .tag(tag)
+                .clickableSidebarRow()
+                .contextMenu {
+                    Button("Rename") { navigator.beginRename(url: url) }
+                    Divider()
+                    Button("Move to Trash", role: .destructive) {
+                        Task { @MainActor in
+                            await navigator.trash(url: url, projectURL: projectURL)
+                        }
+                    }
+                }
+        }
     }
 
     @ViewBuilder
     private var hooksGroup: some View {
         DisclosureGroup(isExpanded: $hooksExpanded) {
-            if navigator.hooks.isEmpty {
+            if navigator.hooks.isEmpty && !isPending(.hookFile) && !isPending(.hookFolder) {
                 emptyPlaceholder("No hooks")
             } else {
                 ForEach(navigator.hooks, id: \.absoluteString) { url in
-                    Label(url.lastPathComponent, systemImage: "scroll")
-                        .tag(NavigatorRoute.hook(name: url.lastPathComponent))
-                        .clickableSidebarRow()
+                    managedFileRow(
+                        url: url,
+                        tag: .hook(name: url.lastPathComponent),
+                        icon: "scroll"
+                    )
+                }
+                if isPending(.hookFile) {
+                    InlineCreateRow(projectURL: projectURL, icon: "scroll")
+                } else if isPending(.hookFolder) {
+                    InlineCreateRow(projectURL: projectURL, icon: "folder")
                 }
             }
         } label: {
             Label("Hooks", systemImage: "terminal")
                 .clickableSidebarRow()
+                .trackSectionAnchor(.hooks, in: $sectionAnchors)
+                .contextMenu {
+                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                    Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
+                }
         }
     }
 
     @ViewBuilder
     private var skillsGroup: some View {
         DisclosureGroup(isExpanded: $skillsExpanded) {
-            if navigator.skills.isEmpty {
+            if navigator.skills.isEmpty && !isPending(.skill) {
                 emptyPlaceholder("No skills")
             } else {
                 ForEach(navigator.skills, id: \.self) { node in
                     if case .folder(let name, let children) = node {
-                        SkillTreeView(skillName: name, children: children)
+                        SkillTreeView(skillName: name, children: children, projectURL: projectURL)
                     }
+                }
+                if isPending(.skill) {
+                    InlineCreateRow(projectURL: projectURL, icon: "puzzlepiece")
                 }
             }
         } label: {
             Label("Skills", systemImage: "puzzlepiece.extension")
                 .clickableSidebarRow()
+                .trackSectionAnchor(.skillsTopLevel, in: $sectionAnchors)
+                .contextMenu {
+                    Button("New Skill") { navigator.beginPendingCreate(.skill) }
+                }
         }
     }
 
@@ -179,61 +302,23 @@ struct NavigatorSidebar: View {
             .selectionDisabled()
     }
 
-    private func relativePath(for url: URL) -> String {
-        let components = url.pathComponents
-        if let idx = components.lastIndex(of: ".claude") {
-            return components[idx..<components.count].joined(separator: "/")
+    private func handleReturnKey() -> KeyPress.Result {
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
         }
-        return url.lastPathComponent
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
+        navigator.beginRename(url: url)
+        return .handled
     }
-}
 
-private struct ClickableSidebarRowModifier: ViewModifier {
-    @State private var pushed = false
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { hovering in
-                // push/pop must stay balanced — track local state so a
-                // missed exit callback (view removed mid-hover) can pop in
-                // .onDisappear.
-                if hovering {
-                    if !pushed {
-                        NSCursor.pointingHand.push()
-                        pushed = true
-                    }
-                } else if pushed {
-                    NSCursor.pop()
-                    pushed = false
-                }
-            }
-            .onDisappear {
-                if pushed {
-                    NSCursor.pop()
-                    pushed = false
-                }
-            }
-    }
-}
-
-extension View {
-    fileprivate func clickableSidebarRow() -> some View {
-        modifier(ClickableSidebarRowModifier())
-    }
-}
-
-extension DiscoveredIssue {
-    fileprivate var typeForPill: IssueType {
-        switch self {
-        case .valid(let issue): issue.type
-        case .invalid: .chore
+    private func handleDeleteKey() -> KeyPress.Result {
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
         }
-    }
-
-    fileprivate var titleForRow: String {
-        switch self {
-        case .valid(let issue): issue.title
-        case .invalid(let folder, _): folder.lastPathComponent
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
+        Task { @MainActor in
+            await navigator.trash(url: url, projectURL: projectURL)
         }
+        return .handled
     }
 }

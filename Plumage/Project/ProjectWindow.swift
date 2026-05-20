@@ -14,13 +14,19 @@ struct ProjectWindow: View {
     @State private var indicator = StatusIndicatorModel()
     @State private var session: ClaudeSession
     @State private var terminalSession: TerminalClaudeSession
+    @State private var xcodeRun: XcodeRunModel
+    @State private var xcodeRunController: XcodeRunController
+    @State private var showBuildLog = false
     @SceneStorage("claudeDock.open") private var isDockOpen = false
+    @SceneStorage("xcode.scheme") private var persistedScheme: String = ""
+    @SceneStorage("xcode.destination") private var persistedDestinationID: String = ""
     // Cached focused-scene action. Computing `isLoaded ? { … } : nil` inline
     // produces a new closure per body re-eval, which the focus system
     // republishes; under fast state churn (kanban refresh, indicator detect)
     // it warns "FocusedValue update tried to update multiple times per
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
+    @State private var beginInlineCreateAction: InlineCreateInvoker?
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -37,16 +43,24 @@ struct ProjectWindow: View {
         self._terminalSession = State(
             initialValue: TerminalClaudeSession(cwd: handle.url, binaryURL: binary)
         )
+        let runModel = XcodeRunModel()
+        self._xcodeRun = State(initialValue: runModel)
+        self._xcodeRunController = State(initialValue: XcodeRunController(model: runModel))
     }
 
     var body: some View {
         baseStack
             .environment(kanban)
             .environment(navigator)
+            .environment(\.openCreateIssue) { status in
+                createInitialStatus = status
+                showCreateSheet = true
+            }
             .frame(minWidth: 900, minHeight: 560)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
+            .focusedSceneValue(\.beginInlineCreate, beginInlineCreateAction)
             .focusedSceneValue(\.terminalToggle, $isDockOpen)
             .task(id: handle.url) {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
@@ -65,13 +79,31 @@ struct ProjectWindow: View {
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
-                _ = await (reload, run, detect, navLoad)
+                async let xcodeDiscover: Void = xcodeRun.discover(projectURL: handle.url)
+                _ = await (reload, run, detect, navLoad, xcodeDiscover)
                 refreshCreateIssueAction()
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
+            .onChange(of: xcodeRun.discoveryState) { _, state in
+                if state == .ready {
+                    Task {
+                        await xcodeRun.restoreSelections(
+                            scheme: persistedScheme.isEmpty ? nil : persistedScheme,
+                            destinationID: persistedDestinationID.isEmpty ? nil : persistedDestinationID
+                        )
+                    }
+                }
+            }
+            .onChange(of: xcodeRun.selectedScheme) { _, scheme in
+                persistedScheme = scheme ?? ""
+            }
+            .onChange(of: xcodeRun.selectedDestination) { _, destination in
+                persistedDestinationID = destination?.id ?? ""
+            }
             .onDisappear {
                 session.stop()
                 terminalSession.stop()
+                xcodeRunController.cancelRun()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
@@ -94,6 +126,11 @@ struct ProjectWindow: View {
                             }
                         }
                 }
+                // Sheets present in their own SwiftUI tree and don't inherit
+                // the presenter's environment. IssueDetailView's
+                // @Environment(ProjectKanbanModel.self) crashes without these.
+                .environment(kanban)
+                .environment(navigator)
                 .frame(minWidth: 720, minHeight: 600)
             }
     }
@@ -122,6 +159,20 @@ struct ProjectWindow: View {
                     .help("Back to kanban board")
                 }
             }
+            XcodeToolbarItems(
+                model: xcodeRun,
+                onRun: { xcodeRunController.startRun() },
+                onCancel: { xcodeRunController.cancelRun() },
+                onReload: {
+                    Task { await xcodeRun.reload(projectURL: handle.url) }
+                },
+                onInstallXcode: {
+                    if let url = xcodeRun.installXcodeURL {
+                        NSWorkspace.shared.open(url)
+                    }
+                },
+                showLog: $showBuildLog
+            )
         }
     }
 
@@ -166,7 +217,10 @@ struct ProjectWindow: View {
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                ProjectStatusBar(indicatorState: indicator.state)
+                ProjectStatusBar(
+                    indicatorState: indicator.state,
+                    banner: navigator.dropRejectMessage
+                )
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
@@ -203,8 +257,14 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
             }
-        } else if createIssueAction != nil {
-            createIssueAction = nil
+            if beginInlineCreateAction == nil {
+                beginInlineCreateAction = InlineCreateInvoker { section in
+                    navigator.beginPendingCreate(section)
+                }
+            }
+        } else {
+            if createIssueAction != nil { createIssueAction = nil }
+            if beginInlineCreateAction != nil { beginInlineCreateAction = nil }
         }
     }
 

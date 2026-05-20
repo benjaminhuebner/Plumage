@@ -107,6 +107,24 @@ struct NavigatorRouteTests {
         #expect(decoded == route)
     }
 
+    @Test("Codable round-trip for claudeMarkdown")
+    func codableClaudeMarkdown() throws {
+        let route: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
+        let data = try JSONEncoder().encode(route)
+        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
+        #expect(decoded == route)
+    }
+
+    @Test("claudeMarkdown equality is name based and distinct from claudeMD")
+    func claudeMarkdownEquality() {
+        let first: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
+        let same: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
+        let other: NavigatorRoute = .claudeMarkdown(name: "notes.md")
+        #expect(first == same)
+        #expect(first != other)
+        #expect(first != .claudeMD)
+    }
+
     @Test("Codable round-trip for settings(.main)")
     func codableSettingsMain() throws {
         let data = try JSONEncoder().encode(NavigatorRoute.settings(.main))
@@ -155,5 +173,35 @@ struct NavigatorRouteTests {
     @Test("persistedString init returns nil for invalid JSON")
     func persistedStringInvalid() {
         #expect(NavigatorRoute(persistedString: "not json") == nil)
+    }
+
+    @Test("managedFileURL returns nil for routes that aren't a single managed file")
+    func managedFileURLNonFileRoutes() {
+        let project = URL(filePath: "/tmp/proj")
+        #expect(NavigatorRoute.kanban.managedFileURL(in: project) == nil)
+        #expect(NavigatorRoute.issue(folderName: "00001-x").managedFileURL(in: project) == nil)
+        #expect(NavigatorRoute.claudeMD.managedFileURL(in: project) == nil)
+        #expect(NavigatorRoute.settings(.main).managedFileURL(in: project) == nil)
+    }
+
+    @Test("managedFileURL builds the correct on-disk URL for managed files")
+    func managedFileURLForManagedFiles() {
+        let project = URL(filePath: "/tmp/proj")
+        #expect(
+            NavigatorRoute.doc(relativePath: ".claude/docs/intro.md")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/docs/intro.md")
+        #expect(
+            NavigatorRoute.claudeMarkdown(name: "PROJECT.md")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/PROJECT.md")
+        #expect(
+            NavigatorRoute.hook(name: "lint.sh")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/hooks/lint.sh")
+        #expect(
+            NavigatorRoute.skillFile(skill: "alpha", relativePath: "refs/notes.md")
+                .managedFileURL(in: project)?.path
+                == "/tmp/proj/.claude/skills/alpha/refs/notes.md")
     }
 }

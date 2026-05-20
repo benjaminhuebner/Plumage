@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProjectStatusBar: View {
     let indicatorState: StatusIndicatorModel.IndicatorState
+    var banner: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -9,18 +10,22 @@ struct ProjectStatusBar: View {
             HStack(spacing: 6) {
                 Spacer()
                 statusDot
-                Text(label)
+                // Banner messages take priority over the static indicator
+                // label — for the ~3 s window the user sees the rejection
+                // reason instead of "claude X ready".
+                Text(banner ?? label)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(banner == nil ? .secondary : .primary)
+                    .accessibilityIdentifier(banner == nil ? "indicator-label" : "drop-banner")
                 Spacer()
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 22)
             .background(.bar)
-            .help(tooltip)
+            .help(banner ?? tooltip)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(accessibilityLabel))
-            .accessibilityValue(Text(tooltip))
+            .accessibilityLabel(Text(banner == nil ? accessibilityLabel : "Drop rejected"))
+            .accessibilityValue(Text(banner ?? tooltip))
         }
     }
 
