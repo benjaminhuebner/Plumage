@@ -77,7 +77,18 @@ private struct SwiftTermBridge: NSViewRepresentable {
             args: args,
             environment: env
         )
-        session.markStarted()
+        // SwiftTerm's startProcess returns the instant the PTY is wired up,
+        // but claude itself spends ~1.6s on hooks / plugins / CLAUDE.md /
+        // --resume replay. Holding the session in .starting masks that window
+        // with the "Resuming session…" overlay; once we flip to .running the
+        // overlay fades and subsequent mode toggles see the session already
+        // running so they never re-enter .starting.
+        context.coordinator.markStartedTask?.cancel()
+        context.coordinator.markStartedTask = Task { @MainActor [weak session] in
+            try? await Task.sleep(for: .seconds(1.6))
+            guard !Task.isCancelled, let session else { return }
+            session.markStarted()
+        }
         // SwiftTerm starts unfocused inside an NSViewRepresentable. Without
         // a firstResponder hand-off the caret renders as a hollow outline
         // (drawCursor uses TerminalView.hasFocus) and keystrokes can be
@@ -102,6 +113,8 @@ private struct SwiftTermBridge: NSViewRepresentable {
     ) {
         // Without explicit terminate(), LocalProcess.deinit leaves the child
         // running and the PTY fd pair leaked for the app session.
+        coordinator.markStartedTask?.cancel()
+        coordinator.markStartedTask = nil
         nsView.stopCursorKeepAlive()
         nsView.terminate()
     }
@@ -136,6 +149,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         weak var session: TerminalClaudeSession?
         var lastColorScheme: ColorScheme?
+        var markStartedTask: Task<Void, Never>?
 
         init(session: TerminalClaudeSession) {
             self.session = session
