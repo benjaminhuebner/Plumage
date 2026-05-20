@@ -314,15 +314,17 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private var settingsGroup: some View {
-        DisclosureGroup(isExpanded: $settingsExpanded) {
+        SidebarRowWithMenu(
+            label: Label("Settings", systemImage: "gearshape.2"),
+            expanded: $settingsExpanded
+        )
+        .clickableSidebarRow()
+        if settingsExpanded {
             ForEach(SettingsFile.allCases, id: \.self) { file in
                 Label(file.rawValue, systemImage: "gearshape")
                     .tag(NavigatorRoute.settings(file))
                     .clickableSidebarRow()
             }
-        } label: {
-            Label("Settings", systemImage: "gearshape.2")
-                .clickableSidebarRow()
         }
     }
 
@@ -524,54 +526,55 @@ struct SidebarSectionHeader: View {
     }
 }
 
-// Disclosure-style sidebar row with its own chevron + a trailing hover-+
-// menu. Built as a hand-rolled row instead of `DisclosureGroup { } label:`
-// because `List(.sidebar)` drops the system chevron the moment the
-// label content is anything other than a primitive `Label` — same reason
-// `SidebarSectionHeader` exists as a row rather than `Section { } header:`.
+// Disclosure-style sidebar row used by Hooks, Skills, Settings, and the
+// per-skill folder rows. Hand-rolled instead of `DisclosureGroup { }
+// label:` because `List(.sidebar)` drops the system chevron AND silently
+// kills the toggle as soon as the label is anything more than a primitive
+// `Label`. Same rationale as `SidebarSectionHeader` (which exists as a
+// row rather than `Section { } header:`).
+//
+// New-File / New-Folder actions ride on the row's `.contextMenu`
+// (right-click) plus the File-menu shortcuts. We previously rendered a
+// hover-+ menu via `.overlay(alignment: .trailing) { Menu }`, but that
+// shifted the row's measured width and pushed the chevron one indent
+// level deeper than peer rows (Settings was 6 pt further left). Trading
+// the hover affordance for a consistent layout — context menu + File
+// menu cover the same intents.
 struct SidebarRowWithMenu<Label: View, MenuContent: View>: View {
     let label: Label
     let help: String
     @Binding var expanded: Bool
     @ViewBuilder let menu: () -> MenuContent
-    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.right")
-                        .imageScale(.small)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 12)
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
-                    label
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            Menu {
-                menu()
-            } label: {
-                Image(systemName: "plus")
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
                     .imageScale(.small)
-                    .foregroundStyle(hovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                label
+                Spacer(minLength: 0)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help(help)
-            .opacity(hovering ? 1 : 0.55)
+            .contentShape(Rectangle())
         }
-        .onHover { hovering = $0 }
+        .buttonStyle(.plain)
+        .help(help)
         .contextMenu {
             menu()
         }
+    }
+}
+
+extension SidebarRowWithMenu where MenuContent == EmptyView {
+    init(label: Label, expanded: Binding<Bool>) {
+        self.label = label
+        self.help = ""
+        self._expanded = expanded
+        self.menu = { EmptyView() }
     }
 }
 
