@@ -14,14 +14,14 @@ struct SkillTreeView: View {
                 nodeView(skillName: skillName, relativePath: "", node: node)
             }
             if isPendingHere(relativePath: "") {
-                inlineRow
+                inlineCreateRow
             }
         } label: {
-            HStack {
-                Label(skillName, systemImage: "puzzlepiece")
-                Spacer()
-                addMenu(relativePath: "")
-            }
+            skillFolderLabel(
+                folderName: skillName,
+                icon: "puzzlepiece",
+                path: "",
+                url: skillFolderURL(skillName: skillName, relativePath: ""))
         }
     }
 
@@ -30,8 +30,7 @@ struct SkillTreeView: View {
         switch node {
         case .file(let url):
             let rel = childPath(parent: relativePath, name: url.lastPathComponent)
-            Label(url.lastPathComponent, systemImage: "doc")
-                .tag(NavigatorRoute.skillFile(skill: skillName, relativePath: rel))
+            skillFileRow(url: url, skillName: skillName, relativePath: rel)
         case .folder(let name, let children):
             SkillFolderRow(
                 skillName: skillName,
@@ -44,7 +43,7 @@ struct SkillTreeView: View {
     }
 
     @ViewBuilder
-    private var inlineRow: some View {
+    private var inlineCreateRow: some View {
         if let pending = navigator.pendingCreate {
             switch pending.section {
             case .skillFile:
@@ -68,29 +67,66 @@ struct SkillTreeView: View {
         }
     }
 
-    @ViewBuilder
-    private func addMenu(relativePath: String) -> some View {
-        Menu {
-            Button("New File") {
-                navigator.beginPendingCreate(
-                    .skillFile(skillName: skillName, relativePath: relativePath))
-            }
-            Button("New Folder") {
-                navigator.beginPendingCreate(
-                    .skillFolder(skillName: skillName, relativePath: relativePath))
-            }
-        } label: {
-            Image(systemName: "plus")
-                .font(.caption)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Add to \(skillName)")
-    }
-
     private func childPath(parent: String, name: String) -> String {
         parent.isEmpty ? name : parent + "/" + name
+    }
+
+    private func skillFolderURL(skillName: String, relativePath: String) -> URL {
+        var url =
+            projectURL
+            .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+        let trimmed = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !trimmed.isEmpty {
+            for component in trimmed.split(separator: "/") {
+                url = url.appendingPathComponent(String(component), isDirectory: true)
+            }
+        }
+        return url
+    }
+
+    @ViewBuilder
+    fileprivate func skillFileRow(url: URL, skillName: String, relativePath: String) -> some View {
+        if navigator.renaming?.url == url {
+            InlineRenameRow(projectURL: projectURL, icon: "doc")
+                .tag(NavigatorRoute.skillFile(skill: skillName, relativePath: relativePath))
+        } else {
+            Label(url.lastPathComponent, systemImage: "doc")
+                .tag(NavigatorRoute.skillFile(skill: skillName, relativePath: relativePath))
+                .contextMenu {
+                    Button("Rename") { navigator.beginRename(url: url) }
+                    Divider()
+                    Button("Move to Trash", role: .destructive) {
+                        Task { @MainActor in
+                            await navigator.trash(url: url, projectURL: projectURL)
+                        }
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    fileprivate func skillFolderLabel(
+        folderName: String, icon: String, path: String, url: URL
+    ) -> some View {
+        Label(folderName, systemImage: icon)
+            .contextMenu {
+                Button("New File") {
+                    navigator.beginPendingCreate(
+                        .skillFile(skillName: skillName, relativePath: path))
+                }
+                Button("New Folder") {
+                    navigator.beginPendingCreate(
+                        .skillFolder(skillName: skillName, relativePath: path))
+                }
+                Divider()
+                Button("Rename") { navigator.beginRename(url: url) }
+                Button("Move to Trash", role: .destructive) {
+                    Task { @MainActor in
+                        await navigator.trash(url: url, projectURL: projectURL)
+                    }
+                }
+            }
     }
 }
 
@@ -111,14 +147,10 @@ private struct SkillFolderRow: View {
                 childView(node: node, path: path)
             }
             if isPendingHere(path: path) {
-                inlineRow
+                inlineCreateRow
             }
         } label: {
-            HStack {
-                Label(folderName, systemImage: "folder")
-                Spacer()
-                addMenu(path: path)
-            }
+            folderLabel(path: path)
         }
     }
 
@@ -127,8 +159,22 @@ private struct SkillFolderRow: View {
         switch node {
         case .file(let url):
             let rel = path + "/" + url.lastPathComponent
-            Label(url.lastPathComponent, systemImage: "doc")
-                .tag(NavigatorRoute.skillFile(skill: skillName, relativePath: rel))
+            if navigator.renaming?.url == url {
+                InlineRenameRow(projectURL: projectURL, icon: "doc")
+                    .tag(NavigatorRoute.skillFile(skill: skillName, relativePath: rel))
+            } else {
+                Label(url.lastPathComponent, systemImage: "doc")
+                    .tag(NavigatorRoute.skillFile(skill: skillName, relativePath: rel))
+                    .contextMenu {
+                        Button("Rename") { navigator.beginRename(url: url) }
+                        Divider()
+                        Button("Move to Trash", role: .destructive) {
+                            Task { @MainActor in
+                                await navigator.trash(url: url, projectURL: projectURL)
+                            }
+                        }
+                    }
+            }
         case .folder(let name, let children):
             SkillFolderRow(
                 skillName: skillName,
@@ -141,7 +187,7 @@ private struct SkillFolderRow: View {
     }
 
     @ViewBuilder
-    private var inlineRow: some View {
+    private var inlineCreateRow: some View {
         if let pending = navigator.pendingCreate {
             switch pending.section {
             case .skillFile:
@@ -166,23 +212,43 @@ private struct SkillFolderRow: View {
     }
 
     @ViewBuilder
-    private func addMenu(path: String) -> some View {
-        Menu {
-            Button("New File") {
-                navigator.beginPendingCreate(
-                    .skillFile(skillName: skillName, relativePath: path))
-            }
-            Button("New Folder") {
-                navigator.beginPendingCreate(
-                    .skillFolder(skillName: skillName, relativePath: path))
-            }
-        } label: {
-            Image(systemName: "plus")
-                .font(.caption)
+    private func folderLabel(path: String) -> some View {
+        let url = folderURL(path: path)
+        if navigator.renaming?.url == url {
+            InlineRenameRow(projectURL: projectURL, icon: "folder")
+        } else {
+            Label(folderName, systemImage: "folder")
+                .contextMenu {
+                    Button("New File") {
+                        navigator.beginPendingCreate(
+                            .skillFile(skillName: skillName, relativePath: path))
+                    }
+                    Button("New Folder") {
+                        navigator.beginPendingCreate(
+                            .skillFolder(skillName: skillName, relativePath: path))
+                    }
+                    Divider()
+                    Button("Rename") { navigator.beginRename(url: url) }
+                    Button("Move to Trash", role: .destructive) {
+                        Task { @MainActor in
+                            await navigator.trash(url: url, projectURL: projectURL)
+                        }
+                    }
+                }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Add to \(folderName)")
+    }
+
+    private func folderURL(path: String) -> URL {
+        var url =
+            projectURL
+            .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !trimmed.isEmpty {
+            for component in trimmed.split(separator: "/") {
+                url = url.appendingPathComponent(String(component), isDirectory: true)
+            }
+        }
+        return url
     }
 }

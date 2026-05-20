@@ -14,6 +14,10 @@ final class NavigatorModel {
     // and calls commit/cancel based on Enter/Escape/blur.
     var pendingCreate: PendingCreate?
 
+    // Inline rename of an existing row. Set when the user hits Enter or
+    // picks "Rename" from the context menu; cleared on commit/cancel.
+    var renaming: RenameSession?
+
     // ~3 s transient banner that surfaces drop/inline rejections in the
     // status bar. Mutators always set + auto-reset via `bannerResetTask`.
     private(set) var dropRejectMessage: String?
@@ -116,6 +120,47 @@ final class NavigatorModel {
     // Triggers the ~3 s reject banner. Cancels any in-flight auto-dismiss
     // task before scheduling the new one so back-to-back errors don't fight
     // each other.
+    func beginRename(url: URL) {
+        renaming = RenameSession(url: url, name: url.lastPathComponent)
+    }
+
+    func cancelRename() {
+        renaming = nil
+    }
+
+    @discardableResult
+    func commitRename(projectURL: URL) async -> NavigatorRoute? {
+        guard let session = renaming else { return nil }
+        let trimmed = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return nil
+        }
+        do {
+            let url = session.url
+            let target = try await Task.detached(priority: .userInitiated) {
+                try ClaudeProjectFiles.renameFile(
+                    at: url, to: trimmed, projectURL: projectURL)
+            }.value
+            renaming = nil
+            await reload(projectURL: projectURL)
+            return Self.routeAfterRename(originalURL: session.url, newURL: target, projectURL: projectURL)
+        } catch {
+            showBanner(error.localizedDescription)
+            return nil
+        }
+    }
+
+    func trash(url: URL, projectURL: URL) async {
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                _ = try ClaudeProjectFiles.trashFile(at: url)
+            }.value
+            await reload(projectURL: projectURL)
+        } catch {
+            showBanner("Couldn't move to Trash: \(error.localizedDescription)")
+        }
+    }
+
     func showBanner(_ message: String) {
         bannerResetTask?.cancel()
         dropRejectMessage = message
@@ -159,6 +204,38 @@ final class NavigatorModel {
         }
     }
 
+    // After a successful rename we want the selection to follow the new
+    // path. For docs we need the `.claude/docs/<name>`-relative form, for
+    // claudeMarkdown we need just the name, etc. We piggy-back on the same
+    // section/route mapping the create flow uses.
+    private static func routeAfterRename(
+        originalURL: URL, newURL: URL, projectURL: URL
+    ) -> NavigatorRoute? {
+        let path = newURL.standardizedFileURL.path
+        let projectPath = projectURL.standardizedFileURL.path
+        guard path.hasPrefix(projectPath + "/") else { return nil }
+        let relative = String(path.dropFirst(projectPath.count + 1))
+        if relative.hasPrefix(".claude/docs/") {
+            return .doc(relativePath: relative)
+        }
+        if newURL.deletingLastPathComponent().lastPathComponent == ".claude" {
+            return .claudeMarkdown(name: newURL.lastPathComponent)
+        }
+        if relative.hasPrefix(".claude/hooks/") {
+            return .hook(name: newURL.lastPathComponent)
+        }
+        if relative.hasPrefix(".claude/skills/") {
+            // Treat the first path component below `skills/` as the
+            // skill folder; the rest is the relative path.
+            let trimmed = String(relative.dropFirst(".claude/skills/".count))
+            let parts = trimmed.split(separator: "/", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                return .skillFile(skill: parts[0], relativePath: parts[1])
+            }
+        }
+        return nil
+    }
+
     private static func relativePath(from projectURL: URL, to url: URL) -> String {
         let projectPath = projectURL.standardizedFileURL.path
         let urlPath = url.standardizedFileURL.path
@@ -198,6 +275,18 @@ nonisolated struct PendingCreate: Identifiable, Equatable, Sendable {
     init(section: Section, name: String) {
         self.id = UUID()
         self.section = section
+        self.name = name
+    }
+}
+
+nonisolated struct RenameSession: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let url: URL
+    var name: String
+
+    init(url: URL, name: String) {
+        self.id = UUID()
+        self.url = url
         self.name = name
     }
 }

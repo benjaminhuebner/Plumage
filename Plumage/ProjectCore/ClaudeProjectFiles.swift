@@ -113,6 +113,66 @@ nonisolated enum ClaudeProjectFiles {
         return try createFile(in: parent, baseName: normalized, defaultContent: content)
     }
 
+    // MARK: - Rename / Trash
+
+    // Renames a file or folder in place. The new name is normalized against
+    // the same allowed-extension rules as the section's creator (so a Doc
+    // renamed to "foo" still keeps the `.md` suffix). Suffix-walks on
+    // collision so renaming "foo.md" over an existing "foo.md" lands at
+    // "foo-1.md".
+    static func renameFile(
+        at url: URL,
+        to newName: String,
+        projectURL: URL
+    ) throws -> URL {
+        let parent = url.deletingLastPathComponent()
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        let normalized: String
+        if isDir {
+            normalized = sanitizeFolderName(newName)
+        } else {
+            let allowed = allowedExtensions(forParent: parent, projectURL: projectURL)
+            let fallback = allowed.first ?? (url.pathExtension.isEmpty ? "md" : url.pathExtension)
+            normalized = normalizedFileName(
+                newName, allowedExtensions: Array(allowed), fallback: fallback)
+        }
+        // Same-name no-op: don't trigger a move + suffix-walk if the user
+        // hit Enter without changing anything.
+        if normalized == url.lastPathComponent {
+            return url
+        }
+        let target = try findFreeName(in: parent, base: normalized)
+        try FileManager.default.moveItem(at: url, to: target)
+        return target
+    }
+
+    static func trashFile(at url: URL) throws -> URL {
+        var resulting: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+        guard let resulting = resulting as URL? else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return resulting
+    }
+
+    // Returns the canonical extension whitelist for the directory a file
+    // lives in. Used by renameFile so a Doc stays `.md` even when the user
+    // types "foo" without an extension. Falls back to the original
+    // extension if the parent isn't one of the known managed folders.
+    private static func allowedExtensions(forParent parent: URL, projectURL: URL) -> Set<String> {
+        let normalized = parent.standardizedFileURL.path
+        let projectPath = projectURL.standardizedFileURL.path
+        guard normalized.hasPrefix(projectPath) else { return [] }
+        let relative = String(normalized.dropFirst(projectPath.count + 1))
+        if relative == docsRelativePath { return ["md"] }
+        if relative == settingsRootRelativePath { return ["md"] }
+        if relative == hooksRelativePath || relative.hasPrefix(hooksRelativePath + "/") {
+            return ["sh", "py"]
+        }
+        if relative.hasPrefix(skillsRelativePath) { return ["md", "sh", "py"] }
+        return []
+    }
+
     // MARK: - Free-name helper
 
     // Returns the first URL whose lastPathComponent (with the same extension

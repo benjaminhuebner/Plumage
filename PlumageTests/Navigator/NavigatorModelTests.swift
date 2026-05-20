@@ -115,6 +115,91 @@ struct NavigatorModelTests {
         #expect(model.dropRejectMessage == nil)
     }
 
+    @Test("commitRename moves the file and returns the new route")
+    func commitRenameDoc() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/old.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        let original = try #require(model.docs.first)
+        model.beginRename(url: original)
+        model.renaming?.name = "new.md"
+        let route = await model.commitRename(projectURL: fixture.root)
+        #expect(route == .doc(relativePath: ".claude/docs/new.md"))
+        #expect(model.renaming == nil)
+        #expect(model.docs.map(\.lastPathComponent) == ["new.md"])
+    }
+
+    @Test("commitRename suffixes on collision instead of failing")
+    func commitRenameSuffixOnCollision() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/keep.md", content: "x")
+        try fixture.makeFile(at: ".claude/docs/old.md", content: "y")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        let old = try #require(model.docs.first(where: { $0.lastPathComponent == "old.md" }))
+        model.beginRename(url: old)
+        model.renaming?.name = "keep.md"
+        _ = await model.commitRename(projectURL: fixture.root)
+        let names = model.docs.map(\.lastPathComponent).sorted()
+        #expect(names == ["keep-1.md", "keep.md"])
+    }
+
+    @Test("commitRename with empty string is a no-op")
+    func commitRenameEmpty() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        let foo = try #require(model.docs.first)
+        model.beginRename(url: foo)
+        model.renaming?.name = "   "
+        let route = await model.commitRename(projectURL: fixture.root)
+        #expect(route == nil)
+        #expect(model.renaming != nil)
+        #expect(FileManager.default.fileExists(atPath: foo.path))
+    }
+
+    @Test("commitRename with same name is a no-op (no FS write)")
+    func commitRenameSameName() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/keep.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        let url = try #require(model.docs.first)
+        model.beginRename(url: url)
+        model.renaming?.name = "keep.md"
+        _ = await model.commitRename(projectURL: fixture.root)
+        #expect(model.docs.map(\.lastPathComponent) == ["keep.md"])
+    }
+
+    @Test("trash moves the file to the Trash and removes it from the list")
+    func trashDoc() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/temp.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        let url = try #require(model.docs.first)
+        await model.trash(url: url, projectURL: fixture.root)
+        #expect(model.docs.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test("cancelRename leaves the file untouched")
+    func cancelRename() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        let url = try #require(model.docs.first)
+        model.beginRename(url: url)
+        model.renaming?.name = "bar.md"
+        model.cancelRename()
+        #expect(model.renaming == nil)
+        #expect(model.docs.map(\.lastPathComponent) == ["foo.md"])
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
+
     @Test("clearBanner cancels the auto-dismiss timer")
     func clearBannerCancels() async throws {
         let model = NavigatorModel(bannerDisplayDuration: .seconds(60))

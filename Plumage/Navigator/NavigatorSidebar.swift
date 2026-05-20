@@ -7,7 +7,6 @@ struct NavigatorSidebar: View {
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
-    @Environment(\.openCreateIssue) private var openCreateIssue
 
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
@@ -19,18 +18,18 @@ struct NavigatorSidebar: View {
 
     var body: some View {
         List(selection: selectionBinding) {
-            Section(header: sectionHeader(title: "Issues", action: { openCreateIssue(.draft) }, help: "New Issue")) {
+            Section {
                 Label("Board", systemImage: "rectangle.3.group.fill")
                     .tag(NavigatorRoute.kanban)
                     .clickableSidebarRow()
                 ForEach(IssueColumn.allCases) { column in
                     columnRow(column)
                 }
+            } header: {
+                Text("Issues")
             }
 
-            Section(
-                header: sectionHeader(title: "Docs", action: { navigator.beginPendingCreate(.docs) }, help: "New Doc")
-            ) {
+            Section {
                 Group {
                     if navigator.docs.isEmpty && !isPending(.docs) {
                         emptyPlaceholder("No docs yet")
@@ -44,12 +43,13 @@ struct NavigatorSidebar: View {
                     }
                 }
                 .modifier(SectionDropModifier(section: .docs, projectURL: projectURL, navigator: navigator))
+            } header: {
+                sectionHeader(title: "Docs") {
+                    Button("New Doc") { navigator.beginPendingCreate(.docs) }
+                }
             }
 
-            Section(
-                header: sectionHeader(
-                    title: "Claude", action: { navigator.beginPendingCreate(.claudeMarkdown) }, help: "New Markdown")
-            ) {
+            Section {
                 Group {
                     Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
                         .tag(NavigatorRoute.claudeMD)
@@ -71,17 +71,43 @@ struct NavigatorSidebar: View {
                 }
                 .modifier(SectionDropModifier(section: .skillsTopLevel, projectURL: projectURL, navigator: navigator))
                 settingsGroup
+            } header: {
+                sectionHeader(title: "Claude") {
+                    Button("New Markdown") { navigator.beginPendingCreate(.claudeMarkdown) }
+                }
             }
         }
         .listStyle(.sidebar)
+        // Keyboard shortcuts on the focused list selection:
+        //  - Enter on a managed row → inline rename
+        //  - Backspace on a managed row → move to Trash
+        // `.onDeleteCommand` is the macOS responder-chain entry point for
+        // backspace; `.onKeyPress(.delete)` doesn't fire on List(.sidebar)
+        // because the underlying NSTableView absorbs the keystroke. Return
+        // works fine via `.onKeyPress` because no AppKit handler claims it.
+        .onKeyPress(.return) {
+            handleReturnKey()
+        }
+        .onDeleteCommand {
+            _ = handleDeleteKey()
+        }
     }
 
+    // Section header with a context menu. The plain Text header is too thin
+    // a hitbox for right-click in the sidebar (List(.sidebar) renders it
+    // ~14pt high); wrapping in an HStack with maxWidth + a contentShape
+    // gives the user the full section-header bar to right-click on.
     @ViewBuilder
-    private func sectionHeader(title: String, action: @escaping () -> Void, help: String) -> some View {
+    private func sectionHeader<Menu: View>(
+        title: String, @ViewBuilder menu: () -> Menu
+    ) -> some View {
         HStack {
             Text(title)
             Spacer()
-            SectionHeaderAddButton(action: action, help: help)
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            menu()
         }
     }
 
@@ -95,6 +121,8 @@ struct NavigatorSidebar: View {
             set: { if let value = $0 { selection = value } }
         )
     }
+
+    // MARK: - Issues / columns
 
     @ViewBuilder
     private func columnRow(_ column: IssueColumn) -> some View {
@@ -149,10 +177,14 @@ struct NavigatorSidebar: View {
         .clickableSidebarRow()
         .modifier(IssueRowDraggable(issue: issue, column: column))
         .overlay(alignment: .top) {
-            reorderDropZone(folderName: issue.id, column: column, position: .above)
+            ReorderDropZone(
+                folderName: issue.id, column: column, position: .above,
+                projectURL: projectURL, kanban: kanban)
         }
         .overlay(alignment: .bottom) {
-            reorderDropZone(folderName: issue.id, column: column, position: .below)
+            ReorderDropZone(
+                folderName: issue.id, column: column, position: .below,
+                projectURL: projectURL, kanban: kanban)
         }
         .contextMenu {
             IssueContextMenuItems(
@@ -161,24 +193,6 @@ struct NavigatorSidebar: View {
                 projectURL: projectURL
             )
         }
-    }
-
-    // Half-height transparent slot — splitting the row into two SwiftUI drop
-    // targets is the pattern used historically (decisions.md 2026-05-14
-    // #00013 above/below zones) and avoids the location-math fragility of a
-    // single drop target. Each zone holds its own `isTargeted` state so the
-    // 2pt indicator line can flip independently.
-    @ViewBuilder
-    private func reorderDropZone(
-        folderName: String, column: IssueColumn, position: ReorderPosition
-    ) -> some View {
-        ReorderDropZone(
-            folderName: folderName,
-            column: column,
-            position: position,
-            projectURL: projectURL,
-            kanban: kanban
-        )
     }
 
     private func issueFolderURL(_ issue: DiscoveredIssue) -> URL {
@@ -190,19 +204,51 @@ struct NavigatorSidebar: View {
         }
     }
 
+    // MARK: - Managed file rows (Docs / Claude markdown / Hooks)
+
     @ViewBuilder
     private func claudeMarkdownRow(_ url: URL) -> some View {
-        Label(url.lastPathComponent, systemImage: "doc.text")
-            .tag(NavigatorRoute.claudeMarkdown(name: url.lastPathComponent))
-            .clickableSidebarRow()
+        managedFileRow(
+            url: url,
+            tag: .claudeMarkdown(name: url.lastPathComponent),
+            icon: "doc.text"
+        )
     }
 
     @ViewBuilder
     private func docRow(_ url: URL) -> some View {
         let relative = relativePath(for: url)
-        Label(url.lastPathComponent, systemImage: "doc.text")
-            .tag(NavigatorRoute.doc(relativePath: relative))
-            .clickableSidebarRow()
+        managedFileRow(
+            url: url,
+            tag: .doc(relativePath: relative),
+            icon: "doc.text"
+        )
+    }
+
+    // Shared row layout used by docs, claude markdown, hooks, and skill-files.
+    // When `navigator.renaming?.url == url`, the row swaps to an inline
+    // TextField for rename. Otherwise it's the normal Label + context menu.
+    @ViewBuilder
+    private func managedFileRow(
+        url: URL, tag: NavigatorRoute, icon: String
+    ) -> some View {
+        if navigator.renaming?.url == url {
+            InlineRenameRow(projectURL: projectURL, icon: icon)
+                .tag(tag)
+        } else {
+            Label(url.lastPathComponent, systemImage: icon)
+                .tag(tag)
+                .clickableSidebarRow()
+                .contextMenu {
+                    Button("Rename") { navigator.beginRename(url: url) }
+                    Divider()
+                    Button("Move to Trash", role: .destructive) {
+                        Task { @MainActor in
+                            await navigator.trash(url: url, projectURL: projectURL)
+                        }
+                    }
+                }
+        }
     }
 
     @ViewBuilder
@@ -212,9 +258,11 @@ struct NavigatorSidebar: View {
                 emptyPlaceholder("No hooks")
             } else {
                 ForEach(navigator.hooks, id: \.absoluteString) { url in
-                    Label(url.lastPathComponent, systemImage: "scroll")
-                        .tag(NavigatorRoute.hook(name: url.lastPathComponent))
-                        .clickableSidebarRow()
+                    managedFileRow(
+                        url: url,
+                        tag: .hook(name: url.lastPathComponent),
+                        icon: "scroll"
+                    )
                 }
                 if isPending(.hookFile) {
                     InlineCreateRow(projectURL: projectURL, icon: "scroll")
@@ -223,28 +271,13 @@ struct NavigatorSidebar: View {
                 }
             }
         } label: {
-            HStack {
-                Label("Hooks", systemImage: "terminal")
-                Spacer()
-                hooksAddMenu
-            }
-            .clickableSidebarRow()
+            Label("Hooks", systemImage: "terminal")
+                .clickableSidebarRow()
+                .contextMenu {
+                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                    Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
+                }
         }
-    }
-
-    @ViewBuilder
-    private var hooksAddMenu: some View {
-        Menu {
-            Button("New File") { navigator.beginPendingCreate(.hookFile) }
-            Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
-        } label: {
-            Image(systemName: "plus")
-                .font(.caption)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("New Hook")
     }
 
     @ViewBuilder
@@ -263,27 +296,12 @@ struct NavigatorSidebar: View {
                 }
             }
         } label: {
-            HStack {
-                Label("Skills", systemImage: "puzzlepiece.extension")
-                Spacer()
-                skillsAddMenu
-            }
-            .clickableSidebarRow()
+            Label("Skills", systemImage: "puzzlepiece.extension")
+                .clickableSidebarRow()
+                .contextMenu {
+                    Button("New Skill") { navigator.beginPendingCreate(.skill) }
+                }
         }
-    }
-
-    @ViewBuilder
-    private var skillsAddMenu: some View {
-        Menu {
-            Button("New Skill") { navigator.beginPendingCreate(.skill) }
-        } label: {
-            Image(systemName: "plus")
-                .font(.caption)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("New Skill")
     }
 
     @ViewBuilder
@@ -316,6 +334,58 @@ struct NavigatorSidebar: View {
         }
         return url.lastPathComponent
     }
+
+    // MARK: - Keyboard
+
+    private func handleReturnKey() -> KeyPress.Result {
+        // Don't fight the existing Inline-Create / Inline-Rename TextFields
+        // for the Enter key — both forward Enter to commit via .onSubmit.
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
+        }
+        guard let url = selectedManagedFileURL() else { return .ignored }
+        navigator.beginRename(url: url)
+        return .handled
+    }
+
+    private func handleDeleteKey() -> KeyPress.Result {
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
+        }
+        guard let url = selectedManagedFileURL() else { return .ignored }
+        Task { @MainActor in
+            await navigator.trash(url: url, projectURL: projectURL)
+        }
+        return .handled
+    }
+
+    // Resolves the current sidebar selection to the on-disk URL of a managed
+    // doc/hook/markdown/skill-file row. Returns nil for routes that don't
+    // map to a single user-owned file (kanban, issues, claudeMD, settings).
+    private func selectedManagedFileURL() -> URL? {
+        switch selection {
+        case .doc(let rel):
+            return projectURL.appendingPathComponent(rel)
+        case .claudeMarkdown(let name):
+            return
+                projectURL
+                .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
+                .appendingPathComponent(name)
+        case .hook(let name):
+            return
+                projectURL
+                .appendingPathComponent(ClaudeProjectFiles.hooksRelativePath, isDirectory: true)
+                .appendingPathComponent(name)
+        case .skillFile(let skill, let path):
+            return
+                projectURL
+                .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
+                .appendingPathComponent(skill, isDirectory: true)
+                .appendingPathComponent(path)
+        default:
+            return nil
+        }
+    }
 }
 
 private struct ClickableSidebarRowModifier: ViewModifier {
@@ -324,9 +394,6 @@ private struct ClickableSidebarRowModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onHover { hovering in
-                // push/pop must stay balanced — track local state so a
-                // missed exit callback (view removed mid-hover) can pop in
-                // .onDisappear.
                 if hovering {
                     if !pushed {
                         NSCursor.pointingHand.push()
@@ -418,9 +485,6 @@ private struct ReorderDropZone: View {
     @State private var isTargeted = false
 
     var body: some View {
-        // 8pt slot at the row's top/bottom. The 2pt indicator centers in the
-        // slot when targeted; otherwise the slot is fully transparent so the
-        // row's normal hit-testing keeps working.
         ZStack {
             Color.clear
                 .contentShape(Rectangle())
@@ -451,9 +515,6 @@ private struct IssueRowDraggable: ViewModifier {
     let column: IssueColumn
 
     func body(content: Content) -> some View {
-        // Invalid rows (frontmatter parse errors) have no canonical status —
-        // skip them; user must fix the spec first before reorder/move
-        // becomes meaningful.
         if case .valid(let value) = issue {
             content.draggable(
                 IssueDragPayload(
