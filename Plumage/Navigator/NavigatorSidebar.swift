@@ -158,7 +158,7 @@ struct NavigatorSidebar: View {
     @ViewBuilder
     private var hooksGroup: some View {
         DisclosureGroup(isExpanded: $hooksExpanded) {
-            if navigator.hooks.isEmpty {
+            if navigator.hooks.isEmpty && !isPending(.hookFile) && !isPending(.hookFolder) {
                 emptyPlaceholder("No hooks")
             } else {
                 ForEach(navigator.hooks, id: \.absoluteString) { url in
@@ -166,29 +166,74 @@ struct NavigatorSidebar: View {
                         .tag(NavigatorRoute.hook(name: url.lastPathComponent))
                         .clickableSidebarRow()
                 }
+                if isPending(.hookFile) {
+                    InlineCreateRow(projectURL: projectURL, icon: "scroll")
+                } else if isPending(.hookFolder) {
+                    InlineCreateRow(projectURL: projectURL, icon: "folder")
+                }
             }
         } label: {
-            Label("Hooks", systemImage: "terminal")
-                .clickableSidebarRow()
+            HStack {
+                Label("Hooks", systemImage: "terminal")
+                Spacer()
+                hooksAddMenu
+            }
+            .clickableSidebarRow()
         }
+    }
+
+    @ViewBuilder
+    private var hooksAddMenu: some View {
+        Menu {
+            Button("New File") { navigator.beginPendingCreate(.hookFile) }
+            Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
+        } label: {
+            Image(systemName: "plus")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("New Hook")
     }
 
     @ViewBuilder
     private var skillsGroup: some View {
         DisclosureGroup(isExpanded: $skillsExpanded) {
-            if navigator.skills.isEmpty {
+            if navigator.skills.isEmpty && !isPending(.skill) {
                 emptyPlaceholder("No skills")
             } else {
                 ForEach(navigator.skills, id: \.self) { node in
                     if case .folder(let name, let children) = node {
-                        SkillTreeView(skillName: name, children: children)
+                        SkillTreeView(skillName: name, children: children, projectURL: projectURL)
                     }
+                }
+                if isPending(.skill) {
+                    InlineCreateRow(projectURL: projectURL, icon: "puzzlepiece")
                 }
             }
         } label: {
-            Label("Skills", systemImage: "puzzlepiece.extension")
-                .clickableSidebarRow()
+            HStack {
+                Label("Skills", systemImage: "puzzlepiece.extension")
+                Spacer()
+                skillsAddMenu
+            }
+            .clickableSidebarRow()
         }
+    }
+
+    @ViewBuilder
+    private var skillsAddMenu: some View {
+        Menu {
+            Button("New Skill") { navigator.beginPendingCreate(.skill) }
+        } label: {
+            Image(systemName: "plus")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("New Skill")
     }
 
     @ViewBuilder

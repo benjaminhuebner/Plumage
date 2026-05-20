@@ -3,6 +3,7 @@ import SwiftUI
 struct SkillTreeView: View {
     let skillName: String
     let children: [SkillNode]
+    let projectURL: URL
 
     @State private var expanded: Bool = false
 
