@@ -5,6 +5,7 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case issue(folderName: String)
     case doc(relativePath: String)
     case claudeMD
+    case claudeMarkdown(name: String)
     case hook(name: String)
     case skillFile(skill: String, relativePath: String)
     case settings(SettingsFile)

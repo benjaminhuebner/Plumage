@@ -33,6 +33,96 @@ struct NavigatorModelTests {
         #expect(model.skills.isEmpty)
         #expect(model.loadError == nil)
     }
+
+    @Test("beginPendingCreate seeds the default name for each section")
+    func beginPendingCreateSeedsName() async throws {
+        let model = NavigatorModel()
+        model.beginPendingCreate(.docs)
+        #expect(model.pendingCreate?.section == .docs)
+        #expect(model.pendingCreate?.name == "untitled.md")
+
+        model.beginPendingCreate(.hookFile)
+        #expect(model.pendingCreate?.name == "untitled.sh")
+        model.beginPendingCreate(.skill)
+        #expect(model.pendingCreate?.name == "untitled-skill")
+    }
+
+    @Test("cancelPendingCreate clears the inline row without disk effects")
+    func cancelPendingCreate() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        model.beginPendingCreate(.docs)
+        model.cancelPendingCreate()
+        #expect(model.pendingCreate == nil)
+        // No file landed on disk.
+        let docs = try ClaudeProjectFiles.enumerateDocs(projectURL: fixture.root)
+        #expect(docs.isEmpty)
+    }
+
+    @Test("commitPendingCreate on .docs writes the file and selects the new route")
+    func commitPendingCreateDoc() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        model.beginPendingCreate(.docs)
+        model.pendingCreate?.name = "intro.md"
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        #expect(route == .doc(relativePath: ".claude/docs/intro.md"))
+        #expect(model.pendingCreate == nil)
+        #expect(model.docs.map(\.lastPathComponent) == ["intro.md"])
+        #expect(model.lastCreatedRoute == .doc(relativePath: ".claude/docs/intro.md"))
+    }
+
+    @Test("commitPendingCreate on .hookFile uses createHookFile and lands in hooks list")
+    func commitPendingCreateHook() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        model.beginPendingCreate(.hookFile)
+        model.pendingCreate?.name = "lint"
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        #expect(route == .hook(name: "lint.sh"))
+        #expect(model.hooks.map(\.lastPathComponent) == ["lint.sh"])
+    }
+
+    @Test("commitPendingCreate with empty name is a no-op (textfield stays focused)")
+    func commitPendingCreateEmpty() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        model.beginPendingCreate(.docs)
+        model.pendingCreate?.name = "   "
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        #expect(route == nil)
+        #expect(model.pendingCreate != nil)
+    }
+
+    @Test("commitPendingCreate on reserved CLAUDE.md surfaces a banner and keeps pending row")
+    func commitPendingCreateReservedClaudeMD() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel(bannerDisplayDuration: .milliseconds(50))
+        model.beginPendingCreate(.claudeMarkdown)
+        model.pendingCreate?.name = "CLAUDE.md"
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        #expect(route == nil)
+        #expect(model.dropRejectMessage != nil)
+        #expect(model.pendingCreate != nil)
+    }
+
+    @Test("showBanner sets message and auto-clears after duration")
+    func showBannerAutoClears() async throws {
+        let model = NavigatorModel(bannerDisplayDuration: .milliseconds(80))
+        model.showBanner("Only .md files allowed in Docs")
+        #expect(model.dropRejectMessage == "Only .md files allowed in Docs")
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(model.dropRejectMessage == nil)
+    }
+
+    @Test("clearBanner cancels the auto-dismiss timer")
+    func clearBannerCancels() async throws {
+        let model = NavigatorModel(bannerDisplayDuration: .seconds(60))
+        model.showBanner("hi")
+        #expect(model.dropRejectMessage == "hi")
+        model.clearBanner()
+        #expect(model.dropRejectMessage == nil)
+    }
 }
 
 private final class NavigatorModelFixture {

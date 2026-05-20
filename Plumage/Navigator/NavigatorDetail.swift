@@ -21,6 +21,13 @@ struct NavigatorDetail: View {
             DocEditorView(fileURL: projectURL.appendingPathComponent(relativePath))
         case .claudeMD:
             DocEditorView(fileURL: ClaudeProjectFiles.claudeMDURL(projectURL: projectURL))
+        case .claudeMarkdown(let name):
+            DocEditorView(
+                fileURL:
+                    projectURL
+                    .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
+                    .appendingPathComponent(name)
+            )
         case .hook(let name):
             DocEditorView(
                 fileURL:
