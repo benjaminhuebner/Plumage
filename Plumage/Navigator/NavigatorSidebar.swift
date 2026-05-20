@@ -18,7 +18,7 @@ struct NavigatorSidebar: View {
 
     var body: some View {
         List(selection: selectionBinding) {
-            Section("Kanban") {
+            Section("Issues") {
                 Label("Board", systemImage: "rectangle.3.group.fill")
                     .tag(NavigatorRoute.kanban)
                     .clickableSidebarRow()
