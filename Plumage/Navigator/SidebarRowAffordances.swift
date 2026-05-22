@@ -38,9 +38,7 @@ extension View {
         self.onGeometryChange(for: CGFloat.self) { proxy in
             proxy.frame(in: .named("navigator.sidebar")).minY
         } action: { minY in
-            if anchors.wrappedValue[section] != minY {
-                anchors.wrappedValue[section] = minY
-            }
+            anchors.wrappedValue[section] = minY
         }
     }
 }
