@@ -6,35 +6,19 @@ struct ClaudeDockOverlay: View {
     @Binding var isOpen: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var availableHeight: CGFloat = ClaudeDockPanel.preferredHeight
 
     private static let buttonBottomPadding: CGFloat = 16
     private static let buttonTrailingPadding: CGFloat = 16
-    // 16pt safe-area + 48pt button + 12pt gap = 76pt.
     private static let panelBottomPadding: CGFloat = 76
     private static let panelTrailingPadding: CGFloat = 16
 
     var body: some View {
         GlassEffectContainer {
             ZStack(alignment: .bottomTrailing) {
-                // Full-frame anchor so .bottomTrailing has something to pin to.
-                // onGeometryChange feeds the panel the live window height so
-                // it can shrink at minHeight=560 instead of overflowing the
-                // window's top edge.
-                Color.clear
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.height
-                    } action: { height in
-                        availableHeight = height
-                    }
-                // Always mounted — visibility is purely an opacity flip so the
-                // chat ClaudeSession stays attached to a live SwiftUI view
-                // tree across dock open/close cycles.
                 ClaudeDockPanel(
                     session: session,
                     indicatorState: indicatorState,
-                    isOpen: $isOpen,
-                    availableHeight: availableHeight
+                    isOpen: $isOpen
                 )
                 .padding(.trailing, Self.panelTrailingPadding)
                 .padding(.bottom, Self.panelBottomPadding)

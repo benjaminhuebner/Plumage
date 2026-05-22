@@ -7,12 +7,6 @@ struct ClaudeDockPanel: View {
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
-    // The overlay measures available window height and passes it down so
-    // the panel can shrink instead of overflowing the window's top edge
-    // when the user resizes near the project window's minHeight (560pt).
-    // Defaults to preferredHeight so previews / standalone uses keep
-    // their original size.
-    var availableHeight: CGFloat = ClaudeDockPanel.preferredHeight
 
     @AccessibilityFocusState private var contentFocused: Bool
 
@@ -21,10 +15,7 @@ struct ClaudeDockPanel: View {
             DockPanelHeader(onClose: close)
             content
         }
-        .frame(
-            width: Self.preferredWidth,
-            height: min(Self.preferredHeight, max(availableHeight - 96, 240))
-        )
+        .frame(width: Self.preferredWidth, height: Self.preferredHeight)
         .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
         .focusable()
         .accessibilityFocused($contentFocused)
