@@ -149,6 +149,7 @@ struct ProjectWindow: View {
             sidebar
         } detail: {
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .bottomTrailing) {
                     ClaudeDockOverlay(
                         session: session,
@@ -156,10 +157,10 @@ struct ProjectWindow: View {
                         isOpen: $isDockOpen
                     )
                 }
-        }
-        .inspector(isPresented: $isTerminalInspectorOpen) {
-            TerminalInspectorView(session: terminalSession)
-                .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
+                .inspector(isPresented: $isTerminalInspectorOpen) {
+                    TerminalInspectorView(session: terminalSession)
+                        .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
+                }
         }
         .toolbar {
             if let backToBoardAction {
