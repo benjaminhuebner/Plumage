@@ -153,7 +153,7 @@ struct ProjectWindow: View {
                 .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(session: terminalSession)
-                        .inspectorColumnWidth(min: 320, ideal: 480, max: 800)
+                        .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
                 }
         }
         .toolbar {
@@ -194,7 +194,7 @@ struct ProjectWindow: View {
     @ViewBuilder
     private var sidebar: some View {
         NavigatorSidebar(selection: $selectedRoute, projectURL: handle.url)
-            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
+            .navigationSplitViewColumnWidth(240)
     }
 
     @ViewBuilder
