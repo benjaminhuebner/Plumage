@@ -121,17 +121,8 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: nsView)
     }
 
-    // SwiftUI's default sizing path falls back to `nsView.fittingSize` when
-    // sizeThatFits isn't implemented. fittingSize consults SwiftTerm's
-    // subview constraints (caret view, scroller, etc.) which fluctuate as
-    // the frame changes — that fluctuation drives SwiftUI's
-    // `SplitViewChildController.hostingView(_:didUpdateMinSize:maxSize:)`
-    // on every layout pass, which enqueues a new layout invalidation,
-    // which tripps AppKit's Update-Constraints-In-Window loop guard during
-    // inspector-divider drag (Plumage-2026-05-22 crash). Returning the
-    // raw proposal verbatim severs the feedback path: SwiftUI never queries
-    // the NSView's preferred size again, the host's min/max stays constant,
-    // the split view controller has nothing to re-publish.
+    // Default fittingSize would publish SwiftTerm subview-constraint sizes
+    // back to SwiftUI on every drag tick → constraint loop.
     func sizeThatFits(
         _ proposal: ProposedViewSize,
         nsView: PersistentCursorTerminalView,
@@ -236,13 +227,8 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         cursorKeepAlive = nil
     }
 
-    // SwiftTerm's TerminalView publishes its rows×cols × cell-size as
-    // intrinsicContentSize after every frame change. Inside a resizable
-    // inspector column that re-fires AppKit's Update-Constraints-In-Window
-    // pass on every drag tick until AppKit's loop guard throws
-    // `NSGenericException`. Returning noIntrinsicMetric tells the layout
-    // system "I have no opinion on my size — use the container's frame";
-    // the column's drag then resizes us without re-invalidating the window.
+    // SwiftTerm's published intrinsicContentSize triggers AppKit's
+    // Update-Constraints-In-Window loop on inspector-divider drag.
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
