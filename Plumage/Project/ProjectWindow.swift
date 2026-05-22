@@ -152,7 +152,6 @@ struct ProjectWindow: View {
                 .overlay(alignment: .bottomTrailing) {
                     ClaudeDockOverlay(
                         session: session,
-                        terminalSession: terminalSession,
                         indicatorState: indicator.state,
                         isOpen: $isDockOpen
                     )
