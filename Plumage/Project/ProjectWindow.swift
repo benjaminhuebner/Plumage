@@ -66,7 +66,8 @@ struct ProjectWindow: View {
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
             .focusedSceneValue(\.beginInlineCreate, beginInlineCreateAction)
-            .focusedSceneValue(\.terminalToggle, $isDockOpen)
+            .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
+            .focusedSceneValue(\.chatDockToggle, $isDockOpen)
             .task(id: handle.url) {
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
                     selectedRoute = restored
