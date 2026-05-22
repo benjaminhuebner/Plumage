@@ -159,6 +159,7 @@ struct ProjectWindow: View {
         }
         .inspector(isPresented: $isTerminalInspectorOpen) {
             TerminalInspectorView(session: terminalSession)
+                .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
         }
         .toolbar {
             if let backToBoardAction {
