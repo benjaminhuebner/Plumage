@@ -193,7 +193,7 @@ struct ProjectWindow: View {
     @ViewBuilder
     private var sidebar: some View {
         NavigatorSidebar(selection: $selectedRoute, projectURL: handle.url)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
+            .navigationSplitViewColumnWidth(240)
     }
 
     @ViewBuilder
