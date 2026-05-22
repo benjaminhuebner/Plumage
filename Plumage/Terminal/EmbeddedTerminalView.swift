@@ -121,17 +121,17 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: nsView)
     }
 
-    // Default fittingSize would publish SwiftTerm subview-constraint sizes
-    // back to SwiftUI on every drag tick → constraint loop.
+    // Returning a fixed, proposal-independent size keeps the SwiftUI host's
+    // SizeConstraints stable across drag ticks — the .min/.max queries
+    // (proposal=.zero / .infinity) get the same value as layout queries,
+    // so SplitViewChildController never sees a didUpdateMinSize_maxSize and
+    // can't enqueue the layout invalidation that triggers the loop.
     func sizeThatFits(
         _ proposal: ProposedViewSize,
         nsView: PersistentCursorTerminalView,
         context: Context
     ) -> CGSize? {
-        CGSize(
-            width: proposal.width ?? 320,
-            height: proposal.height ?? 240
-        )
+        CGSize(width: 320, height: 240)
     }
 
     @MainActor
