@@ -121,6 +121,28 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: nsView)
     }
 
+    // SwiftUI's default sizing path falls back to `nsView.fittingSize` when
+    // sizeThatFits isn't implemented. fittingSize consults SwiftTerm's
+    // subview constraints (caret view, scroller, etc.) which fluctuate as
+    // the frame changes — that fluctuation drives SwiftUI's
+    // `SplitViewChildController.hostingView(_:didUpdateMinSize:maxSize:)`
+    // on every layout pass, which enqueues a new layout invalidation,
+    // which tripps AppKit's Update-Constraints-In-Window loop guard during
+    // inspector-divider drag (Plumage-2026-05-22 crash). Returning the
+    // raw proposal verbatim severs the feedback path: SwiftUI never queries
+    // the NSView's preferred size again, the host's min/max stays constant,
+    // the split view controller has nothing to re-publish.
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: PersistentCursorTerminalView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(
+            width: proposal.width ?? 320,
+            height: proposal.height ?? 240
+        )
+    }
+
     @MainActor
     static func dismantleNSView(
         _ nsView: PersistentCursorTerminalView, coordinator: Coordinator
