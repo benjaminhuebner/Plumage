@@ -152,7 +152,7 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(session: terminalSession)
-                        .inspectorColumnWidth(480)
+                        .inspectorColumnWidth(min: 320, ideal: 480, max: 800)
                 }
         }
         .toolbar {
