@@ -150,13 +150,6 @@ struct ProjectWindow: View {
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .bottomTrailing) {
-                    ClaudeDockOverlay(
-                        session: session,
-                        indicatorState: indicator.state,
-                        isOpen: $isDockOpen
-                    )
-                }
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(session: terminalSession)
                         .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
@@ -204,6 +197,18 @@ struct ProjectWindow: View {
 
     @ViewBuilder
     private var detail: some View {
+        detailContent
+            .overlay(alignment: .bottomTrailing) {
+                ClaudeDockOverlay(
+                    session: session,
+                    indicatorState: indicator.state,
+                    isOpen: $isDockOpen
+                )
+            }
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
         switch model.state {
         case .loading:
             ProgressView()
