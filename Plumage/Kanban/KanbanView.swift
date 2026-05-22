@@ -40,7 +40,10 @@ struct KanbanView: View {
         // apples-to-apples rather than relying on the modifier landing on
         // the ScrollView's own bounds.
         .onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .named(KanbanCoordinateSpace.name))
+            let raw = proxy.frame(in: .named(KanbanCoordinateSpace.name))
+            return CGRect(
+                x: raw.origin.x.rounded(), y: raw.origin.y.rounded(),
+                width: raw.size.width.rounded(), height: raw.size.height.rounded())
         } action: { frame in
             if kanbanFrame != frame {
                 kanbanFrame = frame

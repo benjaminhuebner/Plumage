@@ -37,7 +37,10 @@ extension EnvironmentValues {
 extension View {
     func reportCardFrame(folderName: String, registry: KanbanFrameRegistry) -> some View {
         onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .named(KanbanCoordinateSpace.name))
+            let raw = proxy.frame(in: .named(KanbanCoordinateSpace.name))
+            return CGRect(
+                x: raw.origin.x.rounded(), y: raw.origin.y.rounded(),
+                width: raw.size.width.rounded(), height: raw.size.height.rounded())
         } action: { frame in
             if registry.cards[folderName] != frame {
                 registry.cards[folderName] = frame
@@ -47,7 +50,10 @@ extension View {
 
     func reportColumnFrame(column: IssueColumn, registry: KanbanFrameRegistry) -> some View {
         onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .named(KanbanCoordinateSpace.name))
+            let raw = proxy.frame(in: .named(KanbanCoordinateSpace.name))
+            return CGRect(
+                x: raw.origin.x.rounded(), y: raw.origin.y.rounded(),
+                width: raw.size.width.rounded(), height: raw.size.height.rounded())
         } action: { frame in
             if registry.columns[column] != frame {
                 registry.columns[column] = frame
