@@ -183,6 +183,15 @@ struct ProjectWindow: View {
                 },
                 showLog: $showBuildLog
             )
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isTerminalInspectorOpen.toggle()
+                } label: {
+                    Image(systemName: "sidebar.right")
+                }
+                .help("Terminal Inspector (⌥⌘T)")
+                .accessibilityLabel("Terminal Inspector")
+            }
         }
     }
 
