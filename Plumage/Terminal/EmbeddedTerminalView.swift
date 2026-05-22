@@ -121,19 +121,6 @@ private struct SwiftTermBridge: NSViewRepresentable {
         applyForeground(to: nsView)
     }
 
-    // Returning a fixed, proposal-independent size keeps the SwiftUI host's
-    // SizeConstraints stable across drag ticks — the .min/.max queries
-    // (proposal=.zero / .infinity) get the same value as layout queries,
-    // so SplitViewChildController never sees a didUpdateMinSize_maxSize and
-    // can't enqueue the layout invalidation that triggers the loop.
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        nsView: PersistentCursorTerminalView,
-        context: Context
-    ) -> CGSize? {
-        CGSize(width: 320, height: 240)
-    }
-
     @MainActor
     static func dismantleNSView(
         _ nsView: PersistentCursorTerminalView, coordinator: Coordinator
@@ -227,11 +214,13 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         cursorKeepAlive = nil
     }
 
-    // SwiftTerm's published intrinsicContentSize triggers AppKit's
+    // SwiftTerm's published intrinsicContentSize/fittingSize triggers AppKit's
     // Update-Constraints-In-Window loop on inspector-divider drag.
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
+
+    override var fittingSize: NSSize { .zero }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
