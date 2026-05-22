@@ -36,7 +36,7 @@ extension View {
         in anchors: Binding<[SidebarDropTarget.Section: CGFloat]>
     ) -> some View {
         self.onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.frame(in: .named("navigator.sidebar")).minY
+            proxy.frame(in: .named("navigator.sidebar")).minY.rounded()
         } action: { minY in
             anchors.wrappedValue[section] = minY
         }

@@ -61,7 +61,7 @@ struct ProjectWindow: View {
                 createInitialStatus = status
                 showCreateSheet = true
             }
-            .frame(minWidth: 600, minHeight: 400)
+            .frame(minWidth: 900, minHeight: 500)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
