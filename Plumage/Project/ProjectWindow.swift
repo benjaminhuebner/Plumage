@@ -61,7 +61,7 @@ struct ProjectWindow: View {
                 createInitialStatus = status
                 showCreateSheet = true
             }
-            .frame(minWidth: 1120, minHeight: 600)
+            .frame(minWidth: 800, minHeight: 500)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
@@ -200,6 +200,8 @@ struct ProjectWindow: View {
     @ViewBuilder
     private var detail: some View {
         detailContent
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
             .overlay(alignment: .bottomTrailing) {
                 ClaudeDockOverlay(
                     session: session,
