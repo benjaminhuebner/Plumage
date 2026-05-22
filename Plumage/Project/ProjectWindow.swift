@@ -152,7 +152,13 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(session: terminalSession)
-                        .inspectorColumnWidth(min: 320, ideal: 480, max: 900)
+                        // Cap max well below the window's minWidth (900pt)
+                        // so the detail column always retains enough room for
+                        // its own content min-widths. Pushing past that
+                        // sends AppKit's constraint solver into an oscillation
+                        // loop (SwiftTerm subviews + detail min-widths fight),
+                        // tripping the "Update Constraints in Window" guard.
+                        .inspectorColumnWidth(min: 320, ideal: 480, max: 600)
                 }
         }
         .toolbar {
