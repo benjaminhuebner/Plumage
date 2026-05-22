@@ -1,13 +1,10 @@
 import SwiftUI
 
 struct ClaudeDockPanel: View {
-    static let sceneStorageKey = "terminalPaneMode"
-    static let defaultMode: TerminalPaneMode = .chat
     static let preferredWidth: CGFloat = 420
     static let preferredHeight: CGFloat = 560
 
     let session: ClaudeSession
-    let terminalSession: TerminalClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
     // The overlay measures available window height and passes it down so
@@ -17,18 +14,11 @@ struct ClaudeDockPanel: View {
     // their original size.
     var availableHeight: CGFloat = ClaudeDockPanel.preferredHeight
 
-    @SceneStorage(ClaudeDockPanel.sceneStorageKey) private var modeRaw: String =
-        ClaudeDockPanel.defaultMode.rawValue
-
     @AccessibilityFocusState private var contentFocused: Bool
-
-    var mode: TerminalPaneMode {
-        TerminalPaneMode(rawValue: modeRaw) ?? Self.defaultMode
-    }
 
     var body: some View {
         VStack(spacing: 0) {
-            DockPanelHeader(mode: modeBinding, onClose: close)
+            DockPanelHeader(onClose: close)
             content
         }
         .frame(
@@ -53,33 +43,14 @@ struct ClaudeDockPanel: View {
     private var content: some View {
         switch indicatorState {
         case .loading, .ok:
-            modeContent
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.18), value: modeRaw)
+            chatContent
         case .missing, .unsupported, .failed:
             MissingClaudeView(state: indicatorState)
         }
     }
 
     @ViewBuilder
-    private var modeContent: some View {
-        // Both modes stay mounted so toggling between them is purely a
-        // visibility flip — no SwiftTermBridge dismantle, no claude respawn.
-        ZStack {
-            chatMode
-                .opacity(mode == .chat ? 1 : 0)
-                .allowsHitTesting(mode == .chat)
-                .accessibilityHidden(mode != .chat)
-            terminalMode
-                .opacity(mode == .terminal ? 1 : 0)
-                .allowsHitTesting(mode == .terminal)
-                .accessibilityHidden(mode != .terminal)
-        }
-        .animation(.easeInOut(duration: 0.18), value: modeRaw)
-    }
-
-    @ViewBuilder
-    private var chatMode: some View {
+    private var chatContent: some View {
         ChatView(session: session)
             .overlay(alignment: .top) {
                 if case .exited(let code, let reason) = session.state {
@@ -89,44 +60,13 @@ struct ClaudeDockPanel: View {
                 }
             }
     }
-
-    @ViewBuilder
-    private var terminalMode: some View {
-        EmbeddedTerminalView(session: terminalSession)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .overlay(alignment: .top) {
-                if case .exited(let code, let reason) = terminalSession.state {
-                    ExitBanner(code: code, reason: reason) {
-                        terminalSession.restart()
-                    }
-                }
-            }
-            // .id(cwd) forces SwiftUI to rebuild the bridge (and its
-            // Coordinator) when ProjectWindow swaps the session for a
-            // different handle.url — otherwise the Coordinator's `weak
-            // session` keeps pointing at the prior TerminalClaudeSession.
-            .id(terminalSession.cwd)
-    }
-
-    private var modeBinding: Binding<TerminalPaneMode> {
-        Binding(
-            get: { mode },
-            set: { newMode in
-                guard mode != newMode else { return }
-                modeRaw = newMode.rawValue
-            }
-        )
-    }
 }
 
 private struct DockPanelHeader: View {
-    @Binding var mode: TerminalPaneMode
     let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            TerminalModeToggle(mode: $mode)
             Spacer(minLength: 4)
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -152,13 +92,8 @@ private struct DockPanelHeader: View {
         binaryURL: URL(filePath: "/usr/bin/true"),
         autoSpawn: false
     )
-    let terminalSession = TerminalClaudeSession(
-        cwd: URL(filePath: "/tmp"),
-        binaryURL: URL(filePath: "/usr/bin/true")
-    )
     return ClaudeDockPanel(
         session: session,
-        terminalSession: terminalSession,
         indicatorState: .loading,
         isOpen: $open
     )
