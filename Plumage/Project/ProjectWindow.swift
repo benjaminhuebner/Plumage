@@ -22,6 +22,7 @@ struct ProjectWindow: View {
     @State private var xcodeRunController: XcodeRunController
     @State private var showBuildLog = false
     @SceneStorage("claudeDock.open") private var isDockOpen = false
+    @SceneStorage("inspector.terminal.open") private var isTerminalInspectorOpen = false
     @SceneStorage("xcode.scheme") private var persistedScheme: String = ""
     @SceneStorage("xcode.destination") private var persistedDestinationID: String = ""
     // Cached focused-scene action. Computing `isLoaded ? { … } : nil` inline
@@ -155,6 +156,9 @@ struct ProjectWindow: View {
                         isOpen: $isDockOpen
                     )
                 }
+        }
+        .inspector(isPresented: $isTerminalInspectorOpen) {
+            TerminalInspectorView(session: terminalSession)
         }
         .toolbar {
             if let backToBoardAction {
