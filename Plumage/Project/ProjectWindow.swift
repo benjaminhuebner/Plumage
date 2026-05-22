@@ -61,7 +61,7 @@ struct ProjectWindow: View {
                 createInitialStatus = status
                 showCreateSheet = true
             }
-            .frame(minWidth: 800, minHeight: 500)
+            .frame(minWidth: 1100, minHeight: 500)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
@@ -194,7 +194,7 @@ struct ProjectWindow: View {
     @ViewBuilder
     private var sidebar: some View {
         NavigatorSidebar(selection: $selectedRoute, projectURL: handle.url)
-            .navigationSplitViewColumnWidth(240)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
     }
 
     @ViewBuilder
