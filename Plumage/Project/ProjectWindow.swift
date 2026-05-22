@@ -61,7 +61,7 @@ struct ProjectWindow: View {
                 createInitialStatus = status
                 showCreateSheet = true
             }
-            .frame(minWidth: 1300, minHeight: 700)
+            .frame(minWidth: 1120, minHeight: 600)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
@@ -150,10 +150,10 @@ struct ProjectWindow: View {
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 700, max: .infinity)
+                .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(session: terminalSession)
-                        .inspectorColumnWidth(min: 400, ideal: 480, max: 520)
+                        .inspectorColumnWidth(min: 320, ideal: 480, max: 800)
                 }
         }
         .toolbar {
