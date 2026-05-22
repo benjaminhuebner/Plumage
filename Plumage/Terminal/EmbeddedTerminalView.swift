@@ -214,6 +214,17 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         cursorKeepAlive = nil
     }
 
+    // SwiftTerm's TerminalView publishes its rows×cols × cell-size as
+    // intrinsicContentSize after every frame change. Inside a resizable
+    // inspector column that re-fires AppKit's Update-Constraints-In-Window
+    // pass on every drag tick until AppKit's loop guard throws
+    // `NSGenericException`. Returning noIntrinsicMetric tells the layout
+    // system "I have no opinion on my size — use the container's frame";
+    // the column's drag then resizes us without re-invalidating the window.
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
