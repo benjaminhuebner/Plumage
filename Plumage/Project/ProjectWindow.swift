@@ -150,7 +150,7 @@ struct ProjectWindow: View {
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 700, max: .infinity)
+                .navigationSplitViewColumnWidth(min: 80, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(session: terminalSession)
                         .inspectorColumnWidth(min: 320, ideal: 480, max: 600)
