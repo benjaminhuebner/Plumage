@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ClaudeDockOverlay: View {
     let session: ClaudeSession
-    let terminalSession: TerminalClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
 
@@ -28,13 +27,11 @@ struct ClaudeDockOverlay: View {
                     } action: { height in
                         availableHeight = height
                     }
-                // Always mounted — visibility is purely an opacity flip so
-                // both ClaudeSession (chat) and TerminalClaudeSession
-                // (terminal) stay attached to a live SwiftUI view tree across
-                // dock open/close cycles.
+                // Always mounted — visibility is purely an opacity flip so the
+                // chat ClaudeSession stays attached to a live SwiftUI view
+                // tree across dock open/close cycles.
                 ClaudeDockPanel(
                     session: session,
-                    terminalSession: terminalSession,
                     indicatorState: indicatorState,
                     isOpen: $isOpen,
                     availableHeight: availableHeight
@@ -81,15 +78,10 @@ struct ClaudeDockOverlay: View {
         binaryURL: URL(filePath: "/usr/bin/true"),
         autoSpawn: false
     )
-    let terminalSession = TerminalClaudeSession(
-        cwd: URL(filePath: "/tmp"),
-        binaryURL: URL(filePath: "/usr/bin/true")
-    )
     return Color.gray.opacity(0.1)
         .overlay(alignment: .bottomTrailing) {
             ClaudeDockOverlay(
                 session: session,
-                terminalSession: terminalSession,
                 indicatorState: .loading,
                 isOpen: $open
             )
