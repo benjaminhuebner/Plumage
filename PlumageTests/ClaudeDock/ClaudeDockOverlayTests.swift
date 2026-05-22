@@ -13,15 +13,6 @@ struct ClaudeDockOverlayTests {
         )
     }
 
-    private func makeTerminalSession() -> TerminalClaudeSession {
-        TerminalClaudeSession(
-            cwd: URL(filePath: "/tmp"),
-            binaryURL: URL(filePath: "/usr/bin/true"),
-            sessionIDStoreOverride: FileManager.default.temporaryDirectory
-                .appendingPathComponent("plumage-overlay-tests-\(UUID().uuidString)")
-        )
-    }
-
     @Test("toggle flips binding from false to true")
     func toggleFlipsBindingFromFalseToTrue() {
         var isOpen = false
@@ -31,7 +22,6 @@ struct ClaudeDockOverlayTests {
         )
         let overlay = ClaudeDockOverlay(
             session: makeSession(),
-            terminalSession: makeTerminalSession(),
             indicatorState: .loading,
             isOpen: binding
         )
@@ -48,7 +38,6 @@ struct ClaudeDockOverlayTests {
         )
         let overlay = ClaudeDockOverlay(
             session: makeSession(),
-            terminalSession: makeTerminalSession(),
             indicatorState: .loading,
             isOpen: binding
         )
