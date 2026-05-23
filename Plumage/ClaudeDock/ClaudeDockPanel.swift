@@ -3,6 +3,7 @@ import SwiftUI
 struct ClaudeDockPanel: View {
     static let preferredWidth: CGFloat = 420
     static let preferredHeight: CGFloat = 560
+    static let cornerRadius: CGFloat = 28
 
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
@@ -12,11 +13,12 @@ struct ClaudeDockPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            DockPanelHeader(onClose: close)
+            DockPanelHeader(session: session, onClose: close)
             content
         }
         .frame(width: Self.preferredWidth, height: Self.preferredHeight)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius, style: .continuous))
+        .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
         .focusable()
         .accessibilityFocused($contentFocused)
         .onAppear { contentFocused = true }
@@ -54,24 +56,53 @@ struct ClaudeDockPanel: View {
 }
 
 private struct DockPanelHeader: View {
+    let session: ClaudeSession
     let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 6, height: 6)
+            Text(statusText)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            if session.awaitingResponse {
+                ProgressView()
+                    .controlSize(.mini)
+            }
             Spacer(minLength: 4)
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Claude schließen")
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
+
+    private var statusText: String {
+        switch session.state {
+        case .idle: return "idle"
+        case .starting: return "connecting…"
+        case .running: return "running"
+        case .exited(let code, _): return "ended (exit \(code))"
+        }
+    }
+
+    private var statusColor: Color {
+        switch session.state {
+        case .idle: return .gray
+        case .starting: return .yellow
+        case .running: return .green
+        case .exited: return .red
+        }
     }
 }
 

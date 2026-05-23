@@ -21,8 +21,8 @@ struct ClaudeDockButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: Self.symbolName)
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(.title3, design: .default).weight(.semibold))
+                .symbolRenderingMode(.multicolor)
+                .font(.system(.title2, design: .default).weight(.semibold))
                 .symbolEffect(
                     .variableColor.iterative.reversing,
                     options: .repeat(.continuous),

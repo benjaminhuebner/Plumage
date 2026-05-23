@@ -48,6 +48,9 @@ final class ClaudeSession {
     private(set) var state: State = .idle
     private(set) var messages: [ChatMessage] = []
     private(set) var awaitingResponse: Bool = false
+    // Hoisted out of ChatView so the input buffer survives panel re-mounts
+    // when the dock toggles between button and panel via glassEffectID-morph.
+    var draftMessage: String = ""
     private(set) var conversationID: String
 
     private var process: Process?
