@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ClaudeDockButton: View {
-    static let symbolName = "sparkles"
+    static let symbolName = "apple.intelligence"
 
     let isOpen: Bool
     let isWorking: Bool
@@ -26,8 +26,9 @@ struct ClaudeDockButton: View {
                 .symbolEffect(
                     .variableColor.iterative.reversing,
                     options: .repeat(.continuous),
-                    isActive: isWorking && isOpen && !reduceMotion
+                    isActive: isWorking && !isOpen && !reduceMotion
                 )
+                .opacity(isOpen ? 0 : 1)
                 .frame(width: 48, height: 48)
                 .contentShape(Circle())
         }
