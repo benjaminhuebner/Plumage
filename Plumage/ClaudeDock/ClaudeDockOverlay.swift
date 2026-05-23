@@ -10,39 +10,42 @@ struct ClaudeDockOverlay: View {
 
     private static let buttonBottomPadding: CGFloat = 16
     private static let buttonTrailingPadding: CGFloat = 16
+    private static let panelBottomPadding: CGFloat = 16
+    private static let panelTrailingPadding: CGFloat = 16
     private static let glassMorphID = "claude-dock"
 
     var body: some View {
-        ZStack {
-            if isOpen {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { close() }
+        GlassEffectContainer {
+            ZStack(alignment: .bottomTrailing) {
+                OutsideClickMonitor(isActive: isOpen, onClickOutside: close)
+                    .frame(
+                        width: ClaudeDockPanel.preferredWidth,
+                        height: ClaudeDockPanel.preferredHeight
+                    )
+                    .padding(.trailing, Self.panelTrailingPadding)
+                    .padding(.bottom, Self.panelBottomPadding)
+                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
-            }
-            GlassEffectContainer {
-                ZStack(alignment: .bottomTrailing) {
-                    ClaudeDockPanel(
-                        session: session,
-                        indicatorState: indicatorState,
-                        isOpen: $isOpen
-                    )
-                    .glassEffectID(Self.glassMorphID, in: dockNamespace)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(16)
-                    .opacity(isOpen ? 1 : 0)
-                    .allowsHitTesting(isOpen)
-                    .accessibilityHidden(!isOpen)
-                    ClaudeDockButton(
-                        isOpen: isOpen,
-                        isWorking: session.awaitingResponse,
-                        action: toggle
-                    )
-                    .glassEffectID(Self.glassMorphID, in: dockNamespace)
-                    .padding(.trailing, Self.buttonTrailingPadding)
-                    .padding(.bottom, Self.buttonBottomPadding)
-                }
+                ClaudeDockPanel(
+                    session: session,
+                    indicatorState: indicatorState,
+                    isOpen: $isOpen
+                )
+                .glassEffectID(Self.glassMorphID, in: dockNamespace)
+                .padding(.trailing, Self.panelTrailingPadding)
+                .padding(.bottom, Self.panelBottomPadding)
+                .opacity(isOpen ? 1 : 0)
+                .scaleEffect(panelScale, anchor: .bottomTrailing)
+                .allowsHitTesting(isOpen)
+                .accessibilityHidden(!isOpen)
+                ClaudeDockButton(
+                    isOpen: isOpen,
+                    isWorking: session.awaitingResponse,
+                    action: toggle
+                )
+                .glassEffectID(Self.glassMorphID, in: dockNamespace)
+                .padding(.trailing, Self.buttonTrailingPadding)
+                .padding(.bottom, Self.buttonBottomPadding)
             }
         }
     }
@@ -63,6 +66,11 @@ struct ClaudeDockOverlay: View {
         reduceMotion
             ? .linear(duration: 0.1)
             : .spring(response: 0.35, dampingFraction: 0.78)
+    }
+
+    private var panelScale: CGFloat {
+        if reduceMotion { return 1 }
+        return isOpen ? 1 : 0.05
     }
 }
 
