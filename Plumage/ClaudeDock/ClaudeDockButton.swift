@@ -42,7 +42,7 @@ struct ClaudeDockButton: View {
                 lineWidth: 1.5
             )
         )
-        .help("Claude (⌥⌘T)")
+        .help("Claude (⌥⌘J)")
         .accessibilityLabel(accessibilityLabelText)
         .accessibilityValue(accessibilityValueText)
     }

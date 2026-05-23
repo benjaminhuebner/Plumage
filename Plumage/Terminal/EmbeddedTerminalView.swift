@@ -14,8 +14,9 @@ struct EmbeddedTerminalView: View {
             // .id(restartEpoch) forces SwiftUI to dismantle + remake the
             // bridge when restart() bumps the epoch, which respawns the
             // PTY-owned claude subprocess. State changes alone don't remount
-            // because the bridge already lives in the view tree across mode
-            // toggles.
+            // because the bridge persists across inspector toggles —
+            // SwiftUI's .inspector(isPresented:) hides the column rather
+            // than removing its content from the view tree.
             SwiftTermBridge(session: session)
                 .id(session.restartEpoch)
 
@@ -95,8 +96,8 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // but claude itself spends ~1.6s on hooks / plugins / CLAUDE.md /
         // --resume replay. Holding the session in .starting masks that window
         // with the "Resuming session…" overlay; once we flip to .running the
-        // overlay fades and subsequent mode toggles see the session already
-        // running so they never re-enter .starting.
+        // overlay fades. We only re-enter .starting when restart() bumps
+        // restartEpoch and SwiftUI re-mounts the bridge.
         context.coordinator.markStartedTask?.cancel()
         context.coordinator.markStartedTask = Task { @MainActor [weak session] in
             try? await Task.sleep(for: .seconds(1.6))
@@ -214,8 +215,16 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         cursorKeepAlive = nil
     }
 
-    // SwiftTerm's published intrinsicContentSize/fittingSize triggers AppKit's
-    // Update-Constraints-In-Window loop on inspector-divider drag.
+    // SwiftTerm's published intrinsicContentSize/fittingSize feed AppKit's
+    // Update-Constraints-In-Window pass on inspector-divider drag and
+    // oscillate the layout. noIntrinsicMetric tells AppKit we have no
+    // preferred size; fittingSize = .zero kills the second feedback channel.
+    //
+    // Safe only because this view is exclusively hosted inside
+    // SwiftTermBridge (an NSViewRepresentable) — SwiftUI sizes the host via
+    // its own proposal mechanism and ignores AppKit intrinsic/fitting
+    // metrics. Don't drop this view into a raw NSStackView / NSScrollView;
+    // those WOULD respect fittingSize and collapse to 0pt.
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }

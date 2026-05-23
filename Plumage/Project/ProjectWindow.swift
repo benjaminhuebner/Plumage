@@ -23,6 +23,14 @@ struct ProjectWindow: View {
     @State private var showBuildLog = false
     @SceneStorage("claudeDock.open") private var isDockOpen = false
     @SceneStorage("inspector.terminal.open") private var isTerminalInspectorOpen = false
+    // Pre-#00032 the dock panel hosted a Chat/Terminal mode switcher whose
+    // selection persisted under "terminalPaneMode". This branch moved the
+    // terminal out into an inspector with its own storage key; the one-shot
+    // migration below maps a legacy "terminal" selection forward so users
+    // who left the dock in terminal mode see the inspector open on first
+    // launch instead of nothing.
+    @SceneStorage("terminalPaneMode") private var legacyTerminalPaneMode: String = ""
+    @SceneStorage("inspector.terminal.migrated") private var hasMigratedLegacyPaneMode = false
     @SceneStorage("xcode.scheme") private var persistedScheme: String = ""
     @SceneStorage("xcode.destination") private var persistedDestinationID: String = ""
     // Cached focused-scene action. Computing `isLoaded ? { … } : nil` inline
@@ -61,7 +69,10 @@ struct ProjectWindow: View {
                 createInitialStatus = status
                 showCreateSheet = true
             }
-            .frame(minWidth: 1100, minHeight: 500)
+            // minHeight=660: dock panel is 560pt + 76pt bottom padding = 636pt
+            // minimum vertical room; round up for toolbar/safe-area margin.
+            // Lower values clip the panel's close button behind the titlebar.
+            .frame(minWidth: 1100, minHeight: 660)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
@@ -69,6 +80,13 @@ struct ProjectWindow: View {
             .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
             .focusedSceneValue(\.chatDockToggle, $isDockOpen)
             .task(id: handle.url) {
+                if !hasMigratedLegacyPaneMode {
+                    if legacyTerminalPaneMode == "terminal" {
+                        isTerminalInspectorOpen = true
+                    }
+                    legacyTerminalPaneMode = ""
+                    hasMigratedLegacyPaneMode = true
+                }
                 if let restored = NavigatorRoute(persistedString: persistedRouteData) {
                     selectedRoute = restored
                 }
@@ -156,6 +174,18 @@ struct ProjectWindow: View {
                         .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
                 }
         }
+        // Dock overlay sits at the NavigationSplitView's bottom-trailing so
+        // it stays anchored to the window corner regardless of inspector
+        // visibility. Previously the overlay was attached inside `detail`
+        // and floated at the seam between detail and inspector when the
+        // inspector was open.
+        .overlay(alignment: .bottomTrailing) {
+            ClaudeDockOverlay(
+                session: session,
+                indicatorState: indicator.state,
+                isOpen: $isDockOpen
+            )
+        }
         .toolbar {
             if let backToBoardAction {
                 ToolbarItem(placement: .navigation) {
@@ -184,9 +214,13 @@ struct ProjectWindow: View {
                     isTerminalInspectorOpen.toggle()
                 } label: {
                     Image(systemName: "sidebar.right")
+                        .foregroundStyle(
+                            isTerminalInspectorOpen ? Color.accentColor : Color.primary
+                        )
                 }
                 .help("Terminal Inspector (⌥⌘T)")
                 .accessibilityLabel("Terminal Inspector")
+                .accessibilityValue(isTerminalInspectorOpen ? "Sichtbar" : "Ausgeblendet")
             }
         }
     }
@@ -201,14 +235,6 @@ struct ProjectWindow: View {
     private var detail: some View {
         detailContent
             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-            .overlay(alignment: .bottomTrailing) {
-                ClaudeDockOverlay(
-                    session: session,
-                    indicatorState: indicator.state,
-                    isOpen: $isDockOpen
-                )
-            }
     }
 
     @ViewBuilder
@@ -247,6 +273,14 @@ struct ProjectWindow: View {
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // .clipped() applies ONLY to NavigatorDetail so editor views
+                // that don't wrap horizontally stay contained within the
+                // detail column. ProjectStatusBar sits below the clip and
+                // remains visible even when detail is narrow (inspector open
+                // at max width + sidebar fixed at 240 leaves ~300pt — small
+                // enough that .fixedSize() chips on the status bar would
+                // otherwise be cut off without a hint).
+                .clipped()
                 ProjectStatusBar(
                     indicatorState: indicator.state,
                     usageModel: claudeUsage,

@@ -12,16 +12,16 @@ struct TerminalCommand: Commands {
             .keyboardShortcut("t", modifiers: [.command, .option])
             .disabled(inspector == nil)
 
-            Button("Toggle Terminal Inspector (Xcode-style)") {
-                inspector?.toggle()
-            }
-            .keyboardShortcut("0", modifiers: [.command, .option])
-            .disabled(inspector == nil)
-
+            // ⌥⌘J chosen over ⌥⌘C: AppKit's NSTextView reserves ⌥⌘C for
+            // "Copy Style" (copyStyle:). Binding the chat-dock toggle to
+            // ⌥⌘C silently fights text inputs (ChatInputField,
+            // DocEditorView) — the chord either no-ops or copies attributes
+            // instead of toggling the dock. ⌥⌘J has no known AppKit/Xcode
+            // collision.
             Button("Toggle Chat") {
                 chatDock?.toggle()
             }
-            .keyboardShortcut("c", modifiers: [.command, .option])
+            .keyboardShortcut("j", modifiers: [.command, .option])
             .disabled(chatDock == nil)
         }
     }

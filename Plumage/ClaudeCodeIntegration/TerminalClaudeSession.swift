@@ -21,7 +21,8 @@ final class TerminalClaudeSession {
     // Bumped by restart() so EmbeddedTerminalView can use it as a SwiftUI .id
     // and force SwiftTermBridge to dismantle + remount, which respawns the
     // PTY-owned claude subprocess. State alone can't drive a remount because
-    // the bridge already lives in the view tree across mode toggles.
+    // the bridge persists across inspector toggles (SwiftUI's .inspector
+    // hides its column without removing content from the view tree).
     private(set) var restartEpoch: Int = 0
     // Synchronously kill the PTY subprocess on stop(). Registered by
     // SwiftTermBridge.makeNSView so window-close → onDisappear → stop()

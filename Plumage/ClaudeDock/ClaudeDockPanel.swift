@@ -68,7 +68,6 @@ private struct DockPanelHeader: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Claude schließen")
-            .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
