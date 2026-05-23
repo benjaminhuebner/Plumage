@@ -13,27 +13,36 @@ struct ClaudeDockOverlay: View {
     private static let glassMorphID = "claude-dock"
 
     var body: some View {
-        GlassEffectContainer {
-            ZStack(alignment: .bottomTrailing) {
-                ClaudeDockPanel(
-                    session: session,
-                    indicatorState: indicatorState,
-                    isOpen: $isOpen
-                )
-                .glassEffectID(Self.glassMorphID, in: dockNamespace)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(16)
-                .opacity(isOpen ? 1 : 0)
-                .allowsHitTesting(isOpen)
-                .accessibilityHidden(!isOpen)
-                ClaudeDockButton(
-                    isOpen: isOpen,
-                    isWorking: session.awaitingResponse,
-                    action: toggle
-                )
-                .glassEffectID(Self.glassMorphID, in: dockNamespace)
-                .padding(.trailing, Self.buttonTrailingPadding)
-                .padding(.bottom, Self.buttonBottomPadding)
+        ZStack {
+            if isOpen {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { close() }
+                    .accessibilityHidden(true)
+            }
+            GlassEffectContainer {
+                ZStack(alignment: .bottomTrailing) {
+                    ClaudeDockPanel(
+                        session: session,
+                        indicatorState: indicatorState,
+                        isOpen: $isOpen
+                    )
+                    .glassEffectID(Self.glassMorphID, in: dockNamespace)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(16)
+                    .opacity(isOpen ? 1 : 0)
+                    .allowsHitTesting(isOpen)
+                    .accessibilityHidden(!isOpen)
+                    ClaudeDockButton(
+                        isOpen: isOpen,
+                        isWorking: session.awaitingResponse,
+                        action: toggle
+                    )
+                    .glassEffectID(Self.glassMorphID, in: dockNamespace)
+                    .padding(.trailing, Self.buttonTrailingPadding)
+                    .padding(.bottom, Self.buttonBottomPadding)
+                }
             }
         }
     }
@@ -41,6 +50,12 @@ struct ClaudeDockOverlay: View {
     func toggle() {
         withAnimation(toggleAnimation) {
             isOpen.toggle()
+        }
+    }
+
+    func close() {
+        withAnimation(toggleAnimation) {
+            isOpen = false
         }
     }
 
