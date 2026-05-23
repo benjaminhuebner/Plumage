@@ -6,59 +6,55 @@ struct ClaudeDockOverlay: View {
     @Binding var isOpen: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var dockNamespace
 
-    private static let buttonBottomPadding: CGFloat = 16
-    private static let buttonTrailingPadding: CGFloat = 16
-    private static let panelBottomPadding: CGFloat = 16
-    private static let panelTrailingPadding: CGFloat = 16
-    private static let glassMorphID = "claude-dock"
+    private static let bottomPadding: CGFloat = 16
+    private static let trailingPadding: CGFloat = 16
 
     var body: some View {
-        GlassEffectContainer {
-            ZStack(alignment: .bottomTrailing) {
-                if isOpen {
-                    ClaudeDockPanel(
-                        session: session,
-                        indicatorState: indicatorState,
-                        isOpen: $isOpen
-                    )
-                    .glassEffectID(Self.glassMorphID, in: dockNamespace)
-                    .padding(.trailing, Self.panelTrailingPadding)
-                    .padding(.bottom, Self.panelBottomPadding)
-                    .background {
-                        OutsideClickMonitor(isActive: true, onClickOutside: close)
-                            .accessibilityHidden(true)
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
-                } else {
-                    ClaudeDockButton(
-                        isOpen: false,
-                        isWorking: session.awaitingResponse,
-                        action: toggle
-                    )
-                    .glassEffectID(Self.glassMorphID, in: dockNamespace)
-                    .padding(.trailing, Self.buttonTrailingPadding)
-                    .padding(.bottom, Self.buttonBottomPadding)
-                    .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .bottomTrailing)))
+        ZStack(alignment: .bottomTrailing) {
+            if isOpen {
+                ClaudeDockPanel(
+                    session: session,
+                    indicatorState: indicatorState,
+                    isOpen: $isOpen
+                )
+                .background {
+                    OutsideClickMonitor(isActive: true, onClickOutside: close)
+                        .accessibilityHidden(true)
                 }
+                .transition(panelTransition)
+            } else {
+                ClaudeDockButton(
+                    isWorking: session.awaitingResponse,
+                    action: toggle
+                )
+                .transition(panelTransition)
             }
         }
-        .animation(toggleAnimation, value: isOpen)
+        .padding(.trailing, Self.trailingPadding)
+        .padding(.bottom, Self.bottomPadding)
     }
 
     func toggle() {
-        isOpen.toggle()
+        withAnimation(toggleAnimation) {
+            isOpen.toggle()
+        }
     }
 
     func close() {
-        isOpen = false
+        withAnimation(toggleAnimation) {
+            isOpen = false
+        }
+    }
+
+    private var panelTransition: AnyTransition {
+        .opacity.combined(with: .scale(scale: 0.4, anchor: .bottomTrailing))
     }
 
     private var toggleAnimation: Animation {
         reduceMotion
             ? .linear(duration: 0.1)
-            : .spring(response: 0.55, dampingFraction: 0.78)
+            : .spring(response: 0.32, dampingFraction: 0.8)
     }
 }
 

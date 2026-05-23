@@ -20,6 +20,7 @@ struct ClaudeDockPanel: View {
         .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius, style: .continuous))
         .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
         .focusable()
+        .focusEffectDisabled()
         .accessibilityFocused($contentFocused)
         .onAppear { contentFocused = true }
         .onKeyPress(.escape) {
@@ -80,6 +81,7 @@ private struct DockPanelHeader: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .accessibilityLabel("Claude schließen")
         }
         .padding(.horizontal, 14)

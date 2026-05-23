@@ -69,10 +69,11 @@ struct ProjectWindow: View {
                 createInitialStatus = status
                 showCreateSheet = true
             }
-            // minHeight=660: dock panel is 560pt + 76pt bottom padding = 636pt
-            // minimum vertical room; round up for toolbar/safe-area margin.
-            // Lower values clip the panel's close button behind the titlebar.
-            .frame(minWidth: 1100, minHeight: 660)
+            // minHeight=620: dock panel is 560pt + 16pt bottom padding + ~28pt
+            // titlebar = 604pt minimum vertical room; round up for safe-area
+            // margin. Lower values clip the panel's close button behind the
+            // titlebar.
+            .frame(minWidth: 1100, minHeight: 620)
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
@@ -168,23 +169,20 @@ struct ProjectWindow: View {
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Dock overlay sits at the detail column's bottom-trailing
+                // so it shifts left when the inspector opens.
+                .overlay(alignment: .bottomTrailing) {
+                    ClaudeDockOverlay(
+                        session: session,
+                        indicatorState: indicator.state,
+                        isOpen: $isDockOpen
+                    )
+                }
                 .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(session: terminalSession)
                         .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
                 }
-        }
-        // Dock overlay sits at the NavigationSplitView's bottom-trailing so
-        // it stays anchored to the window corner regardless of inspector
-        // visibility. Previously the overlay was attached inside `detail`
-        // and floated at the seam between detail and inspector when the
-        // inspector was open.
-        .overlay(alignment: .bottomTrailing) {
-            ClaudeDockOverlay(
-                session: session,
-                indicatorState: indicator.state,
-                isOpen: $isDockOpen
-            )
         }
         .toolbar {
             if let backToBoardAction {

@@ -8,16 +8,11 @@ struct ClaudeDockButton: View {
         endPoint: .bottomTrailing
     )
 
-    let isOpen: Bool
     let isWorking: Bool
     let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-
-    var accessibilityLabelText: String {
-        isOpen ? "Claude schließen" : "Claude öffnen"
-    }
 
     var accessibilityValueText: String {
         isWorking ? "arbeitet" : "bereit"
@@ -31,9 +26,8 @@ struct ClaudeDockButton: View {
                 .symbolEffect(
                     .variableColor.iterative.reversing,
                     options: .repeat(.continuous),
-                    isActive: isWorking && !isOpen && !reduceMotion
+                    isActive: isWorking && !reduceMotion
                 )
-                .opacity(isOpen ? 0 : 1)
                 .frame(width: 48, height: 48)
                 .contentShape(Circle())
         }
@@ -49,17 +43,17 @@ struct ClaudeDockButton: View {
             )
         )
         .help("Claude (⌥⌘J)")
-        .accessibilityLabel(accessibilityLabelText)
+        .accessibilityLabel("Claude öffnen")
         .accessibilityValue(accessibilityValueText)
     }
 }
 
 #Preview("Idle") {
-    ClaudeDockButton(isOpen: false, isWorking: false) {}
+    ClaudeDockButton(isWorking: false) {}
         .padding(40)
 }
 
 #Preview("Working") {
-    ClaudeDockButton(isOpen: true, isWorking: true) {}
+    ClaudeDockButton(isWorking: true) {}
         .padding(40)
 }
