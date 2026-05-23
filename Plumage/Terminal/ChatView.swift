@@ -1,20 +1,16 @@
 import SwiftUI
 
 struct ChatView: View {
-    let session: ClaudeSession
-    @State private var draft: String = ""
+    @Bindable var session: ClaudeSession
 
     var body: some View {
         VStack(spacing: 0) {
             messageList
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
             ChatInputField(
-                text: $draft,
+                text: $session.draftMessage,
                 canSend: canSend,
                 onSend: send
             )
-            .background(.bar)
         }
     }
 
@@ -22,7 +18,6 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    statusHeader
                     ForEach(session.messages) { message in
                         ChatMessageView(message: message)
                             .id(message.id)
@@ -32,7 +27,7 @@ struct ChatView: View {
                         .id(scrollAnchorID)
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, 12)
+                .padding(.top, 8)
                 .padding(.bottom, 8)
             }
             .onChange(of: session.messages.count) {
@@ -46,42 +41,6 @@ struct ChatView: View {
         }
     }
 
-    @ViewBuilder
-    private var statusHeader: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 6, height: 6)
-            Text(statusText)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            if session.awaitingResponse {
-                ProgressView()
-                    .controlSize(.mini)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.bottom, 4)
-    }
-
-    private var statusText: String {
-        switch session.state {
-        case .idle: return "idle"
-        case .starting: return "connecting…"
-        case .running: return "running"
-        case .exited(let code, _): return "ended (exit \(code))"
-        }
-    }
-
-    private var statusColor: Color {
-        switch session.state {
-        case .idle: return .gray
-        case .starting: return .yellow
-        case .running: return .green
-        case .exited: return .red
-        }
-    }
-
     private var canSend: Bool {
         if case .running = session.state, !session.awaitingResponse {
             return true
@@ -90,8 +49,8 @@ struct ChatView: View {
     }
 
     private func send() {
-        let text = draft
-        draft = ""
+        let text = session.draftMessage
+        session.draftMessage = ""
         Task { await session.send(text) }
     }
 

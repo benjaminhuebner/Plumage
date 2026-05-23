@@ -42,7 +42,9 @@ struct KanbanView: View {
         .onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .named(KanbanCoordinateSpace.name))
         } action: { frame in
-            kanbanFrame = frame
+            if !KanbanGeometry.framesNearlyEqual(kanbanFrame, frame) {
+                kanbanFrame = frame
+            }
         }
         .overlay(alignment: .topLeading) {
             FloatingDragCard(padding: padding)

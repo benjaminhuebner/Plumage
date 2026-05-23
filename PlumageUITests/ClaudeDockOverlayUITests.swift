@@ -7,17 +7,19 @@ final class ClaudeDockOverlayUITests: XCTestCase {
     // subsequent test runs on this machine. Manual verification protocol:
     //
     //   1. Open Plumage, open a project window.
-    //   2. Confirm the floating sparkles button is bottom-trailing.
+    //   2. Confirm the floating sparkles button is bottom-trailing of the
+    //      whole window (anchored to the NavigationSplitView corner, not
+    //      to the detail column — verify by opening the terminal inspector
+    //      and confirming the button stays at the window's right edge).
     //   3. Click button → panel scales out of the corner.
-    //   4. Toggle Chat ↔ Terminal in the panel header.
-    //   5. Press ⌘⌥T → panel toggles (closes).
-    //   6. Press ⌘⌥0 → panel opens again.
-    //   7. Press ESC → panel closes.
-    //   8. Close the window. Verify in Activity Monitor that the
-    //      `claude` subprocess for that window is gone.
-    //   9. Open the window again. Confirm the dock state persists per
-    //      @SceneStorage and the session restarts on .task.
-    func testToggleAndModeSwitch() throws {
+    //   4. Press ⌘⌥J → chat dock toggles (closes/opens).
+    //   5. Press ⌘⌥T → terminal inspector toggles.
+    //   6. Press ESC while dock has focus → dock closes.
+    //   7. Close the window. Verify in Activity Monitor that the
+    //      `claude` subprocesses for that window are gone.
+    //   8. Open the window again. Confirm dock + inspector state persists
+    //      per @SceneStorage and sessions restart on .task.
+    func testDockAndInspectorToggles() throws {
         try XCTSkipIf(true, "Awaiting XCUITest termination fix; see notes.md")
     }
 }

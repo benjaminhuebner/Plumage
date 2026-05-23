@@ -1,42 +1,26 @@
 import SwiftUI
 
 struct ClaudeDockPanel: View {
-    static let sceneStorageKey = "terminalPaneMode"
-    static let defaultMode: TerminalPaneMode = .chat
     static let preferredWidth: CGFloat = 420
     static let preferredHeight: CGFloat = 560
+    static let cornerRadius: CGFloat = 28
 
     let session: ClaudeSession
-    let terminalSession: TerminalClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     @Binding var isOpen: Bool
-    // The overlay measures available window height and passes it down so
-    // the panel can shrink instead of overflowing the window's top edge
-    // when the user resizes near the project window's minHeight (560pt).
-    // Defaults to preferredHeight so previews / standalone uses keep
-    // their original size.
-    var availableHeight: CGFloat = ClaudeDockPanel.preferredHeight
-
-    @SceneStorage(ClaudeDockPanel.sceneStorageKey) private var modeRaw: String =
-        ClaudeDockPanel.defaultMode.rawValue
 
     @AccessibilityFocusState private var contentFocused: Bool
 
-    var mode: TerminalPaneMode {
-        TerminalPaneMode(rawValue: modeRaw) ?? Self.defaultMode
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            DockPanelHeader(mode: modeBinding, onClose: close)
+            DockPanelHeader(session: session, onClose: close)
             content
         }
-        .frame(
-            width: Self.preferredWidth,
-            height: min(Self.preferredHeight, max(availableHeight - 96, 240))
-        )
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .frame(width: Self.preferredWidth, height: Self.preferredHeight)
+        .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius, style: .continuous))
+        .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
         .focusable()
+        .focusEffectDisabled()
         .accessibilityFocused($contentFocused)
         .onAppear { contentFocused = true }
         .onKeyPress(.escape) {
@@ -53,33 +37,14 @@ struct ClaudeDockPanel: View {
     private var content: some View {
         switch indicatorState {
         case .loading, .ok:
-            modeContent
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.18), value: modeRaw)
+            chatContent
         case .missing, .unsupported, .failed:
             MissingClaudeView(state: indicatorState)
         }
     }
 
     @ViewBuilder
-    private var modeContent: some View {
-        // Both modes stay mounted so toggling between them is purely a
-        // visibility flip — no SwiftTermBridge dismantle, no claude respawn.
-        ZStack {
-            chatMode
-                .opacity(mode == .chat ? 1 : 0)
-                .allowsHitTesting(mode == .chat)
-                .accessibilityHidden(mode != .chat)
-            terminalMode
-                .opacity(mode == .terminal ? 1 : 0)
-                .allowsHitTesting(mode == .terminal)
-                .accessibilityHidden(mode != .terminal)
-        }
-        .animation(.easeInOut(duration: 0.18), value: modeRaw)
-    }
-
-    @ViewBuilder
-    private var chatMode: some View {
+    private var chatContent: some View {
         ChatView(session: session)
             .overlay(alignment: .top) {
                 if case .exited(let code, let reason) = session.state {
@@ -89,59 +54,57 @@ struct ClaudeDockPanel: View {
                 }
             }
     }
-
-    @ViewBuilder
-    private var terminalMode: some View {
-        EmbeddedTerminalView(session: terminalSession)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .overlay(alignment: .top) {
-                if case .exited(let code, let reason) = terminalSession.state {
-                    ExitBanner(code: code, reason: reason) {
-                        terminalSession.restart()
-                    }
-                }
-            }
-            // .id(cwd) forces SwiftUI to rebuild the bridge (and its
-            // Coordinator) when ProjectWindow swaps the session for a
-            // different handle.url — otherwise the Coordinator's `weak
-            // session` keeps pointing at the prior TerminalClaudeSession.
-            .id(terminalSession.cwd)
-    }
-
-    private var modeBinding: Binding<TerminalPaneMode> {
-        Binding(
-            get: { mode },
-            set: { newMode in
-                guard mode != newMode else { return }
-                modeRaw = newMode.rawValue
-            }
-        )
-    }
 }
 
 private struct DockPanelHeader: View {
-    @Binding var mode: TerminalPaneMode
+    let session: ClaudeSession
     let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            TerminalModeToggle(mode: $mode)
+            Circle()
+                .fill(statusColor)
+                .frame(width: 6, height: 6)
+            Text(statusText)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            if session.awaitingResponse {
+                ProgressView()
+                    .controlSize(.mini)
+            }
             Spacer(minLength: 4)
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .accessibilityLabel("Claude schließen")
-            .keyboardShortcut(.cancelAction)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
+
+    private var statusText: String {
+        switch session.state {
+        case .idle: return "idle"
+        case .starting: return "connecting…"
+        case .running: return "running"
+        case .exited(let code, _): return "ended (exit \(code))"
+        }
+    }
+
+    private var statusColor: Color {
+        switch session.state {
+        case .idle: return .gray
+        case .starting: return .yellow
+        case .running: return .green
+        case .exited: return .red
+        }
     }
 }
 
@@ -152,13 +115,8 @@ private struct DockPanelHeader: View {
         binaryURL: URL(filePath: "/usr/bin/true"),
         autoSpawn: false
     )
-    let terminalSession = TerminalClaudeSession(
-        cwd: URL(filePath: "/tmp"),
-        binaryURL: URL(filePath: "/usr/bin/true")
-    )
     return ClaudeDockPanel(
         session: session,
-        terminalSession: terminalSession,
         indicatorState: .loading,
         isOpen: $open
     )

@@ -39,9 +39,16 @@ extension View {
         onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .named(KanbanCoordinateSpace.name))
         } action: { frame in
-            if registry.cards[folderName] != frame {
-                registry.cards[folderName] = frame
+            // Floor-rounding the rect on the transform side (earlier approach)
+            // shifted maxX/maxY down by up to 1pt and broke `contains(cursor)`
+            // and midY classification on edges. Tolerance equality stops the
+            // multi-pass-layout FP oscillation without touching the rect.
+            if let existing = registry.cards[folderName],
+                KanbanGeometry.framesNearlyEqual(existing, frame)
+            {
+                return
             }
+            registry.cards[folderName] = frame
         }
     }
 
@@ -49,13 +56,28 @@ extension View {
         onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .named(KanbanCoordinateSpace.name))
         } action: { frame in
-            if registry.columns[column] != frame {
-                registry.columns[column] = frame
+            if let existing = registry.columns[column],
+                KanbanGeometry.framesNearlyEqual(existing, frame)
+            {
+                return
             }
+            registry.columns[column] = frame
         }
     }
 }
 
 nonisolated enum KanbanCoordinateSpace {
     static let name = "kanban"
+}
+
+nonisolated enum KanbanGeometry {
+    // Sub-pixel oscillation from multi-pass column layout produces frame
+    // deltas below half a point. Treating those as "no change" stops the
+    // onGeometryChange feedback cycle without rounding the stored rect.
+    static func framesNearlyEqual(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) < tolerance
+            && abs(lhs.origin.y - rhs.origin.y) < tolerance
+            && abs(lhs.size.width - rhs.size.width) < tolerance
+            && abs(lhs.size.height - rhs.size.height) < tolerance
+    }
 }
