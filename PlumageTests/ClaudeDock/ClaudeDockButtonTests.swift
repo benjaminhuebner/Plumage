@@ -31,8 +31,8 @@ struct ClaudeDockButtonTests {
         #expect(working.accessibilityValueText == "arbeitet")
     }
 
-    @Test("symbol name is apple.intelligence")
-    func symbolNameIsAppleIntelligence() {
-        #expect(ClaudeDockButton.symbolName == "apple.intelligence")
+    @Test("symbol name is bubble.left.fill")
+    func symbolNameIsBubble() {
+        #expect(ClaudeDockButton.symbolName == "bubble.left.fill")
     }
 }

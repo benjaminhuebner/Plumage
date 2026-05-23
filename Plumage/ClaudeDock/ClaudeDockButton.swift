@@ -1,7 +1,12 @@
 import SwiftUI
 
 struct ClaudeDockButton: View {
-    static let symbolName = "apple.intelligence"
+    static let symbolName = "bubble.left.fill"
+    static let glyphGradient = LinearGradient(
+        colors: [.orange, .pink, .purple, .blue],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
 
     let isOpen: Bool
     let isWorking: Bool
@@ -21,7 +26,7 @@ struct ClaudeDockButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: Self.symbolName)
-                .symbolRenderingMode(.multicolor)
+                .foregroundStyle(Self.glyphGradient)
                 .font(.system(.title2, design: .default).weight(.semibold))
                 .symbolEffect(
                     .variableColor.iterative.reversing,

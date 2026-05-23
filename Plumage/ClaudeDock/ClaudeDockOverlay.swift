@@ -30,6 +30,7 @@ struct ClaudeDockOverlay: View {
                         OutsideClickMonitor(isActive: true, onClickOutside: close)
                             .accessibilityHidden(true)
                     }
+                    .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
                 } else {
                     ClaudeDockButton(
                         isOpen: false,
@@ -39,27 +40,25 @@ struct ClaudeDockOverlay: View {
                     .glassEffectID(Self.glassMorphID, in: dockNamespace)
                     .padding(.trailing, Self.buttonTrailingPadding)
                     .padding(.bottom, Self.buttonBottomPadding)
+                    .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .bottomTrailing)))
                 }
             }
         }
+        .animation(toggleAnimation, value: isOpen)
     }
 
     func toggle() {
-        withAnimation(toggleAnimation) {
-            isOpen.toggle()
-        }
+        isOpen.toggle()
     }
 
     func close() {
-        withAnimation(toggleAnimation) {
-            isOpen = false
-        }
+        isOpen = false
     }
 
     private var toggleAnimation: Animation {
         reduceMotion
             ? .linear(duration: 0.1)
-            : .spring(response: 0.35, dampingFraction: 0.78)
+            : .spring(response: 0.55, dampingFraction: 0.78)
     }
 }
 
