@@ -6,11 +6,11 @@ struct ClaudeDockOverlay: View {
     @Binding var isOpen: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var dockNamespace
 
     private static let buttonBottomPadding: CGFloat = 16
     private static let buttonTrailingPadding: CGFloat = 16
-    private static let panelBottomPadding: CGFloat = 76
-    private static let panelTrailingPadding: CGFloat = 16
+    private static let glassMorphID = "claude-dock"
 
     var body: some View {
         GlassEffectContainer {
@@ -20,10 +20,10 @@ struct ClaudeDockOverlay: View {
                     indicatorState: indicatorState,
                     isOpen: $isOpen
                 )
-                .padding(.trailing, Self.panelTrailingPadding)
-                .padding(.bottom, Self.panelBottomPadding)
+                .glassEffectID(Self.glassMorphID, in: dockNamespace)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(16)
                 .opacity(isOpen ? 1 : 0)
-                .scaleEffect(panelScale, anchor: .bottomTrailing)
                 .allowsHitTesting(isOpen)
                 .accessibilityHidden(!isOpen)
                 ClaudeDockButton(
@@ -31,6 +31,7 @@ struct ClaudeDockOverlay: View {
                     isWorking: session.awaitingResponse,
                     action: toggle
                 )
+                .glassEffectID(Self.glassMorphID, in: dockNamespace)
                 .padding(.trailing, Self.buttonTrailingPadding)
                 .padding(.bottom, Self.buttonBottomPadding)
             }
@@ -47,11 +48,6 @@ struct ClaudeDockOverlay: View {
         reduceMotion
             ? .linear(duration: 0.1)
             : .spring(response: 0.35, dampingFraction: 0.78)
-    }
-
-    private var panelScale: CGFloat {
-        if reduceMotion { return 1 }
-        return isOpen ? 1 : 0.05
     }
 }
 
