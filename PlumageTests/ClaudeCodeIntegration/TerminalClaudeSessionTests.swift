@@ -349,6 +349,63 @@ struct TerminalClaudeSessionTests {
         #expect(session.pendingInput.isEmpty)
     }
 
+    // MARK: - reconcileSessionFromDisk
+
+    @Test("reconcileSessionFromDisk adopts a fresher non-excluded jsonl and persists")
+    func reconcileAdoptsNewJsonl() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        // markStarted's reconcile may run before the new file appears; we
+        // simulate the post-/clear rotation by writing a fresh-mtime jsonl
+        // and re-invoking reconcile manually.
+        let newID = "post-clear-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(for: newID, mtime: Date())
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == newID)
+        // ID is persisted so a relaunch picks it up.
+        let persisted = try String(contentsOf: env.sessionIDStore, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(persisted == newID)
+        #expect(session.conversationID != originalID)
+    }
+
+    @Test("reconcileSessionFromDisk ignores excluded IDs (chat session)")
+    func reconcileSkipsExcluded() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let chatID = "chat-\(UUID().uuidString.lowercased())"
+        let session = env.makeSession(excludedSessionIDs: { [chatID] })
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        // Chat's jsonl shows up in the same dir but must not be adopted.
+        try env.writeClaudeSessionLog(for: chatID, mtime: Date())
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == originalID)
+    }
+
+    @Test("reconcileSessionFromDisk ignores jsonls older than launchInstant")
+    func reconcileSkipsOldFiles() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        // Pre-existing log file from a previous boot — mtime in the past.
+        let oldID = "old-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(
+            for: oldID, mtime: Date(timeIntervalSinceNow: -3600))
+        session.attach()
+        session.markStarted()  // launchInstant ≈ now, after the old file's mtime
+        #expect(session.conversationID == originalID)
+        // Explicit second call returns the same answer.
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == originalID)
+    }
+
     @Test("enqueue is independent of session state")
     func enqueueIgnoresState() throws {
         let env = try TempEnv.make()
@@ -383,21 +440,28 @@ struct TerminalClaudeSessionTests {
             )
         }
 
-        func makeSession() -> TerminalClaudeSession {
+        func makeSession(
+            excludedSessionIDs: @escaping () -> Set<String> = { [] }
+        ) -> TerminalClaudeSession {
             TerminalClaudeSession(
                 cwd: cwdRoot,
                 binaryURL: fakeBinary,
                 sessionIDStoreOverride: sessionIDStore,
-                sessionLogRoot: sessionLogRoot
+                sessionLogRoot: sessionLogRoot,
+                excludedSessionIDs: excludedSessionIDs
             )
         }
 
-        func writeClaudeSessionLog(for conversationID: String) throws {
+        func writeClaudeSessionLog(for conversationID: String, mtime: Date? = nil) throws {
             let encoded = cwdRoot.path.replacingOccurrences(of: "/", with: "-")
             let dir = sessionLogRoot.appendingPathComponent(encoded)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let file = dir.appendingPathComponent("\(conversationID).jsonl")
             try "".write(to: file, atomically: true, encoding: .utf8)
+            if let mtime {
+                try FileManager.default.setAttributes(
+                    [.modificationDate: mtime], ofItemAtPath: file.path)
+            }
         }
 
         func cleanup() {
