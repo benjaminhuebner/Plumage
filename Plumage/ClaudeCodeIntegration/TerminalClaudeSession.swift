@@ -18,8 +18,10 @@ final class TerminalClaudeSession {
     // Returns conversation IDs that must NOT be adopted by reconcile —
     // primarily the chat session's ID, since chat shares the same log dir.
     // ProjectWindow injects a closure with weak-capture on the chat session
-    // so the lookup stays live; tests use the default empty set.
-    private let excludedSessionIDs: () -> Set<String>
+    // so the lookup stays live; tests use the default empty set. Mutable so
+    // ProjectWindow can re-wire after `rebuilt(for:replacing:)` swaps in a
+    // fresh chat session instance whose weak ref would otherwise be stale.
+    private var excludedSessionIDs: () -> Set<String>
 
     private(set) var state: State = .idle
     private(set) var conversationID: String
@@ -159,6 +161,10 @@ final class TerminalClaudeSession {
 
     func registerStopHandler(_ handler: @escaping () -> Void) {
         stopHandler = handler
+    }
+
+    func setExcludedSessionIDs(_ provider: @escaping () -> Set<String>) {
+        excludedSessionIDs = provider
     }
 
     func clearStopHandler() {

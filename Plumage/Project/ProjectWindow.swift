@@ -103,6 +103,13 @@ struct ProjectWindow: View {
                 session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
                 terminalSession = TerminalClaudeSession.rebuilt(
                     for: handle.url, replacing: terminalSession)
+                // Chat shares the claude log dir with terminal; without this
+                // exclude the terminal's reconcile would adopt chat's session
+                // ID if chat happened to be the last writer.
+                terminalSession.setExcludedSessionIDs { [weak session] in
+                    guard let id = session?.conversationID else { return [] }
+                    return [id]
+                }
                 session.attach()
                 terminalSession.attach()
                 async let reload: Void = model.reload(at: handle.url)
