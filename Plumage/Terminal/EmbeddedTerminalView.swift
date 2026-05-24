@@ -17,8 +17,16 @@ struct EmbeddedTerminalView: View {
             // because the bridge persists across inspector toggles —
             // SwiftUI's .inspector(isPresented:) hides the column rather
             // than removing its content from the view tree.
-            SwiftTermBridge(session: session)
-                .id(session.restartEpoch)
+            //
+            // pendingCount/state read in body so @Observable picks them up
+            // as deps — without that, SwiftTermBridge.updateNSView wouldn't
+            // re-fire on enqueue() and the inject queue would sit unflushed.
+            SwiftTermBridge(
+                session: session,
+                pendingCount: session.pendingInput.count,
+                isRunning: isRunning
+            )
+            .id(session.restartEpoch)
 
             if showsBootOverlay {
                 bootOverlay
@@ -30,6 +38,11 @@ struct EmbeddedTerminalView: View {
 
     private var showsBootOverlay: Bool {
         if case .starting = session.state { return true }
+        return false
+    }
+
+    private var isRunning: Bool {
+        if case .running = session.state { return true }
         return false
     }
 
@@ -49,6 +62,12 @@ struct EmbeddedTerminalView: View {
 
 private struct SwiftTermBridge: NSViewRepresentable {
     let session: TerminalClaudeSession
+    // pendingCount + isRunning are dummy parameters that participate in
+    // SwiftUI's Equatable diff so updateNSView re-fires when the inject
+    // queue grows or when the session flips into .running. updateNSView
+    // reads session.pendingInput directly to perform the flush.
+    let pendingCount: Int
+    let isRunning: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -115,11 +134,23 @@ private struct SwiftTermBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
-        guard context.coordinator.lastColorScheme != colorScheme else { return }
-        context.coordinator.lastColorScheme = colorScheme
-        nsView.nativeBackgroundColor = .clear
-        nsView.layer?.backgroundColor = NSColor.clear.cgColor
-        applyForeground(to: nsView)
+        if context.coordinator.lastColorScheme != colorScheme {
+            context.coordinator.lastColorScheme = colorScheme
+            nsView.nativeBackgroundColor = .clear
+            nsView.layer?.backgroundColor = NSColor.clear.cgColor
+            applyForeground(to: nsView)
+        }
+        flushPendingInput(into: nsView)
+    }
+
+    private func flushPendingInput(into nsView: PersistentCursorTerminalView) {
+        // Gate on .running — the boot overlay covers the terminal until claude
+        // has finished its --resume replay; injecting during .starting would
+        // land before the prompt is ready and confuse the REPL.
+        guard isRunning, !session.pendingInput.isEmpty else { return }
+        for text in session.consumePending() {
+            nsView.send(txt: text)
+        }
     }
 
     @MainActor
