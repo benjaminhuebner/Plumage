@@ -38,6 +38,7 @@ struct IssueDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openSpec) private var openSpec
     @Environment(\.dismissToOrigin) private var dismissToOrigin
+    @Environment(\.runWorkflow) private var runWorkflow
     @Environment(ProjectKanbanModel.self) private var kanban
 
     enum DisplayMode: String, CaseIterable, Identifiable {
@@ -235,6 +236,12 @@ struct IssueDetailView: View {
             onRemoveLabel: onRemoveLabel,
             isDisabled: detailFieldsDisabled
         )
+        if !model.isCreating, let folderName = model.folderName {
+            Divider()
+            IssueWorkflowActionBar(status: currentStatus, type: currentType) { action in
+                runWorkflow(action, folderName, model.loadedBodyContent)
+            }
+        }
         Divider()
         IssueDetailFormRows(
             type: currentType,

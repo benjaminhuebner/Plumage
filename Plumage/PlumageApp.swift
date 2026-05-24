@@ -78,4 +78,15 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         pendingURLs = []
         return urls
     }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Sync Plumage's bundled claude theme so the embedded terminal renders
+        // without opaque block backgrounds. Off-main: installIfNeeded is
+        // nonisolated pure file I/O and on iCloud Drive / NFS homes the writes
+        // can take tens of milliseconds — no reason to block the launch path.
+        // Failure is best-effort and swallowed inside the installer.
+        Task.detached(priority: .utility) {
+            ClaudeThemeInstaller.installIfNeeded()
+        }
+    }
 }

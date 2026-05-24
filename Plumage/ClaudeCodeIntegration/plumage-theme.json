@@ -1,0 +1,40 @@
+{
+  "name": "plumage",
+  "base": "dark-ansi",
+  "overrides": {
+    "background": "transparent",
+    "userMessageBackground": "transparent",
+    "userMessageBackgroundHover": "transparent",
+    "bashMessageBackgroundColor": "transparent",
+    "memoryBackgroundColor": "transparent",
+
+    "diffAdded": "rgb(56,166,96)",
+    "diffAddedDimmed": "rgb(120,180,140)",
+    "diffAddedWord": "rgb(0,140,70)",
+    "diffRemoved": "rgb(209,69,75)",
+    "diffRemovedDimmed": "rgb(190,140,140)",
+    "diffRemovedWord": "rgb(170,40,40)",
+
+    "promptBorder": "rgb(120,120,160)",
+    "promptBorderShimmer": "rgb(140,140,180)",
+    "bashBorder": "rgb(160,140,120)",
+
+    "success": "rgb(56,166,96)",
+    "warning": "rgb(218,165,32)",
+    "error": "rgb(209,69,75)",
+    "claude": "rgb(218,165,32)",
+    "claudeShimmer": "rgb(218,165,32)",
+
+    "subtle": "rgb(140,140,140)",
+    "inactive": "rgb(120,120,120)",
+    "inactiveShimmer": "rgb(140,140,140)",
+
+    "permission": "rgb(140,140,200)",
+    "permissionShimmer": "rgb(160,160,220)",
+    "suggestion": "rgb(90,160,200)",
+    "autoAccept": "rgb(56,166,96)",
+    "planMode": "rgb(140,140,200)",
+    "fastMode": "rgb(218,165,32)",
+    "fastModeShimmer": "rgb(218,165,32)"
+  }
+}

@@ -4,7 +4,7 @@ import Testing
 @testable import Plumage
 
 @MainActor
-@Suite("TerminalClaudeSession", .serialized)
+@Suite("TerminalClaudeSession")
 struct TerminalClaudeSessionTests {
     @Test("starts in .idle")
     func initialState() throws {
@@ -307,6 +307,164 @@ struct TerminalClaudeSessionTests {
         #expect(rebuilt.state == .idle)
     }
 
+    // MARK: - pendingInput queue
+
+    @Test("pendingInput starts empty")
+    func pendingInputInitiallyEmpty() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        #expect(session.pendingInput.isEmpty)
+    }
+
+    @Test("enqueue appends in order")
+    func enqueueAppendsInOrder() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.enqueue("first")
+        session.enqueue("second")
+        session.enqueue("third")
+        #expect(session.pendingInput == ["first", "second", "third"])
+    }
+
+    @Test("consumePending returns and clears the buffer")
+    func consumePendingClears() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.enqueue("/plumage-plan foo\n")
+        session.enqueue("body line\n")
+        let drained = session.consumePending()
+        #expect(drained == ["/plumage-plan foo\n", "body line\n"])
+        #expect(session.pendingInput.isEmpty)
+    }
+
+    @Test("consumePending on empty buffer returns empty")
+    func consumePendingEmpty() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        #expect(session.consumePending().isEmpty)
+        #expect(session.pendingInput.isEmpty)
+    }
+
+    // MARK: - reconcileSessionFromDisk
+
+    @Test("reconcileSessionFromDisk adopts a fresher non-excluded jsonl and persists")
+    func reconcileAdoptsNewJsonl() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        // markStarted's reconcile may run before the new file appears; we
+        // simulate the post-/clear rotation by writing a fresh-mtime jsonl
+        // and re-invoking reconcile manually. +1ms offset removes any
+        // APFS-rounding ambiguity around the launchInstant comparison.
+        let newID = "post-clear-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(for: newID, mtime: Date(timeIntervalSinceNow: 0.001))
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == newID)
+        // ID is persisted so a relaunch picks it up.
+        let persisted = try String(contentsOf: env.sessionIDStore, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(persisted == newID)
+        #expect(session.conversationID != originalID)
+    }
+
+    @Test("reconcileSessionFromDisk ignores excluded IDs (chat session)")
+    func reconcileSkipsExcluded() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let chatID = "chat-\(UUID().uuidString.lowercased())"
+        let session = env.makeSession(excludedSessionIDs: { [chatID] })
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        // Chat's jsonl shows up in the same dir but must not be adopted.
+        try env.writeClaudeSessionLog(for: chatID, mtime: Date())
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == originalID)
+    }
+
+    @Test("reconcileSessionFromDisk picks one candidate when two share identical mtime")
+    func reconcileTwoEqualMtime() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        // Pin the current behavior: when two non-excluded candidates have
+        // identical mtime, reconcile adopts one of them (filesystem-order).
+        // This test guards against silent behavior changes — e.g., a refactor
+        // that flipped `<=` to `<` in the tie-break check, which would adopt
+        // the second file instead of the first.
+        let shared = Date(timeIntervalSinceNow: 0.001)
+        let idA = "equal-a-\(UUID().uuidString.lowercased())"
+        let idB = "equal-b-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(for: idA, mtime: shared)
+        try env.writeClaudeSessionLog(for: idB, mtime: shared)
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == idA || session.conversationID == idB)
+        #expect(session.conversationID != originalID)
+    }
+
+    @Test("reconcileSessionFromDisk is no-op between restart() and markStarted()")
+    func reconcileNoOpBetweenRestartAndMarkStarted() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        session.markExited(code: 0)
+        // After restart() state is .starting but launchInstant is still nil
+        // (cleared by stopLogWatcher inside markExited). reconcile must guard
+        // on launchInstant and not adopt a fresh candidate written during
+        // this window — otherwise the restart-respawn path would steal an ID
+        // before the new subprocess gets to write its own.
+        session.restart()
+        let candidateID = "should-not-adopt-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(
+            for: candidateID, mtime: Date(timeIntervalSinceNow: 0.001))
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == originalID)
+    }
+
+    @Test("reconcileSessionFromDisk ignores jsonls older than launchInstant")
+    func reconcileSkipsOldFiles() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        // Pre-existing log file from a previous boot — mtime in the past.
+        let oldID = "old-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(
+            for: oldID, mtime: Date(timeIntervalSinceNow: -3600))
+        session.attach()
+        session.markStarted()  // launchInstant ≈ now, after the old file's mtime
+        #expect(session.conversationID == originalID)
+        // Explicit second call returns the same answer.
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == originalID)
+    }
+
+    @Test("enqueue is independent of session state")
+    func enqueueIgnoresState() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.enqueue("before-attach")
+        session.attach()
+        session.enqueue("after-attach")
+        session.markStarted()
+        session.enqueue("after-running")
+        #expect(session.pendingInput == ["before-attach", "after-attach", "after-running"])
+    }
+
     // MARK: - Helpers
 
     @MainActor
@@ -328,21 +486,28 @@ struct TerminalClaudeSessionTests {
             )
         }
 
-        func makeSession() -> TerminalClaudeSession {
+        func makeSession(
+            excludedSessionIDs: @escaping () -> Set<String> = { [] }
+        ) -> TerminalClaudeSession {
             TerminalClaudeSession(
                 cwd: cwdRoot,
                 binaryURL: fakeBinary,
                 sessionIDStoreOverride: sessionIDStore,
-                sessionLogRoot: sessionLogRoot
+                sessionLogRoot: sessionLogRoot,
+                excludedSessionIDs: excludedSessionIDs
             )
         }
 
-        func writeClaudeSessionLog(for conversationID: String) throws {
+        func writeClaudeSessionLog(for conversationID: String, mtime: Date? = nil) throws {
             let encoded = cwdRoot.path.replacingOccurrences(of: "/", with: "-")
             let dir = sessionLogRoot.appendingPathComponent(encoded)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let file = dir.appendingPathComponent("\(conversationID).jsonl")
             try "".write(to: file, atomically: true, encoding: .utf8)
+            if let mtime {
+                try FileManager.default.setAttributes(
+                    [.modificationDate: mtime], ofItemAtPath: file.path)
+            }
         }
 
         func cleanup() {

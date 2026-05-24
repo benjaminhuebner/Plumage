@@ -17,8 +17,16 @@ struct EmbeddedTerminalView: View {
             // because the bridge persists across inspector toggles —
             // SwiftUI's .inspector(isPresented:) hides the column rather
             // than removing its content from the view tree.
-            SwiftTermBridge(session: session)
-                .id(session.restartEpoch)
+            //
+            // pendingCount/state read in body so @Observable picks them up
+            // as deps — without that, SwiftTermBridge.updateNSView wouldn't
+            // re-fire on enqueue() and the inject queue would sit unflushed.
+            SwiftTermBridge(
+                session: session,
+                pendingCount: session.pendingInput.count,
+                isRunning: isRunning
+            )
+            .id(session.restartEpoch)
 
             if showsBootOverlay {
                 bootOverlay
@@ -30,6 +38,11 @@ struct EmbeddedTerminalView: View {
 
     private var showsBootOverlay: Bool {
         if case .starting = session.state { return true }
+        return false
+    }
+
+    private var isRunning: Bool {
+        if case .running = session.state { return true }
         return false
     }
 
@@ -49,6 +62,12 @@ struct EmbeddedTerminalView: View {
 
 private struct SwiftTermBridge: NSViewRepresentable {
     let session: TerminalClaudeSession
+    // pendingCount + isRunning are dummy parameters that participate in
+    // SwiftUI's Equatable diff so updateNSView re-fires when the inject
+    // queue grows or when the session flips into .running. updateNSView
+    // reads session.pendingInput directly to perform the flush.
+    let pendingCount: Int
+    let isRunning: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -56,6 +75,13 @@ private struct SwiftTermBridge: NSViewRepresentable {
         let view = PersistentCursorTerminalView(frame: .zero)
         view.processDelegate = context.coordinator
         view.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        // optionAsMetaKey=false lets macOS' text-input layer compose Option
+        // sequences (Option+E → €, Option+U dead-key, etc.). With the
+        // default `true`, SwiftTerm intercepts the option-branch and sends
+        // ESC+letter — losing composition on a German keyboard. Trade-off:
+        // Option+Left/Right loses Emacs word-nav, but claude's REPL drives
+        // its own input layer where that's unused.
+        view.optionAsMetaKey = false
         view.nativeBackgroundColor = .clear
         view.wantsLayer = true
         view.layer?.isOpaque = false
@@ -115,11 +141,23 @@ private struct SwiftTermBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
-        guard context.coordinator.lastColorScheme != colorScheme else { return }
-        context.coordinator.lastColorScheme = colorScheme
-        nsView.nativeBackgroundColor = .clear
-        nsView.layer?.backgroundColor = NSColor.clear.cgColor
-        applyForeground(to: nsView)
+        if context.coordinator.lastColorScheme != colorScheme {
+            context.coordinator.lastColorScheme = colorScheme
+            nsView.nativeBackgroundColor = .clear
+            nsView.layer?.backgroundColor = NSColor.clear.cgColor
+            applyForeground(to: nsView)
+        }
+        flushPendingInput(into: nsView)
+    }
+
+    private func flushPendingInput(into nsView: PersistentCursorTerminalView) {
+        // Gate on .running — the boot overlay covers the terminal until claude
+        // has finished its --resume replay; injecting during .starting would
+        // land before the prompt is ready and confuse the REPL.
+        guard isRunning, !session.pendingInput.isEmpty else { return }
+        for text in session.consumePending() {
+            nsView.send(txt: text)
+        }
     }
 
     @MainActor
@@ -133,7 +171,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // Drop the stop-hook before terminate() so a stop() during teardown
         // doesn't end up calling terminate() on a half-disposed view.
         coordinator.session?.clearStopHandler()
+        // Tear down AppKit resources on MainActor here so PersistentCursorTerminalView's
+        // deinit (which is nonisolated under Swift 6 and would otherwise touch
+        // NSEvent.removeMonitor / Timer.invalidate from arbitrary threads) finds
+        // both properties already nil and becomes a no-op.
         nsView.stopCursorKeepAlive()
+        nsView.removeShiftEnterMonitor()
         nsView.terminate()
     }
 
@@ -211,8 +254,17 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
+        // Fallback for the abnormal path where dismantleNSView was skipped.
+        // Normal teardown nils both properties on MainActor via dismantleNSView,
+        // making this a no-op — Timer.invalidate / NSEvent.removeMonitor are
+        // not documented as thread-safe and must not run from a nonisolated
+        // deinit in the normal path.
         cursorKeepAlive?.invalidate()
         cursorKeepAlive = nil
+        if let token = shiftEnterMonitor {
+            NSEvent.removeMonitor(token)
+            shiftEnterMonitor = nil
+        }
     }
 
     // SwiftTerm's published intrinsicContentSize/fittingSize feed AppKit's
@@ -235,8 +287,10 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         super.viewDidMoveToWindow()
         if window != nil {
             startCursorKeepAlive()
+            installShiftEnterMonitor()
         } else {
             stopCursorKeepAlive()
+            removeShiftEnterMonitor()
         }
     }
 
@@ -261,6 +315,37 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     override func hideCursor(source: Terminal) {
         // Intentionally empty — see class comment.
+    }
+
+    // claude's REPL submits on `\r` and treats `\n` as a soft newline / line
+    // continuation — see commit 133e903 (runWorkflow CR-not-LF). SwiftTerm
+    // maps Return (keyCode 36) and Numpad Enter (keyCode 76) to `\r` and
+    // submits even with Shift held. `LocalProcessTerminalView.keyDown` is
+    // `public override` but not `open`, so subclass-override is rejected
+    // across module boundaries — a local NSEvent monitor (installed only
+    // while the view is firstResponder) intercepts the keystroke first.
+    nonisolated(unsafe) private var shiftEnterMonitor: Any?
+
+    private func installShiftEnterMonitor() {
+        guard shiftEnterMonitor == nil else { return }
+        shiftEnterMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                let window = self.window,
+                window === event.window,
+                window.firstResponder === self,
+                event.modifierFlags.contains(.shift),
+                event.keyCode == 36 || event.keyCode == 76
+            else { return event }
+            self.send(txt: "\n")
+            return nil
+        }
+    }
+
+    func removeShiftEnterMonitor() {
+        if let token = shiftEnterMonitor {
+            NSEvent.removeMonitor(token)
+            shiftEnterMonitor = nil
+        }
     }
 
     // Called from SwiftTerm's existing terminate() when the host removes the

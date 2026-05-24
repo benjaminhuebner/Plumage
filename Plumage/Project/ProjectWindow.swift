@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 struct ProjectWindow: View {
     let handle: ProjectHandle
@@ -40,6 +41,10 @@ struct ProjectWindow: View {
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
     @State private var beginInlineCreateAction: InlineCreateInvoker?
+    // Single in-flight workflow inject. Replacing it cancels the prior task
+    // so a quick second button-press doesn't leave the prior task's body
+    // enqueue stranded — see #00034 race fix.
+    @State private var workflowTask: Task<Void, Never>?
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -95,9 +100,24 @@ struct ProjectWindow: View {
                 // for a different handle keeps the stale session.cwd unless
                 // we rebuild here. attach() then handles the
                 // start/restart/no-op decision.
+                //
+                // Order matters: rebuilt() must run BEFORE setExcludedSessionIDs
+                // below — the closure captures `session` weakly at construction
+                // time, so it must close over the post-rebuilt instance. If
+                // setExcludedSessionIDs ran first, it would close over the
+                // about-to-be-released old session, return [] once rebuilt
+                // swapped it out, and silently allow the chat session's ID to
+                // be adopted by the terminal reconcile.
                 session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
                 terminalSession = TerminalClaudeSession.rebuilt(
                     for: handle.url, replacing: terminalSession)
+                // Chat shares the claude log dir with terminal; without this
+                // exclude the terminal's reconcile would adopt chat's session
+                // ID if chat happened to be the last writer.
+                terminalSession.setExcludedSessionIDs { [weak session] in
+                    guard let id = session?.conversationID else { return [] }
+                    return [id]
+                }
                 session.attach()
                 terminalSession.attach()
                 async let reload: Void = model.reload(at: handle.url)
@@ -130,6 +150,7 @@ struct ProjectWindow: View {
             .onDisappear {
                 session.stop()
                 terminalSession.stop()
+                workflowTask?.cancel()
                 xcodeRunController.cancelRun()
             }
             .onChange(of: selectedRoute) { _, new in
@@ -270,6 +291,7 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
+                .environment(\.runWorkflow, runWorkflow(_:folderName:body:))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
@@ -339,6 +361,59 @@ struct ProjectWindow: View {
             await claudeStatus.refresh(using: statusClient)
         }
     }
+
+    private func runWorkflow(_ action: WorkflowAction, folderName: String, body: String?) {
+        // Reject folder names that would corrupt the inject: \r submits in
+        // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
+        // exactly these three. Folder names are user-controlled via Finder
+        // rename, so this is a real attack surface, not just defense in depth.
+        guard TerminalClaudeSession.isShellSafe(folderName) else {
+            Self.log.warning(
+                "runWorkflow: refusing inject for \(action.slug, privacy: .public) — folderName contains control chars."
+            )
+            return
+        }
+
+        // Cancel any prior inject still mid-sleep before its body enqueue.
+        // Without this, a quick second click would: drain the prior slash
+        // command from pendingInput (or find it already flushed), enqueue a
+        // new command, and then the prior task would wake from its 800ms
+        // sleep and tack its body onto whatever ran most recently.
+        workflowTask?.cancel()
+        isTerminalInspectorOpen = true
+
+        // CR (\r) is what the terminal sends on Enter. claude's TUI treats
+        // \n as a multi-line continuation (Shift+Enter style) and only \r as
+        // submit — sending \n appended to the slash command just inserts a
+        // blank line. Strip \r from the body so a stray Enter inside the
+        // user's text doesn't submit a partial block early.
+        let slashCommand = "/\(action.slug) \(folderName)\r"
+        let followUp: String? = {
+            guard action == .plan, let body else { return nil }
+            return body.replacingOccurrences(of: "\r", with: "") + "\r"
+        }()
+        let session = terminalSession
+        let slug = action.slug
+
+        workflowTask = Task { @MainActor in
+            let result = await session.inject(
+                slashCommand: slashCommand, followUpBody: followUp)
+            switch result {
+            case .sessionExited:
+                Self.log.info(
+                    "runWorkflow: session exited before inject for \(slug, privacy: .public)."
+                )
+            case .timedOut:
+                Self.log.warning(
+                    "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
+                )
+            case .injected, .cancelled:
+                break
+            }
+        }
+    }
+
+    private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")
 
     private func refreshCreateIssueAction() {
         if isLoaded {
