@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 struct ProjectWindow: View {
     let handle: ProjectHandle
@@ -40,6 +41,10 @@ struct ProjectWindow: View {
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
     @State private var beginInlineCreateAction: InlineCreateInvoker?
+    // Single in-flight workflow inject. Replacing it cancels the prior task
+    // so a quick second button-press doesn't leave the prior task's body
+    // enqueue stranded — see #00034 race fix.
+    @State private var workflowTask: Task<Void, Never>?
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -130,6 +135,7 @@ struct ProjectWindow: View {
             .onDisappear {
                 session.stop()
                 terminalSession.stop()
+                workflowTask?.cancel()
                 xcodeRunController.cancelRun()
             }
             .onChange(of: selectedRoute) { _, new in
@@ -342,34 +348,76 @@ struct ProjectWindow: View {
     }
 
     private func runWorkflow(_ action: WorkflowAction, folderName: String, body: String?) {
+        // Reject folder names that would corrupt the inject: \r submits in
+        // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
+        // exactly these three. Folder names are user-controlled via Finder
+        // rename, so this is a real attack surface, not just defense in depth.
+        guard TerminalClaudeSession.isShellSafe(folderName) else {
+            Self.log.warning(
+                "runWorkflow: refusing inject for \(action.slug, privacy: .public) — folderName contains control chars."
+            )
+            return
+        }
+
+        // Cancel any prior inject still mid-sleep before its body enqueue.
+        // Without this, a quick second click would: drain the prior slash
+        // command from pendingInput (or find it already flushed), enqueue a
+        // new command, and then the prior task would wake from its 800ms
+        // sleep and tack its body onto whatever ran most recently.
+        workflowTask?.cancel()
+
         // Drop stale entries from any earlier failed inject so they don't
         // ride along after the user clicks a different button.
         _ = terminalSession.consumePending()
         isTerminalInspectorOpen = true
         let session = terminalSession
-        Task { @MainActor in
+        // claude's REPL treats \r as Enter; any \r inside the body would
+        // submit the partial block early and leak the remainder as a
+        // follow-up prompt. Strip before enqueue. \n stays — that's a
+        // multi-line continuation inside the input buffer.
+        let sanitizedBody = body?.replacingOccurrences(of: "\r", with: "")
+
+        workflowTask = Task { @MainActor in
             // Poll until the SwiftTerm subprocess is past its --resume replay.
             // 5s is comfortably above the observed ~1.6s boot in
-            // EmbeddedTerminalView; longer Boots silently no-op so a hung
-            // session doesn't queue up forever.
+            // EmbeddedTerminalView. Bail early on .exited (window-close,
+            // handle swap, or crash) instead of waiting out the deadline.
             let deadline = ContinuousClock.now + .seconds(5)
-            while !Self.isSessionRunning(session), ContinuousClock.now < deadline {
+            while !Self.isSessionRunning(session),
+                ContinuousClock.now < deadline,
+                !Task.isCancelled
+            {
+                if case .exited = session.state {
+                    Self.log.info(
+                        "runWorkflow: session exited before inject for \(action.slug, privacy: .public)."
+                    )
+                    return
+                }
                 try? await Task.sleep(for: .milliseconds(50))
             }
-            guard Self.isSessionRunning(session) else { return }
+            if Task.isCancelled { return }
+            guard Self.isSessionRunning(session) else {
+                Self.log.warning(
+                    "runWorkflow: session never reached .running within 5s; abort inject for \(action.slug, privacy: .public)."
+                )
+                return
+            }
             // CR (\r) is what the terminal sends on Enter. claude's TUI
             // treats \n as a multi-line continuation (Shift+Enter style)
             // and only \r as submit — sending \n appended to the slash
             // command just inserts a blank line in the input buffer.
             session.enqueue("/\(action.slug) \(folderName)\r")
-            if let body, action == .plan {
+            if let sanitizedBody, action == .plan {
                 try? await Task.sleep(for: .milliseconds(800))
+                if Task.isCancelled { return }
                 // Body's internal \n stay as multi-line breaks inside
                 // claude's input; trailing \r submits the whole block.
-                session.enqueue(body + "\r")
+                session.enqueue(sanitizedBody + "\r")
             }
         }
     }
+
+    private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")
 
     private static func isSessionRunning(_ session: TerminalClaudeSession) -> Bool {
         if case .running = session.state { return true }
