@@ -100,6 +100,14 @@ struct ProjectWindow: View {
                 // for a different handle keeps the stale session.cwd unless
                 // we rebuild here. attach() then handles the
                 // start/restart/no-op decision.
+                //
+                // Order matters: rebuilt() must run BEFORE setExcludedSessionIDs
+                // below — the closure captures `session` weakly at construction
+                // time, so it must close over the post-rebuilt instance. If
+                // setExcludedSessionIDs ran first, it would close over the
+                // about-to-be-released old session, return [] once rebuilt
+                // swapped it out, and silently allow the chat session's ID to
+                // be adopted by the terminal reconcile.
                 session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
                 terminalSession = TerminalClaudeSession.rebuilt(
                     for: handle.url, replacing: terminalSession)
@@ -372,64 +380,40 @@ struct ProjectWindow: View {
         // new command, and then the prior task would wake from its 800ms
         // sleep and tack its body onto whatever ran most recently.
         workflowTask?.cancel()
-
-        // Drop stale entries from any earlier failed inject so they don't
-        // ride along after the user clicks a different button.
-        _ = terminalSession.consumePending()
         isTerminalInspectorOpen = true
+
+        // CR (\r) is what the terminal sends on Enter. claude's TUI treats
+        // \n as a multi-line continuation (Shift+Enter style) and only \r as
+        // submit — sending \n appended to the slash command just inserts a
+        // blank line. Strip \r from the body so a stray Enter inside the
+        // user's text doesn't submit a partial block early.
+        let slashCommand = "/\(action.slug) \(folderName)\r"
+        let followUp: String? = {
+            guard action == .plan, let body else { return nil }
+            return body.replacingOccurrences(of: "\r", with: "") + "\r"
+        }()
         let session = terminalSession
-        // claude's REPL treats \r as Enter; any \r inside the body would
-        // submit the partial block early and leak the remainder as a
-        // follow-up prompt. Strip before enqueue. \n stays — that's a
-        // multi-line continuation inside the input buffer.
-        let sanitizedBody = body?.replacingOccurrences(of: "\r", with: "")
+        let slug = action.slug
 
         workflowTask = Task { @MainActor in
-            // Poll until the SwiftTerm subprocess is past its --resume replay.
-            // 5s is comfortably above the observed ~1.6s boot in
-            // EmbeddedTerminalView. Bail early on .exited (window-close,
-            // handle swap, or crash) instead of waiting out the deadline.
-            let deadline = ContinuousClock.now + .seconds(5)
-            while !Self.isSessionRunning(session),
-                ContinuousClock.now < deadline,
-                !Task.isCancelled
-            {
-                if case .exited = session.state {
-                    Self.log.info(
-                        "runWorkflow: session exited before inject for \(action.slug, privacy: .public)."
-                    )
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            if Task.isCancelled { return }
-            guard Self.isSessionRunning(session) else {
-                Self.log.warning(
-                    "runWorkflow: session never reached .running within 5s; abort inject for \(action.slug, privacy: .public)."
+            let result = await session.inject(
+                slashCommand: slashCommand, followUpBody: followUp)
+            switch result {
+            case .sessionExited:
+                Self.log.info(
+                    "runWorkflow: session exited before inject for \(slug, privacy: .public)."
                 )
-                return
-            }
-            // CR (\r) is what the terminal sends on Enter. claude's TUI
-            // treats \n as a multi-line continuation (Shift+Enter style)
-            // and only \r as submit — sending \n appended to the slash
-            // command just inserts a blank line in the input buffer.
-            session.enqueue("/\(action.slug) \(folderName)\r")
-            if let sanitizedBody, action == .plan {
-                try? await Task.sleep(for: .milliseconds(800))
-                if Task.isCancelled { return }
-                // Body's internal \n stay as multi-line breaks inside
-                // claude's input; trailing \r submits the whole block.
-                session.enqueue(sanitizedBody + "\r")
+            case .timedOut:
+                Self.log.warning(
+                    "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
+                )
+            case .injected, .cancelled:
+                break
             }
         }
     }
 
     private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")
-
-    private static func isSessionRunning(_ session: TerminalClaudeSession) -> Bool {
-        if case .running = session.state { return true }
-        return false
-    }
 
     private func refreshCreateIssueAction() {
         if isLoaded {

@@ -159,6 +159,50 @@ final class TerminalClaudeSession {
         return pendingInput
     }
 
+    enum InjectResult: Sendable, Equatable {
+        case injected
+        case sessionExited
+        case timedOut
+        case cancelled
+    }
+
+    // Wait for the session to enter .running (bounded by `timeout`), then
+    // enqueue `slashCommand`. If `followUpBody` is set, sleep `bodyDelay` and
+    // enqueue it. Drops any stale pendingInput entries up front so a quick
+    // second call doesn't tack onto leftover state from a prior failed inject.
+    // Pure session-state orchestration: caller (View) owns logging and the
+    // workflowTask handle, so this method stays free of UI concerns.
+    func inject(
+        slashCommand: String,
+        followUpBody: String? = nil,
+        timeout: Duration = .seconds(5),
+        bodyDelay: Duration = .milliseconds(800)
+    ) async -> InjectResult {
+        _ = consumePending()
+
+        let deadline = ContinuousClock.now + timeout
+        while !isRunningState(state), ContinuousClock.now < deadline {
+            if Task.isCancelled { return .cancelled }
+            if case .exited = state { return .sessionExited }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        if Task.isCancelled { return .cancelled }
+        guard isRunningState(state) else { return .timedOut }
+
+        enqueue(slashCommand)
+        if let followUpBody {
+            try? await Task.sleep(for: bodyDelay)
+            if Task.isCancelled { return .cancelled }
+            enqueue(followUpBody)
+        }
+        return .injected
+    }
+
+    private nonisolated func isRunningState(_ state: State) -> Bool {
+        if case .running = state { return true }
+        return false
+    }
+
     func registerStopHandler(_ handler: @escaping () -> Void) {
         stopHandler = handler
     }

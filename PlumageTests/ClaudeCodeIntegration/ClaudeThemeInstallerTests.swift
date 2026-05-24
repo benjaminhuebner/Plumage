@@ -70,6 +70,40 @@ struct ClaudeThemeInstallerTests {
         #expect(json["theme"] as? String == "plumage")
     }
 
+    @Test("ensureSettingsTheme leaves an unparseable settings.json untouched")
+    func bailsOnCorruptSettings() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let settings = tmp.appendingPathComponent("settings.json")
+        // settings.json is owned by claude (api_key_helper, permissions, model,
+        // …). If JSONSerialization can't parse it (BOM, trailing commas from
+        // another tool, hand-edit), we must NOT silently overwrite — that
+        // would destroy unrelated config. The installer should bail.
+        let corrupt = "not valid { json } # with comment"
+        try corrupt.write(to: settings, atomically: true, encoding: .utf8)
+
+        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+
+        let after = try String(contentsOf: settings, encoding: .utf8)
+        #expect(after == corrupt)
+    }
+
+    @Test("ensureSettingsTheme leaves a JSON-array settings.json untouched")
+    func bailsOnNonDictRoot() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let settings = tmp.appendingPathComponent("settings.json")
+        // Valid JSON but not a dict at the root — same bail-out path: don't
+        // overwrite something we can't safely merge into.
+        let arrayRoot = "[\"foo\", \"bar\"]"
+        try arrayRoot.write(to: settings, atomically: true, encoding: .utf8)
+
+        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+
+        let after = try String(contentsOf: settings, encoding: .utf8)
+        #expect(after == arrayRoot)
+    }
+
     @Test("ensureSettingsTheme re-syncs existing plumage theme entry")
     func resyncsPlumageEntry() throws {
         let tmp = try makeTempDir()

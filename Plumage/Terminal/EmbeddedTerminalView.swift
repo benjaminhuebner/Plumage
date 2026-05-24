@@ -171,7 +171,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // Drop the stop-hook before terminate() so a stop() during teardown
         // doesn't end up calling terminate() on a half-disposed view.
         coordinator.session?.clearStopHandler()
+        // Tear down AppKit resources on MainActor here so PersistentCursorTerminalView's
+        // deinit (which is nonisolated under Swift 6 and would otherwise touch
+        // NSEvent.removeMonitor / Timer.invalidate from arbitrary threads) finds
+        // both properties already nil and becomes a no-op.
         nsView.stopCursorKeepAlive()
+        nsView.removeShiftEnterMonitor()
         nsView.terminate()
     }
 
@@ -249,6 +254,11 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
+        // Fallback for the abnormal path where dismantleNSView was skipped.
+        // Normal teardown nils both properties on MainActor via dismantleNSView,
+        // making this a no-op — Timer.invalidate / NSEvent.removeMonitor are
+        // not documented as thread-safe and must not run from a nonisolated
+        // deinit in the normal path.
         cursorKeepAlive?.invalidate()
         cursorKeepAlive = nil
         if let token = shiftEnterMonitor {
@@ -331,7 +341,7 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         }
     }
 
-    private func removeShiftEnterMonitor() {
+    func removeShiftEnterMonitor() {
         if let token = shiftEnterMonitor {
             NSEvent.removeMonitor(token)
             shiftEnterMonitor = nil

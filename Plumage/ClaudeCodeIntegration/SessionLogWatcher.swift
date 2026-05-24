@@ -6,10 +6,15 @@ import os
 // guarded by an OSAllocatedUnfairLock instead of an actor so the synchronous
 // TerminalClaudeSession.markStarted/stop call sites stay synchronous. The
 // FSEvents callback only reads the immutable `onChange` closure (which is
-// @Sendable). FSEventStreamStop flushes in-flight callbacks before returning,
-// so read-side races settle before mutation in stop(). Kept as a separate
-// type from FSEventSource (not extracted to a shared utility): two callers
-// is below the "rule of three" extraction trigger — see decisions.md.
+// @Sendable). stop()/deinit run a queue.sync barrier on the (serial) FSEvents
+// delivery queue before tearing down the stream — this drains any callback
+// already dispatched but mid-flight, so the Unmanaged.passUnretained pointer
+// inside FSEventStreamContext never becomes dangling. FSEventStreamStop alone
+// does NOT guarantee a synchronous drain when invoked cross-queue (Apple's
+// docs only spec the flush on same-queue calls), so the barrier is load-
+// bearing — do not remove. Kept as a separate type from FSEventSource (not
+// extracted to a shared utility): two callers is below the "rule of three"
+// extraction trigger — see decisions.md.
 nonisolated final class SessionLogWatcher: @unchecked Sendable {
     private struct StreamBox: @unchecked Sendable {
         var ref: FSEventStreamRef?
@@ -17,6 +22,9 @@ nonisolated final class SessionLogWatcher: @unchecked Sendable {
 
     private let directory: URL
     private let streamLock = OSAllocatedUnfairLock<StreamBox>(initialState: StreamBox(ref: nil))
+    // Serial is load-bearing: queue.sync {} below relies on FIFO ordering to
+    // act as a drain barrier. Switching to a concurrent queue would break the
+    // drain guarantee and reopen the dangling-pointer race in deinit.
     private let queue: DispatchQueue
     private let onChange: @Sendable () -> Void
 
@@ -72,6 +80,13 @@ nonisolated final class SessionLogWatcher: @unchecked Sendable {
     }
 
     func stop() {
+        // Drain any callback that's already been dispatched onto the serial
+        // queue but hasn't started executing yet. Without this barrier a
+        // mid-flight callback could call into self via the unretained pointer
+        // after streamLock releases the stream. Safe from MainActor: callback
+        // body only dispatches a fresh Task @MainActor and returns immediately,
+        // so the sync wait is bounded.
+        queue.sync {}
         streamLock.withLock { box in
             guard let current = box.ref else { return }
             FSEventStreamStop(current)
@@ -82,6 +97,11 @@ nonisolated final class SessionLogWatcher: @unchecked Sendable {
     }
 
     deinit {
+        // ARC guarantees no other strong refs at this point, so no other
+        // thread is calling start()/stop() concurrently. Drain the queue the
+        // same way stop() does to close the race against an already-dispatched
+        // FSEvents callback.
+        queue.sync {}
         streamLock.withLock { box in
             if let current = box.ref {
                 FSEventStreamStop(current)

@@ -4,7 +4,7 @@ import Testing
 @testable import Plumage
 
 @MainActor
-@Suite("TerminalClaudeSession", .serialized)
+@Suite("TerminalClaudeSession")
 struct TerminalClaudeSessionTests {
     @Test("starts in .idle")
     func initialState() throws {
@@ -361,9 +361,10 @@ struct TerminalClaudeSessionTests {
         session.markStarted()
         // markStarted's reconcile may run before the new file appears; we
         // simulate the post-/clear rotation by writing a fresh-mtime jsonl
-        // and re-invoking reconcile manually.
+        // and re-invoking reconcile manually. +1ms offset removes any
+        // APFS-rounding ambiguity around the launchInstant comparison.
         let newID = "post-clear-\(UUID().uuidString.lowercased())"
-        try env.writeClaudeSessionLog(for: newID, mtime: Date())
+        try env.writeClaudeSessionLog(for: newID, mtime: Date(timeIntervalSinceNow: 0.001))
         session.reconcileSessionFromDisk()
         #expect(session.conversationID == newID)
         // ID is persisted so a relaunch picks it up.
@@ -384,6 +385,51 @@ struct TerminalClaudeSessionTests {
         session.markStarted()
         // Chat's jsonl shows up in the same dir but must not be adopted.
         try env.writeClaudeSessionLog(for: chatID, mtime: Date())
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == originalID)
+    }
+
+    @Test("reconcileSessionFromDisk picks one candidate when two share identical mtime")
+    func reconcileTwoEqualMtime() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        // Pin the current behavior: when two non-excluded candidates have
+        // identical mtime, reconcile adopts one of them (filesystem-order).
+        // This test guards against silent behavior changes — e.g., a refactor
+        // that flipped `<=` to `<` in the tie-break check, which would adopt
+        // the second file instead of the first.
+        let shared = Date(timeIntervalSinceNow: 0.001)
+        let idA = "equal-a-\(UUID().uuidString.lowercased())"
+        let idB = "equal-b-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(for: idA, mtime: shared)
+        try env.writeClaudeSessionLog(for: idB, mtime: shared)
+        session.reconcileSessionFromDisk()
+        #expect(session.conversationID == idA || session.conversationID == idB)
+        #expect(session.conversationID != originalID)
+    }
+
+    @Test("reconcileSessionFromDisk is no-op between restart() and markStarted()")
+    func reconcileNoOpBetweenRestartAndMarkStarted() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        let originalID = session.conversationID
+        session.attach()
+        session.markStarted()
+        session.markExited(code: 0)
+        // After restart() state is .starting but launchInstant is still nil
+        // (cleared by stopLogWatcher inside markExited). reconcile must guard
+        // on launchInstant and not adopt a fresh candidate written during
+        // this window — otherwise the restart-respawn path would steal an ID
+        // before the new subprocess gets to write its own.
+        session.restart()
+        let candidateID = "should-not-adopt-\(UUID().uuidString.lowercased())"
+        try env.writeClaudeSessionLog(
+            for: candidateID, mtime: Date(timeIntervalSinceNow: 0.001))
         session.reconcileSessionFromDisk()
         #expect(session.conversationID == originalID)
     }

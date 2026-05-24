@@ -55,10 +55,15 @@ nonisolated enum ClaudeThemeInstaller {
     ) throws {
         let url = try settingsURL ?? defaultSettingsFileURL(fileManager: fileManager)
         var json: [String: Any]
-        if fileManager.fileExists(atPath: url.path),
-            let data = try? Data(contentsOf: url),
-            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        {
+        if fileManager.fileExists(atPath: url.path) {
+            // File exists but unreadable or unparseable: bail rather than
+            // clobber. settings.json is shared state owned by claude — an
+            // overwrite would destroy api_key_helper / permissions / model
+            // entries that other tooling depends on. Theme install is best-
+            // effort; skipping is safer than data loss.
+            guard let data = try? Data(contentsOf: url),
+                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return }
             json = parsed
         } else {
             json = [:]
