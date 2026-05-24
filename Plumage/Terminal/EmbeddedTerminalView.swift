@@ -33,12 +33,6 @@ struct EmbeddedTerminalView: View {
                     .transition(.opacity)
             }
         }
-        // Translucent material backdrop: keeps glass-passthrough feel
-        // (vibrancy + light blur of what's behind the inspector) but gives
-        // claude's dimmed prompt-boxes and diff-blocks a stable enough
-        // backdrop to read text against. The terminal NSView itself stays
-        // `.clear` — the material lives behind it via SwiftUI's .background.
-        .background(.regularMaterial)
         .animation(.easeOut(duration: 0.25), value: showsBootOverlay)
     }
 
