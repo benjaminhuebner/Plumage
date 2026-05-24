@@ -244,6 +244,10 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     deinit {
         cursorKeepAlive?.invalidate()
         cursorKeepAlive = nil
+        if let token = shiftEnterMonitor {
+            NSEvent.removeMonitor(token)
+            shiftEnterMonitor = nil
+        }
     }
 
     // SwiftTerm's published intrinsicContentSize/fittingSize feed AppKit's
@@ -266,8 +270,10 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         super.viewDidMoveToWindow()
         if window != nil {
             startCursorKeepAlive()
+            installShiftEnterMonitor()
         } else {
             stopCursorKeepAlive()
+            removeShiftEnterMonitor()
         }
     }
 
@@ -292,6 +298,37 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     override func hideCursor(source: Terminal) {
         // Intentionally empty — see class comment.
+    }
+
+    // claude's REPL submits on `\r` and treats `\n` as a soft newline / line
+    // continuation — see commit 133e903 (runWorkflow CR-not-LF). SwiftTerm
+    // maps Return (keyCode 36) and Numpad Enter (keyCode 76) to `\r` and
+    // submits even with Shift held. `LocalProcessTerminalView.keyDown` is
+    // `public override` but not `open`, so subclass-override is rejected
+    // across module boundaries — a local NSEvent monitor (installed only
+    // while the view is firstResponder) intercepts the keystroke first.
+    nonisolated(unsafe) private var shiftEnterMonitor: Any?
+
+    private func installShiftEnterMonitor() {
+        guard shiftEnterMonitor == nil else { return }
+        shiftEnterMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                let window = self.window,
+                window === event.window,
+                window.firstResponder === self,
+                event.modifierFlags.contains(.shift),
+                event.keyCode == 36 || event.keyCode == 76
+            else { return event }
+            self.send(txt: "\n")
+            return nil
+        }
+    }
+
+    private func removeShiftEnterMonitor() {
+        if let token = shiftEnterMonitor {
+            NSEvent.removeMonitor(token)
+            shiftEnterMonitor = nil
+        }
     }
 
     // Called from SwiftTerm's existing terminate() when the host removes the
