@@ -357,10 +357,16 @@ struct ProjectWindow: View {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard Self.isSessionRunning(session) else { return }
-            session.enqueue("/\(action.slug) \(folderName)\n")
+            // CR (\r) is what the terminal sends on Enter. claude's TUI
+            // treats \n as a multi-line continuation (Shift+Enter style)
+            // and only \r as submit — sending \n appended to the slash
+            // command just inserts a blank line in the input buffer.
+            session.enqueue("/\(action.slug) \(folderName)\r")
             if let body, action == .plan {
                 try? await Task.sleep(for: .milliseconds(800))
-                session.enqueue(body + "\n")
+                // Body's internal \n stay as multi-line breaks inside
+                // claude's input; trailing \r submits the whole block.
+                session.enqueue(body + "\r")
             }
         }
     }
