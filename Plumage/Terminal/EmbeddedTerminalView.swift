@@ -82,7 +82,10 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // Option+Left/Right loses Emacs word-nav, but claude's REPL drives
         // its own input layer where that's unused.
         view.optionAsMetaKey = false
-        applyBackground(to: view)
+        view.nativeBackgroundColor = .clear
+        view.wantsLayer = true
+        view.layer?.isOpaque = false
+        view.layer?.backgroundColor = NSColor.clear.cgColor
         applyForeground(to: view)
         context.coordinator.lastColorScheme = colorScheme
 
@@ -140,7 +143,8 @@ private struct SwiftTermBridge: NSViewRepresentable {
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
         if context.coordinator.lastColorScheme != colorScheme {
             context.coordinator.lastColorScheme = colorScheme
-            applyBackground(to: nsView)
+            nsView.nativeBackgroundColor = .clear
+            nsView.layer?.backgroundColor = NSColor.clear.cgColor
             applyForeground(to: nsView)
         }
         flushPendingInput(into: nsView)
@@ -178,18 +182,6 @@ private struct SwiftTermBridge: NSViewRepresentable {
             colorScheme == .dark
             ? NSColor(white: 0.92, alpha: 1)
             : NSColor(white: 0.15, alpha: 1)
-    }
-
-    // Solid background so claude's slightly-dimmed user-prompt boxes have
-    // contrast to render against. The earlier .clear setup (+ isOpaque=false
-    // + layer.backgroundColor=.clear) existed to let Liquid Glass shine
-    // through; in the floating-dock layout that's no longer needed and the
-    // transparency made prompt boxes near-invisible.
-    private func applyBackground(to view: PersistentCursorTerminalView) {
-        view.nativeBackgroundColor =
-            colorScheme == .dark
-            ? NSColor(white: 0.08, alpha: 1)
-            : NSColor(white: 0.96, alpha: 1)
     }
 
     private static func environmentForClaude() -> [String] {
