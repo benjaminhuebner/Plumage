@@ -270,6 +270,7 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
+                .environment(\.runWorkflow, runWorkflow(_:folderName:body:))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
@@ -338,6 +339,35 @@ struct ProjectWindow: View {
             }
             await claudeStatus.refresh(using: statusClient)
         }
+    }
+
+    private func runWorkflow(_ action: WorkflowAction, folderName: String, body: String?) {
+        // Drop stale entries from any earlier failed inject so they don't
+        // ride along after the user clicks a different button.
+        _ = terminalSession.consumePending()
+        isTerminalInspectorOpen = true
+        let session = terminalSession
+        Task { @MainActor in
+            // Poll until the SwiftTerm subprocess is past its --resume replay.
+            // 5s is comfortably above the observed ~1.6s boot in
+            // EmbeddedTerminalView; longer Boots silently no-op so a hung
+            // session doesn't queue up forever.
+            let deadline = ContinuousClock.now + .seconds(5)
+            while !Self.isSessionRunning(session), ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard Self.isSessionRunning(session) else { return }
+            session.enqueue("/\(action.slug) \(folderName)\n")
+            if let body, action == .plan {
+                try? await Task.sleep(for: .milliseconds(800))
+                session.enqueue(body + "\n")
+            }
+        }
+    }
+
+    private static func isSessionRunning(_ session: TerminalClaudeSession) -> Bool {
+        if case .running = session.state { return true }
+        return false
     }
 
     private func refreshCreateIssueAction() {
