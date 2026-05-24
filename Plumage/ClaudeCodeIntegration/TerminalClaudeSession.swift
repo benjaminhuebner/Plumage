@@ -18,6 +18,12 @@ final class TerminalClaudeSession {
 
     private(set) var state: State = .idle
     private(set) var conversationID: String
+    // Inject buffer drained by SwiftTermBridge once state == .running.
+    // Producers (workflow buttons) call enqueue() unconditionally; the bridge
+    // observes mutations via @Observable and flushes through send(txt:).
+    // Cleared with consumePending() at the start of every fresh inject so
+    // stale entries from a prior failed flush don't ride along.
+    private(set) var pendingInput: [String] = []
     // Bumped by restart() so EmbeddedTerminalView can use it as a SwiftUI .id
     // and force SwiftTermBridge to dismantle + remount, which respawns the
     // PTY-owned claude subprocess. State alone can't drive a remount because
@@ -115,6 +121,15 @@ final class TerminalClaudeSession {
         guard case .exited = state else { return }
         state = .starting(cwd: cwd)
         restartEpoch &+= 1
+    }
+
+    func enqueue(_ text: String) {
+        pendingInput.append(text)
+    }
+
+    func consumePending() -> [String] {
+        defer { pendingInput.removeAll() }
+        return pendingInput
     }
 
     func registerStopHandler(_ handler: @escaping () -> Void) {

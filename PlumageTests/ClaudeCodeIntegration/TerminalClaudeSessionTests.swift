@@ -307,6 +307,61 @@ struct TerminalClaudeSessionTests {
         #expect(rebuilt.state == .idle)
     }
 
+    // MARK: - pendingInput queue
+
+    @Test("pendingInput starts empty")
+    func pendingInputInitiallyEmpty() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        #expect(session.pendingInput.isEmpty)
+    }
+
+    @Test("enqueue appends in order")
+    func enqueueAppendsInOrder() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.enqueue("first")
+        session.enqueue("second")
+        session.enqueue("third")
+        #expect(session.pendingInput == ["first", "second", "third"])
+    }
+
+    @Test("consumePending returns and clears the buffer")
+    func consumePendingClears() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.enqueue("/plumage-plan foo\n")
+        session.enqueue("body line\n")
+        let drained = session.consumePending()
+        #expect(drained == ["/plumage-plan foo\n", "body line\n"])
+        #expect(session.pendingInput.isEmpty)
+    }
+
+    @Test("consumePending on empty buffer returns empty")
+    func consumePendingEmpty() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        #expect(session.consumePending().isEmpty)
+        #expect(session.pendingInput.isEmpty)
+    }
+
+    @Test("enqueue is independent of session state")
+    func enqueueIgnoresState() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.enqueue("before-attach")
+        session.attach()
+        session.enqueue("after-attach")
+        session.markStarted()
+        session.enqueue("after-running")
+        #expect(session.pendingInput == ["before-attach", "after-attach", "after-running"])
+    }
+
     // MARK: - Helpers
 
     @MainActor
