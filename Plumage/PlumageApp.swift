@@ -78,4 +78,11 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         pendingURLs = []
         return urls
     }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Sync Plumage's bundled claude theme so the embedded terminal renders
+        // without opaque block backgrounds. The installer owns the user-config
+        // file path; failure is best-effort and never blocks app start.
+        ClaudeThemeInstaller.installIfNeeded()
+    }
 }
