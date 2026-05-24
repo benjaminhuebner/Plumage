@@ -35,7 +35,11 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable {
             return status == .draft && type == .feature
         case .implement:
             if status == .approved || status == .inProgress { return true }
-            if status == .draft, type == .chore || type == .spike { return true }
+            // Draft + non-feature skips the Plan step entirely. The Plan
+            // button's tooltip promises chore/spike/refactor "gehen direkt
+            // in Implement" — refactor must therefore be enabled here too,
+            // otherwise a draft refactor has no enabled button at all.
+            if status == .draft, type != .feature { return true }
             return false
         case .review:
             return status == .waitingForReview
@@ -76,7 +80,8 @@ struct IssueWorkflowActionBar: View {
     @ViewBuilder
     private func button(for action: WorkflowAction) -> some View {
         let enabled = action.isEnabled(status: status, type: type)
-        Button {
+        let tooltip = action.disabledTooltip(status: status, type: type)
+        let core = Button {
             runWorkflow(action)
         } label: {
             Label(action.label, systemImage: action.systemImage)
@@ -85,9 +90,17 @@ struct IssueWorkflowActionBar: View {
         .buttonStyle(.bordered)
         .controlSize(.regular)
         .disabled(!enabled)
-        .help(enabled ? action.label : action.disabledTooltip(status: status, type: type))
+        .help(enabled ? action.label : tooltip)
         .accessibilityLabel(action.label)
-        .accessibilityHint(enabled ? "" : action.disabledTooltip(status: status, type: type))
+
+        // Apply accessibilityHint only on disabled buttons; an empty hint
+        // string still gets published, which VoiceOver may announce as
+        // silence after the label.
+        if enabled {
+            core
+        } else {
+            core.accessibilityHint(tooltip)
+        }
     }
 }
 

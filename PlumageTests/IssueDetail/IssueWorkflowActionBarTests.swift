@@ -15,7 +15,7 @@ struct WorkflowActionIsEnabledTests {
         }
     }
 
-    @Test("implement: approved/in-progress always; draft only for chore/spike")
+    @Test("implement: approved/in-progress always; draft for every non-feature type")
     func implementEnabled() {
         for type in IssueType.allCases {
             for status in IssueStatus.allCases {
@@ -23,11 +23,21 @@ struct WorkflowActionIsEnabledTests {
                 let expected: Bool
                 switch status {
                 case .approved, .inProgress: expected = true
-                case .draft: expected = (type == .chore || type == .spike)
+                case .draft: expected = (type != .feature)
                 case .waitingForReview, .done, .blocked: expected = false
                 }
                 #expect(enabled == expected, "implement(\(status), \(type)) expected \(expected)")
             }
+        }
+    }
+
+    @Test("every draft issue exposes at least one enabled action")
+    func draftAlwaysHasEnabledAction() {
+        for type in IssueType.allCases {
+            let anyEnabled = WorkflowAction.allCases.contains { action in
+                action.isEnabled(status: .draft, type: type)
+            }
+            #expect(anyEnabled, "draft + \(type) must expose at least one action")
         }
     }
 
