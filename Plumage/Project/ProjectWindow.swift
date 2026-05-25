@@ -421,6 +421,17 @@ struct ProjectWindow: View {
         workflowTask?.cancel()
         isTerminalInspectorOpen = true
 
+        // Find-or-create a per-workflow tab so each Plan/Implement/Review
+        // gets its own claude subprocess with the right --permission-mode and
+        // leaves the main terminal free. Title match is exact ("<Action>:
+        // <slug>"); a repeat click on the same action+issue selects the
+        // existing tab without a second inject.
+        if let existing = terminalTabs.findWorkflowTab(action: action, slug: folderName) {
+            terminalTabs.selectedTabID = existing.id
+            return
+        }
+        let workflowTab = terminalTabs.addWorkflowTab(action: action, slug: folderName)
+
         // CR (\r) is what the terminal sends on Enter. claude's TUI treats
         // \n as a multi-line continuation (Shift+Enter style) and only \r as
         // submit — sending \n appended to the slash command just inserts a
@@ -431,15 +442,7 @@ struct ProjectWindow: View {
             guard action == .plan, let body else { return nil }
             return body.replacingOccurrences(of: "\r", with: "") + "\r"
         }()
-        // Workflows always target the sticky main tab — they belong to the
-        // project, not to whichever secondary conversation the user happens
-        // to have selected. mainSession is non-optional because closeTab
-        // refuses to remove index 0; that also means closeTab can never
-        // strand a workflowTask that captured this reference.
-        let session = terminalTabs.mainSession
-        // Make sure the main tab is visible so the user can watch the
-        // injected slash command run.
-        terminalTabs.selectedTabID = terminalTabs.tabs[0].id
+        let session = workflowTab.session
         let slug = action.slug
 
         workflowTask = Task { @MainActor in

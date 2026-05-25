@@ -228,6 +228,42 @@ struct TerminalTabsModelTests {
         }
     }
 
+    @Test("workflow orchestration: repeat addWorkflowTab is gated by findWorkflowTab")
+    func workflowFindOrCreateContract() {
+        let model = makeModel()
+        // First click → no existing tab, addWorkflowTab creates it.
+        #expect(model.findWorkflowTab(action: .plan, slug: "abc") == nil)
+        let created = model.addWorkflowTab(action: .plan, slug: "abc")
+
+        // Second click for the same action+slug → find returns the same tab,
+        // caller never calls add again. Total tabs stays at 2 (main + plan).
+        let found = model.findWorkflowTab(action: .plan, slug: "abc")
+        #expect(found?.id == created.id)
+        #expect(model.tabs.count == 2)
+
+        // A different action for the same slug is still a new tab (3 total).
+        #expect(model.findWorkflowTab(action: .implement, slug: "abc") == nil)
+        model.addWorkflowTab(action: .implement, slug: "abc")
+        #expect(model.tabs.count == 3)
+    }
+
+    @Test("workflow orchestration: main tab session stays untouched")
+    func workflowDoesNotTouchMainSession() {
+        let model = makeModel()
+        let mainSession = model.tabs[0].session
+        #expect(isIdle(mainSession.state))
+        #expect(mainSession.pendingInput.isEmpty)
+
+        model.addWorkflowTab(action: .plan, slug: "x")
+        model.addWorkflowTab(action: .implement, slug: "y")
+        model.addWorkflowTab(action: .review, slug: "z")
+
+        // After three workflow tabs, the main session is still idle with an
+        // empty pendingInput buffer — no slash command was injected there.
+        #expect(isIdle(mainSession.state))
+        #expect(mainSession.pendingInput.isEmpty)
+    }
+
     @Test("setSharedExcludedSessionIDs propagates the chat exclude into every tab")
     func setSharedExcludedSessionIDsPropagates() {
         let model = makeModel()
