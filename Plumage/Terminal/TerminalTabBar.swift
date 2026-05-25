@@ -49,16 +49,17 @@ private struct TerminalTabPill: View {
                 Text(tab.title)
                     .font(.caption.weight(.medium))
                     .lineLimit(1)
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        // Keep the slot allocated when not visible so hover-in
-                        // doesn't reflow the row width.
-                        .opacity(closeButtonOpacity)
+                if canClose {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            // Keep the slot allocated when not visible so
+                            // hover-in doesn't reflow the row width.
+                            .opacity(isActive || isHovering ? 1.0 : 0.0)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close \(tab.title)")
                 }
-                .buttonStyle(.plain)
-                .disabled(!canClose)
-                .accessibilityLabel("Close \(tab.title)")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
@@ -81,11 +82,6 @@ private struct TerminalTabPill: View {
             isHovering = hovering
         }
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
-    }
-
-    private var closeButtonOpacity: Double {
-        if !canClose { return 0.3 }
-        return isActive || isHovering ? 1.0 : 0.0
     }
 }
 

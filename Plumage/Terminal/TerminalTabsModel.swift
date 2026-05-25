@@ -25,9 +25,15 @@ final class TerminalTabsModel {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.sharedExcludedSessionIDs = excludedSessionIDs
-        let firstTab = TerminalTab(session: initialSession, title: "Terminal 1")
+        let firstTab = TerminalTab(session: initialSession, title: Self.title(for: 0))
         self.tabs = [firstTab]
         self.selectedTabID = firstTab.id
+    }
+
+    // Index 0 is the sticky main terminal — own name. Additional tabs are
+    // numbered by their 1-based index to match the ⌘1/⌘2/⌘3 shortcuts.
+    private static func title(for index: Int) -> String {
+        index == 0 ? "Main Terminal" : "Terminal \(index + 1)"
     }
 
     var activeSession: TerminalClaudeSession? {
@@ -56,7 +62,7 @@ final class TerminalTabsModel {
             persistConversationID: false
         )
         session.attach()
-        let tab = TerminalTab(session: session, title: "Terminal \(tabs.count + 1)")
+        let tab = TerminalTab(session: session, title: Self.title(for: tabs.count))
         tabs.append(tab)
         selectedTabID = tab.id
     }
@@ -96,7 +102,7 @@ final class TerminalTabsModel {
 
     private func reindexTitles() {
         for index in tabs.indices {
-            tabs[index].title = "Terminal \(index + 1)"
+            tabs[index].title = Self.title(for: index)
         }
     }
 }

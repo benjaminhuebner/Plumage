@@ -11,7 +11,7 @@ struct TerminalTabsModelTests {
         let model = makeModel()
         let initialID = model.tabs[0].id
         #expect(model.tabs.count == 1)
-        #expect(model.tabs[0].title == "Terminal 1")
+        #expect(model.tabs[0].title == "Main Terminal")
         #expect(model.selectedTabID == initialID)
 
         model.addTab()
@@ -26,13 +26,13 @@ struct TerminalTabsModelTests {
         let model = makeModel()
         model.addTab()
         model.addTab()
-        #expect(model.tabs.map(\.title) == ["Terminal 1", "Terminal 2", "Terminal 3"])
+        #expect(model.tabs.map(\.title) == ["Main Terminal", "Terminal 2", "Terminal 3"])
 
         let middleID = model.tabs[1].id
         model.closeTab(id: middleID)
 
         #expect(model.tabs.count == 2)
-        #expect(model.tabs.map(\.title) == ["Terminal 1", "Terminal 2"])
+        #expect(model.tabs.map(\.title) == ["Main Terminal", "Terminal 2"])
     }
 
     @Test("the main terminal at index 0 is never closable")
