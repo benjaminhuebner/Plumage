@@ -10,13 +10,30 @@ import Foundation
 //                                    issue branch — so the merge actually
 //                                    fast-forwards a real diff)
 //
-// Caller is responsible for removing tmpDir.
-nonisolated struct TmpGitRepo: Sendable {
+// Class + deinit so tmpDir is cleaned up automatically when the instance goes
+// out of scope (mirrors TestEnvironment). All properties are `let`, so the
+// final class is plain Sendable — no @unchecked needed.
+nonisolated final class TmpGitRepo: Sendable {
     let tmpDir: URL
     let specURL: URL
     let mainBranch: String
     let issueBranch: String
     let folderName: String
+
+    private init(
+        tmpDir: URL, specURL: URL,
+        mainBranch: String, issueBranch: String, folderName: String
+    ) {
+        self.tmpDir = tmpDir
+        self.specURL = specURL
+        self.mainBranch = mainBranch
+        self.issueBranch = issueBranch
+        self.folderName = folderName
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: tmpDir)
+    }
 
     static func make(
         defaultBranch: String = "main",
@@ -28,53 +45,61 @@ nonisolated struct TmpGitRepo: Sendable {
             .appendingPathComponent("TmpGitRepo-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: tmpDir, withIntermediateDirectories: true)
 
-        // git init -b <defaultBranch>. Bypasses any global init.defaultBranch
-        // config so the test is deterministic.
-        try await runGit(["init", "-b", defaultBranch], cwd: tmpDir)
-        // user.name / user.email — required for `git commit` to work without
-        // a global git identity. Test-only values.
-        try await runGit(["config", "user.name", "Test"], cwd: tmpDir)
-        try await runGit(["config", "user.email", "test@plumage.invalid"], cwd: tmpDir)
-        // commit.gpgsign=false so the test doesn't fail on hosts that have
-        // GPG signing on by default in their global git config.
-        try await runGit(["config", "commit.gpgsign", "false"], cwd: tmpDir)
+        // Anything that throws after createDirectory must clean up tmpDir,
+        // otherwise a partial-construction failure leaves the directory on
+        // disk (the deinit only fires when an instance returns).
+        do {
+            // git init -b <defaultBranch>. Bypasses any global init.defaultBranch
+            // config so the test is deterministic.
+            try await runGit(["init", "-b", defaultBranch], cwd: tmpDir)
+            // user.name / user.email — required for `git commit` to work without
+            // a global git identity. Test-only values.
+            try await runGit(["config", "user.name", "Test"], cwd: tmpDir)
+            try await runGit(["config", "user.email", "test@plumage.invalid"], cwd: tmpDir)
+            // commit.gpgsign=false so the test doesn't fail on hosts that have
+            // GPG signing on by default in their global git config.
+            try await runGit(["config", "commit.gpgsign", "false"], cwd: tmpDir)
 
-        // Initial commit on default branch.
-        let contentURL = tmpDir.appendingPathComponent("content.txt")
-        try "main\n".write(to: contentURL, atomically: true, encoding: .utf8)
-        try await runGit(["add", "content.txt"], cwd: tmpDir)
-        try await runGit(["commit", "-m", "initial"], cwd: tmpDir)
+            // Initial commit on default branch.
+            let contentURL = tmpDir.appendingPathComponent("content.txt")
+            try "main\n".write(to: contentURL, atomically: true, encoding: .utf8)
+            try await runGit(["add", "content.txt"], cwd: tmpDir)
+            try await runGit(["commit", "-m", "initial"], cwd: tmpDir)
 
-        // Create the issue folder with a spec.md before branching, so the
-        // branch carries the issue file too. Not committed to git — mirrors
-        // Plumage's real-project setup where .claude/ is gitignored.
-        let issueFolder =
-            tmpDir
-            .appendingPathComponent(".claude/issues", isDirectory: true)
-            .appendingPathComponent(folderName, isDirectory: true)
-        try fileManager.createDirectory(at: issueFolder, withIntermediateDirectories: true)
-        let specURL = issueFolder.appendingPathComponent("spec.md")
-        try Self.specContent(branch: issueBranch).write(
-            to: specURL, atomically: true, encoding: .utf8)
-        // gitignore .claude/ so `git status --porcelain` stays empty
-        // (Plumage's mergeToMain pre-check requires a clean tree).
-        let gitignore = tmpDir.appendingPathComponent(".gitignore")
-        try ".claude/\n".write(to: gitignore, atomically: true, encoding: .utf8)
-        try await runGit(["add", ".gitignore"], cwd: tmpDir)
-        try await runGit(["commit", "-m", "ignore claude folder"], cwd: tmpDir)
+            // Create the issue folder with a spec.md before branching, so the
+            // branch carries the issue file too. Not committed to git — mirrors
+            // Plumage's real-project setup where .claude/ is gitignored.
+            let issueFolder =
+                tmpDir
+                .appendingPathComponent(".claude/issues", isDirectory: true)
+                .appendingPathComponent(folderName, isDirectory: true)
+            try fileManager.createDirectory(at: issueFolder, withIntermediateDirectories: true)
+            let specURL = issueFolder.appendingPathComponent("spec.md")
+            try Self.specContent(branch: issueBranch).write(
+                to: specURL, atomically: true, encoding: .utf8)
+            // gitignore .claude/ so `git status --porcelain` stays empty
+            // (Plumage's mergeToMain pre-check requires a clean tree).
+            let gitignore = tmpDir.appendingPathComponent(".gitignore")
+            try ".claude/\n".write(to: gitignore, atomically: true, encoding: .utf8)
+            try await runGit(["add", ".gitignore"], cwd: tmpDir)
+            try await runGit(["commit", "-m", "ignore claude folder"], cwd: tmpDir)
 
-        // Branch off and add a second commit so the merge is meaningful.
-        try await runGit(["checkout", "-b", issueBranch], cwd: tmpDir)
-        try "branch\n".write(to: contentURL, atomically: true, encoding: .utf8)
-        try await runGit(["add", "content.txt"], cwd: tmpDir)
-        try await runGit(["commit", "-m", "branch work"], cwd: tmpDir)
+            // Branch off and add a second commit so the merge is meaningful.
+            try await runGit(["checkout", "-b", issueBranch], cwd: tmpDir)
+            try "branch\n".write(to: contentURL, atomically: true, encoding: .utf8)
+            try await runGit(["add", "content.txt"], cwd: tmpDir)
+            try await runGit(["commit", "-m", "branch work"], cwd: tmpDir)
 
-        return TmpGitRepo(
-            tmpDir: tmpDir, specURL: specURL,
-            mainBranch: defaultBranch,
-            issueBranch: issueBranch,
-            folderName: folderName
-        )
+            return TmpGitRepo(
+                tmpDir: tmpDir, specURL: specURL,
+                mainBranch: defaultBranch,
+                issueBranch: issueBranch,
+                folderName: folderName
+            )
+        } catch {
+            try? fileManager.removeItem(at: tmpDir)
+            throw error
+        }
     }
 
     func headSha(branch: String) async throws -> String {

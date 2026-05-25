@@ -4,16 +4,17 @@ import Testing
 @testable import Plumage
 
 @Suite("End-to-end merge against a real tmp git repo")
-@MainActor
 struct MergeIntegrationTests {
-    @Test("happy path merges issue branch into main, flips spec status, deletes branch, signals kanban")
+    @Test(
+        "happy path merges issue branch into main, flips spec status, deletes branch, signals kanban",
+        .enabled(if: ToolchainLocator.git() != nil)
+    )
     func happyPathMergesAndSignals() async throws {
         let repo = try await TmpGitRepo.make()
-        defer { try? FileManager.default.removeItem(at: repo.tmpDir) }
-
         let issueBranchHead = try await repo.headSha(branch: repo.issueBranch)
+        let mainBranch = repo.mainBranch
 
-        let model = IssueDetailModel(
+        let model = await IssueDetailModel(
             specURL: repo.specURL,
             folderName: repo.folderName,
             projectURL: repo.tmpDir,
@@ -21,24 +22,27 @@ struct MergeIntegrationTests {
             configLoader: { _ in
                 ProjectConfig(
                     name: "Test", schemaVersion: 2, issueIdPadding: 5,
-                    git: GitConfig(defaultBranch: repo.mainBranch))
+                    git: GitConfig(defaultBranch: mainBranch))
             }
         )
         await model.load()
-        let kanban = ProjectKanbanModel()
+        let kanban = await ProjectKanbanModel()
 
         let success = await model.mergeToMain(deleteBranch: true)
         // Mirror the IssueDetailView wiring — on success, fire the kanban
         // signal so the auto-dismiss observer would trigger in real use.
-        if success, let folderName = model.folderName {
-            kanban.signalMergeCompleted(folderName: folderName)
+        if success, let folderName = await model.folderName {
+            await kanban.signalMergeCompleted(folderName: folderName)
         }
 
         // 1. mergeToMain reported success.
         #expect(success == true)
-        #expect(model.lastMergeError == nil)
-        #expect(model.lastMergeCriticalError == nil)
-        #expect(model.lastMergeNotice == nil)
+        let mergeError = await model.lastMergeError
+        let mergeCritical = await model.lastMergeCriticalError
+        let mergeNotice = await model.lastMergeNotice
+        #expect(mergeError == nil)
+        #expect(mergeCritical == nil)
+        #expect(mergeNotice == nil)
 
         // 2. main HEAD == old issue-branch HEAD (fast-forward).
         let mainHead = try await repo.headSha(branch: repo.mainBranch)
@@ -51,18 +55,23 @@ struct MergeIntegrationTests {
         // 4. Spec status flipped to done on disk.
         let onDisk = try String(contentsOf: repo.specURL, encoding: .utf8)
         #expect(onDisk.contains("status: done"))
-        #expect(model.issue?.status == .done)
+        let modelStatus = await model.issue?.status
+        #expect(modelStatus == .done)
 
         // 5. Kanban signal fired with the right folder name.
-        #expect(kanban.lastMergeCompleted == repo.folderName)
+        let lastMerge = await kanban.lastMergeCompleted
+        #expect(lastMerge == repo.folderName)
     }
 
-    @Test("delete-branch=false keeps the branch but still flips spec status")
+    @Test(
+        "delete-branch=false keeps the branch but still flips spec status",
+        .enabled(if: ToolchainLocator.git() != nil)
+    )
     func keepsBranchWhenDeleteFalse() async throws {
         let repo = try await TmpGitRepo.make()
-        defer { try? FileManager.default.removeItem(at: repo.tmpDir) }
+        let mainBranch = repo.mainBranch
 
-        let model = IssueDetailModel(
+        let model = await IssueDetailModel(
             specURL: repo.specURL,
             folderName: repo.folderName,
             projectURL: repo.tmpDir,
@@ -70,7 +79,7 @@ struct MergeIntegrationTests {
             configLoader: { _ in
                 ProjectConfig(
                     name: "Test", schemaVersion: 2, issueIdPadding: 5,
-                    git: GitConfig(defaultBranch: repo.mainBranch))
+                    git: GitConfig(defaultBranch: mainBranch))
             }
         )
         await model.load()
@@ -78,7 +87,8 @@ struct MergeIntegrationTests {
         let success = await model.mergeToMain(deleteBranch: false)
 
         #expect(success == true)
-        #expect(model.issue?.status == .done)
+        let modelStatus = await model.issue?.status
+        #expect(modelStatus == .done)
         let branchPresent = await repo.branchExists(repo.issueBranch)
         #expect(branchPresent == true)
     }
