@@ -161,18 +161,31 @@ nonisolated public enum DiffParser {
         if line.hasPrefix("--- ") {
             let path = String(line.dropFirst("--- ".count))
             if path == "/dev/null" {
-                state.currentFile?.status = .added
+                overrideToAddedOrDeleted(.added, state: &state)
             }
             return
         }
         if line.hasPrefix("+++ ") {
             let path = String(line.dropFirst("+++ ".count))
             if path == "/dev/null" {
-                state.currentFile?.status = .deleted
+                overrideToAddedOrDeleted(.deleted, state: &state)
             }
             return
         }
         // Unknown header lines are intentionally skipped (forgiving parse).
+    }
+
+    // `/dev/null` on the --- / +++ line should not stamp over a more specific
+    // status (submodule, rename, copy, binary) that was set by an earlier
+    // header line.
+    private static func overrideToAddedOrDeleted(_ candidate: FileStatus, state: inout ParseState) {
+        guard let current = state.currentFile?.status else { return }
+        switch current {
+        case .submodule, .renamed, .copied, .binary:
+            return
+        case .added, .deleted, .modified:
+            state.currentFile?.status = candidate
+        }
     }
 
     private static func handleIndexLine(_ line: String, state: inout ParseState) {
