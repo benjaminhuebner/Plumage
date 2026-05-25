@@ -17,10 +17,17 @@ struct NavigatorDetail: View {
             )
         case .issue(let folderName):
             IssueDetailView(projectURL: projectURL, folderName: folderName)
-        case .doc(let relativePath):
-            DocEditorView(fileURL: projectURL.appendingPathComponent(relativePath))
+        case .managedFile(let type, let relativePath):
+            DocEditorView(
+                fileURL:
+                    projectURL
+                    .appendingPathComponent(type.relativePath, isDirectory: true)
+                    .appendingPathComponent(relativePath)
+            )
         case .claudeMD:
             DocEditorView(fileURL: ClaudeProjectFiles.claudeMDURL(projectURL: projectURL))
+        case .claudeLocalMD:
+            DocEditorView(fileURL: ClaudeProjectFiles.claudeLocalMDURL(projectURL: projectURL))
         case .claudeMarkdown(let name):
             DocEditorView(
                 fileURL:
@@ -28,13 +35,8 @@ struct NavigatorDetail: View {
                     .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
                     .appendingPathComponent(name)
             )
-        case .hook(let name):
-            DocEditorView(
-                fileURL:
-                    projectURL
-                    .appendingPathComponent(ClaudeProjectFiles.hooksRelativePath, isDirectory: true)
-                    .appendingPathComponent(name)
-            )
+        case .mcpJSON:
+            DocEditorView(fileURL: ClaudeProjectFiles.mcpJSONURL(projectURL: projectURL))
         case .skillFile(let skill, let relativePath):
             DocEditorView(
                 fileURL:

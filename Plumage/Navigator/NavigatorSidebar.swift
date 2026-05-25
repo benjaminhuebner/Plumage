@@ -12,6 +12,9 @@ struct NavigatorSidebar: View {
     @State private var sectionAnchors: [SidebarDropTarget.Section: CGFloat] = [:]
 
     @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
+    @SceneStorage("nav.expansion.agents") private var agentsExpanded = false
+    @SceneStorage("nav.expansion.rules") private var rulesExpanded = false
+    @SceneStorage("nav.expansion.outputStyles") private var outputStylesExpanded = false
     @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
     @SceneStorage("nav.expansion.settings") private var settingsExpanded = false
     @SceneStorage("nav.expansion.col.todo") private var todoExpanded = false
@@ -32,16 +35,16 @@ struct NavigatorSidebar: View {
             }
 
             SidebarSectionHeader(title: "Docs", help: "New Doc") {
-                navigator.beginPendingCreate(.docs)
+                navigator.beginPendingCreate(.managedFile(type: .docs))
             }
             .trackSectionAnchor(.docs, in: $sectionAnchors)
-            if navigator.docs.isEmpty && !isPending(.docs) {
+            if navigator.docs.isEmpty && !isPending(.managedFile(type: .docs)) {
                 emptyPlaceholder("No docs yet")
             } else {
                 ForEach(navigator.docs, id: \.absoluteString) { url in
                     docRow(url)
                 }
-                if isPending(.docs) {
+                if isPending(.managedFile(type: .docs)) {
                     InlineCreateRow(projectURL: projectURL, icon: "doc.text")
                 }
             }
@@ -53,6 +56,11 @@ struct NavigatorSidebar: View {
             Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
                 .tag(NavigatorRoute.claudeMD)
                 .clickableSidebarRow()
+            if navigator.claudeLocalMDExists {
+                Label("CLAUDE.local.md", systemImage: "doc.badge.gearshape")
+                    .tag(NavigatorRoute.claudeLocalMD)
+                    .clickableSidebarRow()
+            }
             ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
                 claudeMarkdownRow(url)
             }
@@ -60,6 +68,9 @@ struct NavigatorSidebar: View {
                 InlineCreateRow(projectURL: projectURL, icon: "doc.text")
             }
             hooksGroup
+            flatGroup(for: .agents, expanded: $agentsExpanded)
+            flatGroup(for: .rules, expanded: $rulesExpanded)
+            flatGroup(for: .outputStyles, expanded: $outputStylesExpanded)
             skillsGroup
             settingsGroup
         }
@@ -193,10 +204,10 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private func docRow(_ url: URL) -> some View {
-        let relative = NavigatorModel.relativePath(from: projectURL, to: url)
+        let relative = url.lastPathComponent
         managedFileRow(
             url: url,
-            tag: .doc(relativePath: relative),
+            tag: .managedFile(type: .docs, relativePath: relative),
             icon: "doc.text"
         )
     }
@@ -224,20 +235,68 @@ struct NavigatorSidebar: View {
         }
     }
 
+    // Generic flat-list section. Used for agents/rules/output-styles. Hooks
+    // uses its own variant because it also offers a "New Folder" affordance
+    // for nested sub-directories (not supported by the other types).
+    @ViewBuilder
+    private func flatGroup(
+        for type: ManagedFileType,
+        expanded: Binding<Bool>
+    ) -> some View {
+        DisclosureGroup(isExpanded: expanded) {
+            let urls = navigator.items(for: type)
+            if urls.isEmpty && !isPending(.managedFile(type: type)) {
+                emptyPlaceholder("No \(type.sectionTitle.lowercased())")
+            } else {
+                ForEach(urls, id: \.absoluteString) { url in
+                    managedFileRow(
+                        url: url,
+                        tag: .managedFile(type: type, relativePath: relativePath(of: url, type: type)),
+                        icon: type.fileRowSystemImage
+                    )
+                }
+                if isPending(.managedFile(type: type)) {
+                    InlineCreateRow(projectURL: projectURL, icon: type.fileRowSystemImage)
+                }
+            }
+        } label: {
+            Label(type.sectionTitle, systemImage: type.systemImage)
+                .clickableSidebarRow()
+                .trackSectionAnchor(.managed(type: type), in: $sectionAnchors)
+                .contextMenu {
+                    Button("New \(type.singularName)") {
+                        navigator.beginPendingCreate(.managedFile(type: type))
+                    }
+                }
+        }
+    }
+
+    private func relativePath(of url: URL, type: ManagedFileType) -> String {
+        let base =
+            projectURL
+            .appendingPathComponent(type.relativePath, isDirectory: true)
+            .standardizedFileURL.path
+        let full = url.standardizedFileURL.path
+        if full.hasPrefix(base + "/") {
+            return String(full.dropFirst(base.count + 1))
+        }
+        return url.lastPathComponent
+    }
+
     @ViewBuilder
     private var hooksGroup: some View {
         DisclosureGroup(isExpanded: $hooksExpanded) {
-            if navigator.hooks.isEmpty && !isPending(.hookFile) && !isPending(.hookFolder) {
+            if navigator.hooks.isEmpty && !isPending(.managedFile(type: .hooks)) && !isPending(.hookFolder) {
                 emptyPlaceholder("No hooks")
             } else {
                 ForEach(navigator.hooks, id: \.absoluteString) { url in
                     managedFileRow(
                         url: url,
-                        tag: .hook(name: url.lastPathComponent),
+                        tag: .managedFile(type: .hooks, relativePath: url.lastPathComponent),
                         icon: "scroll"
                     )
                 }
-                if isPending(.hookFile) {
+                if isPending(.managedFile(type: .hooks)) {
                     InlineCreateRow(projectURL: projectURL, icon: "scroll")
                 } else if isPending(.hookFolder) {
                     InlineCreateRow(projectURL: projectURL, icon: "folder")
@@ -248,7 +307,7 @@ struct NavigatorSidebar: View {
                 .clickableSidebarRow()
                 .trackSectionAnchor(.hooks, in: $sectionAnchors)
                 .contextMenu {
-                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                    Button("New Hook") { navigator.beginPendingCreate(.managedFile(type: .hooks)) }
                     Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
                 }
         }
@@ -287,6 +346,9 @@ struct NavigatorSidebar: View {
                     .tag(NavigatorRoute.settings(file))
                     .clickableSidebarRow()
             }
+            Label(".mcp.json", systemImage: "gearshape")
+                .tag(NavigatorRoute.mcpJSON)
+                .clickableSidebarRow()
         } label: {
             Label("Settings", systemImage: "gearshape.2")
                 .clickableSidebarRow()

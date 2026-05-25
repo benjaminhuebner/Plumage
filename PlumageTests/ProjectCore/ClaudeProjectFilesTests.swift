@@ -127,6 +127,25 @@ struct ClaudeProjectFilesTests {
         #expect(url.deletingLastPathComponent().lastPathComponent == ".claude")
     }
 
+    @Test("claudeLocalMDURL points at .claude/CLAUDE.local.md")
+    func claudeLocalMDURLPoints() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = ClaudeProjectFiles.claudeLocalMDURL(projectURL: fixture.root)
+        #expect(url.path.hasSuffix(".claude/CLAUDE.local.md"))
+        #expect(url.deletingLastPathComponent().lastPathComponent == ".claude")
+    }
+
+    @Test("mcpJSONURL points at project-root .mcp.json (not under .claude/)")
+    func mcpJSONURLPoints() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = ClaudeProjectFiles.mcpJSONURL(projectURL: fixture.root)
+        #expect(url.lastPathComponent == ".mcp.json")
+        // Sits directly under the project root, NOT under .claude/.
+        #expect(
+            url.deletingLastPathComponent().standardizedFileURL.path
+                == fixture.root.standardizedFileURL.path)
+    }
+
     @Test("settingsURL builds path for each settings file")
     func settingsURLForAllCases() throws {
         let fixture = try ClaudeFilesFixture()
@@ -136,6 +155,164 @@ struct ClaudeProjectFilesTests {
         #expect(local.lastPathComponent == "settings.local.json")
         #expect(main.deletingLastPathComponent().lastPathComponent == ".claude")
         #expect(local.deletingLastPathComponent().lastPathComponent == ".claude")
+    }
+
+    // MARK: - Generic enumerate/create over ManagedFileType.allCases
+
+    @Test(
+        "enumerate returns empty for an absent folder per type",
+        arguments: ManagedFileType.allCases
+    )
+    func enumerateMissingFolderPerType(type: ManagedFileType) throws {
+        let fixture = try ClaudeFilesFixture()
+        let urls = try ClaudeProjectFiles.enumerate(type, projectURL: fixture.root)
+        #expect(urls.isEmpty)
+    }
+
+    @Test(
+        "create writes a file with the type's default extension at the correct path",
+        arguments: ManagedFileType.allCases
+    )
+    func createWritesAtCorrectPath(type: ManagedFileType) throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = try ClaudeProjectFiles.create(type, name: "untitled", projectURL: fixture.root)
+        let expectedExt = type.defaultExtension
+        #expect(url.pathExtension == expectedExt)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        // File sits under `<projectURL>/<type.relativePath>/...`.
+        let basePath = fixture.root
+            .appendingPathComponent(type.relativePath, isDirectory: true)
+            .standardizedFileURL.path
+        #expect(url.standardizedFileURL.path.hasPrefix(basePath + "/"))
+    }
+
+    @Test(
+        "enumerate picks up files created via create() for each type",
+        arguments: ManagedFileType.allCases
+    )
+    func enumerateAfterCreateRoundTrip(type: ManagedFileType) throws {
+        let fixture = try ClaudeFilesFixture()
+        let created = try ClaudeProjectFiles.create(
+            type, name: "alpha", projectURL: fixture.root)
+        let listed = try ClaudeProjectFiles.enumerate(type, projectURL: fixture.root)
+        #expect(listed.map(\.standardizedFileURL.path) == [created.standardizedFileURL.path])
+    }
+
+    @Test("enumerate(.agents) walks nested subfolders")
+    func enumerateAgentsRecursive() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/agents/reviewer.md", content: "a")
+        try fixture.makeFile(at: ".claude/agents/team/lead.md", content: "b")
+        try fixture.makeFile(at: ".claude/agents/team/jr.md", content: "c")
+        try fixture.makeFile(at: ".claude/agents/skip.txt", content: "ignored")
+        let urls = try ClaudeProjectFiles.enumerate(.agents, projectURL: fixture.root)
+        let names = urls.map(\.lastPathComponent)
+        #expect(names.contains("reviewer.md"))
+        #expect(names.contains("lead.md"))
+        #expect(names.contains("jr.md"))
+        #expect(!names.contains("skip.txt"))
+        #expect(urls.count == 3)
+    }
+
+    @Test("enumerate(.rules) walks nested subfolders")
+    func enumerateRulesRecursive() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/rules/style.md", content: "a")
+        try fixture.makeFile(at: ".claude/rules/api/sla.md", content: "b")
+        let urls = try ClaudeProjectFiles.enumerate(.rules, projectURL: fixture.root)
+        let names = urls.map(\.lastPathComponent)
+        #expect(names.contains("style.md"))
+        #expect(names.contains("sla.md"))
+        #expect(urls.count == 2)
+    }
+
+    @Test("enumerate(.outputStyles) is NOT recursive — sibling dirs are ignored")
+    func enumerateOutputStylesNotRecursive() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/output-styles/yaml.md", content: "x")
+        try fixture.makeFile(at: ".claude/output-styles/archive/old.md", content: "skip")
+        let urls = try ClaudeProjectFiles.enumerate(.outputStyles, projectURL: fixture.root)
+        let names = urls.map(\.lastPathComponent)
+        #expect(names == ["yaml.md"])
+    }
+
+    @Test("create(.agents, \"team/lead.md\") writes the nested file and creates intermediate dir")
+    func createNestedAgentFileCreatesIntermediateDir() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = try ClaudeProjectFiles.create(
+            .agents, name: "team/lead.md", projectURL: fixture.root)
+        #expect(url.path.hasSuffix(".claude/agents/team/lead.md"))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        // Stub's frontmatter `name:` uses the leaf stem, not the nested path.
+        let body = try String(contentsOf: url, encoding: .utf8)
+        #expect(body.contains("name: lead"))
+        #expect(!body.contains("name: team/lead"))
+    }
+
+    @Test("create(.rules, \"api/sla\") fills in the default extension under the nested dir")
+    func createNestedRuleWithoutExtension() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = try ClaudeProjectFiles.create(
+            .rules, name: "api/sla", projectURL: fixture.root)
+        #expect(url.path.hasSuffix(".claude/rules/api/sla.md"))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test("create(.docs, \"team/intro.md\") flattens the slash — docs is non-recursive")
+    func createDocFlattensSlash() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = try ClaudeProjectFiles.create(
+            .docs, name: "team/intro.md", projectURL: fixture.root)
+        // Slash is collapsed to `-` so the file stays at the docs root.
+        #expect(url.lastPathComponent == "team-intro.md")
+        #expect(url.deletingLastPathComponent().lastPathComponent == "docs")
+    }
+
+    @Test("create(.outputStyles, \"a/b\") flattens the slash and adds .md")
+    func createOutputStyleFlattensSlash() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = try ClaudeProjectFiles.create(
+            .outputStyles, name: "a/b", projectURL: fixture.root)
+        #expect(url.lastPathComponent == "a-b.md")
+        #expect(url.deletingLastPathComponent().lastPathComponent == "output-styles")
+    }
+
+    @Test("create(.agents) twice with the same nested name walks the suffix in place")
+    func createNestedAgentSuffixWalk() throws {
+        let fixture = try ClaudeFilesFixture()
+        let first = try ClaudeProjectFiles.create(
+            .agents, name: "team/lead.md", projectURL: fixture.root)
+        let second = try ClaudeProjectFiles.create(
+            .agents, name: "team/lead.md", projectURL: fixture.root)
+        #expect(first.path.hasSuffix(".claude/agents/team/lead.md"))
+        #expect(second.path.hasSuffix(".claude/agents/team/lead-1.md"))
+    }
+
+    @Test("enumerate(.agents) does not follow a symlink loop")
+    func enumerateAgentsSkipsSymlinkLoop() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/agents/reviewer.md", content: "real")
+        let agentsDir = fixture.root.appendingPathComponent(".claude/agents", isDirectory: true)
+        let loop = agentsDir.appendingPathComponent("loop", isDirectory: true)
+        // Self-referential symlink that would otherwise drive the enumerator
+        // into an infinite descent.
+        try FileManager.default.createSymbolicLink(at: loop, withDestinationURL: agentsDir)
+        let urls = try ClaudeProjectFiles.enumerate(.agents, projectURL: fixture.root)
+        // Only the real file shows up — the symlink and anything reachable
+        // through it are ignored.
+        #expect(urls.map(\.lastPathComponent) == ["reviewer.md"])
+    }
+
+    @Test("enumerate(.agents) ignores file symlinks at the top level")
+    func enumerateAgentsSkipsFileSymlink() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/agents/reviewer.md", content: "real")
+        let agentsDir = fixture.root.appendingPathComponent(".claude/agents", isDirectory: true)
+        let link = agentsDir.appendingPathComponent("alias.md")
+        try FileManager.default.createSymbolicLink(
+            at: link, withDestinationURL: agentsDir.appendingPathComponent("reviewer.md"))
+        let urls = try ClaudeProjectFiles.enumerate(.agents, projectURL: fixture.root)
+        #expect(urls.map(\.lastPathComponent) == ["reviewer.md"])
     }
 }
 

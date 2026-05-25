@@ -167,6 +167,66 @@ struct SidebarDropTargetTests {
         #expect(SidebarDropTarget.resolveSection(at: 100, anchors: [:]) == nil)
     }
 
+    @Test(
+        "Managed drop accepts the type's default extension",
+        arguments: ManagedFileType.allCases
+    )
+    func managedSectionAcceptsDefaultExtension(type: ManagedFileType) throws {
+        let fixture = try DropFixture()
+        let source = try fixture.sourceFile(name: "alpha.\(type.defaultExtension)")
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [source], section: .managed(type: type), projectURL: fixture.root)
+        #expect(outcome.accepted.count == 1)
+        #expect(outcome.rejected.isEmpty)
+        let dst = fixture.root
+            .appendingPathComponent(type.relativePath)
+            .appendingPathComponent("alpha.\(type.defaultExtension)")
+        #expect(FileManager.default.fileExists(atPath: dst.path))
+    }
+
+    @Test(
+        "Managed drop rejects unsupported extensions with the type's rejection message",
+        arguments: ManagedFileType.allCases
+    )
+    func managedSectionRejectsUnknownExtensions(type: ManagedFileType) throws {
+        let fixture = try DropFixture()
+        let bogus = try fixture.sourceFile(name: "skip.bogus")
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [bogus], section: .managed(type: type), projectURL: fixture.root)
+        #expect(outcome.accepted.isEmpty)
+        #expect(outcome.rejected == [bogus])
+        let banner = SidebarDropTarget.bannerMessage(outcome: outcome, section: .managed(type: type))
+        #expect(banner == type.rejectionMessage)
+    }
+
+    @Test("Agents section accepts folder drops (recursive type)")
+    func agentsAcceptsFolderDrops() throws {
+        let fixture = try DropFixture()
+        let sourceFolder = fixture.sources.appendingPathComponent("team", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceFolder, withIntermediateDirectories: true)
+        try "x".write(
+            to: sourceFolder.appendingPathComponent("lead.md"),
+            atomically: true, encoding: .utf8)
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [sourceFolder], section: .managed(type: .agents),
+            projectURL: fixture.root)
+        #expect(outcome.accepted.count == 1)
+        let nested = fixture.root.appendingPathComponent(".claude/agents/team/lead.md")
+        #expect(FileManager.default.fileExists(atPath: nested.path))
+    }
+
+    @Test("Output Styles section rejects folder drops (not recursive)")
+    func outputStylesRejectsFolderDrops() throws {
+        let fixture = try DropFixture()
+        let folder = fixture.sources.appendingPathComponent("nope", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let outcome = try SidebarDropTarget.performDrop(
+            sources: [folder], section: .managed(type: .outputStyles),
+            projectURL: fixture.root)
+        #expect(outcome.accepted.isEmpty)
+        #expect(outcome.rejected == [folder])
+    }
+
     @Test("Skills top-level: file drop is wrapped into an implicit skill folder")
     func skillsTopLevelFileImpliesSkill() throws {
         let fixture = try DropFixture()

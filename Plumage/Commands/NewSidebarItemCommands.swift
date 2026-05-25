@@ -30,14 +30,14 @@ struct NewSidebarItemCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("New Doc") {
                 editorSave?.run()
-                beginInlineCreate?.run(.docs)
+                beginInlineCreate?.run(.managedFile(type: .docs))
             }
             .keyboardShortcut("d", modifiers: [.command, .option])
             .disabled(beginInlineCreate == nil)
 
             Button("New Hook") {
                 editorSave?.run()
-                beginInlineCreate?.run(.hookFile)
+                beginInlineCreate?.run(.managedFile(type: .hooks))
             }
             .keyboardShortcut("h", modifiers: [.command, .option])
             .disabled(beginInlineCreate == nil)
@@ -47,6 +47,28 @@ struct NewSidebarItemCommands: Commands {
                 beginInlineCreate?.run(.skill)
             }
             .keyboardShortcut("s", modifiers: [.command, .option])
+            .disabled(beginInlineCreate == nil)
+
+            Button("New Agent") {
+                editorSave?.run()
+                beginInlineCreate?.run(.managedFile(type: .agents))
+            }
+            .keyboardShortcut("a", modifiers: [.command, .option])
+            .disabled(beginInlineCreate == nil)
+
+            Button("New Rule") {
+                editorSave?.run()
+                beginInlineCreate?.run(.managedFile(type: .rules))
+            }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+            .disabled(beginInlineCreate == nil)
+
+            // `O` would conflict with File → Open, so we use `Y` per the spec.
+            Button("New Output Style") {
+                editorSave?.run()
+                beginInlineCreate?.run(.managedFile(type: .outputStyles))
+            }
+            .keyboardShortcut("y", modifiers: [.command, .option])
             .disabled(beginInlineCreate == nil)
         }
     }

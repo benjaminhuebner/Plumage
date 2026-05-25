@@ -3,10 +3,14 @@ import Foundation
 @MainActor
 @Observable
 final class NavigatorModel {
-    private(set) var docs: [URL] = []
+    // Per-type managed-file lists. Indexed lookups go through `items(for:)`.
+    // `claudeMarkdown` lives outside this dict because `.claude/` root is not
+    // a `ManagedFileType`; skills have their own tree.
+    private(set) var enumeratedItems: [ManagedFileType: [URL]] = [:]
     private(set) var claudeMarkdown: [URL] = []
-    private(set) var hooks: [URL] = []
     private(set) var skills: [SkillNode] = []
+    private(set) var claudeLocalMDExists: Bool = false
+    private(set) var mcpJSONExists: Bool = false
     private(set) var loadError: String?
 
     // Transient sidebar state for the "+ creates a new row with a focused
@@ -32,24 +36,47 @@ final class NavigatorModel {
         self.bannerDisplayDuration = bannerDisplayDuration
     }
 
+    func items(for type: ManagedFileType) -> [URL] {
+        enumeratedItems[type] ?? []
+    }
+
+    // Convenience accessors so call-sites keep reading `.docs` / `.hooks`
+    // without knowing the dict is the storage form.
+    var docs: [URL] { items(for: .docs) }
+    var hooks: [URL] { items(for: .hooks) }
+    var agents: [URL] { items(for: .agents) }
+    var rules: [URL] { items(for: .rules) }
+    var outputStyles: [URL] { items(for: .outputStyles) }
+
     func reload(projectURL: URL) async {
         let snapshot = await Task.detached(priority: .userInitiated) { () -> Snapshot in
             var snap = Snapshot()
+            // Existence checks are cheap and never throw — run them up-front so
+            // a failure further down (e.g. enumerate on a missing-permission
+            // .claude/docs) doesn't hide the CLAUDE.local.md / .mcp.json rows.
+            let fm = FileManager.default
+            snap.claudeLocalMDExists = fm.fileExists(
+                atPath: ClaudeProjectFiles.claudeLocalMDURL(projectURL: projectURL).path)
+            snap.mcpJSONExists = fm.fileExists(
+                atPath: ClaudeProjectFiles.mcpJSONURL(projectURL: projectURL).path)
             do {
-                snap.docs = try ClaudeProjectFiles.enumerateDocs(projectURL: projectURL)
+                for type in ManagedFileType.allCases {
+                    snap.items[type] = try ClaudeProjectFiles.enumerate(
+                        type, projectURL: projectURL)
+                }
                 snap.claudeMarkdown = try ClaudeProjectFiles.enumerateClaudeMarkdown(
                     projectURL: projectURL)
-                snap.hooks = try ClaudeProjectFiles.enumerateHooks(projectURL: projectURL)
                 snap.skills = try ClaudeProjectFiles.enumerateSkills(projectURL: projectURL)
             } catch {
                 snap.error = error.localizedDescription
             }
             return snap
         }.value
-        self.docs = snapshot.docs
+        self.enumeratedItems = snapshot.items
         self.claudeMarkdown = snapshot.claudeMarkdown
-        self.hooks = snapshot.hooks
         self.skills = snapshot.skills
+        self.claudeLocalMDExists = snapshot.claudeLocalMDExists
+        self.mcpJSONExists = snapshot.mcpJSONExists
         self.loadError = snapshot.error
         // `pendingCreate` is intentionally preserved across reloads — an
         // FSEvent triggered mid-inline-edit must not collapse the user's
@@ -84,14 +111,11 @@ final class NavigatorModel {
             let url = try await Task.detached(priority: .userInitiated) {
                 () -> URL in
                 switch pending.section {
-                case .docs:
-                    return try ClaudeProjectFiles.createDoc(
-                        name: trimmed, projectURL: projectURL)
+                case .managedFile(let type):
+                    return try ClaudeProjectFiles.create(
+                        type, name: trimmed, projectURL: projectURL)
                 case .claudeMarkdown:
                     return try ClaudeProjectFiles.createClaudeMarkdown(
-                        name: trimmed, projectURL: projectURL)
-                case .hookFile:
-                    return try ClaudeProjectFiles.createHookFile(
                         name: trimmed, projectURL: projectURL)
                 case .hookFolder:
                     return try ClaudeProjectFiles.createHookFolder(
@@ -211,13 +235,12 @@ final class NavigatorModel {
         for section: PendingCreate.Section, createdURL: URL, projectURL: URL
     ) -> NavigatorRoute? {
         switch section {
-        case .docs:
-            let relative = relativePath(from: projectURL, to: createdURL)
-            return .doc(relativePath: relative)
+        case .managedFile(let type):
+            let rel = relativeSubpath(
+                from: projectURL, to: createdURL, base: type.relativePath)
+            return .managedFile(type: type, relativePath: rel)
         case .claudeMarkdown:
             return .claudeMarkdown(name: createdURL.lastPathComponent)
-        case .hookFile:
-            return .hook(name: createdURL.lastPathComponent)
         case .hookFolder:
             // Folders aren't a selectable route — sidebar keeps the previous
             // selection so the user doesn't get bounced.
@@ -236,9 +259,9 @@ final class NavigatorModel {
     }
 
     // After a successful rename we want the selection to follow the new
-    // path. For docs we need the `.claude/docs/<name>`-relative form, for
-    // claudeMarkdown we need just the name, etc. We piggy-back on the same
-    // section/route mapping the create flow uses.
+    // path. For managed-file types we strip the type's base path; for free
+    // `.claude/`-root markdown we keep just the file name; for skill files
+    // we split off the first path component below `skills/`.
     private static func routeAfterRename(
         originalURL: URL, newURL: URL, projectURL: URL
     ) -> NavigatorRoute? {
@@ -246,18 +269,17 @@ final class NavigatorModel {
         let projectPath = projectURL.standardizedFileURL.path
         guard path.hasPrefix(projectPath + "/") else { return nil }
         let relative = String(path.dropFirst(projectPath.count + 1))
-        if relative.hasPrefix(".claude/docs/") {
-            return .doc(relativePath: relative)
+        for type in ManagedFileType.allCases {
+            let base = type.relativePath + "/"
+            if relative.hasPrefix(base) {
+                let rel = String(relative.dropFirst(base.count))
+                return .managedFile(type: type, relativePath: rel)
+            }
         }
         if newURL.deletingLastPathComponent().lastPathComponent == ".claude" {
             return .claudeMarkdown(name: newURL.lastPathComponent)
         }
-        if relative.hasPrefix(".claude/hooks/") {
-            return .hook(name: newURL.lastPathComponent)
-        }
         if relative.hasPrefix(".claude/skills/") {
-            // Treat the first path component below `skills/` as the
-            // skill folder; the rest is the relative path.
             let trimmed = String(relative.dropFirst(".claude/skills/".count))
             let parts = trimmed.split(separator: "/", maxSplits: 1).map(String.init)
             if parts.count == 2 {
@@ -275,13 +297,23 @@ final class NavigatorModel {
         }
         return url.lastPathComponent
     }
+
+    fileprivate static func relativeSubpath(
+        from projectURL: URL, to url: URL, base: String
+    ) -> String {
+        let full = relativePath(from: projectURL, to: url)
+        let prefix = base + "/"
+        if full.hasPrefix(prefix) {
+            return String(full.dropFirst(prefix.count))
+        }
+        return url.lastPathComponent
+    }
 }
 
 nonisolated struct PendingCreate: Identifiable, Equatable, Sendable {
     nonisolated enum Section: Hashable, Sendable {
-        case docs
+        case managedFile(type: ManagedFileType)
         case claudeMarkdown
-        case hookFile
         case hookFolder
         case skill
         case skillFolder(skillName: String, relativePath: String)
@@ -289,8 +321,8 @@ nonisolated struct PendingCreate: Identifiable, Equatable, Sendable {
 
         var defaultName: String {
             switch self {
-            case .docs, .claudeMarkdown: return "untitled.md"
-            case .hookFile: return "untitled.sh"
+            case .managedFile(let type): return type.defaultName
+            case .claudeMarkdown: return "untitled.md"
             case .hookFolder: return "untitled"
             case .skill: return "untitled-skill"
             case .skillFolder: return "untitled"
@@ -323,9 +355,10 @@ nonisolated struct RenameSession: Identifiable, Equatable, Sendable {
 }
 
 private struct Snapshot: Sendable {
-    var docs: [URL] = []
+    var items: [ManagedFileType: [URL]] = [:]
     var claudeMarkdown: [URL] = []
-    var hooks: [URL] = []
     var skills: [SkillNode] = []
+    var claudeLocalMDExists: Bool = false
+    var mcpJSONExists: Bool = false
     var error: String?
 }
