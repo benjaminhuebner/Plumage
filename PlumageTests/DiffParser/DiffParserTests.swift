@@ -131,6 +131,26 @@ struct DiffParserTests {
         #expect(file.hunks.isEmpty)
     }
 
+    @Test("submodule bump: status .submodule(from:, to:) from index SHAs")
+    func submoduleBump() throws {
+        let diff = try loadFixture("submodule-bump.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Vendor/lib")
+        #expect(file.status == .submodule(from: "abc1234", to: "def5678"))
+    }
+
+    @Test("submodule initial add: from = 0000000, to = SHA")
+    func submoduleInitialAdd() throws {
+        let diff = try loadFixture("submodule-initial-add.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Vendor/newlib")
+        #expect(file.status == .submodule(from: "0000000", to: "7777777"))
+    }
+
     @Test("json edit: string + number + reserved tokens recognised")
     func jsonTokens() throws {
         let diff = try loadFixture("json-config-change.diff")

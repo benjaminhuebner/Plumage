@@ -1,0 +1,7 @@
+diff --git a/Vendor/lib b/Vendor/lib
+index abc1234..def5678 160000
+--- a/Vendor/lib
++++ b/Vendor/lib
+@@ -1 +1 @@
+-Subproject commit abc1234567890abcdef1234567890abcdef12345
++Subproject commit def5678901234fedcba9876543210fedcba98765

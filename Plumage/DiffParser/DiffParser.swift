@@ -29,6 +29,7 @@ nonisolated public enum DiffParser {
         var path: String
         var status: FileStatus = .modified
         var modeChange: ModeChange?
+        var fileMode: String?
         var hunks: [Hunk] = []
         var tokeniser: LanguageConfiguration.Tokeniser?
     }
@@ -101,11 +102,19 @@ nonisolated public enum DiffParser {
 
     private static func handleHeaderLine(_ line: String, state: inout ParseState) {
         if line.hasPrefix("new file mode ") {
+            let mode = String(line.dropFirst("new file mode ".count))
             state.currentFile?.status = .added
+            state.currentFile?.fileMode = mode
             return
         }
         if line.hasPrefix("deleted file mode ") {
+            let mode = String(line.dropFirst("deleted file mode ".count))
             state.currentFile?.status = .deleted
+            state.currentFile?.fileMode = mode
+            return
+        }
+        if line.hasPrefix("index ") {
+            handleIndexLine(line, state: &state)
             return
         }
         if line.hasPrefix("old mode ") {
@@ -164,6 +173,21 @@ nonisolated public enum DiffParser {
             return
         }
         // Unknown header lines are intentionally skipped (forgiving parse).
+    }
+
+    private static func handleIndexLine(_ line: String, state: inout ParseState) {
+        let body = line.dropFirst("index ".count)
+        let parts = body.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+        let shas = parts[0].split(separator: "..", maxSplits: 1, omittingEmptySubsequences: false)
+        guard shas.count == 2 else { return }
+        let oldSha = String(shas[0])
+        let newSha = String(shas[1])
+        if parts.count == 2 {
+            state.currentFile?.fileMode = String(parts[1])
+        }
+        if state.currentFile?.fileMode == "160000" {
+            state.currentFile?.status = .submodule(from: oldSha, to: newSha)
+        }
     }
 
     // MARK: - Hunk
