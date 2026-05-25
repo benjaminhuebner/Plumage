@@ -80,6 +80,61 @@ struct DiffTabModelTests {
         }
     }
 
+    @Test("renders a representative .swift fixture through the model state")
+    func swiftFixtureRenders() async throws {
+        // Loads the DiffParser fixture directly from disk so we don't have to
+        // duplicate the diff text here. This is the data-layer equivalent of
+        // the spec's snapshot-test ask: parse + state-transition verified
+        // against the same fixture the view consumes.
+        let fixtureName = "simple-swift-edit.diff"
+        let testFile = URL(fileURLWithPath: #filePath)
+        let fixtureURL =
+            testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("DiffParser/Fixtures/\(fixtureName)")
+        let fixture = try String(contentsOf: fixtureURL, encoding: .utf8)
+
+        let mock = MockGitProcessRunner()
+        wireBaseChecks(mock)
+        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD"]] = fixture
+        let model = makeModel(mock: mock)
+        model.reload()
+        try await waitForState(model) {
+            guard case .diff = $0 else { return false }
+            return true
+        }
+
+        guard case .diff(let files) = model.state else {
+            Issue.record("expected .diff state")
+            return
+        }
+        #expect(files.count == 1)
+        let file = try #require(files.first)
+        #expect(file.path == "Sources/Greeter.swift")
+        if case .modified = file.status {
+            // expected
+        } else {
+            Issue.record("expected .modified, got \(file.status)")
+        }
+        #expect(file.hunks.count == 1)
+        let counts = file.hunks.flatMap(\.lines).reduce(into: (added: 0, removed: 0)) { acc, line in
+            switch line.kind {
+            case .added: acc.added += 1
+            case .removed: acc.removed += 1
+            case .context: break
+            }
+        }
+        #expect(counts.added == 3)
+        #expect(counts.removed == 2)
+        // At least one added line carries tokens (Swift identifiers are
+        // tokenized via LanguageConfiguration.swift()).
+        let anyTokenized = file.hunks
+            .flatMap(\.lines)
+            .contains { !$0.tokens.isEmpty }
+        #expect(anyTokenized, "expected at least one tokenized line")
+    }
+
     @Test("rapid reloads cancel each other; last call wins")
     func rapidReloadsCancel() async throws {
         let mock = MockGitProcessRunner()

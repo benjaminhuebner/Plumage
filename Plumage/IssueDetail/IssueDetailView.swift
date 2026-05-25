@@ -7,6 +7,8 @@ struct IssueDetailView: View {
     let projectURL: URL
 
     @State private var model: IssueDetailModel
+    @State private var diffTabModel: DiffTabModel?
+    @State private var gitRepoWatcher: GitRepoWatcher?
     @State private var editorPosition = CodeEditor.Position()
     @State private var editorMessages: Set<TextLocated<Message>> = []
     @State private var pendingSaveAlert: SaveAlert?
@@ -93,6 +95,7 @@ struct IssueDetailView: View {
             applySmartDefaultTabIfNeeded()
             refreshEditorMessages()
             refreshDirtyCache()
+            startDiffTab()
         }
         .onChange(of: dismissToOrigin == nil) { _, _ in refreshBackToBoardCache() }
         .onChange(of: model.loadedSpecContent) { _, _ in refreshDirtyCache() }
@@ -134,6 +137,7 @@ struct IssueDetailView: View {
         }
         .onDisappear {
             model.cancelPendingWork()
+            diffTabModel?.stop()
         }
     }
 
@@ -261,8 +265,12 @@ struct IssueDetailView: View {
                 }
             }
         case .diff:
-            // Filled out in spec tasks 9-10 (DiffTabModel/View).
-            placeholderTab(text: "Diff-Tab folgt.")
+            if let diffTabModel {
+                DiffTabView(model: diffTabModel)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
+            }
         }
     }
 
@@ -431,6 +439,19 @@ struct IssueDetailView: View {
     private func applySmartDefaultTabIfNeeded() {
         guard let issue = model.issue else { return }
         model.selectedBodyTab = IssueDetailModel.defaultTab(for: issue.status)
+    }
+
+    private func startDiffTab() {
+        // The card is the unit of cache here: every open spins up a fresh
+        // DiffTabModel + GitRepoWatcher so the diff and the live-update
+        // signal are scoped to this card's lifetime (see spec scope: no
+        // cross-card diff cache).
+        guard diffTabModel == nil else { return }
+        let watcher = GitRepoWatcher(repoURL: projectURL)
+        let diffModel = DiffTabModel(repoURL: projectURL, watcher: watcher)
+        gitRepoWatcher = watcher
+        diffTabModel = diffModel
+        diffModel.start()
     }
 
     private func refreshBackToBoardCache() {
