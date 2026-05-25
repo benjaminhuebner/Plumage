@@ -193,10 +193,10 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private func docRow(_ url: URL) -> some View {
-        let relative = NavigatorModel.relativePath(from: projectURL, to: url)
+        let relative = url.lastPathComponent
         managedFileRow(
             url: url,
-            tag: .doc(relativePath: relative),
+            tag: .managedFile(type: .docs, relativePath: relative),
             icon: "doc.text"
         )
     }
@@ -233,7 +233,7 @@ struct NavigatorSidebar: View {
                 ForEach(navigator.hooks, id: \.absoluteString) { url in
                     managedFileRow(
                         url: url,
-                        tag: .hook(name: url.lastPathComponent),
+                        tag: .managedFile(type: .hooks, relativePath: url.lastPathComponent),
                         icon: "scroll"
                     )
                 }

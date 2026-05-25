@@ -3,29 +3,28 @@ import Foundation
 nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case kanban
     case issue(folderName: String)
-    case doc(relativePath: String)
+    case managedFile(type: ManagedFileType, relativePath: String)
     case claudeMD
+    case claudeLocalMD
     case claudeMarkdown(name: String)
-    case hook(name: String)
+    case mcpJSON
     case skillFile(skill: String, relativePath: String)
     case settings(SettingsFile)
 
     // On-disk URL for routes that point at a user-managed file (rename, trash,
     // open in DocEditor). Returns nil for routes that don't map to a single
-    // managed file (`.kanban`, `.issue`, `.claudeMD` bootstrap, `.settings`).
+    // managed file (`.kanban`, `.issue`, bootstrap files / settings).
     func managedFileURL(in projectURL: URL) -> URL? {
         switch self {
-        case .doc(let rel):
-            return projectURL.appendingPathComponent(rel)
+        case .managedFile(let type, let rel):
+            return
+                projectURL
+                .appendingPathComponent(type.relativePath, isDirectory: true)
+                .appendingPathComponent(rel)
         case .claudeMarkdown(let name):
             return
                 projectURL
                 .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
-                .appendingPathComponent(name)
-        case .hook(let name):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.hooksRelativePath, isDirectory: true)
                 .appendingPathComponent(name)
         case .skillFile(let skill, let path):
             return
@@ -33,7 +32,7 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
                 .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
                 .appendingPathComponent(skill, isDirectory: true)
                 .appendingPathComponent(path)
-        case .kanban, .issue, .claudeMD, .settings:
+        case .kanban, .issue, .claudeMD, .claudeLocalMD, .mcpJSON, .settings:
             return nil
         }
     }
@@ -53,7 +52,9 @@ nonisolated extension NavigatorRoute {
 
     // String form used by @SceneStorage to persist sidebar selection per
     // window. JSON-encoded so all associated values survive round-trip
-    // without a hand-rolled tag/payload format.
+    // without a hand-rolled tag/payload format. Decode failures (e.g. an
+    // old window persisted `.doc(relativePath:)` before this issue removed
+    // the case) fall through to nil; callers default to `.kanban`.
     var persistedString: String {
         guard
             let data = try? Self.encoder.encode(self),

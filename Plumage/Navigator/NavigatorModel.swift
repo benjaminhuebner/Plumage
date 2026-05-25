@@ -212,12 +212,13 @@ final class NavigatorModel {
     ) -> NavigatorRoute? {
         switch section {
         case .docs:
-            let relative = relativePath(from: projectURL, to: createdURL)
-            return .doc(relativePath: relative)
+            let rel = relativeSubpath(from: projectURL, to: createdURL, base: ".claude/docs")
+            return .managedFile(type: .docs, relativePath: rel)
         case .claudeMarkdown:
             return .claudeMarkdown(name: createdURL.lastPathComponent)
         case .hookFile:
-            return .hook(name: createdURL.lastPathComponent)
+            let rel = relativeSubpath(from: projectURL, to: createdURL, base: ".claude/hooks")
+            return .managedFile(type: .hooks, relativePath: rel)
         case .hookFolder:
             // Folders aren't a selectable route — sidebar keeps the previous
             // selection so the user doesn't get bounced.
@@ -246,14 +247,15 @@ final class NavigatorModel {
         let projectPath = projectURL.standardizedFileURL.path
         guard path.hasPrefix(projectPath + "/") else { return nil }
         let relative = String(path.dropFirst(projectPath.count + 1))
-        if relative.hasPrefix(".claude/docs/") {
-            return .doc(relativePath: relative)
+        for type in ManagedFileType.allCases {
+            let base = type.relativePath + "/"
+            if relative.hasPrefix(base) {
+                let rel = String(relative.dropFirst(base.count))
+                return .managedFile(type: type, relativePath: rel)
+            }
         }
         if newURL.deletingLastPathComponent().lastPathComponent == ".claude" {
             return .claudeMarkdown(name: newURL.lastPathComponent)
-        }
-        if relative.hasPrefix(".claude/hooks/") {
-            return .hook(name: newURL.lastPathComponent)
         }
         if relative.hasPrefix(".claude/skills/") {
             // Treat the first path component below `skills/` as the
@@ -272,6 +274,19 @@ final class NavigatorModel {
         let urlPath = url.standardizedFileURL.path
         if urlPath.hasPrefix(projectPath + "/") {
             return String(urlPath.dropFirst(projectPath.count + 1))
+        }
+        return url.lastPathComponent
+    }
+
+    // Returns the project-relative path stripped of `base` (which is itself a
+    // project-relative prefix like `.claude/docs`). Falls back to the URL's
+    // lastPathComponent when stripping isn't possible (defensive: caller
+    // always constructs `url` inside `base`).
+    fileprivate static func relativeSubpath(from projectURL: URL, to url: URL, base: String) -> String {
+        let full = relativePath(from: projectURL, to: url)
+        let prefix = base + "/"
+        if full.hasPrefix(prefix) {
+            return String(full.dropFirst(prefix.count))
         }
         return url.lastPathComponent
     }

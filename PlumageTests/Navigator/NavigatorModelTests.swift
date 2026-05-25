@@ -66,10 +66,10 @@ struct NavigatorModelTests {
         model.beginPendingCreate(.docs)
         model.pendingCreate?.name = "intro.md"
         let route = await model.commitPendingCreate(projectURL: fixture.root)
-        #expect(route == .doc(relativePath: ".claude/docs/intro.md"))
+        #expect(route == .managedFile(type: .docs, relativePath: "intro.md"))
         #expect(model.pendingCreate == nil)
         #expect(model.docs.map(\.lastPathComponent) == ["intro.md"])
-        #expect(model.lastCreatedRoute == .doc(relativePath: ".claude/docs/intro.md"))
+        #expect(model.lastCreatedRoute == .managedFile(type: .docs, relativePath: "intro.md"))
     }
 
     @Test("commitPendingCreate on .hookFile uses createHookFile and lands in hooks list")
@@ -79,7 +79,7 @@ struct NavigatorModelTests {
         model.beginPendingCreate(.hookFile)
         model.pendingCreate?.name = "lint"
         let route = await model.commitPendingCreate(projectURL: fixture.root)
-        #expect(route == .hook(name: "lint.sh"))
+        #expect(route == .managedFile(type: .hooks, relativePath: "lint.sh"))
         #expect(model.hooks.map(\.lastPathComponent) == ["lint.sh"])
     }
 
@@ -200,7 +200,7 @@ struct NavigatorModelTests {
         model.beginRename(url: original)
         model.renaming?.name = "new.md"
         let route = await model.commitRename(projectURL: fixture.root)
-        #expect(route == .doc(relativePath: ".claude/docs/new.md"))
+        #expect(route == .managedFile(type: .docs, relativePath: "new.md"))
         #expect(model.renaming == nil)
         #expect(model.docs.map(\.lastPathComponent) == ["new.md"])
     }
