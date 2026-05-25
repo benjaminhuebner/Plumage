@@ -1,0 +1,14 @@
+diff --git a/Sources/Greeter.swift b/Sources/Greeter.swift
+index 1234567..89abcde 100644
+--- a/Sources/Greeter.swift
++++ b/Sources/Greeter.swift
+@@ -1,5 +1,6 @@
+ struct Greeter {
+-    let name: String
++    let name: String
++    let salutation: String
+     func greet() -> String {
+-        "Hello, \(name)!"
++        "\(salutation), \(name)!"
+     }
+ }
