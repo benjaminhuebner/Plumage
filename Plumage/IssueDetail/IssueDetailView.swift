@@ -229,8 +229,13 @@ struct IssueDetailView: View {
     private var tabBody: some View {
         switch model.selectedBodyTab {
         case .prompt:
-            // Filled out in spec task 4 (PromptTabView).
-            placeholderTab(text: "Prompt-Tab folgt.")
+            PromptTabView(
+                text: promptBinding,
+                position: $editorPosition,
+                messages: $editorMessages,
+                language: markdownLanguage,
+                layout: editorLayout
+            )
         case .spec:
             SpecTabView(
                 text: bodyBinding,
@@ -321,6 +326,13 @@ struct IssueDetailView: View {
         Binding(
             get: { model.bodyDraft },
             set: { model.bodyDraft = $0 }
+        )
+    }
+
+    private var promptBinding: Binding<String> {
+        Binding(
+            get: { model.promptDraft },
+            set: { model.promptDraft = $0 }
         )
     }
 
