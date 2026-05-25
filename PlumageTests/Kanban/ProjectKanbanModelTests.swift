@@ -98,6 +98,24 @@ struct ProjectKanbanModelTests {
         rawCont.finish()
     }
 
+    @Test("signalMergeCompleted sets lastMergeCompleted to the folder name")
+    func signalMergeCompletedSetsProperty() async {
+        let model = ProjectKanbanModel()
+        #expect(model.lastMergeCompleted == nil)
+
+        model.signalMergeCompleted(folderName: "00042-pr-merge-button")
+
+        #expect(model.lastMergeCompleted == "00042-pr-merge-button")
+    }
+
+    @Test("signalMergeCompleted overwrites prior value when a different merge fires")
+    func signalMergeCompletedOverwrites() async {
+        let model = ProjectKanbanModel()
+        model.signalMergeCompleted(folderName: "00001-foo")
+        model.signalMergeCompleted(folderName: "00002-bar")
+        #expect(model.lastMergeCompleted == "00002-bar")
+    }
+
     private static func sampleValid(folder: String) -> DiscoveredIssue {
         .valid(
             Plumage.Issue(

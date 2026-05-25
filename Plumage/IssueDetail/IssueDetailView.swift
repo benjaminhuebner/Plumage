@@ -117,6 +117,9 @@ struct IssueDetailView: View {
         .onChange(of: kanban.lastRemovalCompleted) { _, completed in
             if let completed, completed == model.folderName { dismiss() }
         }
+        .onChange(of: kanban.lastMergeCompleted) { _, completed in
+            if let completed, completed == model.folderName { dismiss() }
+        }
         .onChange(of: model.conflict) { _, conflict in
             if conflict == .fileDeleted { dismiss() }
         }
@@ -256,15 +259,34 @@ struct IssueDetailView: View {
                 layout: editorLayout
             )
         case .pullRequest:
-            PRTabView(content: model.prContent)
-                .task(id: model.selectedBodyTab) {
-                    // Reload-on-show: PR.md changes externally (e.g.
-                    // /plumage-implement just wrote it), and the tab is
-                    // read-only so there's no dirty-conflict to worry about.
-                    if model.selectedBodyTab == .pullRequest {
-                        await model.loadPR()
+            VStack(alignment: .leading, spacing: 12) {
+                PRTabView(content: model.prContent)
+                    .task(id: model.selectedBodyTab) {
+                        // Reload-on-show: PR.md changes externally (e.g.
+                        // /plumage-implement just wrote it), and the tab is
+                        // read-only so there's no dirty-conflict to worry about.
+                        if model.selectedBodyTab == .pullRequest {
+                            await model.loadPR()
+                        }
                     }
+                if currentStatus == .waitingForReview, let issue = model.issue {
+                    Divider()
+                    MergeBranchSection(
+                        branch: issue.branch,
+                        isMerging: model.isMerging,
+                        errorMessage: mergeBannerMessage,
+                        nonFatalNotice: model.lastMergeNotice,
+                        onDismissError: {
+                            model.clearMergeError()
+                            model.clearMergeCriticalError()
+                        },
+                        onDismissNotice: { model.clearMergeNotice() },
+                        onMerge: { deleteBranch in
+                            Task { await performMerge(deleteBranch: deleteBranch) }
+                        }
+                    )
                 }
+            }
         case .diff:
             if let diffTabModel {
                 DiffTabView(model: diffTabModel)
@@ -464,6 +486,18 @@ struct IssueDetailView: View {
         } else if !hasOrigin && isCached {
             publishedBackToBoardAction = nil
         }
+    }
+
+    private var mergeBannerMessage: String? {
+        if let critical = model.lastMergeCriticalError { return critical }
+        if let error = model.lastMergeError { return error.displayMessage }
+        return nil
+    }
+
+    private func performMerge(deleteBranch: Bool) async {
+        let success = await model.mergeToMain(deleteBranch: deleteBranch)
+        guard success, let folderName = model.folderName else { return }
+        kanban.signalMergeCompleted(folderName: folderName)
     }
 
     private func runFormCommit(_ work: @escaping () async throws -> Void) {

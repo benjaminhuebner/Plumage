@@ -58,6 +58,16 @@ final class IssueDetailModel {
     private(set) var lastWrittenContent: String?
     private(set) var lastSeenIssue: DiscoveredIssue?
     private(set) var allocationError: String?
+    private(set) var isMerging: Bool = false
+    private(set) var lastMergeError: GitMergeError?
+    // Set when the merge wrote to disk but the spec-status flip failed
+    // afterwards — surfaced as a critical banner so the user knows to fix
+    // spec.md manually. Distinct from lastMergeError because the git side
+    // already succeeded.
+    private(set) var lastMergeCriticalError: String?
+    // Non-fatal info after a successful merge — e.g. the branch delete
+    // failed but the merge itself landed.
+    private(set) var lastMergeNotice: String?
 
     private var pendingFormWrite: Task<Void, Error>?
     private var pendingBodySave: Task<Void, Error>?
@@ -84,6 +94,8 @@ final class IssueDetailModel {
     private nonisolated let allocator: IssueAllocating?
     private nonisolated let writer: SpecWriting
     private nonisolated let mutator: FrontmatterMutating
+    private nonisolated let mergeRunner: any GitMergeRunning
+    private nonisolated let configLoader: @Sendable (URL) -> ProjectConfig?
     private nonisolated let clock: @Sendable () -> Date
 
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
@@ -105,6 +117,10 @@ final class IssueDetailModel {
         allocator: IssueAllocating? = nil,
         writer: SpecWriting = DefaultSpecWriter(),
         mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
+        mergeRunner: any GitMergeRunning = GitMergeRunner(),
+        configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
+            try? ConfigLoader.load(at: $0)
+        },
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.kind = .loaded(folderName: folderName)
@@ -113,6 +129,8 @@ final class IssueDetailModel {
         self.allocator = allocator
         self.writer = writer
         self.mutator = mutator
+        self.mergeRunner = mergeRunner
+        self.configLoader = configLoader
         self.clock = clock
     }
 
@@ -132,6 +150,10 @@ final class IssueDetailModel {
         allocator: IssueAllocating? = nil,
         writer: SpecWriting = DefaultSpecWriter(),
         mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
+        mergeRunner: any GitMergeRunning = GitMergeRunner(),
+        configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
+            try? ConfigLoader.load(at: $0)
+        },
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.kind = .creating(initialStatus: creatingInitialStatus)
@@ -140,6 +162,8 @@ final class IssueDetailModel {
         self.allocator = allocator ?? DefaultIssueAllocating(projectURL: projectURL)
         self.writer = writer
         self.mutator = mutator
+        self.mergeRunner = mergeRunner
+        self.configLoader = configLoader
         self.clock = clock
         self.statusDraft = creatingInitialStatus
         // In creating mode the form must render immediately — there is
@@ -194,6 +218,83 @@ final class IssueDetailModel {
             frontmatterError = error
         }
         loadState = .loaded
+    }
+
+    func mergeToMain(deleteBranch: Bool) async -> Bool {
+        guard
+            let projectURL,
+            let specURL,
+            let currentIssue = issue
+        else { return false }
+
+        lastMergeError = nil
+        lastMergeCriticalError = nil
+        lastMergeNotice = nil
+        isMerging = true
+        defer { isMerging = false }
+
+        let runner = mergeRunner
+        let issueBranch = currentIssue.branch
+        let mutatorFn = mutator
+        let now = clock()
+
+        // Sync read of a small TOML file — matches the established ConfigLoader-
+        // on-MainActor convention (notes.md 2026-05-12, RecentProjects pattern).
+        let defaultBranch = configLoader(projectURL)?.gitDefaultBranch ?? "main"
+
+        let outcome: GitMergeOutcome
+        do {
+            outcome = try await runner.mergeIssueBranch(
+                repoURL: projectURL,
+                defaultBranch: defaultBranch,
+                issueBranch: issueBranch,
+                deleteBranch: deleteBranch
+            )
+        } catch let error as GitMergeError {
+            lastMergeError = error
+            return false
+        } catch {
+            // Wrap unknown runner errors into a generic .mergeFailed so the
+            // banner still has something to render.
+            lastMergeError = .mergeFailed(stderr: error.localizedDescription)
+            return false
+        }
+
+        // Merge has landed on disk. From here on, any failure is critical —
+        // we cannot roll back the merge, so the user has to fix spec.md
+        // manually via the banner instruction.
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try mutatorFn.mutate(
+                    specURL: specURL,
+                    mutation: FrontmatterMutation(status: .set(.done)),
+                    now: now
+                )
+            }.value
+        } catch {
+            lastMergeCriticalError =
+                "Merge landed on disk, but spec status flip failed: "
+                + "\(error.localizedDescription). Edit spec.md manually to flip status to done."
+            return false
+        }
+
+        if let deleteErr = outcome.branchDeleteError {
+            lastMergeNotice = "Merge succeeded, but branch was not deleted: \(deleteErr)"
+        }
+        await reloadFromDiskAfterOwnWrite()
+        return true
+    }
+
+    func clearMergeError() {
+        lastMergeError = nil
+    }
+
+    func clearMergeCriticalError() {
+        lastMergeCriticalError = nil
+    }
+
+    func clearMergeNotice() {
+        lastMergeNotice = nil
     }
 
     func commitTitle(_ newTitle: String) async throws {

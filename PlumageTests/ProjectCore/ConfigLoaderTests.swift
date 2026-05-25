@@ -138,6 +138,56 @@ struct ConfigLoaderTests {
         }
     }
 
+    @Test func gitDefaultBranchReadsNestedField() throws {
+        let folder = try TempProject.make(
+            content: """
+                {
+                  "name": "WithGit",
+                  "schemaVersion": 2,
+                  "issueIdPadding": 5,
+                  "git": { "defaultBranch": "trunk" }
+                }
+                """)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let config = try ConfigLoader.load(at: folder)
+        #expect(config.git?.defaultBranch == "trunk")
+        #expect(config.gitDefaultBranch == "trunk")
+    }
+
+    @Test func gitDefaultBranchFallsBackToMainWhenAbsent() throws {
+        let folder = try TempProject.make(
+            content: """
+                {
+                  "name": "WithoutGit",
+                  "schemaVersion": 2,
+                  "issueIdPadding": 5
+                }
+                """)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let config = try ConfigLoader.load(at: folder)
+        #expect(config.git == nil)
+        #expect(config.gitDefaultBranch == "main")
+    }
+
+    @Test func gitDefaultBranchFallsBackToMainWhenFieldMissing() throws {
+        let folder = try TempProject.make(
+            content: """
+                {
+                  "name": "GitObjectEmpty",
+                  "schemaVersion": 2,
+                  "issueIdPadding": 5,
+                  "git": {}
+                }
+                """)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let config = try ConfigLoader.load(at: folder)
+        #expect(config.git?.defaultBranch == nil)
+        #expect(config.gitDefaultBranch == "main")
+    }
+
     @Test func unknownFieldsAreIgnored() throws {
         let folder = try TempProject.make(
             content: """

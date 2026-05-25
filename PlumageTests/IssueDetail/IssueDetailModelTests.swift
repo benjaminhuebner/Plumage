@@ -401,6 +401,169 @@ struct IssueDetailModelTests {
         #expect(model.prContent == "## Summary\nDone.")
     }
 
+    // MARK: - mergeToMain
+
+    @Test("mergeToMain happy path flips status to done and clears isMerging")
+    func mergeToMainHappyPath() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(deleteBranch: false)
+
+        #expect(success == true)
+        #expect(model.isMerging == false)
+        #expect(model.lastMergeError == nil)
+        #expect(model.lastMergeCriticalError == nil)
+        #expect(model.lastMergeNotice == nil)
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: done"))
+        #expect(model.issue?.status == .done)
+    }
+
+    @Test("mergeToMain working-tree-dirty leaves spec untouched and surfaces lastMergeError")
+    func mergeToMainWorkingTreeDirty() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        mock.stdoutForArgs[Self.statusArgs(tmpDir: env.tmpDir)] = " M Plumage/Foo.swift\n"
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(deleteBranch: true)
+
+        #expect(success == false)
+        #expect(model.lastMergeError == .workingTreeDirty(files: ["Plumage/Foo.swift"]))
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: waiting-for-review"))
+    }
+
+    @Test("mergeToMain not-fast-forward sets lastMergeError to .notFastForward")
+    func mergeToMainNotFastForward() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        mock.stdoutForArgs[Self.revParseArgs(tmpDir: env.tmpDir, branch: "issue/00001-x")] = "abc\n"
+        mock.exitCodeForArgs[Self.mergeBaseArgs(tmpDir: env.tmpDir, base: "main", branch: "issue/00001-x")] = 1
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(deleteBranch: true)
+
+        #expect(success == false)
+        #expect(model.lastMergeError == .notFastForward(defaultBranch: "main", issueBranch: "issue/00001-x"))
+        #expect(model.issue?.status == .waitingForReview)
+    }
+
+    @Test("mergeToMain non-fatal branch-delete-failure still flips status and returns true")
+    func mergeToMainBranchDeleteFails() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let deleteArgs = Self.deleteArgs(tmpDir: env.tmpDir, branch: "issue/00001-x")
+        mock.exitCodeForArgs[deleteArgs] = 1
+        mock.stderrForArgs[deleteArgs] = "error: branch 'issue/00001-x' not fully merged\n"
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(deleteBranch: true)
+
+        #expect(success == true)
+        #expect(model.lastMergeError == nil)
+        #expect(model.lastMergeNotice?.contains("not deleted") == true)
+        #expect(model.issue?.status == .done)
+    }
+
+    @Test("mergeToMain reads defaultBranch via configLoader")
+    func mergeToMainReadsConfig() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "trunk", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "trunk") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(deleteBranch: false)
+
+        #expect(success == true)
+        #expect(
+            mock.recordedCalls.contains(Self.mergeBaseArgs(tmpDir: env.tmpDir, base: "trunk", branch: "issue/00001-x")))
+        #expect(mock.recordedCalls.contains(Self.checkoutArgs(tmpDir: env.tmpDir, branch: "trunk")))
+    }
+
+    @Test("mergeToMain noop when projectURL is nil")
+    func mergeToMainNoopWithoutProjectURL() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        let model = IssueDetailModel(
+            specURL: env.specURL,
+            folderName: "00001-test",
+            projectURL: nil,
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in nil },
+            clock: { env.now }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(deleteBranch: false)
+        #expect(success == false)
+        #expect(mock.recordedCalls.isEmpty)
+    }
+
+    // MARK: - mergeToMain helpers
+
+    nonisolated static let fakeBinary = URL(filePath: "/usr/bin/git")
+
+    nonisolated private static func primeMockForCleanRepo(
+        _ mock: MockGitProcessRunner,
+        tmpDir: URL,
+        defaultBranch: String,
+        issueBranch: String
+    ) {
+        // status: empty stdout, exit 0 (default).
+        mock.stdoutForArgs[revParseArgs(tmpDir: tmpDir, branch: issueBranch)] = "abc\n"
+        // merge-base: exit 0 (default).
+        // checkout / merge / branch -d: all default exit 0, no stdout/stderr.
+        _ = defaultBranch
+    }
+
+    nonisolated static func statusArgs(tmpDir: URL) -> [String] {
+        ["-C", tmpDir.path, "status", "--porcelain"]
+    }
+    nonisolated static func revParseArgs(tmpDir: URL, branch: String) -> [String] {
+        ["-C", tmpDir.path, "rev-parse", "--verify", branch]
+    }
+    nonisolated static func mergeBaseArgs(tmpDir: URL, base: String, branch: String) -> [String] {
+        ["-C", tmpDir.path, "merge-base", "--is-ancestor", base, branch]
+    }
+    nonisolated static func checkoutArgs(tmpDir: URL, branch: String) -> [String] {
+        ["-C", tmpDir.path, "checkout", branch]
+    }
+    nonisolated static func deleteArgs(tmpDir: URL, branch: String) -> [String] {
+        ["-C", tmpDir.path, "branch", "-d", branch]
+    }
+
+    nonisolated private static func configWith(defaultBranch: String) -> ProjectConfig {
+        ProjectConfig(
+            name: "Test", schemaVersion: 2, issueIdPadding: 5,
+            git: GitConfig(defaultBranch: defaultBranch)
+        )
+    }
+
     @Test("replaceBody preserves frontmatter")
     func replaceBodyPreserves() {
         let content = """
@@ -454,7 +617,26 @@ private final class TestEnvironment {
     }
 
     func makeModel() -> IssueDetailModel {
-        IssueDetailModel(specURL: specURL, folderName: "00001-test", clock: { self.now })
+        IssueDetailModel(
+            specURL: specURL,
+            folderName: "00001-test",
+            projectURL: tmpDir,
+            clock: { self.now }
+        )
+    }
+
+    func makeModel(
+        mergeRunner: any GitMergeRunning,
+        configLoader: @escaping @Sendable (URL) -> ProjectConfig?
+    ) -> IssueDetailModel {
+        IssueDetailModel(
+            specURL: specURL,
+            folderName: "00001-test",
+            projectURL: tmpDir,
+            mergeRunner: mergeRunner,
+            configLoader: configLoader,
+            clock: { self.now }
+        )
     }
 
     deinit {
