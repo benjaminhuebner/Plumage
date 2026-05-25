@@ -48,44 +48,52 @@ private struct TerminalTabPill: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 4) {
-                Text(tab.title)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-                if canClose {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
-                            // Keep the slot allocated when not visible so
-                            // hover-in doesn't reflow the row width.
-                            .opacity(isActive || isHovering ? 1.0 : 0.0)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close \(tab.title)")
+        // No nested Buttons — macOS SwiftUI routes a tap on the inner Button
+        // back through the outer Button's contentShape, so a click on the
+        // close-X also selects the tab (and sometimes fails to close at all).
+        // The pill is now an HStack with a tap gesture for select, and the
+        // close-X is the only Button — its tap is consumed by the Button's
+        // own hit-test before the simultaneous gesture can fire.
+        HStack(spacing: 4) {
+            Text(tab.title)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+            if canClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        // Keep the slot allocated when not visible so
+                        // hover-in doesn't reflow the row width.
+                        .opacity(isActive || isHovering ? 1.0 : 0.0)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close \(tab.title)")
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .foregroundStyle(isActive ? Color.primary : Color.secondary)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isActive ? Color.accentColor.opacity(0.18) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(
-                        isActive ? Color.accentColor.opacity(0.35) : Color.clear,
-                        lineWidth: 0.5
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .foregroundStyle(isActive ? Color.primary : Color.secondary)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(isActive ? Color.accentColor.opacity(0.18) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(
+                    isActive ? Color.accentColor.opacity(0.35) : Color.clear,
+                    lineWidth: 0.5
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        // High-priority tap on the pill background. The close-X Button hit-
+        // test runs first because Buttons consume gestures by default, so
+        // clicking the X fires onClose without onSelect.
+        .onTapGesture(perform: onSelect)
         .onHover { hovering in
             isHovering = hovering
         }
-        .accessibilityAddTraits(isActive ? [.isSelected] : [])
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : [.isButton])
     }
 }
 
