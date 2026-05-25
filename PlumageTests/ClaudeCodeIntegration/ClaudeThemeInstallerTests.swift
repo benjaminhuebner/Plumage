@@ -24,7 +24,7 @@ struct ClaudeThemeInstallerTests {
         #expect(overrides["background"] as? String == "transparent")
     }
 
-    @Test("ensureSettingsTheme sets theme when absent")
+    @Test("ensureSettingsTheme sets theme when absent — uses claude's custom: prefix")
     func setsThemeWhenAbsent() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -36,7 +36,9 @@ struct ClaudeThemeInstallerTests {
         let data = try Data(contentsOf: settings)
         let json = try #require(
             try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["theme"] as? String == "plumage")
+        // Bare "plumage" is treated as an unknown built-in by claude — must
+        // be stored with the "custom:" prefix to be recognized.
+        #expect(json["theme"] as? String == "custom:plumage")
     }
 
     @Test("ensureSettingsTheme preserves user's non-plumage theme choice")
@@ -67,7 +69,7 @@ struct ClaudeThemeInstallerTests {
         let data = try Data(contentsOf: settings)
         let json = try #require(
             try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["theme"] as? String == "plumage")
+        #expect(json["theme"] as? String == "custom:plumage")
     }
 
     @Test("ensureSettingsTheme leaves an unparseable settings.json untouched")
@@ -104,11 +106,14 @@ struct ClaudeThemeInstallerTests {
         #expect(after == arrayRoot)
     }
 
-    @Test("ensureSettingsTheme re-syncs existing plumage theme entry")
-    func resyncsPlumageEntry() throws {
+    @Test("ensureSettingsTheme migrates legacy bare 'plumage' to 'custom:plumage'")
+    func migratesLegacyBareName() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
         let settings = tmp.appendingPathComponent("settings.json")
+        // Older Plumage builds wrote the bare name. claude treats it as an
+        // unknown built-in and falls back to "Dark mode", so this is broken
+        // for users on the legacy value — we forward-migrate it.
         try #"{"theme": "plumage", "untouched": true}"#
             .write(to: settings, atomically: true, encoding: .utf8)
 
@@ -117,7 +122,24 @@ struct ClaudeThemeInstallerTests {
         let data = try Data(contentsOf: settings)
         let json = try #require(
             try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["theme"] as? String == "plumage")
+        #expect(json["theme"] as? String == "custom:plumage")
+        #expect(json["untouched"] as? Bool == true)
+    }
+
+    @Test("ensureSettingsTheme re-syncs existing custom:plumage entry without churn")
+    func resyncsCustomPlumageEntry() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let settings = tmp.appendingPathComponent("settings.json")
+        try #"{"theme": "custom:plumage", "untouched": true}"#
+            .write(to: settings, atomically: true, encoding: .utf8)
+
+        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+
+        let data = try Data(contentsOf: settings)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["theme"] as? String == "custom:plumage")
         #expect(json["untouched"] as? Bool == true)
     }
 
