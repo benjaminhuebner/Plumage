@@ -389,6 +389,50 @@ struct IssueDetailModelTests {
         }
     }
 
+    @Test("defaultTab maps status to expected smart-default tab")
+    func defaultTabPerStatus() {
+        #expect(IssueDetailModel.defaultTab(for: .draft) == .prompt)
+        #expect(IssueDetailModel.defaultTab(for: .approved) == .spec)
+        #expect(IssueDetailModel.defaultTab(for: .inProgress) == .spec)
+        #expect(IssueDetailModel.defaultTab(for: .waitingForReview) == .pullRequest)
+        #expect(IssueDetailModel.defaultTab(for: .done) == .spec)
+        #expect(IssueDetailModel.defaultTab(for: .blocked) == .spec)
+    }
+
+    @Test("prompt round-trip: missing → save → reload")
+    func promptRoundTrip() async throws {
+        let env = try LayoutTestEnvironment()
+        let model = env.makeModel()
+        await model.loadPrompt()
+        #expect(model.loadedPromptContent.isEmpty)
+        #expect(!model.isPromptDirty)
+
+        model.promptDraft = "An idea worth exploring."
+        #expect(model.isPromptDirty)
+        try await model.savePrompt()
+        #expect(!model.isPromptDirty)
+        #expect(model.loadedPromptContent == "An idea worth exploring.")
+
+        let onDisk = try String(contentsOf: env.promptURL, encoding: .utf8)
+        #expect(onDisk == "An idea worth exploring.")
+
+        let fresh = env.makeModel()
+        await fresh.loadPrompt()
+        #expect(fresh.loadedPromptContent == "An idea worth exploring.")
+    }
+
+    @Test("loadPR returns nil when pr.md missing, content when present")
+    func loadPRBehavior() async throws {
+        let env = try LayoutTestEnvironment()
+        let model = env.makeModel()
+        await model.loadPR()
+        #expect(model.prContent == nil)
+
+        try "## Summary\nDone.".write(to: env.prURL, atomically: true, encoding: .utf8)
+        await model.loadPR()
+        #expect(model.prContent == "## Summary\nDone.")
+    }
+
     @Test("replaceBody preserves frontmatter")
     func replaceBodyPreserves() {
         let content = """
@@ -443,6 +487,58 @@ private final class TestEnvironment {
 
     func makeModel() -> IssueDetailModel {
         IssueDetailModel(specURL: specURL, folderName: "00001-test", clock: { self.now })
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: tmpDir)
+    }
+}
+
+@MainActor
+private final class LayoutTestEnvironment {
+    let tmpDir: URL
+    let projectURL: URL
+    let folderName: String
+    let specURL: URL
+    let promptURL: URL
+    let prURL: URL
+    let now = Date(timeIntervalSince1970: 1_750_000_000)
+
+    init(folderName: String = "00001-test") throws {
+        self.folderName = folderName
+        tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IssueDetailModelLayoutTests-\(UUID().uuidString)")
+        projectURL = tmpDir
+        let issueFolder = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
+        try FileManager.default.createDirectory(at: issueFolder, withIntermediateDirectories: true)
+        specURL = IssueLayout.specURL(in: projectURL, folderName: folderName)
+        promptURL = IssueLayout.promptURL(in: projectURL, folderName: folderName)
+        prURL = IssueLayout.prURL(in: projectURL, folderName: folderName)
+        let spec = """
+            ---
+            id: 1
+            title: Layout
+            type: feature
+            status: approved
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00001-test
+            labels: []
+            model: null
+            ---
+
+            body.
+            """
+        try spec.write(to: specURL, atomically: true, encoding: .utf8)
+    }
+
+    func makeModel() -> IssueDetailModel {
+        IssueDetailModel(
+            specURL: specURL,
+            folderName: folderName,
+            projectURL: projectURL,
+            clock: { self.now }
+        )
     }
 
     deinit {

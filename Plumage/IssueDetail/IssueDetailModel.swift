@@ -49,6 +49,10 @@ final class IssueDetailModel {
     private(set) var loadedSpecContent: String = ""
     private(set) var loadedBodyContent: String = ""
     var bodyDraft: String = ""
+    private(set) var loadedPromptContent: String = ""
+    var promptDraft: String = ""
+    private(set) var prContent: String?
+    var selectedBodyTab: BodyTab = .spec
     private(set) var conflict: ConflictState?
     private(set) var frontmatterError: FrontmatterError?
     private(set) var lastWrittenContent: String?
@@ -57,6 +61,7 @@ final class IssueDetailModel {
 
     private var pendingFormWrite: Task<Void, Error>?
     private var pendingBodySave: Task<Void, Error>?
+    private var pendingPromptSave: Task<Void, Error>?
     private var observeTask: Task<Void, Never>?
 
     // Called from the view's .onDisappear. Cancels the in-flight save chain
@@ -70,6 +75,8 @@ final class IssueDetailModel {
         pendingFormWrite = nil
         pendingBodySave?.cancel()
         pendingBodySave = nil
+        pendingPromptSave?.cancel()
+        pendingPromptSave = nil
         observeTask?.cancel()
         observeTask = nil
     }
@@ -115,6 +122,7 @@ final class IssueDetailModel {
     isolated deinit {
         pendingFormWrite?.cancel()
         pendingBodySave?.cancel()
+        pendingPromptSave?.cancel()
         observeTask?.cancel()
     }
 
@@ -363,6 +371,61 @@ final class IssueDetailModel {
             let normalized = fresh.replacingOccurrences(of: "\r\n", with: "\n")
             lastWrittenContent = normalized
             applyLoaded(content: normalized)
+        }
+    }
+
+    var isPromptDirty: Bool { promptDraft != loadedPromptContent }
+
+    nonisolated static func defaultTab(for status: IssueStatus) -> BodyTab {
+        switch status {
+        case .draft: return .prompt
+        case .approved, .inProgress, .done, .blocked: return .spec
+        case .waitingForReview: return .pullRequest
+        }
+    }
+
+    func loadPrompt() async {
+        guard let folder = folderName, let projectURL else { return }
+        let url = IssueLayout.promptURL(in: projectURL, folderName: folder)
+        let raw = await Task.detached(priority: .utility) {
+            try? String(contentsOf: url, encoding: .utf8)
+        }.value
+        let content = (raw ?? "").replacingOccurrences(of: "\r\n", with: "\n")
+        loadedPromptContent = content
+        promptDraft = content
+    }
+
+    func savePrompt() async throws {
+        guard isPromptDirty else { return }
+        guard let folder = folderName, let projectURL else { return }
+        let url = IssueLayout.promptURL(in: projectURL, folderName: folder)
+        let prior = pendingPromptSave
+        let contentToSave = promptDraft
+        let writer = self.writer
+        let task = Task<Void, Error> {
+            _ = try? await prior?.value
+            try await Task.detached(priority: .userInitiated) {
+                try writer.write(contentToSave, to: url)
+            }.value
+        }
+        pendingPromptSave = task
+        try await task.value
+        await loadPrompt()
+    }
+
+    func loadPR() async {
+        guard let folder = folderName, let projectURL else {
+            prContent = nil
+            return
+        }
+        let url = IssueLayout.prURL(in: projectURL, folderName: folder)
+        let raw = await Task.detached(priority: .utility) {
+            try? String(contentsOf: url, encoding: .utf8)
+        }.value
+        if let raw {
+            prContent = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        } else {
+            prContent = nil
         }
     }
 
