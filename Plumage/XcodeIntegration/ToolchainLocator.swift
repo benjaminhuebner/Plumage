@@ -14,12 +14,25 @@ nonisolated enum ToolchainLocator {
         "/Applications/Xcode.app/Contents/Developer/usr/bin/xcrun",
     ]
 
+    // /usr/bin/git is the macOS shim that resolves to the active Xcode CLI
+    // tools git. /opt/homebrew/bin/git is the Apple-Silicon Homebrew default,
+    // /usr/local/bin/git the Intel default.
+    static let knownGitPaths: [String] = [
+        "/usr/bin/git",
+        "/opt/homebrew/bin/git",
+        "/usr/local/bin/git",
+    ]
+
     static func xcodebuild(fileManager: FileManager = .default) -> URL? {
         locate(filename: "xcodebuild", knownPaths: knownXcodebuildPaths, fileManager: fileManager)
     }
 
     static func xcrun(fileManager: FileManager = .default) -> URL? {
         locate(filename: "xcrun", knownPaths: knownXcrunPaths, fileManager: fileManager)
+    }
+
+    static func git(fileManager: FileManager = .default) -> URL? {
+        locate(filename: "git", knownPaths: knownGitPaths, fileManager: fileManager)
     }
 
     static func locate(
