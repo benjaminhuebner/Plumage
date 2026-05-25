@@ -30,6 +30,7 @@ final class TerminalTabsModel {
         let firstTab = TerminalTab(session: initialSession, title: Self.title(for: 0))
         self.tabs = [firstTab]
         self.selectedTabID = firstTab.id
+        installExclusionClosure(on: initialSession)
     }
 
     // Index 0 is the sticky main terminal — own name. Additional tabs are
@@ -75,11 +76,33 @@ final class TerminalTabsModel {
         )
         let tab = TerminalTab(session: session, title: Self.title(for: tabs.count))
         tabs.append(tab)
+        installExclusionClosure(on: session)
         // attach() is intentionally NOT called here — SwiftTermBridge.makeNSView
         // owns the attach lifecycle and flips state to .starting right before
         // startProcess(). Calling attach() pre-mount would leave the session
         // in .starting with no PTY behind it if the inspector never opens.
         selectedTabID = tab.id
+    }
+
+    func findWorkflowTab(action: WorkflowAction, slug: String) -> TerminalTab? {
+        let title = action.tabTitle(slug: slug)
+        return tabs.first(where: { $0.title == title })
+    }
+
+    @discardableResult
+    func addWorkflowTab(action: WorkflowAction, slug: String) -> TerminalTab {
+        let session = TerminalClaudeSession(
+            cwd: cwd,
+            binaryURL: binaryURL,
+            excludedSessionIDs: sharedExcludedSessionIDs,
+            persistConversationID: false,
+            permissionMode: action.permissionMode
+        )
+        let tab = TerminalTab(session: session, title: action.tabTitle(slug: slug))
+        tabs.append(tab)
+        installExclusionClosure(on: session)
+        selectedTabID = tab.id
+        return tab
     }
 
     func closeTab(id: UUID) {
@@ -108,12 +131,31 @@ final class TerminalTabsModel {
 
     func setSharedExcludedSessionIDs(_ provider: @escaping () -> Set<String>) {
         sharedExcludedSessionIDs = provider
-        // Propagate to existing tabs so the initial main tab also picks up
-        // the chat-exclude that the caller wires post-init. Currently dead
-        // wiring because reconcile is disabled for ephemeral sessions, but
-        // kept symmetric with addTab's closure plumbing.
+        // The per-tab closure already reads `sharedExcludedSessionIDs` lazily
+        // via the captured `self`, so the chat provider is picked up
+        // automatically on the next reconcile. We still re-install to cover
+        // the (defensive) case where a caller had swapped the closure out
+        // from underneath us — the install resets each tab's closure to the
+        // model-aware one that exposes chat + all-tab-IDs together.
         for tab in tabs {
-            tab.session.setExcludedSessionIDs(provider)
+            installExclusionClosure(on: tab.session)
+        }
+    }
+
+    // Each tab's reconcile-exclude set = chat-provider's set ∪ every tab's
+    // conversationID. Reconcile already skips the session's own ID, so we
+    // don't need to filter self out here. Currently dead wiring because all
+    // tabs are ephemeral and reconcile early-returns on sessionIDStoreURL ==
+    // nil — but defense-in-depth for a future re-armed reconcile path
+    // (decisions.md 2026-05-25 #00037 post-review).
+    private func installExclusionClosure(on session: TerminalClaudeSession) {
+        session.setExcludedSessionIDs { [weak self] in
+            guard let self else { return [] }
+            var ids = self.sharedExcludedSessionIDs()
+            for tab in self.tabs {
+                ids.insert(tab.session.conversationID)
+            }
+            return ids
         }
     }
 

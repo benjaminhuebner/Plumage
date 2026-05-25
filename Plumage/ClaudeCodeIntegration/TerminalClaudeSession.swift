@@ -215,6 +215,15 @@ final class TerminalClaudeSession {
         excludedSessionIDs = provider
     }
 
+    // Test-visible accessor for the currently-wired exclude provider. The
+    // closure itself is private (re-bound by TerminalTabsModel during tab
+    // life-cycle changes), so callers can only observe its result, not swap
+    // it. Used by TerminalTabsModelTests to assert that workflow-tab sessions
+    // see every other tab's conversationID in their exclude set.
+    func currentExcludedSessionIDs() -> Set<String> {
+        excludedSessionIDs()
+    }
+
     func clearStopHandler() {
         stopHandler = nil
     }

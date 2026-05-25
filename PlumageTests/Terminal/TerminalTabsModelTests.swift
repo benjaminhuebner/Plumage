@@ -160,6 +160,85 @@ struct TerminalTabsModelTests {
         }
     }
 
+    @Test("findWorkflowTab returns nil when no matching title exists")
+    func findWorkflowTabMissing() {
+        let model = makeModel()
+        #expect(model.findWorkflowTab(action: .plan, slug: "any-slug") == nil)
+    }
+
+    @Test("findWorkflowTab matches an existing tab by exact title")
+    func findWorkflowTabExisting() {
+        let model = makeModel()
+        let created = model.addWorkflowTab(action: .plan, slug: "walking-skeleton")
+        let found = model.findWorkflowTab(action: .plan, slug: "walking-skeleton")
+        #expect(found?.id == created.id)
+        // Different action / slug => no match (title differs).
+        #expect(model.findWorkflowTab(action: .implement, slug: "walking-skeleton") == nil)
+        #expect(model.findWorkflowTab(action: .plan, slug: "other-slug") == nil)
+    }
+
+    @Test("addWorkflowTab appends with the correct title and selects it")
+    func addWorkflowTabAppendsAndSelects() {
+        let model = makeModel()
+        let mainID = model.tabs[0].id
+        let tab = model.addWorkflowTab(action: .implement, slug: "00038-workflow-tabs-per-action")
+        #expect(model.tabs.count == 2)
+        #expect(model.tabs[1].id == tab.id)
+        #expect(tab.title == "Implement: 00038-workflow-tabs-per-action")
+        #expect(model.selectedTabID == tab.id)
+        // Main tab is not displaced.
+        #expect(model.tabs[0].id == mainID)
+    }
+
+    @Test("addWorkflowTab passes the action's permissionMode to the session")
+    func addWorkflowTabSetsPermissionMode() {
+        let model = makeModel()
+        let tab = model.addWorkflowTab(action: .plan, slug: "x")
+        let cmd = tab.session.shellSpawnArgs()[1]
+        #expect(cmd.contains("--permission-mode"))
+        #expect(cmd.contains("'plan'"))
+    }
+
+    @Test("workflow tabs are closable (only the main tab is sticky)")
+    func workflowTabsAreClosable() {
+        let model = makeModel()
+        let tab = model.addWorkflowTab(action: .review, slug: "rev")
+        #expect(model.canClose(tab.id))
+    }
+
+    @Test("each tab's exclude set contains every tab's conversationID")
+    func excludeClosureCoversAllTabIDs() {
+        let chatID = "chat-\(UUID().uuidString.lowercased())"
+        let model = makeModel(excludedSessionIDs: { [chatID] })
+        let mainID = model.tabs[0].session.conversationID
+        let extraTab = model.addWorkflowTab(action: .plan, slug: "x")
+        let extraID = extraTab.session.conversationID
+        let workflowTab = model.addWorkflowTab(action: .review, slug: "y")
+        let workflowID = workflowTab.session.conversationID
+
+        // Every tab's closure must report every tab's ID plus the shared
+        // chat ID. The closure also returns the tab's own ID, which is fine
+        // because reconcileSessionFromDisk filters self separately.
+        for tab in model.tabs {
+            let excluded = tab.session.currentExcludedSessionIDs()
+            #expect(excluded.contains(chatID), "chat exclude must propagate")
+            #expect(excluded.contains(mainID), "main tab ID must be excluded")
+            #expect(excluded.contains(extraID), "first workflow tab ID must be excluded")
+            #expect(excluded.contains(workflowID), "second workflow tab ID must be excluded")
+        }
+    }
+
+    @Test("setSharedExcludedSessionIDs propagates the chat exclude into every tab")
+    func setSharedExcludedSessionIDsPropagates() {
+        let model = makeModel()
+        model.addWorkflowTab(action: .plan, slug: "x")
+        let chatID = "chat-\(UUID().uuidString.lowercased())"
+        model.setSharedExcludedSessionIDs { [chatID] }
+        for tab in model.tabs {
+            #expect(tab.session.currentExcludedSessionIDs().contains(chatID))
+        }
+    }
+
     @Test("selectTab is bounds-safe")
     func selectTabIsBoundsSafe() {
         let model = makeModel()
@@ -183,15 +262,23 @@ struct TerminalTabsModelTests {
 
     // MARK: - Helpers
 
-    private func makeModel() -> TerminalTabsModel {
+    private func makeModel(
+        excludedSessionIDs: @escaping () -> Set<String> = { [] }
+    ) -> TerminalTabsModel {
         let cwd = FileManager.default.temporaryDirectory
             .appendingPathComponent("TerminalTabsModelTests-\(UUID().uuidString)")
         let binary = URL(filePath: "/usr/bin/true")
         let session = TerminalClaudeSession(
-            cwd: cwd, binaryURL: binary, persistConversationID: false
+            cwd: cwd,
+            binaryURL: binary,
+            excludedSessionIDs: excludedSessionIDs,
+            persistConversationID: false
         )
         return TerminalTabsModel(
-            cwd: cwd, binaryURL: binary, initialSession: session
+            cwd: cwd,
+            binaryURL: binary,
+            initialSession: session,
+            excludedSessionIDs: excludedSessionIDs
         )
     }
 
