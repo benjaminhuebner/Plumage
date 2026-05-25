@@ -213,18 +213,6 @@ struct IssueDetailView: View {
                     triggerWorkflow(action, folderName: folderName)
                 }
             }
-            if !model.isCreating, currentStatus == .waitingForReview, let issue = model.issue {
-                Divider()
-                MergeBranchSection(
-                    branch: issue.branch,
-                    isMerging: model.isMerging,
-                    errorMessage: mergeBannerMessage,
-                    nonFatalNotice: model.lastMergeNotice,
-                    onMerge: { deleteBranch in
-                        Task { await performMerge(deleteBranch: deleteBranch) }
-                    }
-                )
-            }
             Divider()
             IssueDetailFormRows(
                 type: currentType,
@@ -271,15 +259,29 @@ struct IssueDetailView: View {
                 layout: editorLayout
             )
         case .pullRequest:
-            PRTabView(content: model.prContent)
-                .task(id: model.selectedBodyTab) {
-                    // Reload-on-show: PR.md changes externally (e.g.
-                    // /plumage-implement just wrote it), and the tab is
-                    // read-only so there's no dirty-conflict to worry about.
-                    if model.selectedBodyTab == .pullRequest {
-                        await model.loadPR()
+            VStack(alignment: .leading, spacing: 12) {
+                PRTabView(content: model.prContent)
+                    .task(id: model.selectedBodyTab) {
+                        // Reload-on-show: PR.md changes externally (e.g.
+                        // /plumage-implement just wrote it), and the tab is
+                        // read-only so there's no dirty-conflict to worry about.
+                        if model.selectedBodyTab == .pullRequest {
+                            await model.loadPR()
+                        }
                     }
+                if currentStatus == .waitingForReview, let issue = model.issue {
+                    Divider()
+                    MergeBranchSection(
+                        branch: issue.branch,
+                        isMerging: model.isMerging,
+                        errorMessage: mergeBannerMessage,
+                        nonFatalNotice: model.lastMergeNotice,
+                        onMerge: { deleteBranch in
+                            Task { await performMerge(deleteBranch: deleteBranch) }
+                        }
+                    )
                 }
+            }
         case .diff:
             if let diffTabModel {
                 DiffTabView(model: diffTabModel)
