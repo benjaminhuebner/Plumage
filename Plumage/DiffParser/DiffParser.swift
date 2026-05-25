@@ -1,4 +1,5 @@
 import Foundation
+import LanguageSupport
 
 nonisolated public enum DiffParser {
     public static func parse(unifiedDiff: String) -> [FileDiff] {
@@ -29,7 +30,7 @@ nonisolated public enum DiffParser {
         var status: FileStatus = .modified
         var modeChange: ModeChange?
         var hunks: [Hunk] = []
-        var tokeniser: LanguageConfigurationTokeniserBox?
+        var tokeniser: LanguageConfiguration.Tokeniser?
     }
 
     private struct PartialHunk {
@@ -80,7 +81,10 @@ nonisolated public enum DiffParser {
 
     private static func startFile(headerLine: String, state: inout ParseState) {
         let path = extractPath(fromDiffGitHeader: headerLine)
-        state.currentFile = PartialFileDiff(path: path)
+        state.currentFile = PartialFileDiff(
+            path: path,
+            tokeniser: LanguageDetector.tokeniser(forPath: path)
+        )
         state.droppedCurrentFile = false
     }
 
@@ -192,9 +196,23 @@ nonisolated public enum DiffParser {
         default: kind = .context
         }
         let content = String(line.dropFirst())
-        let newLine = Line(kind: kind, content: content)
+        let tokens = tokenise(content, with: state.currentFile?.tokeniser)
+        let newLine = Line(kind: kind, content: content, tokens: tokens)
         state.currentHunk?.lines.append(newLine)
         state.lastBodyLineIndex = (state.currentHunk?.lines.count ?? 1) - 1
+    }
+
+    // Per-line tokenisation. Multi-line constructs (multi-line strings, nested
+    // comments) are intentionally not stitched across diff lines — the start
+    // state resets to `.tokenisingCode` per call. Acceptable for diff fragments;
+    // documented in notes.md.
+    private static func tokenise(
+        _ content: String,
+        with tokeniser: LanguageConfiguration.Tokeniser?
+    ) -> [DiffToken] {
+        guard let tokeniser, !content.isEmpty else { return [] }
+        let raw = content.tokenise(with: tokeniser, state: LanguageConfiguration.State.tokenisingCode)
+        return raw.map { DiffToken(kind: $0.token, range: $0.range) }
     }
 
     private static func markNoTrailingNewline(state: inout ParseState) {
@@ -249,9 +267,3 @@ nonisolated public enum DiffParser {
         state.currentFile = nil
     }
 }
-
-// Forward declaration used by PartialFileDiff. Real tokeniser plumbing
-// arrives in Task 3; today this is a placeholder type so the rest of the
-// state machine can carry a per-file context without yet binding to a
-// concrete tokeniser.
-struct LanguageConfigurationTokeniserBox: Sendable {}

@@ -17,6 +17,13 @@ nonisolated public enum LanguageDetector {
         }
     }
 
+    // Tokeniser is nil when the language configuration has no regex slots
+    // populated (i.e. plain text). The body-line tokenisation path treats nil
+    // identically to "no tokens" and produces an empty span list.
+    static func tokeniser(forPath path: String) -> LanguageConfiguration.Tokeniser? {
+        LanguageConfiguration.Tokeniser(for: configuration(forPath: path).tokenDictionary)
+    }
+
     // Duplicated from `Plumage/SpecEditor/LanguageConfiguration+Markdown.swift`
     // and `Plumage/DocEditor/DocEditorLanguage.swift`. Third caller — by
     // rule-of-three (decisions.md 2026-05-20 #00030 LineBuffer precedent)

@@ -1,4 +1,5 @@
 import Foundation
+import LanguageSupport
 import Testing
 
 @testable import Plumage
@@ -39,8 +40,43 @@ struct DiffParserTests {
         // First and last context lines preserve content (sans leading marker).
         #expect(hunk.lines.first?.content == "struct Greeter {")
         #expect(hunk.lines.last?.content == "}")
-        // Tokens still empty until Task 3 wires LanguageDetector.
-        let allTokensEmpty = hunk.lines.allSatisfy { $0.tokens.isEmpty }
-        #expect(allTokensEmpty)
+        // Swift tokeniser hits at least the `struct` keyword and `String`
+        // identifier spans.
+        let firstLineTokens = hunk.lines[0].tokens
+        let hasKeyword = firstLineTokens.contains { $0.kind == .keyword }
+        #expect(hasKeyword)
+    }
+
+    @Test("markdown edit: inline-code spans tokenised as string")
+    func markdownInlineCode() throws {
+        let diff = try loadFixture("markdown-edit.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        #expect(files[0].path == "README.md")
+
+        let hunk = try #require(files[0].hunks.first)
+        // The removed and added lines both contain a `…` inline-code span.
+        let removed = try #require(hunk.lines.first { $0.kind == .removed })
+        let added = try #require(hunk.lines.first { $0.kind == .added })
+        #expect(removed.tokens.contains { $0.kind == .string })
+        #expect(added.tokens.contains { $0.kind == .string })
+    }
+
+    @Test("json edit: string + number + reserved tokens recognised")
+    func jsonTokens() throws {
+        let diff = try loadFixture("json-config-change.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        #expect(files[0].path == "config.json")
+
+        let hunk = try #require(files[0].hunks.first)
+        let removed = try #require(hunk.lines.first { $0.kind == .removed })
+        let added = try #require(hunk.lines.first { $0.kind == .added })
+        let trueLine = try #require(hunk.lines.first { $0.content.contains("true") })
+
+        #expect(removed.tokens.contains { $0.kind == .string })
+        #expect(removed.tokens.contains { $0.kind == .number })
+        #expect(added.tokens.contains { $0.kind == .number })
+        #expect(trueLine.tokens.contains { $0.kind == .keyword })
     }
 }
