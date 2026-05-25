@@ -245,8 +245,21 @@ struct IssueDetailView: View {
                 layout: editorLayout
             )
         case .pullRequest:
-            // Filled out in spec task 5 (PRTabView).
-            placeholderTab(text: "Pull-Request-Tab folgt.")
+            PRTabView(
+                content: model.prContent,
+                position: $editorPosition,
+                messages: $editorMessages,
+                language: markdownLanguage,
+                layout: editorLayout
+            )
+            .task(id: model.selectedBodyTab) {
+                // Reload-on-show: pr.md changes externally (e.g.
+                // /plumage-implement just wrote it), and the tab is
+                // read-only so there's no dirty-conflict to worry about.
+                if model.selectedBodyTab == .pullRequest {
+                    await model.loadPR()
+                }
+            }
         case .diff:
             // Filled out in spec tasks 9-10 (DiffTabModel/View).
             placeholderTab(text: "Diff-Tab folgt.")
