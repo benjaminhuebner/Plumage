@@ -7,8 +7,8 @@ final class TerminalTabsModel {
     private(set) var tabs: [TerminalTab] = []
     var selectedTabID: UUID?
 
-    private let cwd: URL
-    private let binaryURL: URL
+    let cwd: URL
+    let binaryURL: URL
     // Shared by the default tab and every ephemeral tab. Typically returns
     // the chat session's ID so terminal reconciles don't adopt it. New
     // ephemeral tabs do NOT exclude other tabs' conversationIDs in v0.1 — if
@@ -78,6 +78,11 @@ final class TerminalTabsModel {
 
     func setSharedExcludedSessionIDs(_ provider: @escaping () -> Set<String>) {
         sharedExcludedSessionIDs = provider
+        // Propagate to existing tab sessions so the initial default tab also
+        // picks up the chat-exclusion that the caller wires post-init.
+        for tab in tabs {
+            tab.session.setExcludedSessionIDs(provider)
+        }
     }
 
     private func reindexTitles() {

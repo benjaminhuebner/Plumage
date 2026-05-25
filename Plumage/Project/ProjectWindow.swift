@@ -18,7 +18,7 @@ struct ProjectWindow: View {
     @State private var usageClient = ClaudeUsageClient()
     @State private var statusClient = ClaudeStatusPageClient()
     @State private var session: ClaudeSession
-    @State private var terminalSession: TerminalClaudeSession
+    @State private var terminalTabs: TerminalTabsModel
     @State private var xcodeRun: XcodeRunModel
     @State private var xcodeRunController: XcodeRunController
     @State private var showBuildLog = false
@@ -58,8 +58,18 @@ struct ProjectWindow: View {
         self._session = State(
             initialValue: ClaudeSession(cwd: handle.url, binaryURL: binary)
         )
-        self._terminalSession = State(
-            initialValue: TerminalClaudeSession(cwd: handle.url, binaryURL: binary)
+        // Default tab keeps the status-quo persistent session ID at
+        // .plumage/sessions/terminal-id. Additional tabs spawned via
+        // TerminalTabsModel.addTab() opt out of persistence.
+        let initialTerminalSession = TerminalClaudeSession(
+            cwd: handle.url, binaryURL: binary
+        )
+        self._terminalTabs = State(
+            initialValue: TerminalTabsModel(
+                cwd: handle.url,
+                binaryURL: binary,
+                initialSession: initialTerminalSession
+            )
         )
         let runModel = XcodeRunModel()
         self._xcodeRun = State(initialValue: runModel)
@@ -109,17 +119,31 @@ struct ProjectWindow: View {
                 // swapped it out, and silently allow the chat session's ID to
                 // be adopted by the terminal reconcile.
                 session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
-                terminalSession = TerminalClaudeSession.rebuilt(
-                    for: handle.url, replacing: terminalSession)
+                // Window reused for a different handle: stop all existing
+                // tabs and spin up a fresh tabs model with a new default tab.
+                if terminalTabs.cwd != handle.url {
+                    terminalTabs.stopAll()
+                    let newBinary =
+                        (try? ProductionProcessRunner.locateBinary())
+                        ?? URL(filePath: "/dev/null")
+                    let newInitial = TerminalClaudeSession(
+                        cwd: handle.url, binaryURL: newBinary)
+                    terminalTabs = TerminalTabsModel(
+                        cwd: handle.url,
+                        binaryURL: newBinary,
+                        initialSession: newInitial
+                    )
+                }
                 // Chat shares the claude log dir with terminal; without this
                 // exclude the terminal's reconcile would adopt chat's session
-                // ID if chat happened to be the last writer.
-                terminalSession.setExcludedSessionIDs { [weak session] in
+                // ID if chat happened to be the last writer. setShared also
+                // propagates to the existing default-tab session.
+                terminalTabs.setSharedExcludedSessionIDs { [weak session] in
                     guard let id = session?.conversationID else { return [] }
                     return [id]
                 }
                 session.attach()
-                terminalSession.attach()
+                terminalTabs.activeSession?.attach()
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
@@ -149,7 +173,7 @@ struct ProjectWindow: View {
             }
             .onDisappear {
                 session.stop()
-                terminalSession.stop()
+                terminalTabs.stopAll()
                 workflowTask?.cancel()
                 xcodeRunController.cancelRun()
             }
@@ -201,7 +225,7 @@ struct ProjectWindow: View {
                 }
                 .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
-                    TerminalInspectorView(session: terminalSession)
+                    TerminalInspectorView(tabsModel: terminalTabs)
                         .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
                 }
         }
@@ -392,7 +416,14 @@ struct ProjectWindow: View {
             guard action == .plan, let body else { return nil }
             return body.replacingOccurrences(of: "\r", with: "") + "\r"
         }()
-        let session = terminalSession
+        // Inject feeds the active tab; canCloseActiveTab guarantees we always
+        // have one, so nil here is a defensive no-op rather than a real path.
+        guard let session = terminalTabs.activeSession else {
+            Self.log.debug(
+                "runWorkflow: no active terminal tab; dropping inject for \(action.slug, privacy: .public)."
+            )
+            return
+        }
         let slug = action.slug
 
         workflowTask = Task { @MainActor in
