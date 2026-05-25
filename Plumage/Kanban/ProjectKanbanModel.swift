@@ -94,6 +94,16 @@ final class ProjectKanbanModel {
         self.trasher = trasher
     }
 
+    // Safety net for teardown paths. Models are scene-scoped today so this
+    // rarely fires, but mirrors IssueDetailModel's discipline — `[weak self]`
+    // in the Task closures prevents retain cycles, not running tasks against a
+    // dropped model. isolated deinit (Swift 6.2) so we can touch MainActor state.
+    isolated deinit {
+        highlightTask?.cancel()
+        dropTask?.cancel()
+        removalTask?.cancel()
+    }
+
     func run(projectURL: URL) async {
         let producer = producerFactory(projectURL)
         await producer.start()

@@ -234,14 +234,13 @@ final class IssueDetailModel {
         defer { isMerging = false }
 
         let runner = mergeRunner
-        let loader = configLoader
         let issueBranch = currentIssue.branch
         let mutatorFn = mutator
         let now = clock()
 
-        let defaultBranch = await Task.detached(priority: .userInitiated) {
-            loader(projectURL)?.gitDefaultBranch ?? "main"
-        }.value
+        // Sync read of a small TOML file — matches the established ConfigLoader-
+        // on-MainActor convention (notes.md 2026-05-12, RecentProjects pattern).
+        let defaultBranch = configLoader(projectURL)?.gitDefaultBranch ?? "main"
 
         let outcome: GitMergeOutcome
         do {
