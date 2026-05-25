@@ -201,23 +201,6 @@ struct IssueDetailModelTests {
         #expect(onDisk.contains("Hello."))  // original body still present on disk
     }
 
-    @Test("saveRaw throws SaveError.unresolvedConflict while external change is pending")
-    func saveRawRefusesWhenConflict() async throws {
-        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
-        let model = env.makeModel()
-        await model.load()
-        // Mark the buffer dirty so handleExternalChange actually raises a
-        // conflict (clean buffers auto-adopt disk changes).
-        model.bodyDraft = "Local edit."
-        let disk = Self.baseSpec(status: "blocked", body: "Hello, disk.")
-        await model.handleExternalChange(diskContent: disk)
-        #expect(model.conflict != nil)
-        let proposed = Self.baseSpec(status: "done", body: "Edited raw.")
-        await #expect(throws: IssueDetailModel.SaveError.unresolvedConflict) {
-            try await model.saveRaw(proposed)
-        }
-    }
-
     @Test("saveBody after resolveConflictKeep proceeds and overwrites disk")
     func saveBodyAfterKeepProceeds() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
@@ -231,21 +214,6 @@ struct IssueDetailModelTests {
         let written = try String(contentsOf: env.specURL, encoding: .utf8)
         #expect(written.contains("Mine wins."))
         #expect(!model.isBodyDirty)
-    }
-
-    @Test("saveRaw writes full content and re-applies frontmatter parse")
-    func saveRawPersistsFullContent() async throws {
-        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
-        let model = env.makeModel()
-        await model.load()
-        let raw = Self.baseSpec(status: "in-progress", body: "Raw replacement.")
-        try await model.saveRaw(raw)
-        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
-        #expect(onDisk.contains("status: in-progress"))
-        #expect(onDisk.contains("Raw replacement."))
-        // Model state reflects the freshly-written content.
-        #expect(model.issue?.status == .inProgress)
-        #expect(model.loadedBodyContent.contains("Raw replacement."))
     }
 
     @Test("load mirrors parsed issue into drafts so the view has one source of truth")
@@ -389,6 +357,50 @@ struct IssueDetailModelTests {
         }
     }
 
+    @Test("defaultTab maps status to expected smart-default tab")
+    func defaultTabPerStatus() {
+        #expect(IssueDetailModel.defaultTab(for: .draft) == .prompt)
+        #expect(IssueDetailModel.defaultTab(for: .approved) == .spec)
+        #expect(IssueDetailModel.defaultTab(for: .inProgress) == .spec)
+        #expect(IssueDetailModel.defaultTab(for: .waitingForReview) == .pullRequest)
+        #expect(IssueDetailModel.defaultTab(for: .done) == .spec)
+        #expect(IssueDetailModel.defaultTab(for: .blocked) == .spec)
+    }
+
+    @Test("prompt round-trip: missing → save → reload")
+    func promptRoundTrip() async throws {
+        let env = try LayoutTestEnvironment()
+        let model = env.makeModel()
+        await model.loadPrompt()
+        #expect(model.loadedPromptContent.isEmpty)
+        #expect(!model.isPromptDirty)
+
+        model.promptDraft = "An idea worth exploring."
+        #expect(model.isPromptDirty)
+        try await model.savePrompt()
+        #expect(!model.isPromptDirty)
+        #expect(model.loadedPromptContent == "An idea worth exploring.")
+
+        let onDisk = try String(contentsOf: env.promptURL, encoding: .utf8)
+        #expect(onDisk == "An idea worth exploring.")
+
+        let fresh = env.makeModel()
+        await fresh.loadPrompt()
+        #expect(fresh.loadedPromptContent == "An idea worth exploring.")
+    }
+
+    @Test("loadPR returns nil when pr.md missing, content when present")
+    func loadPRBehavior() async throws {
+        let env = try LayoutTestEnvironment()
+        let model = env.makeModel()
+        await model.loadPR()
+        #expect(model.prContent == nil)
+
+        try "## Summary\nDone.".write(to: env.prURL, atomically: true, encoding: .utf8)
+        await model.loadPR()
+        #expect(model.prContent == "## Summary\nDone.")
+    }
+
     @Test("replaceBody preserves frontmatter")
     func replaceBodyPreserves() {
         let content = """
@@ -443,6 +455,58 @@ private final class TestEnvironment {
 
     func makeModel() -> IssueDetailModel {
         IssueDetailModel(specURL: specURL, folderName: "00001-test", clock: { self.now })
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: tmpDir)
+    }
+}
+
+@MainActor
+private final class LayoutTestEnvironment {
+    let tmpDir: URL
+    let projectURL: URL
+    let folderName: String
+    let specURL: URL
+    let promptURL: URL
+    let prURL: URL
+    let now = Date(timeIntervalSince1970: 1_750_000_000)
+
+    init(folderName: String = "00001-test") throws {
+        self.folderName = folderName
+        tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IssueDetailModelLayoutTests-\(UUID().uuidString)")
+        projectURL = tmpDir
+        let issueFolder = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
+        try FileManager.default.createDirectory(at: issueFolder, withIntermediateDirectories: true)
+        specURL = IssueLayout.specURL(in: projectURL, folderName: folderName)
+        promptURL = IssueLayout.promptURL(in: projectURL, folderName: folderName)
+        prURL = IssueLayout.prURL(in: projectURL, folderName: folderName)
+        let spec = """
+            ---
+            id: 1
+            title: Layout
+            type: feature
+            status: approved
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00001-test
+            labels: []
+            model: null
+            ---
+
+            body.
+            """
+        try spec.write(to: specURL, atomically: true, encoding: .utf8)
+    }
+
+    func makeModel() -> IssueDetailModel {
+        IssueDetailModel(
+            specURL: specURL,
+            folderName: folderName,
+            projectURL: projectURL,
+            clock: { self.now }
+        )
     }
 
     deinit {

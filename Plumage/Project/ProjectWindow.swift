@@ -340,7 +340,7 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
-                .environment(\.runWorkflow, runWorkflow(_:folderName:body:))
+                .environment(\.runWorkflow, runWorkflow(_:folderName:prompt:))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
@@ -411,7 +411,7 @@ struct ProjectWindow: View {
         }
     }
 
-    private func runWorkflow(_ action: WorkflowAction, folderName: String, body: String?) {
+    private func runWorkflow(_ action: WorkflowAction, folderName: String, prompt: String?) {
         // Reject folder names that would corrupt the inject: \r submits in
         // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
         // exactly these three. Folder names are user-controlled via Finder
@@ -449,8 +449,11 @@ struct ProjectWindow: View {
         // user's text doesn't submit a partial block early.
         let slashCommand = "/\(action.slug) \(folderName)\r"
         let followUp: String? = {
-            guard action == .plan, let body else { return nil }
-            return body.replacingOccurrences(of: "\r", with: "") + "\r"
+            // An empty prompt would inject a bare \r right after the slash
+            // command, submitting a blank turn in claude's TUI — guard
+            // against both nil and "" so the no-prompt case is a true no-op.
+            guard action == .plan, let prompt, !prompt.isEmpty else { return nil }
+            return prompt.replacingOccurrences(of: "\r", with: "") + "\r"
         }()
         let session = workflowTab.session
         let slug = action.slug

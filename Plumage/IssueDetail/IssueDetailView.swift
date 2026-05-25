@@ -7,10 +7,17 @@ struct IssueDetailView: View {
     let projectURL: URL
 
     @State private var model: IssueDetailModel
-    @State private var rawDraft: String = ""
-    @State private var displayMode: DisplayMode = .detail
-    @State private var editorPosition = CodeEditor.Position()
-    @State private var editorMessages: Set<TextLocated<Message>> = []
+    @State private var diffTabModel: DiffTabModel?
+    @State private var gitRepoWatcher: GitRepoWatcher?
+    // Each editable tab keeps its own cursor/scroll state so switching tabs
+    // doesn't drag row 80 of a 200-line spec into a 2-line prompt and vice
+    // versa. Messages are tab-scoped too in case a future hook re-wires
+    // FrontmatterMessageMap markers into one of them.
+    @State private var specEditorPosition = CodeEditor.Position()
+    @State private var promptEditorPosition = CodeEditor.Position()
+    @State private var specEditorMessages: Set<TextLocated<Message>> = []
+    @State private var promptEditorMessages: Set<TextLocated<Message>> = []
+    @State private var hasAppliedSmartDefaultTab: Bool = false
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
     @State private var pendingPopAction: (() -> Void)?
@@ -40,12 +47,6 @@ struct IssueDetailView: View {
     @Environment(\.dismissToOrigin) private var dismissToOrigin
     @Environment(\.runWorkflow) private var runWorkflow
     @Environment(ProjectKanbanModel.self) private var kanban
-
-    enum DisplayMode: String, CaseIterable, Identifiable {
-        case detail = "Detail"
-        case raw = "Raw"
-        var id: String { rawValue }
-    }
 
     init(projectURL: URL, folderName: String) {
         self.projectURL = projectURL
@@ -96,22 +97,19 @@ struct IssueDetailView: View {
             refreshBackToBoardCache()
             guard !model.isCreating else { return }
             await model.load()
-            rawDraft = model.loadedSpecContent
+            await model.loadPrompt()
+            await model.loadPR()
+            applySmartDefaultTabIfNeeded()
             refreshEditorMessages()
             refreshDirtyCache()
+            startDiffTab()
         }
         .onChange(of: dismissToOrigin == nil) { _, _ in refreshBackToBoardCache() }
-        .onChange(of: model.loadedSpecContent) { _, newContent in
-            // Keep raw buffer in sync after silent reloads / form writes.
-            // If user is actively editing in raw mode (rawDirty), preserve it.
-            if displayMode != .raw || !isRawDirty {
-                rawDraft = newContent
-            }
-            refreshDirtyCache()
-        }
+        .onChange(of: model.loadedSpecContent) { _, _ in refreshDirtyCache() }
         .onChange(of: model.loadedBodyContent) { _, _ in refreshDirtyCache() }
         .onChange(of: model.bodyDraft) { _, _ in refreshDirtyCache() }
-        .onChange(of: rawDraft) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.loadedPromptContent) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.promptDraft) { _, _ in refreshDirtyCache() }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
         .onChange(of: currentKanbanIssue) { _, current in
             model.observeKanban(currentIssue: current)
@@ -127,16 +125,6 @@ struct IssueDetailView: View {
             // mode there is no disk state yet — Cmd-W / back-nav dismisses
             // without persisting (per spec: keine Disk-Spur).
             if phase != .active && !model.isCreating { attemptSave() }
-        }
-        .onChange(of: displayMode) { _, newMode in
-            // Switching INTO raw should snapshot the current disk content as
-            // the buffer's baseline, so the user starts from a clean view.
-            // In creating mode the raw view shows a synthesized preview,
-            // computed on the fly via `synthesizedRawPreview`; no snapshot.
-            if newMode == .raw && !model.isCreating {
-                rawDraft = model.loadedSpecContent
-            }
-            refreshEditorMessages()
         }
         .alert(
             "Failed to save",
@@ -156,6 +144,7 @@ struct IssueDetailView: View {
         }
         .onDisappear {
             model.cancelPendingWork()
+            diffTabModel?.stop()
         }
     }
 
@@ -166,10 +155,7 @@ struct IssueDetailView: View {
                 IssueDetailBanner(
                     frontmatterError: model.frontmatterError,
                     conflict: model.conflict,
-                    onReload: {
-                        model.resolveConflictReload()
-                        rawDraft = model.loadedSpecContent
-                    },
+                    onReload: { model.resolveConflictReload() },
                     onKeep: { model.resolveConflictKeep() }
                 )
             }
@@ -195,86 +181,98 @@ struct IssueDetailView: View {
         }
     }
 
-    // Single render path for both creating and loaded modes. The mode-specific
-    // bits flow through the `current*`/`on*` helpers below so this layout
-    // (TopBar → Hero → FormRows → Body editor, or TopBar → Raw editor) stays
-    // identical regardless of whether the issue is on disk yet.
     @ViewBuilder
     private func renderedDetail() -> some View {
         VStack(alignment: .leading, spacing: 16) {
             IssueDetailTopBar(
                 paddedID: paddedID,
                 branch: branch,
-                displayMode: $displayMode,
-                showsDisplayModeToggle: true,
                 showsCopyID: !model.isCreating,
                 saveDisabled: saveDisabled,
                 onCopyID: model.copyIDToPasteboard,
                 onSave: attemptSave
             )
-            switch displayMode {
-            case .detail:
-                detailBody
-            case .raw:
-                rawBody
+            IssueDetailHero(
+                status: currentStatus,
+                type: currentType,
+                labels: currentLabels,
+                titleDraft: titleBinding,
+                titlePlaceholder: model.isCreating ? "Issue title" : "Title",
+                autoFocusTitle: model.isCreating,
+                onCommitTitle: onCommitTitle,
+                onAddLabel: onAddLabel,
+                onRemoveLabel: onRemoveLabel,
+                isDisabled: detailFieldsDisabled
+            )
+            if !model.isCreating, let folderName = model.folderName {
+                Divider()
+                IssueWorkflowActionBar(status: currentStatus, type: currentType) { action in
+                    triggerWorkflow(action, folderName: folderName)
+                }
+            }
+            Divider()
+            IssueDetailFormRows(
+                type: currentType,
+                status: currentStatus,
+                dates: formDates,
+                onSelectType: onSelectType,
+                onSelectStatus: onSelectStatus,
+                isDisabled: detailFieldsDisabled
+            )
+            Divider()
+            if !model.isCreating {
+                BodyTabPicker(selectedTab: bodyTabBinding)
+                tabBody
+            } else {
+                SpecTabView(
+                    text: bodyBinding,
+                    position: $specEditorPosition,
+                    messages: $specEditorMessages,
+                    language: markdownLanguage,
+                    layout: editorLayout
+                )
             }
         }
         .padding(24)
     }
 
     @ViewBuilder
-    private var detailBody: some View {
-        IssueDetailHero(
-            status: currentStatus,
-            type: currentType,
-            labels: currentLabels,
-            titleDraft: titleBinding,
-            titlePlaceholder: model.isCreating ? "Issue title" : "Title",
-            autoFocusTitle: model.isCreating,
-            onCommitTitle: onCommitTitle,
-            onAddLabel: onAddLabel,
-            onRemoveLabel: onRemoveLabel,
-            isDisabled: detailFieldsDisabled
-        )
-        if !model.isCreating, let folderName = model.folderName {
-            Divider()
-            IssueWorkflowActionBar(status: currentStatus, type: currentType) { action in
-                runWorkflow(action, folderName, model.loadedBodyContent)
+    private var tabBody: some View {
+        switch model.selectedBodyTab {
+        case .prompt:
+            PromptTabView(
+                text: promptBinding,
+                position: $promptEditorPosition,
+                messages: $promptEditorMessages,
+                language: markdownLanguage,
+                layout: editorLayout
+            )
+        case .spec:
+            SpecTabView(
+                text: bodyBinding,
+                position: $specEditorPosition,
+                messages: $specEditorMessages,
+                language: markdownLanguage,
+                layout: editorLayout
+            )
+        case .pullRequest:
+            PRTabView(content: model.prContent)
+                .task(id: model.selectedBodyTab) {
+                    // Reload-on-show: PR.md changes externally (e.g.
+                    // /plumage-implement just wrote it), and the tab is
+                    // read-only so there's no dirty-conflict to worry about.
+                    if model.selectedBodyTab == .pullRequest {
+                        await model.loadPR()
+                    }
+                }
+        case .diff:
+            if let diffTabModel {
+                DiffTabView(model: diffTabModel)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
             }
         }
-        Divider()
-        IssueDetailFormRows(
-            type: currentType,
-            status: currentStatus,
-            dates: formDates,
-            onSelectType: onSelectType,
-            onSelectStatus: onSelectStatus,
-            isDisabled: detailFieldsDisabled
-        )
-        Divider()
-        CodeEditor(
-            text: bodyBinding,
-            position: $editorPosition,
-            messages: $editorMessages,
-            language: markdownLanguage
-        )
-        .environment(\.codeEditorLayoutConfiguration, editorLayout)
-        .frame(minHeight: 240)
-    }
-
-    @ViewBuilder
-    private var rawBody: some View {
-        CodeEditor(
-            text: rawBinding,
-            position: $editorPosition,
-            messages: $editorMessages,
-            language: markdownLanguage
-        )
-        .environment(\.codeEditorLayoutConfiguration, editorLayout)
-        .frame(minHeight: 240)
-        // Creating mode has no on-disk spec yet: the raw view shows a live
-        // preview of what would be written on save, but isn't editable.
-        .disabled(model.isCreating)
     }
 
     private var backgroundTint: some View {
@@ -344,18 +342,17 @@ struct IssueDetailView: View {
         )
     }
 
-    private var rawBinding: Binding<String> {
-        if model.isCreating {
-            // Read-only synthesized preview; the setter is a no-op because
-            // the editor is .disabled() in creating mode.
-            return Binding(
-                get: { model.synthesizedRawPreview },
-                set: { _ in }
-            )
-        }
-        return Binding(
-            get: { rawDraft },
-            set: { rawDraft = $0 }
+    private var promptBinding: Binding<String> {
+        Binding(
+            get: { model.promptDraft },
+            set: { model.promptDraft = $0 }
+        )
+    }
+
+    private var bodyTabBinding: Binding<BodyTab> {
+        Binding(
+            get: { model.selectedBodyTab },
+            set: { model.selectedBodyTab = $0 }
         )
     }
 
@@ -367,13 +364,6 @@ struct IssueDetailView: View {
     private var detailFieldsDisabled: Bool {
         if model.isCreating { return false }
         return model.frontmatterError != nil
-    }
-
-    // Local thin wrapper — the model owns the dirty check, but it needs to
-    // be passed `rawDraft` because the raw buffer still lives on the view
-    // (sync with model.loadedSpecContent via onChange handlers).
-    private var isRawDirty: Bool {
-        model.isRawDirty(rawDraft)
     }
 
     // MARK: - Mode-aware callbacks
@@ -425,21 +415,41 @@ struct IssueDetailView: View {
     }
 
     private func refreshEditorMessages() {
-        // Markers point into the raw spec (line/column relative to frontmatter),
-        // so the detail-mode body editor would render them at meaningless rows.
-        guard displayMode == .raw, let error = model.frontmatterError else {
-            if !editorMessages.isEmpty { editorMessages = [] }
-            return
-        }
-        let next: Set<TextLocated<Message>> = [FrontmatterMessageMap.message(for: error)]
-        if editorMessages != next { editorMessages = next }
+        // Frontmatter error markers point into the raw spec — the tabbed
+        // body editor only renders the body, so the markers have no row to
+        // attach to here. The error banner above still surfaces the issue.
+        if !specEditorMessages.isEmpty { specEditorMessages = [] }
+        if !promptEditorMessages.isEmpty { promptEditorMessages = [] }
     }
 
     private func refreshDirtyCache() {
-        let next = model.dirtyFolderName(rawDirty: isRawDirty)
+        let next = model.dirtyFolderName()
         if publishedDirtyFolderName != next {
             publishedDirtyFolderName = next
         }
+    }
+
+    private func applySmartDefaultTabIfNeeded() {
+        // Only on the very first load per view lifetime, so reopening the
+        // same card doesn't snap the user's deliberate tab choice back to
+        // the status-driven default.
+        guard !hasAppliedSmartDefaultTab else { return }
+        guard let issue = model.issue else { return }
+        hasAppliedSmartDefaultTab = true
+        model.selectedBodyTab = IssueDetailModel.defaultTab(for: issue.status)
+    }
+
+    private func startDiffTab() {
+        // The card is the unit of cache here: every open spins up a fresh
+        // DiffTabModel + GitRepoWatcher so the diff and the live-update
+        // signal are scoped to this card's lifetime (see spec scope: no
+        // cross-card diff cache).
+        guard diffTabModel == nil else { return }
+        let watcher = GitRepoWatcher(repoURL: projectURL)
+        let diffModel = DiffTabModel(repoURL: projectURL, watcher: watcher)
+        gitRepoWatcher = watcher
+        diffTabModel = diffModel
+        diffModel.start()
     }
 
     private func refreshBackToBoardCache() {
@@ -467,10 +477,9 @@ struct IssueDetailView: View {
     }
 
     private func attemptSave() {
-        // Fire-and-forget: IssueDetailModel serializes overlapping
-        // saveBody/saveRaw calls on its own pendingBodySave chain, so a
-        // rapid double-click of Save just queues a no-op (guard-by-dirty)
-        // after the in-flight write finishes.
+        // Fire-and-forget: IssueDetailModel serializes overlapping save calls
+        // on its own pending chains, so a rapid double-click of Save just
+        // queues a no-op (guard-by-dirty) after the in-flight write finishes.
         if model.isCreating {
             guard model.canSaveInCreatingMode else { return }
             Task {
@@ -486,15 +495,35 @@ struct IssueDetailView: View {
         }
         Task {
             do {
-                switch displayMode {
-                case .detail:
-                    try await model.saveBody()
-                case .raw:
-                    try await model.saveRaw(rawDraft)
-                }
+                try await saveAllEditableTabs()
             } catch {
                 presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
+        }
+    }
+
+    private func saveAllEditableTabs() async throws {
+        // Flush both editable buffers regardless of the currently-selected
+        // tab. Otherwise dirty Spec/Prompt content sitting behind a non-
+        // editable tab (PR, Diff) would be silently dropped on background
+        // autosave or Cmd-S. The model's per-buffer dirty guards keep this
+        // cheap when nothing changed.
+        var firstError: Error?
+        do { try await model.saveBody() } catch { firstError = firstError ?? error }
+        do { try await model.savePrompt() } catch { firstError = firstError ?? error }
+        if let firstError { throw firstError }
+    }
+
+    private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {
+        // Plan injects the prompt body into the claude REPL — flush the
+        // current draft to disk first so /plumage-plan and the workflow
+        // env see the same content the user just typed.
+        Task {
+            if action == .plan, model.isPromptDirty {
+                try? await model.savePrompt()
+            }
+            let payload = model.promptDraft
+            runWorkflow(action, folderName, payload.isEmpty ? nil : payload)
         }
     }
 
@@ -518,14 +547,10 @@ struct IssueDetailView: View {
             return
         }
         do {
-            switch displayMode {
-            case .detail:
-                try await model.saveBody()
-            case .raw:
-                if isRawDirty {
-                    try await model.saveRaw(rawDraft)
-                }
-            }
+            // Flush both editable tabs. saveAllEditableTabs runs both saves
+            // even if one fails, so a failing body save doesn't strand a
+            // dirty prompt buffer (or vice versa).
+            try await saveAllEditableTabs()
             endAction()
         } catch {
             pendingPopAction = endAction
