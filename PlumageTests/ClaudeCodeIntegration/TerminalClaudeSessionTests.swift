@@ -154,6 +154,36 @@ struct TerminalClaudeSessionTests {
         #expect(args[1].contains(session.conversationID))
     }
 
+    @Test("shellSpawnArgs omits --permission-mode by default (nil mode)")
+    func shellArgsOmitsPermissionModeByDefault() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        #expect(!session.shellSpawnArgs()[1].contains("--permission-mode"))
+    }
+
+    @Test("shellSpawnArgs appends --permission-mode <rawCLIValue> adjacently when set")
+    func shellArgsAppendsPermissionMode() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        for mode in PermissionMode.allCases {
+            let session = TerminalClaudeSession(
+                cwd: env.cwdRoot,
+                binaryURL: env.fakeBinary,
+                sessionIDStoreOverride: env.sessionIDStore,
+                sessionLogRoot: env.sessionLogRoot,
+                permissionMode: mode
+            )
+            let cmd = session.shellSpawnArgs()[1]
+            // Exact adjacency — claude expects `--permission-mode <value>` as
+            // two separate, quoted argv entries. A refactor to `=value` form
+            // or swapped order would silently break the CLI contract;
+            // contains("--permission-mode") + contains("'plan'") on its own
+            // would miss that. Pin the exact emitted substring.
+            #expect(cmd.contains("'--permission-mode' '\(mode.rawCLIValue)'"))
+        }
+    }
+
     @Test("shellSpawnArgs single-quote-escapes ' inside cwd")
     func shellArgsEscapesQuotes() throws {
         let env = try TempEnv.make()
@@ -275,36 +305,6 @@ struct TerminalClaudeSessionTests {
         session.registerStopHandler { fired += 1 }
         session.stop()
         #expect(fired == 0)
-    }
-
-    // MARK: - rebuilt(for:replacing:)
-
-    @Test("rebuilt with same cwd returns the same instance")
-    func rebuiltSameCwdShortCircuits() throws {
-        let env = try TempEnv.make()
-        defer { env.cleanup() }
-        let prior = env.makeSession()
-        let rebuilt = TerminalClaudeSession.rebuilt(for: prior.cwd, replacing: prior)
-        #expect(rebuilt === prior)
-    }
-
-    @Test("rebuilt with different cwd stops prior and returns a fresh session")
-    func rebuiltDifferentCwdReplaces() throws {
-        let env = try TempEnv.make()
-        defer { env.cleanup() }
-        let prior = env.makeSession()
-        prior.attach()
-        prior.markStarted()
-        var stopFired = 0
-        prior.registerStopHandler { stopFired += 1 }
-        let otherCwd = env.cwdRoot.appendingPathComponent("other")
-        try FileManager.default.createDirectory(at: otherCwd, withIntermediateDirectories: true)
-        let rebuilt = TerminalClaudeSession.rebuilt(for: otherCwd, replacing: prior)
-        #expect(rebuilt !== prior)
-        #expect(rebuilt.cwd == otherCwd)
-        #expect(stopFired == 1)
-        // Prior is now .exited; rebuilt is fresh .idle.
-        #expect(rebuilt.state == .idle)
     }
 
     // MARK: - pendingInput queue
@@ -487,7 +487,7 @@ struct TerminalClaudeSessionTests {
         }
 
         func makeSession(
-            excludedSessionIDs: @escaping () -> Set<String> = { [] }
+            excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] }
         ) -> TerminalClaudeSession {
             TerminalClaudeSession(
                 cwd: cwdRoot,

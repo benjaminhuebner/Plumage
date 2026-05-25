@@ -19,6 +19,13 @@ nonisolated enum ClaudeThemeInstaller {
     }
 
     static let themeName = "plumage"
+    // claude's settings.json stores custom themes with a `custom:` prefix —
+    // a bare `"theme": "plumage"` is treated as an unknown built-in name and
+    // silently falls back to "Dark mode". The custom-theme file in
+    // ~/.claude/themes/<name>.json keeps its bare name; only the settings.json
+    // value gets the prefix. Verified against claude 2.1.150 by selecting
+    // "plumage (custom)" through `/theme` and reading back the stored value.
+    static let settingsThemeValue = "custom:\(themeName)"
     static let bundledResource = "plumage-theme"
     static let bundledExtension = "json"
 
@@ -68,11 +75,15 @@ nonisolated enum ClaudeThemeInstaller {
         } else {
             json = [:]
         }
-        // Only set theme if absent or already plumage. Respect a user's manual
-        // override to a different theme — they may prefer it.
+        // Only set theme if absent or already pointing at our theme. Accept
+        // both `custom:plumage` (the value claude expects) and the legacy bare
+        // `plumage` from earlier Plumage builds so we migrate that forward
+        // without surprising users. Any other value is a manual user choice
+        // and stays put.
         let current = json["theme"] as? String
-        if current == nil || current == themeName {
-            json["theme"] = themeName
+        let isOurValue = current == settingsThemeValue || current == themeName
+        if current == nil || isOurValue {
+            json["theme"] = settingsThemeValue
             let updated = try JSONSerialization.data(
                 withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
             try fileManager.createDirectory(

@@ -93,6 +93,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
         view.caretColor = NSColor.labelColor
         view.cursorStyleChanged(source: view.terminal, newStyle: .blinkBlock)
 
+        // Bridge owns the attach lifecycle: anyone who mounts a session
+        // (TerminalTabsModel.addTab, scene-phase recovery, restart()) leaves
+        // attach() to us so state is guaranteed to be .starting once a PTY
+        // exists. attach() is idempotent on .starting/.running and recovers
+        // from .exited (the restart() / scenePhase path).
+        session.attach()
         // Defense in depth: TerminalClaudeSession's shellSpawnArgs already
         // single-quote-escapes ', but precondition on null/newline lives in
         // shellQuotedAttachArgs — bail out early to avoid spawning into a

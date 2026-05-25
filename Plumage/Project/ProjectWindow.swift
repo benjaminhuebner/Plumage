@@ -18,7 +18,7 @@ struct ProjectWindow: View {
     @State private var usageClient = ClaudeUsageClient()
     @State private var statusClient = ClaudeStatusPageClient()
     @State private var session: ClaudeSession
-    @State private var terminalSession: TerminalClaudeSession
+    @State private var terminalTabs: TerminalTabsModel
     @State private var xcodeRun: XcodeRunModel
     @State private var xcodeRunController: XcodeRunController
     @State private var showBuildLog = false
@@ -58,8 +58,26 @@ struct ProjectWindow: View {
         self._session = State(
             initialValue: ClaudeSession(cwd: handle.url, binaryURL: binary)
         )
-        self._terminalSession = State(
-            initialValue: TerminalClaudeSession(cwd: handle.url, binaryURL: binary)
+        // Every terminal tab — including the main one at index 0 — runs as
+        // an ephemeral session: fresh conversationID per window-open, no
+        // disk persistence, no reconcile pickup. A persistent main tab
+        // would adopt sibling claude runs that wrote the same log dir
+        // last (a /plan or /implement subprocess, but also any external
+        // `claude` invocation in macOS-Terminal). The sibling-exclude
+        // plumbing inside TerminalTabsModel can only filter Plumage's own
+        // tabs, not arbitrary external callers — so the safer choice is
+        // to never persist or reconcile at all. Trade-off: window-reopen
+        // drops the user's terminal history. Accepted (2026-05-25, #00037
+        // post-review).
+        let initialTerminalSession = TerminalClaudeSession(
+            cwd: handle.url, binaryURL: binary, persistConversationID: false
+        )
+        self._terminalTabs = State(
+            initialValue: TerminalTabsModel(
+                cwd: handle.url,
+                binaryURL: binary,
+                initialSession: initialTerminalSession
+            )
         )
         let runModel = XcodeRunModel()
         self._xcodeRun = State(initialValue: runModel)
@@ -109,17 +127,48 @@ struct ProjectWindow: View {
                 // swapped it out, and silently allow the chat session's ID to
                 // be adopted by the terminal reconcile.
                 session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
-                terminalSession = TerminalClaudeSession.rebuilt(
-                    for: handle.url, replacing: terminalSession)
+                // Window reused for a different handle: stop all existing
+                // tabs and spin up a fresh tabs model with a new default tab.
+                if terminalTabs.cwd != handle.url {
+                    terminalTabs.stopAll()
+                    let newBinary =
+                        (try? ProductionProcessRunner.locateBinary())
+                        ?? URL(filePath: "/dev/null")
+                    let newInitial = TerminalClaudeSession(
+                        cwd: handle.url, binaryURL: newBinary,
+                        persistConversationID: false
+                    )
+                    terminalTabs = TerminalTabsModel(
+                        cwd: handle.url,
+                        binaryURL: newBinary,
+                        initialSession: newInitial
+                    )
+                }
                 // Chat shares the claude log dir with terminal; without this
                 // exclude the terminal's reconcile would adopt chat's session
-                // ID if chat happened to be the last writer.
-                terminalSession.setExcludedSessionIDs { [weak session] in
+                // ID if chat happened to be the last writer. Per-tab smart
+                // closures in TerminalTabsModel read this lazily, so updating
+                // the shared provider is enough — no per-tab fan-out needed.
+                terminalTabs.setSharedExcludedSessionIDs { [weak session] in
                     guard let id = session?.conversationID else { return [] }
                     return [id]
                 }
+                // Closing a workflow tab mid-inject must cancel the inject
+                // task — otherwise it strands for up to ~850ms inside its
+                // bodyDelay sleep, holding the dead session alive. Only one
+                // workflowTask is ever in flight at a time, so any
+                // workflow-tab close that races inject() is the right cancel.
+                terminalTabs.onTabClosed = { closed in
+                    if closed.isWorkflow {
+                        workflowTask?.cancel()
+                    }
+                }
                 session.attach()
-                terminalSession.attach()
+                // Terminal sessions don't get explicit attach() here —
+                // SwiftTermBridge.makeNSView attaches each tab when its
+                // EmbeddedTerminalView mounts, which is what survives
+                // scene-phase recovery without leaving non-active tabs
+                // stranded in .exited.
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
@@ -149,7 +198,7 @@ struct ProjectWindow: View {
             }
             .onDisappear {
                 session.stop()
-                terminalSession.stop()
+                terminalTabs.stopAll()
                 workflowTask?.cancel()
                 xcodeRunController.cancelRun()
             }
@@ -201,7 +250,7 @@ struct ProjectWindow: View {
                 }
                 .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
-                    TerminalInspectorView(session: terminalSession)
+                    TerminalInspectorView(tabsModel: terminalTabs)
                         .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
                 }
         }
@@ -382,6 +431,17 @@ struct ProjectWindow: View {
         workflowTask?.cancel()
         isTerminalInspectorOpen = true
 
+        // Find-or-create a per-workflow tab so each Plan/Implement/Review
+        // gets its own claude subprocess with the right --permission-mode and
+        // leaves the main terminal free. Title match is exact ("<Action>:
+        // <slug>"); a repeat click on the same action+issue selects the
+        // existing tab without a second inject.
+        if let existing = terminalTabs.findWorkflowTab(action: action, slug: folderName) {
+            terminalTabs.selectedTabID = existing.id
+            return
+        }
+        let workflowTab = terminalTabs.addWorkflowTab(action: action, slug: folderName)
+
         // CR (\r) is what the terminal sends on Enter. claude's TUI treats
         // \n as a multi-line continuation (Shift+Enter style) and only \r as
         // submit — sending \n appended to the slash command just inserts a
@@ -392,7 +452,7 @@ struct ProjectWindow: View {
             guard action == .plan, let body else { return nil }
             return body.replacingOccurrences(of: "\r", with: "") + "\r"
         }()
-        let session = terminalSession
+        let session = workflowTab.session
         let slug = action.slug
 
         workflowTask = Task { @MainActor in

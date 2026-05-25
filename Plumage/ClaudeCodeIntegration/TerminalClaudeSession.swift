@@ -13,7 +13,11 @@ final class TerminalClaudeSession {
 
     let cwd: URL
     let binaryURL: URL
-    private let sessionIDStoreURL: URL
+    // nil disables disk persistence — additional tabs from TerminalTabsModel
+    // pass persistConversationID: false so each new tab gets a fresh UUID
+    // without writing/reading the on-disk pointer. The default tab keeps the
+    // status-quo single-file persistence at .plumage/sessions/terminal-id.
+    private let sessionIDStoreURL: URL?
     private let sessionLogRoot: URL
     // Returns conversation IDs that must NOT be adopted by reconcile —
     // primarily the chat session's ID, since chat shares the same log dir.
@@ -21,7 +25,11 @@ final class TerminalClaudeSession {
     // so the lookup stays live; tests use the default empty set. Mutable so
     // ProjectWindow can re-wire after `rebuilt(for:replacing:)` swaps in a
     // fresh chat session instance whose weak ref would otherwise be stale.
-    private var excludedSessionIDs: () -> Set<String>
+    private var excludedSessionIDs: @MainActor () -> Set<String>
+    // nil means no --permission-mode flag is appended; the workflow-tab path
+    // sets one of plan/acceptEdits/default so claude boots with the right
+    // permission policy without a follow-up TTY toggle.
+    private let permissionMode: PermissionMode?
 
     private(set) var state: State = .idle
     private(set) var conversationID: String
@@ -54,16 +62,23 @@ final class TerminalClaudeSession {
         binaryURL: URL,
         sessionIDStoreOverride: URL? = nil,
         sessionLogRoot: URL? = nil,
-        excludedSessionIDs: @escaping () -> Set<String> = { [] }
+        excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] },
+        persistConversationID: Bool = true,
+        permissionMode: PermissionMode? = nil
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
-        self.sessionIDStoreURL =
-            sessionIDStoreOverride
-            ?? cwd
-            .appendingPathComponent(".plumage", isDirectory: true)
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("terminal-id")
+        self.permissionMode = permissionMode
+        if persistConversationID {
+            self.sessionIDStoreURL =
+                sessionIDStoreOverride
+                ?? cwd
+                .appendingPathComponent(".plumage", isDirectory: true)
+                .appendingPathComponent("sessions", isDirectory: true)
+                .appendingPathComponent("terminal-id")
+        } else {
+            self.sessionIDStoreURL = nil
+        }
         self.sessionLogRoot =
             sessionLogRoot
             ?? FileManager.default.homeDirectoryForCurrentUser
@@ -77,17 +92,6 @@ final class TerminalClaudeSession {
             self.conversationID = fresh
             Self.persistID(fresh, to: self.sessionIDStoreURL)
         }
-    }
-
-    static func rebuilt(
-        for handleURL: URL, replacing prior: TerminalClaudeSession
-    ) -> TerminalClaudeSession {
-        if prior.cwd == handleURL { return prior }
-        prior.stop()
-        let binary =
-            (try? ProductionProcessRunner.locateBinary())
-            ?? URL(filePath: "/dev/null")
-        return TerminalClaudeSession(cwd: handleURL, binaryURL: binary)
     }
 
     func attach() {
@@ -207,8 +211,17 @@ final class TerminalClaudeSession {
         stopHandler = handler
     }
 
-    func setExcludedSessionIDs(_ provider: @escaping () -> Set<String>) {
+    func setExcludedSessionIDs(_ provider: @escaping @MainActor () -> Set<String>) {
         excludedSessionIDs = provider
+    }
+
+    // Test-visible accessor for the currently-wired exclude provider. The
+    // closure itself is private (re-bound by TerminalTabsModel during tab
+    // life-cycle changes), so callers can only observe its result, not swap
+    // it. Used by TerminalTabsModelTests to assert that workflow-tab sessions
+    // see every other tab's conversationID in their exclude set.
+    func currentExcludedSessionIDs() -> Set<String> {
+        excludedSessionIDs()
     }
 
     func clearStopHandler() {
@@ -222,11 +235,15 @@ final class TerminalClaudeSession {
         return ["--resume", conversationID]
     }
 
-    // /bin/sh -c "cd '<cwd>' && exec '<claude>' [--session-id|--resume '<uuid>']"
+    // /bin/sh -c "cd '<cwd>' && exec '<claude>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>]"
     func shellSpawnArgs() -> [String] {
         let quotedCwd = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let quotedBin = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        let attach = Self.shellQuotedAttachArgs(resumeOrInitArgs())
+        let sessionArgs = resumeOrInitArgs()
+        let args =
+            permissionMode.map { sessionArgs + ["--permission-mode", $0.rawCLIValue] }
+            ?? sessionArgs
+        let attach = Self.shellQuotedAttachArgs(args)
         return ["-c", "cd '\(quotedCwd)' && exec '\(quotedBin)' \(attach)"]
     }
 
@@ -259,6 +276,11 @@ final class TerminalClaudeSession {
 
     private func startLogWatcher() {
         guard logWatcher == nil else { return }
+        // Ephemeral sessions (sessionIDStoreURL == nil) opt out of reconcile,
+        // so the watcher would just fan out FSEvents into MainActor hops that
+        // immediately bail at reconcileSessionFromDisk's guard. With many
+        // open tabs the wasted hops add up; skip the watcher entirely.
+        guard sessionIDStoreURL != nil else { return }
         let watcher = SessionLogWatcher(directory: sessionLogDirectory()) { [weak self] in
             // FSEvents callback fires on the watcher's own dispatch queue;
             // hop to MainActor before touching @Observable state.
@@ -282,6 +304,12 @@ final class TerminalClaudeSession {
     // adopted as the new conversationID and persisted, so an app-restart
     // resumes the post-/clear session instead of the pre-/clear one.
     func reconcileSessionFromDisk() {
+        // Ephemeral sessions (sessionIDStoreURL == nil) opt out of reconcile
+        // entirely: without persistence, /clear-rotation tracking has no
+        // place to write its result, and Cross-Session adoption is the only
+        // remaining behavior — which is what callers explicitly asked us to
+        // avoid.
+        guard sessionIDStoreURL != nil else { return }
         guard let launchInstant else { return }
         let dir = sessionLogDirectory()
         let fm = FileManager.default
@@ -313,8 +341,9 @@ final class TerminalClaudeSession {
         Self.persistID(bestID, to: sessionIDStoreURL)
     }
 
-    private nonisolated static func loadPersistedID(from url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url),
+    private nonisolated static func loadPersistedID(from url: URL?) -> String? {
+        guard let url,
+            let data = try? Data(contentsOf: url),
             let raw = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             !raw.isEmpty
@@ -322,7 +351,8 @@ final class TerminalClaudeSession {
         return raw
     }
 
-    private nonisolated static func persistID(_ id: String, to url: URL) {
+    private nonisolated static func persistID(_ id: String, to url: URL?) {
+        guard let url else { return }
         let parent = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(
             at: parent, withIntermediateDirectories: true)
