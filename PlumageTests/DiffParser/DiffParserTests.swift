@@ -151,6 +151,35 @@ struct DiffParserTests {
         #expect(file.status == .submodule(from: "0000000", to: "7777777"))
     }
 
+    @Test("symlink change: status stays .modified, body has target paths")
+    func symlinkChange() throws {
+        let diff = try loadFixture("symlink-change.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "link")
+        #expect(file.status == .modified)
+        let hunk = try #require(file.hunks.first)
+        let removed = try #require(hunk.lines.first { $0.kind == .removed })
+        let added = try #require(hunk.lines.first { $0.kind == .added })
+        #expect(removed.content == "old/target/path")
+        #expect(added.content == "new/target/path")
+    }
+
+    @Test("no trailing newline marker tags the preceding +/- line")
+    func noTrailingNewline() throws {
+        let diff = try loadFixture("no-trailing-newline.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let hunk = try #require(files[0].hunks.first)
+        let removed = try #require(hunk.lines.first { $0.kind == .removed })
+        let added = try #require(hunk.lines.first { $0.kind == .added })
+        #expect(removed.hasNoTrailingNewline)
+        #expect(added.hasNoTrailingNewline)
+        // The leading context line is unaffected.
+        #expect(hunk.lines.first?.hasNoTrailingNewline == false)
+    }
+
     @Test("json edit: string + number + reserved tokens recognised")
     func jsonTokens() throws {
         let diff = try loadFixture("json-config-change.diff")
