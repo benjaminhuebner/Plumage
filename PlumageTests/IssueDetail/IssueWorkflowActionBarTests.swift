@@ -77,6 +77,35 @@ struct WorkflowActionSlugTests {
     }
 }
 
+@Suite("WorkflowAction.permissionMode")
+struct WorkflowActionPermissionModeTests {
+    @Test("maps each action to its claude --permission-mode value")
+    func permissionModeMapping() {
+        #expect(WorkflowAction.plan.permissionMode == .plan)
+        #expect(WorkflowAction.implement.permissionMode == .acceptEdits)
+        #expect(WorkflowAction.review.permissionMode == .default)
+    }
+}
+
+@Suite("WorkflowAction.tabTitle")
+struct WorkflowActionTabTitleTests {
+    @Test("uses '<Action>: <slug>' with capitalized action")
+    func tabTitleFormat() {
+        #expect(WorkflowAction.plan.tabTitle(slug: "walking-skeleton") == "Plan: walking-skeleton")
+        #expect(
+            WorkflowAction.implement.tabTitle(slug: "00038-workflow-tabs-per-action")
+                == "Implement: 00038-workflow-tabs-per-action"
+        )
+        #expect(WorkflowAction.review.tabTitle(slug: "foo") == "Review: foo")
+    }
+
+    @Test("slug is passed through verbatim — caller controls formatting")
+    func tabTitleSlugVerbatim() {
+        #expect(WorkflowAction.plan.tabTitle(slug: "") == "Plan: ")
+        #expect(WorkflowAction.plan.tabTitle(slug: "weird:slug") == "Plan: weird:slug")
+    }
+}
+
 @Suite("WorkflowAction.disabledTooltip")
 struct WorkflowActionDisabledTooltipTests {
     @Test("done overrides every per-action tooltip")

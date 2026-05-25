@@ -29,6 +29,30 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable {
         }
     }
 
+    // Drives the claude `--permission-mode <value>` flag for the workflow tab.
+    // Mapping rationale: plan stays sandboxed during planning; implement gets
+    // acceptEdits so the agent can write code without prompt-fatigue; review
+    // is read-mostly and uses default (prompt-on-side-effect).
+    var permissionMode: PermissionMode {
+        switch self {
+        case .plan: .plan
+        case .implement: .acceptEdits
+        case .review: .default
+        }
+    }
+
+    // "<Action>: <slug>" — used by TerminalTabsModel.findWorkflowTab as the
+    // exact match key. Action is capitalized; slug is passed through verbatim.
+    func tabTitle(slug: String) -> String {
+        let action: String
+        switch self {
+        case .plan: action = "Plan"
+        case .implement: action = "Implement"
+        case .review: action = "Review"
+        }
+        return "\(action): \(slug)"
+    }
+
     func isEnabled(status: IssueStatus, type: IssueType) -> Bool {
         switch self {
         case .plan:
