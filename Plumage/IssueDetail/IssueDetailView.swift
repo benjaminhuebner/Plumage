@@ -117,6 +117,9 @@ struct IssueDetailView: View {
         .onChange(of: kanban.lastRemovalCompleted) { _, completed in
             if let completed, completed == model.folderName { dismiss() }
         }
+        .onChange(of: kanban.lastMergeCompleted) { _, completed in
+            if let completed, completed == model.folderName { dismiss() }
+        }
         .onChange(of: model.conflict) { _, conflict in
             if conflict == .fileDeleted { dismiss() }
         }
@@ -209,6 +212,18 @@ struct IssueDetailView: View {
                 IssueWorkflowActionBar(status: currentStatus, type: currentType) { action in
                     triggerWorkflow(action, folderName: folderName)
                 }
+            }
+            if !model.isCreating, currentStatus == .waitingForReview, let issue = model.issue {
+                Divider()
+                MergeBranchSection(
+                    branch: issue.branch,
+                    isMerging: model.isMerging,
+                    errorMessage: mergeBannerMessage,
+                    nonFatalNotice: model.lastMergeNotice,
+                    onMerge: { deleteBranch in
+                        Task { await performMerge(deleteBranch: deleteBranch) }
+                    }
+                )
             }
             Divider()
             IssueDetailFormRows(
@@ -464,6 +479,18 @@ struct IssueDetailView: View {
         } else if !hasOrigin && isCached {
             publishedBackToBoardAction = nil
         }
+    }
+
+    private var mergeBannerMessage: String? {
+        if let critical = model.lastMergeCriticalError { return critical }
+        if let error = model.lastMergeError { return error.displayMessage }
+        return nil
+    }
+
+    private func performMerge(deleteBranch: Bool) async {
+        let success = await model.mergeToMain(deleteBranch: deleteBranch)
+        guard success, let folderName = model.folderName else { return }
+        kanban.signalMergeCompleted(folderName: folderName)
     }
 
     private func runFormCommit(_ work: @escaping () async throws -> Void) {
