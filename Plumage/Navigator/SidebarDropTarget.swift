@@ -5,21 +5,31 @@ import Foundation
 // accept/reject split rolled up (analog to "3 of 5 files skipped").
 nonisolated enum SidebarDropTarget {
     enum Section: Sendable, Hashable {
-        case docs
+        case managed(type: ManagedFileType)
         case claudeMarkdown
-        case hooks
         case skillsTopLevel
         case skillSub(skillName: String, relativePath: String)
         case hookSub(relativePath: String)
+
+        // Convenience factories so existing call-sites that used `.docs` /
+        // `.hooks` stay readable and don't need to thread `ManagedFileType`
+        // through every literal.
+        static var docs: Section { .managed(type: .docs) }
+        static var hooks: Section { .managed(type: .hooks) }
+        static var agents: Section { .managed(type: .agents) }
+        static var rules: Section { .managed(type: .rules) }
+        static var outputStyles: Section { .managed(type: .outputStyles) }
 
         // Extensions accepted as plain files; folder drops are accepted
         // separately. An empty set means "no plain files allowed".
         var fileExtensions: Set<String> {
             switch self {
-            case .docs, .claudeMarkdown:
+            case .managed(let type):
+                return type.allowedExtensions
+            case .claudeMarkdown:
                 return ["md"]
-            case .hooks, .hookSub:
-                return ["sh", "py"]
+            case .hookSub:
+                return ManagedFileType.hooks.allowedExtensions
             case .skillsTopLevel, .skillSub:
                 return ["md", "sh", "py"]
             }
@@ -27,28 +37,30 @@ nonisolated enum SidebarDropTarget {
 
         var rejectionMessage: String {
             switch self {
-            case .docs: return "Only .md files allowed in Docs"
+            case .managed(let type): return type.rejectionMessage
             case .claudeMarkdown: return "Only .md files allowed at .claude/ root"
-            case .hooks, .hookSub: return "Only .sh/.py files or folders allowed in Hooks"
-            case .skillsTopLevel, .skillSub: return "Only .md/.sh/.py files or folders allowed in Skills"
+            case .hookSub: return ManagedFileType.hooks.rejectionMessage
+            case .skillsTopLevel, .skillSub:
+                return "Only .md/.sh/.py files or folders allowed in Skills"
             }
         }
 
         // Resolves to an absolute target directory under projectURL.
         func destinationDirectory(projectURL: URL) -> URL {
             switch self {
-            case .docs:
-                return projectURL.appendingPathComponent(ClaudeProjectFiles.docsRelativePath, isDirectory: true)
+            case .managed(let type):
+                return projectURL.appendingPathComponent(type.relativePath, isDirectory: true)
             case .claudeMarkdown:
-                return projectURL.appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
-            case .hooks:
-                return projectURL.appendingPathComponent(ClaudeProjectFiles.hooksRelativePath, isDirectory: true)
+                return projectURL.appendingPathComponent(
+                    ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
             case .hookSub(let rel):
                 return appended(
-                    base: projectURL.appendingPathComponent(ClaudeProjectFiles.hooksRelativePath, isDirectory: true),
+                    base: projectURL.appendingPathComponent(
+                        ManagedFileType.hooks.relativePath, isDirectory: true),
                     relative: rel)
             case .skillsTopLevel:
-                return projectURL.appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
+                return projectURL.appendingPathComponent(
+                    ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
             case .skillSub(let skill, let rel):
                 return appended(
                     base:
@@ -61,8 +73,9 @@ nonisolated enum SidebarDropTarget {
 
         var allowsFolderDrop: Bool {
             switch self {
-            case .docs, .claudeMarkdown: return false
-            case .hooks, .hookSub, .skillsTopLevel, .skillSub: return true
+            case .managed(let type): return type.allowsSubfolders
+            case .claudeMarkdown: return false
+            case .hookSub, .skillsTopLevel, .skillSub: return true
             }
         }
 
