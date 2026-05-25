@@ -1,0 +1,34 @@
+diff --git a/Sources/Existing.swift b/Sources/Existing.swift
+index 1111111..2222222 100644
+--- a/Sources/Existing.swift
++++ b/Sources/Existing.swift
+@@ -1,3 +1,4 @@
+ struct Existing {
+     let id: Int
++    let name: String
+ }
+diff --git a/Sources/Old.swift b/Sources/Old.swift
+deleted file mode 100644
+index abcdef0..0000000
+--- a/Sources/Old.swift
++++ /dev/null
+@@ -1,3 +0,0 @@
+-struct Old {
+-    let legacy: Bool
+-}
+diff --git a/Sources/Brand.swift b/Sources/Brand.swift
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/Sources/Brand.swift
+@@ -0,0 +1,3 @@
++struct Brand {
++    let name: String
++}
+diff --git a/Vendor/lib b/Vendor/lib
+index abc1234..def5678 160000
+--- a/Vendor/lib
++++ b/Vendor/lib
+@@ -1 +1 @@
+-Subproject commit abc1234567890abcdef1234567890abcdef12345
++Subproject commit def5678901234fedcba9876543210fedcba98765

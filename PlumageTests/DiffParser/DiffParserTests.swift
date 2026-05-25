@@ -180,6 +180,59 @@ struct DiffParserTests {
         #expect(hunk.lines.first?.hasNoTrailingNewline == false)
     }
 
+    @Test("empty fixture parses to empty array")
+    func emptyFixture() throws {
+        let diff = try loadFixture("empty.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        #expect(files.isEmpty)
+    }
+
+    @Test("multi-file diff: parses ≥ 3 files of different statuses")
+    func multiFile() throws {
+        let diff = try loadFixture("multi-file.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 4)
+
+        #expect(files[0].path == "Sources/Existing.swift")
+        #expect(files[0].status == .modified)
+        #expect(files[0].hunks.count == 1)
+
+        #expect(files[1].path == "Sources/Old.swift")
+        #expect(files[1].status == .deleted)
+
+        #expect(files[2].path == "Sources/Brand.swift")
+        #expect(files[2].status == .added)
+
+        #expect(files[3].path == "Vendor/lib")
+        #expect(files[3].status == .submodule(from: "abc1234", to: "def5678"))
+    }
+
+    @Test("malformed hunk header drops only its file, others survive")
+    func malformedHunkRecovery() throws {
+        let diff = try loadFixture("malformed-hunk.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        let paths = files.map(\.path)
+        #expect(paths == ["Sources/Good.swift", "Sources/AlsoGood.swift"])
+    }
+
+    @Test("determinism: parse twice → equatable identical output")
+    func deterministicOutput() throws {
+        let diff = try loadFixture("multi-file.diff")
+        let first = DiffParser.parse(unifiedDiff: diff)
+        let second = DiffParser.parse(unifiedDiff: diff)
+        #expect(first == second)
+        #expect(first.hashValue == second.hashValue)
+    }
+
+    @Test("forgiveness: BOM + CRLF input normalises")
+    func bomAndCRLF() throws {
+        let body = try loadFixture("simple-swift-edit.diff")
+        let bomCRLF = "\u{FEFF}" + body.replacingOccurrences(of: "\n", with: "\r\n")
+        let normal = DiffParser.parse(unifiedDiff: body)
+        let weird = DiffParser.parse(unifiedDiff: bomCRLF)
+        #expect(normal == weird)
+    }
+
     @Test("json edit: string + number + reserved tokens recognised")
     func jsonTokens() throws {
         let diff = try loadFixture("json-config-change.diff")
