@@ -88,6 +88,26 @@ struct DiffParserTests {
         #expect(kinds == [.removed])
     }
 
+    @Test("rename: status .renamed(from:) keeps destination path")
+    func fileRename() throws {
+        let diff = try loadFixture("file-rename.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Sources/Renamed.swift")
+        #expect(file.status == .renamed(from: "Sources/Old.swift"))
+    }
+
+    @Test("copy: status .copied(from:) keeps destination path")
+    func fileCopy() throws {
+        let diff = try loadFixture("file-copy.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Sources/Variant.swift")
+        #expect(file.status == .copied(from: "Sources/Template.swift"))
+    }
+
     @Test("json edit: string + number + reserved tokens recognised")
     func jsonTokens() throws {
         let diff = try loadFixture("json-config-change.diff")

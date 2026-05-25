@@ -108,6 +108,31 @@ nonisolated public enum DiffParser {
             state.currentFile?.status = .deleted
             return
         }
+        if line.hasPrefix("rename from ") {
+            let from = String(line.dropFirst("rename from ".count))
+            state.currentFile?.status = .renamed(from: from)
+            return
+        }
+        if line.hasPrefix("rename to ") {
+            let to = String(line.dropFirst("rename to ".count))
+            state.currentFile?.path = to
+            state.currentFile?.tokeniser = LanguageDetector.tokeniser(forPath: to)
+            return
+        }
+        if line.hasPrefix("copy from ") {
+            let from = String(line.dropFirst("copy from ".count))
+            state.currentFile?.status = .copied(from: from)
+            return
+        }
+        if line.hasPrefix("copy to ") {
+            let to = String(line.dropFirst("copy to ".count))
+            state.currentFile?.path = to
+            state.currentFile?.tokeniser = LanguageDetector.tokeniser(forPath: to)
+            return
+        }
+        if line.hasPrefix("similarity index ") || line.hasPrefix("dissimilarity index ") {
+            return
+        }
         if line.hasPrefix("--- ") {
             let path = String(line.dropFirst("--- ".count))
             if path == "/dev/null" {
