@@ -264,6 +264,50 @@ struct TerminalTabsModelTests {
         #expect(mainSession.pendingInput.isEmpty)
     }
 
+    @Test("closing a generic tab does not clobber a workflow tab's title")
+    func closeGenericPreservesWorkflowTitle() {
+        let model = makeModel()
+        // Layout: [main, Plan: abc, Terminal 3 (generic)]
+        let workflowTab = model.addWorkflowTab(action: .plan, slug: "abc")
+        let originalTitle = workflowTab.title
+        model.addTab()
+        let genericID = model.tabs[2].id
+        #expect(model.tabs[1].title == originalTitle)
+
+        model.closeTab(id: genericID)
+
+        // The workflow tab must keep its title — otherwise findWorkflowTab's
+        // exact-match lookup fails on the next click and a duplicate tab
+        // gets created.
+        #expect(model.tabs.count == 2)
+        #expect(model.tabs[1].title == originalTitle)
+        #expect(model.findWorkflowTab(action: .plan, slug: "abc")?.id == workflowTab.id)
+    }
+
+    @Test("closeTab fires onTabClosed with the removed workflow tab")
+    func onTabClosedFiresForWorkflowTab() {
+        let model = makeModel()
+        let workflowTab = model.addWorkflowTab(action: .plan, slug: "x")
+        var closed: TerminalTab?
+        model.onTabClosed = { closed = $0 }
+
+        model.closeTab(id: workflowTab.id)
+
+        #expect(closed?.id == workflowTab.id)
+        #expect(closed?.isWorkflow == true)
+    }
+
+    @Test("closeTab does not fire onTabClosed for the sticky main tab")
+    func onTabClosedSkipsMainTab() {
+        let model = makeModel()
+        var fired = false
+        model.onTabClosed = { _ in fired = true }
+
+        model.closeTab(id: model.tabs[0].id)  // no-op, main is sticky
+
+        #expect(!fired)
+    }
+
     @Test("setSharedExcludedSessionIDs propagates the chat exclude into every tab")
     func setSharedExcludedSessionIDsPropagates() {
         let model = makeModel()
@@ -299,7 +343,7 @@ struct TerminalTabsModelTests {
     // MARK: - Helpers
 
     private func makeModel(
-        excludedSessionIDs: @escaping () -> Set<String> = { [] }
+        excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] }
     ) -> TerminalTabsModel {
         let cwd = FileManager.default.temporaryDirectory
             .appendingPathComponent("TerminalTabsModelTests-\(UUID().uuidString)")

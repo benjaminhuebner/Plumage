@@ -25,7 +25,7 @@ final class TerminalClaudeSession {
     // so the lookup stays live; tests use the default empty set. Mutable so
     // ProjectWindow can re-wire after `rebuilt(for:replacing:)` swaps in a
     // fresh chat session instance whose weak ref would otherwise be stale.
-    private var excludedSessionIDs: () -> Set<String>
+    private var excludedSessionIDs: @MainActor () -> Set<String>
     // nil means no --permission-mode flag is appended; the workflow-tab path
     // sets one of plan/acceptEdits/default so claude boots with the right
     // permission policy without a follow-up TTY toggle.
@@ -62,7 +62,7 @@ final class TerminalClaudeSession {
         binaryURL: URL,
         sessionIDStoreOverride: URL? = nil,
         sessionLogRoot: URL? = nil,
-        excludedSessionIDs: @escaping () -> Set<String> = { [] },
+        excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] },
         persistConversationID: Bool = true,
         permissionMode: PermissionMode? = nil
     ) {
@@ -211,7 +211,7 @@ final class TerminalClaudeSession {
         stopHandler = handler
     }
 
-    func setExcludedSessionIDs(_ provider: @escaping () -> Set<String>) {
+    func setExcludedSessionIDs(_ provider: @escaping @MainActor () -> Set<String>) {
         excludedSessionIDs = provider
     }
 
@@ -239,11 +239,10 @@ final class TerminalClaudeSession {
     func shellSpawnArgs() -> [String] {
         let quotedCwd = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let quotedBin = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        var args = resumeOrInitArgs()
-        if let permissionMode {
-            args.append("--permission-mode")
-            args.append(permissionMode.rawCLIValue)
-        }
+        let sessionArgs = resumeOrInitArgs()
+        let args =
+            permissionMode.map { sessionArgs + ["--permission-mode", $0.rawCLIValue] }
+            ?? sessionArgs
         let attach = Self.shellQuotedAttachArgs(args)
         return ["-c", "cd '\(quotedCwd)' && exec '\(quotedBin)' \(attach)"]
     }

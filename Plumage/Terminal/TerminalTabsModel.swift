@@ -16,13 +16,18 @@ final class TerminalTabsModel {
     // wiring today. It's kept in place so a future, narrower persistence
     // story can re-arm reconcile without having to re-thread the chat
     // exclude back through the model.
-    private var sharedExcludedSessionIDs: () -> Set<String>
+    private var sharedExcludedSessionIDs: @MainActor () -> Set<String>
+    // Fires after a non-main tab has been removed from `tabs`. ProjectWindow
+    // registers a handler that cancels its in-flight workflowTask when the
+    // workflow tab is closed mid-inject — without it, the task strands for
+    // up to ~850ms inside its bodyDelay sleep, holding the dead session.
+    var onTabClosed: (@MainActor (TerminalTab) -> Void)?
 
     init(
         cwd: URL,
         binaryURL: URL,
         initialSession: TerminalClaudeSession,
-        excludedSessionIDs: @escaping () -> Set<String> = { [] }
+        excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] }
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
@@ -98,7 +103,11 @@ final class TerminalTabsModel {
             persistConversationID: false,
             permissionMode: action.permissionMode
         )
-        let tab = TerminalTab(session: session, title: action.tabTitle(slug: slug))
+        let tab = TerminalTab(
+            session: session,
+            title: action.tabTitle(slug: slug),
+            isWorkflow: true
+        )
         tabs.append(tab)
         installExclusionClosure(on: session)
         selectedTabID = tab.id
@@ -106,9 +115,9 @@ final class TerminalTabsModel {
     }
 
     func closeTab(id: UUID) {
-        // Defensive no-op for the main terminal — its slot is sticky.
-        guard canClose(id) else { return }
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
+        // Single scan: firstIndex covers both the "exists?" and "is closable?"
+        // checks. idx > 0 enforces the main-tab sticky invariant.
+        guard let idx = tabs.firstIndex(where: { $0.id == id }), idx > 0 else { return }
         let removed = tabs[idx]
         removed.session.stop()
         tabs.remove(at: idx)
@@ -118,6 +127,7 @@ final class TerminalTabsModel {
             // so the left neighbor always exists.
             selectedTabID = tabs[idx - 1].id
         }
+        onTabClosed?(removed)
     }
 
     func selectTab(at index: Int) {
@@ -129,7 +139,7 @@ final class TerminalTabsModel {
         for tab in tabs { tab.session.stop() }
     }
 
-    func setSharedExcludedSessionIDs(_ provider: @escaping () -> Set<String>) {
+    func setSharedExcludedSessionIDs(_ provider: @escaping @MainActor () -> Set<String>) {
         sharedExcludedSessionIDs = provider
         // The per-tab closure already reads `sharedExcludedSessionIDs` lazily
         // via the captured `self`, so the chat provider is picked up
@@ -151,16 +161,26 @@ final class TerminalTabsModel {
     private func installExclusionClosure(on session: TerminalClaudeSession) {
         session.setExcludedSessionIDs { [weak self] in
             guard let self else { return [] }
-            var ids = self.sharedExcludedSessionIDs()
+            // Seed capacity to avoid n re-hashes on each FSEvents-driven
+            // reconcile when tab count grows. The +4 is slack for chat-side
+            // IDs in `sharedExcludedSessionIDs`; oversizing slightly is
+            // cheaper than a re-hash partway through the merge.
+            var ids = Set<String>(minimumCapacity: self.tabs.count + 4)
             for tab in self.tabs {
                 ids.insert(tab.session.conversationID)
             }
+            ids.formUnion(self.sharedExcludedSessionIDs())
             return ids
         }
     }
 
+    // Workflow tabs hold a user-meaningful title ("Plan: <slug>") that must
+    // not be clobbered by a sibling tab close. Only generic ("Terminal N")
+    // tabs are reindexed. Without this guard, any closeTab would overwrite
+    // every workflow tab's title and break findWorkflowTab's exact-match
+    // lookup, causing a duplicate tab on the next workflow click.
     private func reindexTitles() {
-        for index in tabs.indices {
+        for index in tabs.indices where !tabs[index].isWorkflow {
             tabs[index].title = Self.title(for: index)
         }
     }

@@ -153,6 +153,16 @@ struct ProjectWindow: View {
                     guard let id = session?.conversationID else { return [] }
                     return [id]
                 }
+                // Closing a workflow tab mid-inject must cancel the inject
+                // task — otherwise it strands for up to ~850ms inside its
+                // bodyDelay sleep, holding the dead session alive. Only one
+                // workflowTask is ever in flight at a time, so any
+                // workflow-tab close that races inject() is the right cancel.
+                terminalTabs.onTabClosed = { closed in
+                    if closed.isWorkflow {
+                        workflowTask?.cancel()
+                    }
+                }
                 session.attach()
                 // Terminal sessions don't get explicit attach() here —
                 // SwiftTermBridge.makeNSView attaches each tab when its

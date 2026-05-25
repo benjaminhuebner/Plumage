@@ -162,7 +162,7 @@ struct TerminalClaudeSessionTests {
         #expect(!session.shellSpawnArgs()[1].contains("--permission-mode"))
     }
 
-    @Test("shellSpawnArgs appends --permission-mode <rawCLIValue> when set")
+    @Test("shellSpawnArgs appends --permission-mode <rawCLIValue> adjacently when set")
     func shellArgsAppendsPermissionMode() throws {
         let env = try TempEnv.make()
         defer { env.cleanup() }
@@ -175,8 +175,12 @@ struct TerminalClaudeSessionTests {
                 permissionMode: mode
             )
             let cmd = session.shellSpawnArgs()[1]
-            #expect(cmd.contains("--permission-mode"))
-            #expect(cmd.contains("'\(mode.rawCLIValue)'"))
+            // Exact adjacency — claude expects `--permission-mode <value>` as
+            // two separate, quoted argv entries. A refactor to `=value` form
+            // or swapped order would silently break the CLI contract;
+            // contains("--permission-mode") + contains("'plan'") on its own
+            // would miss that. Pin the exact emitted substring.
+            #expect(cmd.contains("'--permission-mode' '\(mode.rawCLIValue)'"))
         }
     }
 
@@ -483,7 +487,7 @@ struct TerminalClaudeSessionTests {
         }
 
         func makeSession(
-            excludedSessionIDs: @escaping () -> Set<String> = { [] }
+            excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] }
         ) -> TerminalClaudeSession {
             TerminalClaudeSession(
                 cwd: cwdRoot,

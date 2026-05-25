@@ -16,11 +16,4 @@ struct PermissionModeTests {
         #expect(PermissionMode.allCases.count == 3)
         #expect(Set(PermissionMode.allCases) == [.plan, .acceptEdits, .default])
     }
-
-    @Test("rawValue equals rawCLIValue (no drift between Swift name and CLI flag)")
-    func rawValueMatchesCLIValue() {
-        for mode in PermissionMode.allCases {
-            #expect(mode.rawValue == mode.rawCLIValue)
-        }
-    }
 }

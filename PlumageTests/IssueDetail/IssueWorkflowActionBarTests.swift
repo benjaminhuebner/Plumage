@@ -135,4 +135,28 @@ struct WorkflowActionDisabledTooltipTests {
                 .contains("Nur Feature-Issues")
         )
     }
+
+    @Test("plan tooltip falls back to the 'already approved' line outside non-feature draft")
+    func planAlreadyApprovedFallback() {
+        #expect(
+            WorkflowAction.plan.disabledTooltip(status: .approved, type: .feature)
+                == "Issue ist bereits approved oder weiter."
+        )
+    }
+
+    @Test("implement tooltip pins the must-be-planned-first copy")
+    func implementMustBePlanned() {
+        #expect(
+            WorkflowAction.implement.disabledTooltip(status: .draft, type: .feature)
+                == "Issue muss erst geplant werden (Plan-Button)."
+        )
+    }
+
+    @Test("review tooltip pins the not-yet-implemented copy")
+    func reviewNotYetImplemented() {
+        #expect(
+            WorkflowAction.review.disabledTooltip(status: .inProgress, type: .feature)
+                == "Issue ist noch nicht implementiert."
+        )
+    }
 }
