@@ -276,6 +276,11 @@ struct IssueDetailView: View {
                         isMerging: model.isMerging,
                         errorMessage: mergeBannerMessage,
                         nonFatalNotice: model.lastMergeNotice,
+                        onDismissError: {
+                            model.clearMergeError()
+                            model.clearMergeCriticalError()
+                        },
+                        onDismissNotice: { model.clearMergeNotice() },
                         onMerge: { deleteBranch in
                             Task { await performMerge(deleteBranch: deleteBranch) }
                         }

@@ -5,6 +5,8 @@ struct MergeBranchSection: View {
     let isMerging: Bool
     let errorMessage: String?
     let nonFatalNotice: String?
+    let onDismissError: () -> Void
+    let onDismissNotice: () -> Void
     let onMerge: (_ deleteBranch: Bool) -> Void
 
     @AppStorage("merge.deleteBranchAfter") private var deleteBranchAfter: Bool = true
@@ -14,8 +16,14 @@ struct MergeBranchSection: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "arrow.triangle.merge")
                     .foregroundStyle(.secondary)
-                Text("Merge")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Merge")
+                        .font(.headline)
+                    Text(branch)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
             }
             HStack(spacing: 12) {
                 Button {
@@ -57,6 +65,7 @@ struct MergeBranchSection: View {
                 .font(.callout)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            dismissButton(action: onDismissError, label: "Dismiss merge error")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -72,11 +81,21 @@ struct MergeBranchSection: View {
                 .font(.callout)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            dismissButton(action: onDismissNotice, label: "Dismiss merge notice")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.18))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func dismissButton(action: @escaping () -> Void, label: String) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 
@@ -86,6 +105,8 @@ struct MergeBranchSection: View {
         isMerging: false,
         errorMessage: nil,
         nonFatalNotice: nil,
+        onDismissError: {},
+        onDismissNotice: {},
         onMerge: { _ in }
     )
     .padding()
@@ -98,6 +119,8 @@ struct MergeBranchSection: View {
         isMerging: true,
         errorMessage: nil,
         nonFatalNotice: nil,
+        onDismissError: {},
+        onDismissNotice: {},
         onMerge: { _ in }
     )
     .padding()
@@ -110,6 +133,8 @@ struct MergeBranchSection: View {
         isMerging: false,
         errorMessage: "Working tree is dirty: Plumage/Foo.swift, Bar.txt. Commit or stash before merging.",
         nonFatalNotice: nil,
+        onDismissError: {},
+        onDismissNotice: {},
         onMerge: { _ in }
     )
     .padding()
@@ -122,6 +147,8 @@ struct MergeBranchSection: View {
         isMerging: false,
         errorMessage: nil,
         nonFatalNotice: "Merge succeeded, but branch was not deleted: not fully merged.",
+        onDismissError: {},
+        onDismissNotice: {},
         onMerge: { _ in }
     )
     .padding()
