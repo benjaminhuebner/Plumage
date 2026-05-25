@@ -60,9 +60,15 @@ struct ProjectWindow: View {
         )
         // Every terminal tab — including the main one at index 0 — runs as
         // an ephemeral session: fresh conversationID per window-open, no
-        // disk persistence, no reconcile pickup. Otherwise the main tab
-        // could adopt a sibling claude session (e.g. a /plan or /implement
-        // run) that happened to write the same log dir last.
+        // disk persistence, no reconcile pickup. A persistent main tab
+        // would adopt sibling claude runs that wrote the same log dir
+        // last (a /plan or /implement subprocess, but also any external
+        // `claude` invocation in macOS-Terminal). The sibling-exclude
+        // plumbing inside TerminalTabsModel can only filter Plumage's own
+        // tabs, not arbitrary external callers — so the safer choice is
+        // to never persist or reconcile at all. Trade-off: window-reopen
+        // drops the user's terminal history. Accepted (2026-05-25, #00037
+        // post-review).
         let initialTerminalSession = TerminalClaudeSession(
             cwd: handle.url, binaryURL: binary, persistConversationID: false
         )
@@ -140,14 +146,19 @@ struct ProjectWindow: View {
                 }
                 // Chat shares the claude log dir with terminal; without this
                 // exclude the terminal's reconcile would adopt chat's session
-                // ID if chat happened to be the last writer. setShared also
-                // propagates to the existing default-tab session.
+                // ID if chat happened to be the last writer. Per-tab smart
+                // closures in TerminalTabsModel read this lazily, so updating
+                // the shared provider is enough — no per-tab fan-out needed.
                 terminalTabs.setSharedExcludedSessionIDs { [weak session] in
                     guard let id = session?.conversationID else { return [] }
                     return [id]
                 }
                 session.attach()
-                terminalTabs.activeSession?.attach()
+                // Terminal sessions don't get explicit attach() here —
+                // SwiftTermBridge.makeNSView attaches each tab when its
+                // EmbeddedTerminalView mounts, which is what survives
+                // scene-phase recovery without leaving non-active tabs
+                // stranded in .exited.
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
@@ -420,14 +431,15 @@ struct ProjectWindow: View {
             guard action == .plan, let body else { return nil }
             return body.replacingOccurrences(of: "\r", with: "") + "\r"
         }()
-        // Inject feeds the active tab; canCloseActiveTab guarantees we always
-        // have one, so nil here is a defensive no-op rather than a real path.
-        guard let session = terminalTabs.activeSession else {
-            Self.log.debug(
-                "runWorkflow: no active terminal tab; dropping inject for \(action.slug, privacy: .public)."
-            )
-            return
-        }
+        // Workflows always target the sticky main tab — they belong to the
+        // project, not to whichever secondary conversation the user happens
+        // to have selected. mainSession is non-optional because closeTab
+        // refuses to remove index 0; that also means closeTab can never
+        // strand a workflowTask that captured this reference.
+        let session = terminalTabs.mainSession
+        // Make sure the main tab is visible so the user can watch the
+        // injected slash command run.
+        terminalTabs.selectedTabID = terminalTabs.tabs[0].id
         let slug = action.slug
 
         workflowTask = Task { @MainActor in

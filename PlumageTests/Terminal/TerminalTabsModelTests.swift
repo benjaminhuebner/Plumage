@@ -95,11 +95,12 @@ struct TerminalTabsModelTests {
     @Test("stopAll transitions every attached session to exited")
     func stopAllStopsEverySession() {
         let model = makeModel()
-        // Mirror ProjectWindow's flow: caller attaches the initial session;
-        // addTab() attaches new ones internally.
-        model.activeSession?.attach()
+        // Production: SwiftTermBridge.makeNSView calls attach() per tab when
+        // its EmbeddedTerminalView mounts. There's no bridge in tests, so
+        // simulate the mount by calling attach() on each session ourselves.
         model.addTab()
         model.addTab()
+        for tab in model.tabs { tab.session.attach() }
         for tab in model.tabs {
             #expect(isStarting(tab.session.state))
         }
@@ -108,6 +109,54 @@ struct TerminalTabsModelTests {
 
         for tab in model.tabs {
             #expect(isExited(tab.session.state))
+        }
+    }
+
+    @Test("stopAll leaves unattached (.idle) sessions untouched")
+    func stopAllSkipsIdleSessions() {
+        let model = makeModel()
+        // Tab created via addTab() never gets attach() unless the bridge
+        // mounts. stopAll() must not crash on .idle sessions — they simply
+        // remain .idle (TerminalClaudeSession.stop early-returns for .idle).
+        model.addTab()
+        for tab in model.tabs {
+            #expect(isIdle(tab.session.state))
+        }
+
+        model.stopAll()
+
+        for tab in model.tabs {
+            #expect(isIdle(tab.session.state))
+        }
+    }
+
+    @Test("mainSession always returns the index-0 tab session")
+    func mainSessionReturnsStickyTab() {
+        let model = makeModel()
+        let mainSession = model.tabs[0].session
+        #expect(model.mainSession === mainSession)
+
+        model.addTab()
+        model.addTab()
+        // Even after adding tabs (and addTab selecting the new one),
+        // mainSession stays pinned to index 0.
+        #expect(model.mainSession === mainSession)
+        #expect(model.activeSession !== mainSession)
+    }
+
+    @Test("every tab has its own fresh conversationID")
+    func tabsHaveDistinctConversationIDs() {
+        let model = makeModel()
+        let mainID = model.mainSession.conversationID
+        model.addTab()
+        model.addTab()
+        let ids = model.tabs.map(\.session.conversationID)
+        #expect(ids.count == Set(ids).count)
+        #expect(ids[0] == mainID)
+        // All tabs are ephemeral — none should persist to disk under the
+        // current policy (see TerminalTabsModel.init's note).
+        for tab in model.tabs {
+            #expect(tab.session.conversationID.count == 36)  // UUID format
         }
     }
 
@@ -153,6 +202,11 @@ struct TerminalTabsModelTests {
 
     private func isExited(_ state: TerminalClaudeSession.State) -> Bool {
         if case .exited = state { return true }
+        return false
+    }
+
+    private func isIdle(_ state: TerminalClaudeSession.State) -> Bool {
+        if case .idle = state { return true }
         return false
     }
 }

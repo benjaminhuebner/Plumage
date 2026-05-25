@@ -9,11 +9,13 @@ final class TerminalTabsModel {
 
     let cwd: URL
     let binaryURL: URL
-    // Shared by the default tab and every ephemeral tab. Typically returns
-    // the chat session's ID so terminal reconciles don't adopt it. New
-    // ephemeral tabs do NOT exclude other tabs' conversationIDs in v0.1 — if
-    // claude rotates a log in tab A while tab B's reconcile fires, tab B may
-    // adopt tab A's ID. Follow-up if it shows up in daily use.
+    // Injected by ProjectWindow — currently returns the chat session's
+    // conversationID so terminal reconcile never adopts it. With every
+    // tab running ephemeral, reconcile is structurally disabled (its
+    // guard fires on sessionIDStoreURL == nil), so this closure is dead
+    // wiring today. It's kept in place so a future, narrower persistence
+    // story can re-arm reconcile without having to re-thread the chat
+    // exclude back through the model.
     private var sharedExcludedSessionIDs: () -> Set<String>
 
     init(
@@ -36,6 +38,15 @@ final class TerminalTabsModel {
         index == 0 ? "Main Terminal" : "Terminal \(index + 1)"
     }
 
+    // The sticky main tab. closeTab refuses to remove index 0, so this is
+    // safe as a non-optional. runWorkflow injects here regardless of which
+    // tab the user has selected — workflow inputs (/plan, /implement) belong
+    // to the project, not to an ad-hoc secondary conversation.
+    var mainSession: TerminalClaudeSession {
+        precondition(!tabs.isEmpty, "main tab is sticky and must always exist")
+        return tabs[0].session
+    }
+
     var activeSession: TerminalClaudeSession? {
         guard let id = selectedTabID else { return nil }
         return tabs.first(where: { $0.id == id })?.session
@@ -55,15 +66,19 @@ final class TerminalTabsModel {
     }
 
     func addTab() {
+        // Every tab — main and extras — is ephemeral, see init's note.
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false
         )
-        session.attach()
         let tab = TerminalTab(session: session, title: Self.title(for: tabs.count))
         tabs.append(tab)
+        // attach() is intentionally NOT called here — SwiftTermBridge.makeNSView
+        // owns the attach lifecycle and flips state to .starting right before
+        // startProcess(). Calling attach() pre-mount would leave the session
+        // in .starting with no PTY behind it if the inspector never opens.
         selectedTabID = tab.id
     }
 
@@ -93,8 +108,10 @@ final class TerminalTabsModel {
 
     func setSharedExcludedSessionIDs(_ provider: @escaping () -> Set<String>) {
         sharedExcludedSessionIDs = provider
-        // Propagate to existing tab sessions so the initial default tab also
-        // picks up the chat-exclusion that the caller wires post-init.
+        // Propagate to existing tabs so the initial main tab also picks up
+        // the chat-exclude that the caller wires post-init. Currently dead
+        // wiring because reconcile is disabled for ephemeral sessions, but
+        // kept symmetric with addTab's closure plumbing.
         for tab in tabs {
             tab.session.setExcludedSessionIDs(provider)
         }
