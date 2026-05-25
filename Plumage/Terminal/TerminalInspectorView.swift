@@ -31,7 +31,21 @@ struct TerminalInspectorView: View {
                 }
             }
         }
-        .focusedSceneValue(\.terminalTabs, tabsModel)
+        .focusedSceneValue(
+            \.terminalTabs,
+            TerminalTabsBinding(
+                count: tabsModel.tabs.count,
+                canCloseActiveTab: tabsModel.canCloseActiveTab,
+                firstTabTitle: tabsModel.tabs.first?.title ?? "Main Terminal",
+                addTab: { tabsModel.addTab() },
+                closeActiveTab: {
+                    if let id = tabsModel.selectedTabID {
+                        tabsModel.closeTab(id: id)
+                    }
+                },
+                selectTab: { tabsModel.selectTab(at: $0) }
+            )
+        )
     }
 }
 

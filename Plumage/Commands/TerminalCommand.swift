@@ -26,32 +26,44 @@ struct TerminalCommand: Commands {
             .disabled(chatDock == nil)
 
             Button("New Terminal Tab") {
+                // Open the inspector so the new tab is actually visible
+                // (and its SwiftTermBridge mounts so the PTY can spawn).
+                inspector = true
                 tabs?.addTab()
             }
             .keyboardShortcut("t", modifiers: [.command])
             .disabled(tabs == nil)
 
-            // ⌘W is also bound on IssueDetail's dismiss; SwiftUI routes to
-            // whichever view holds keyboard focus, so this button stays
-            // disabled (and the chord falls through) whenever there is no
-            // closable terminal tab — including when the inspector is shut.
+            // ⌥⌘W instead of ⌘W: plain ⌘W also bound by SpecEditorCommands
+            // (Close Spec) and AppKit's default Close Window. SwiftUI does
+            // NOT route by focus when two Commands share a chord — it picks
+            // whichever happens to be enabled by .disabled(). With ⌥⌘W
+            // there's no collision; the user gets an explicit terminal-tab
+            // close that doesn't fight the editor or the window.
             Button("Close Terminal Tab") {
-                guard let tabs, let id = tabs.selectedTabID else { return }
-                tabs.closeTab(id: id)
+                tabs?.closeActiveTab()
             }
-            .keyboardShortcut("w", modifiers: [.command])
+            .keyboardShortcut("w", modifiers: [.command, .option])
             .disabled(!(tabs?.canCloseActiveTab ?? false))
 
             ForEach(1...9, id: \.self) { number in
-                Button("Switch to Terminal Tab \(number)") {
-                    tabs?.selectTab(at: number - 1)
+                Button(menuTitle(for: number)) {
+                    tabs?.selectTab(number - 1)
                 }
                 .keyboardShortcut(
                     KeyEquivalent(Character("\(number)")),
                     modifiers: [.command]
                 )
-                .disabled((tabs?.tabs.count ?? 0) < number)
+                .disabled((tabs?.count ?? 0) < number)
             }
         }
+    }
+
+    private func menuTitle(for number: Int) -> String {
+        if number == 1 {
+            let firstTitle = tabs?.firstTabTitle ?? "Main Terminal"
+            return "Switch to \(firstTitle)"
+        }
+        return "Switch to Terminal Tab \(number)"
     }
 }
