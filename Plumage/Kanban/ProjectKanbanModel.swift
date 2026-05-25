@@ -46,6 +46,13 @@ final class ProjectKanbanModel {
     // observers fire reliably (Swift Testing equality short-circuits, but
     // we always set the field to a distinct value: folder names are unique).
     private(set) var lastRemovalCompleted: String?
+    // Latest folderName whose merge-to-main just completed successfully. Open
+    // detail views watch this to auto-pop when their own card is the one that
+    // got merged. Same observation discipline as lastRemovalCompleted — the
+    // signal is fired even when the same folder name comes back, because
+    // folder names are unique per project so a repeated set always represents
+    // a distinct event.
+    private(set) var lastMergeCompleted: String?
     private(set) var pendingDrop: PendingDrop?
 
     var pendingDropFolderName: String? { pendingDrop?.folderName }
@@ -124,6 +131,15 @@ final class ProjectKanbanModel {
 
     func clearRemovalError() {
         lastRemovalError = nil
+    }
+
+    // Cross-model signal fired by IssueDetailView after a successful merge.
+    // Detail views observe this via .onChange and dismiss themselves when
+    // the value matches their own folderName. Pattern duplicated from
+    // lastRemovalCompleted (#00018); generalizing them would obscure which
+    // kind of completion fired.
+    func signalMergeCompleted(folderName: String) {
+        lastMergeCompleted = folderName
     }
 
     #if DEBUG
