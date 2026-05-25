@@ -10,20 +10,42 @@ nonisolated enum ClaudeProjectFiles {
     static let hooksRelativePath = ".claude/hooks"
     static let skillsRelativePath = ".claude/skills"
     static let claudeMDRelativePath = ".claude/CLAUDE.md"
+    static let claudeLocalMDRelativePath = ".claude/CLAUDE.local.md"
     static let settingsRootRelativePath = ".claude"
+    static let mcpJSONRelativePath = ".mcp.json"
 
     // Mirrors IssueArchiver.maxArchiveSuffix — same rationale (deterministic
     // failure on adversarial FS state, unreachable under normal use).
     static let maxNameSuffix = 1000
 
+    // MARK: - Generic enumerate / create
+
+    static func enumerate(_ type: ManagedFileType, projectURL: URL) throws -> [URL] {
+        let dir = projectURL.appendingPathComponent(type.relativePath, isDirectory: true)
+        if type.recursive {
+            return try listFilesRecursive(in: dir, withExtensions: type.allowedExtensions)
+        }
+        return try listFiles(in: dir, withExtensions: type.allowedExtensions)
+    }
+
+    static func create(_ type: ManagedFileType, name: String, projectURL: URL) throws -> URL {
+        let dir = projectURL.appendingPathComponent(type.relativePath, isDirectory: true)
+        let normalized = normalizedFileName(
+            name,
+            allowedExtensions: Array(type.allowedExtensions),
+            fallback: type.defaultExtension)
+        let content = type.defaultStub(filename: normalized)
+        return try createFile(in: dir, baseName: normalized, defaultContent: content)
+    }
+
+    // MARK: - Type-specific wrappers (preserved for existing call-sites)
+
     static func enumerateDocs(projectURL: URL) throws -> [URL] {
-        let dir = projectURL.appendingPathComponent(docsRelativePath, isDirectory: true)
-        return try listFiles(in: dir, withExtension: "md")
+        try enumerate(.docs, projectURL: projectURL)
     }
 
     static func enumerateHooks(projectURL: URL) throws -> [URL] {
-        let dir = projectURL.appendingPathComponent(hooksRelativePath, isDirectory: true)
-        return try listFiles(in: dir, withExtensions: ["sh", "py"])
+        try enumerate(.hooks, projectURL: projectURL)
     }
 
     static func enumerateSkills(projectURL: URL) throws -> [SkillNode] {
@@ -31,16 +53,26 @@ nonisolated enum ClaudeProjectFiles {
         return try buildTree(at: dir)
     }
 
-    // Free *.md files at .claude/ root, excluding CLAUDE.md (which has its own
-    // route). Used by the new "Claude → CLAUDE-Markdown-Liste" sidebar entries.
+    // Free *.md files at .claude/ root, excluding CLAUDE.md and CLAUDE.local.md
+    // (both have their own routes). Used by the "Claude" sidebar section.
     static func enumerateClaudeMarkdown(projectURL: URL) throws -> [URL] {
         let dir = projectURL.appendingPathComponent(settingsRootRelativePath, isDirectory: true)
-        let all = try listFiles(in: dir, withExtension: "md")
-        return all.filter { $0.lastPathComponent != "CLAUDE.md" }
+        let all = try listFiles(in: dir, withExtensions: ["md"])
+        return all.filter {
+            $0.lastPathComponent != "CLAUDE.md" && $0.lastPathComponent != "CLAUDE.local.md"
+        }
     }
 
     static func claudeMDURL(projectURL: URL) -> URL {
         projectURL.appendingPathComponent(claudeMDRelativePath)
+    }
+
+    static func claudeLocalMDURL(projectURL: URL) -> URL {
+        projectURL.appendingPathComponent(claudeLocalMDRelativePath)
+    }
+
+    static func mcpJSONURL(projectURL: URL) -> URL {
+        projectURL.appendingPathComponent(mcpJSONRelativePath)
     }
 
     static func settingsURL(projectURL: URL, file: SettingsFile) -> URL {
@@ -52,26 +84,22 @@ nonisolated enum ClaudeProjectFiles {
     // MARK: - Creators
 
     static func createDoc(name: String, projectURL: URL) throws -> URL {
-        let dir = projectURL.appendingPathComponent(docsRelativePath, isDirectory: true)
-        let normalized = normalizedFileName(name, allowedExtensions: ["md"], fallback: "md")
-        return try createFile(in: dir, baseName: normalized, defaultContent: "")
+        try create(.docs, name: name, projectURL: projectURL)
     }
 
     static func createClaudeMarkdown(name: String, projectURL: URL) throws -> URL {
         let dir = projectURL.appendingPathComponent(settingsRootRelativePath, isDirectory: true)
         let normalized = normalizedFileName(name, allowedExtensions: ["md"], fallback: "md")
-        // Reject the CLAUDE.md reserved name — it has its own bootstrap route.
-        guard normalized != "CLAUDE.md" else {
+        // Reject the CLAUDE.md and CLAUDE.local.md reserved names — both have
+        // dedicated bootstrap routes in the sidebar.
+        guard normalized != "CLAUDE.md", normalized != "CLAUDE.local.md" else {
             throw ClaudeProjectFilesError.reservedName(normalized)
         }
         return try createFile(in: dir, baseName: normalized, defaultContent: "")
     }
 
     static func createHookFile(name: String, projectURL: URL) throws -> URL {
-        let dir = projectURL.appendingPathComponent(hooksRelativePath, isDirectory: true)
-        let normalized = normalizedFileName(name, allowedExtensions: ["sh", "py"], fallback: "sh")
-        let content = hookShebang(forExtension: (normalized as NSString).pathExtension)
-        return try createFile(in: dir, baseName: normalized, defaultContent: content)
+        try create(.hooks, name: name, projectURL: projectURL)
     }
 
     static func createHookFolder(name: String, projectURL: URL) throws -> URL {
@@ -164,10 +192,15 @@ nonisolated enum ClaudeProjectFiles {
         let projectPath = projectURL.standardizedFileURL.path
         guard normalized.hasPrefix(projectPath) else { return [] }
         let relative = String(normalized.dropFirst(projectPath.count + 1))
-        if relative == docsRelativePath { return ["md"] }
         if relative == settingsRootRelativePath { return ["md"] }
-        if relative == hooksRelativePath || relative.hasPrefix(hooksRelativePath + "/") {
-            return ["sh", "py"]
+        for type in ManagedFileType.allCases {
+            let base = type.relativePath
+            if relative == base { return type.allowedExtensions }
+            // Recursive sections also accept the same extensions under
+            // sub-folders so renaming preserves the suffix.
+            if type.allowsSubfolders, relative.hasPrefix(base + "/") {
+                return type.allowedExtensions
+            }
         }
         if relative.hasPrefix(skillsRelativePath) { return ["md", "sh", "py"] }
         return []
@@ -268,14 +301,6 @@ nonisolated enum ClaudeProjectFiles {
         return trimmed.isEmpty ? "untitled" : trimmed
     }
 
-    private static func hookShebang(forExtension ext: String) -> String {
-        switch ext.lowercased() {
-        case "py": return "#!/usr/bin/env python3\n"
-        case "sh": return "#!/usr/bin/env bash\nset -euo pipefail\n"
-        default: return "#!/usr/bin/env bash\nset -euo pipefail\n"
-        }
-    }
-
     private static func skillMDStub(skillName: String) -> String {
         """
         ---
@@ -311,6 +336,46 @@ nonisolated enum ClaudeProjectFiles {
             entries
             .filter { extensions.contains($0.pathExtension) }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    // Walks the directory tree below `directory` and returns every regular file
+    // whose pathExtension is in `extensions`. Hidden files (`.DS_Store`,
+    // `._foo`) are skipped. Permission-denied subdirectories are swallowed by
+    // `FileManager.enumerator` — they don't crash, they just don't contribute
+    // entries (acceptable, matches the spec's "Permission denied" edge case).
+    // Returned URLs are sorted by their project-relative path so list output
+    // is stable across runs and across snapshots.
+    private static func listFilesRecursive(
+        in directory: URL, withExtensions extensions: Set<String>
+    ) throws -> [URL] {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: directory.path) else { return [] }
+        guard
+            let enumerator = fileManager.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+        else {
+            return []
+        }
+        var results: [URL] = []
+        for case let url as URL in enumerator {
+            let isRegular = (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+            guard isRegular, extensions.contains(url.pathExtension) else { continue }
+            results.append(url)
+        }
+        let basePath = directory.standardizedFileURL.path
+        return results.sorted { lhs, rhs in
+            relativeOrEmpty(lhs.standardizedFileURL.path, base: basePath)
+                .localizedCaseInsensitiveCompare(
+                    relativeOrEmpty(rhs.standardizedFileURL.path, base: basePath))
+                == .orderedAscending
+        }
+    }
+
+    private static func relativeOrEmpty(_ path: String, base: String) -> String {
+        guard path.hasPrefix(base + "/") else { return path }
+        return String(path.dropFirst(base.count + 1))
     }
 
     private static func buildTree(at directory: URL) throws -> [SkillNode] {

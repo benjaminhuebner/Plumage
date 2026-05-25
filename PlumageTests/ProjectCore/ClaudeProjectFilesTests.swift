@@ -127,6 +127,25 @@ struct ClaudeProjectFilesTests {
         #expect(url.deletingLastPathComponent().lastPathComponent == ".claude")
     }
 
+    @Test("claudeLocalMDURL points at .claude/CLAUDE.local.md")
+    func claudeLocalMDURLPoints() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = ClaudeProjectFiles.claudeLocalMDURL(projectURL: fixture.root)
+        #expect(url.path.hasSuffix(".claude/CLAUDE.local.md"))
+        #expect(url.deletingLastPathComponent().lastPathComponent == ".claude")
+    }
+
+    @Test("mcpJSONURL points at project-root .mcp.json (not under .claude/)")
+    func mcpJSONURLPoints() throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = ClaudeProjectFiles.mcpJSONURL(projectURL: fixture.root)
+        #expect(url.lastPathComponent == ".mcp.json")
+        // Sits directly under the project root, NOT under .claude/.
+        #expect(
+            url.deletingLastPathComponent().standardizedFileURL.path
+                == fixture.root.standardizedFileURL.path)
+    }
+
     @Test("settingsURL builds path for each settings file")
     func settingsURLForAllCases() throws {
         let fixture = try ClaudeFilesFixture()
@@ -136,6 +155,85 @@ struct ClaudeProjectFilesTests {
         #expect(local.lastPathComponent == "settings.local.json")
         #expect(main.deletingLastPathComponent().lastPathComponent == ".claude")
         #expect(local.deletingLastPathComponent().lastPathComponent == ".claude")
+    }
+
+    // MARK: - Generic enumerate/create over ManagedFileType.allCases
+
+    @Test(
+        "enumerate returns empty for an absent folder per type",
+        arguments: ManagedFileType.allCases
+    )
+    func enumerateMissingFolderPerType(type: ManagedFileType) throws {
+        let fixture = try ClaudeFilesFixture()
+        let urls = try ClaudeProjectFiles.enumerate(type, projectURL: fixture.root)
+        #expect(urls.isEmpty)
+    }
+
+    @Test(
+        "create writes a file with the type's default extension at the correct path",
+        arguments: ManagedFileType.allCases
+    )
+    func createWritesAtCorrectPath(type: ManagedFileType) throws {
+        let fixture = try ClaudeFilesFixture()
+        let url = try ClaudeProjectFiles.create(type, name: "untitled", projectURL: fixture.root)
+        let expectedExt = type.defaultExtension
+        #expect(url.pathExtension == expectedExt)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        // File sits under `<projectURL>/<type.relativePath>/...`.
+        let basePath = fixture.root
+            .appendingPathComponent(type.relativePath, isDirectory: true)
+            .standardizedFileURL.path
+        #expect(url.standardizedFileURL.path.hasPrefix(basePath + "/"))
+    }
+
+    @Test(
+        "enumerate picks up files created via create() for each type",
+        arguments: ManagedFileType.allCases
+    )
+    func enumerateAfterCreateRoundTrip(type: ManagedFileType) throws {
+        let fixture = try ClaudeFilesFixture()
+        let created = try ClaudeProjectFiles.create(
+            type, name: "alpha", projectURL: fixture.root)
+        let listed = try ClaudeProjectFiles.enumerate(type, projectURL: fixture.root)
+        #expect(listed.map(\.standardizedFileURL.path) == [created.standardizedFileURL.path])
+    }
+
+    @Test("enumerate(.agents) walks nested subfolders")
+    func enumerateAgentsRecursive() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/agents/reviewer.md", content: "a")
+        try fixture.makeFile(at: ".claude/agents/team/lead.md", content: "b")
+        try fixture.makeFile(at: ".claude/agents/team/jr.md", content: "c")
+        try fixture.makeFile(at: ".claude/agents/skip.txt", content: "ignored")
+        let urls = try ClaudeProjectFiles.enumerate(.agents, projectURL: fixture.root)
+        let names = urls.map(\.lastPathComponent)
+        #expect(names.contains("reviewer.md"))
+        #expect(names.contains("lead.md"))
+        #expect(names.contains("jr.md"))
+        #expect(!names.contains("skip.txt"))
+        #expect(urls.count == 3)
+    }
+
+    @Test("enumerate(.rules) walks nested subfolders")
+    func enumerateRulesRecursive() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/rules/style.md", content: "a")
+        try fixture.makeFile(at: ".claude/rules/api/sla.md", content: "b")
+        let urls = try ClaudeProjectFiles.enumerate(.rules, projectURL: fixture.root)
+        let names = urls.map(\.lastPathComponent)
+        #expect(names.contains("style.md"))
+        #expect(names.contains("sla.md"))
+        #expect(urls.count == 2)
+    }
+
+    @Test("enumerate(.outputStyles) is NOT recursive — sibling dirs are ignored")
+    func enumerateOutputStylesNotRecursive() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/output-styles/yaml.md", content: "x")
+        try fixture.makeFile(at: ".claude/output-styles/archive/old.md", content: "skip")
+        let urls = try ClaudeProjectFiles.enumerate(.outputStyles, projectURL: fixture.root)
+        let names = urls.map(\.lastPathComponent)
+        #expect(names == ["yaml.md"])
     }
 }
 
