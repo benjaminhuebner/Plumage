@@ -20,32 +20,20 @@ struct DiffTabView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "checkmark.diamond")
-                .font(.system(size: 32))
-                .foregroundStyle(.tertiary)
-            Text("Keine Änderungen auf diesem Branch")
-                .font(.headline)
-            Text("Committe etwas, um den Diff zu sehen.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
+        BodyTabEmptyState(
+            symbol: "checkmark.diamond",
+            title: "Keine Änderungen auf diesem Branch",
+            detail: "Committe etwas, um den Diff zu sehen."
+        )
     }
 
     @ViewBuilder
     private func errorState(_ error: GitDiffError) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 32))
-                .foregroundStyle(.tertiary)
-            Text(error.displayMessage)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-        }
-        .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
+        BodyTabEmptyState(
+            symbol: "exclamationmark.triangle",
+            title: "Diff konnte nicht geladen werden",
+            detail: error.displayMessage
+        )
     }
 
     @ViewBuilder
