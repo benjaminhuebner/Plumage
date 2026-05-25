@@ -18,8 +18,9 @@ struct TerminalInspectorView: View {
                         .accessibilityHidden(tab.id != tabsModel.selectedTabID)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
         }
         .overlay(alignment: .top) {
             if let session = tabsModel.activeSession,

@@ -4,7 +4,7 @@ struct TerminalTabBar: View {
     let model: TerminalTabsModel
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(model.tabs) { tab in
                 TerminalTabPill(
                     tab: tab,
@@ -19,9 +19,9 @@ struct TerminalTabBar: View {
                 model.addTab()
             } label: {
                 Image(systemName: "plus")
-                    .imageScale(.small)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -29,8 +29,12 @@ struct TerminalTabBar: View {
             .help("New Terminal Tab")
             .accessibilityLabel("New Terminal Tab")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 }
 
@@ -45,14 +49,14 @@ private struct TerminalTabPill: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 Text(tab.title)
-                    .font(.caption.weight(.medium))
+                    .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                 if canClose {
                     Button(action: onClose) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
+                            .font(.system(size: 10))
                             // Keep the slot allocated when not visible so
                             // hover-in doesn't reflow the row width.
                             .opacity(isActive || isHovering ? 1.0 : 0.0)
@@ -61,21 +65,21 @@ private struct TerminalTabPill: View {
                     .accessibilityLabel("Close \(tab.title)")
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
             .foregroundStyle(isActive ? Color.primary : Color.secondary)
             .background(
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(isActive ? Color.accentColor.opacity(0.18) : Color.clear)
             )
             .overlay(
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .strokeBorder(
-                        isActive ? Color.accentColor.opacity(0.4) : Color.clear,
+                        isActive ? Color.accentColor.opacity(0.35) : Color.clear,
                         lineWidth: 0.5
                     )
             )
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
