@@ -23,10 +23,11 @@ struct PRTabView: View {
         }
     }
 
-    // Renders the markdown line-by-line so headings and code fences keep their
-    // structure. SwiftUI's `Text(LocalizedStringKey)` markdown does inline
-    // formatting (bold/italic/links/inline-code) but does not recognise block
-    // syntax — so we split on lines and pick the right view per block kind.
+    // Renders the markdown line-by-line so headings and code fences keep
+    // their structure. Inline formatting (bold/italic/links/inline-code)
+    // goes through AttributedString(markdown:) — NOT LocalizedStringKey,
+    // which would reinterpret `%d`, `%@`, `\(…)` etc. in the user content
+    // as format specifiers and mangle the output.
     @ViewBuilder
     private func renderedMarkdown(_ content: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -40,16 +41,16 @@ struct PRTabView: View {
     private func view(for block: MarkdownBlock) -> some View {
         switch block {
         case .heading(let level, let text):
-            Text(LocalizedStringKey(text))
+            Text(Self.inlineMarkdown(text))
                 .font(headingFont(for: level))
                 .padding(.top, level == 1 ? 4 : 6)
         case .paragraph(let text):
-            Text(LocalizedStringKey(text))
+            Text(Self.inlineMarkdown(text))
                 .fixedSize(horizontal: false, vertical: true)
         case .bullet(let text):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("•").foregroundStyle(.secondary)
-                Text(LocalizedStringKey(text))
+                Text(Self.inlineMarkdown(text))
                     .fixedSize(horizontal: false, vertical: true)
             }
         case .codeBlock(let text):
@@ -62,6 +63,14 @@ struct PRTabView: View {
         case .blank:
             Color.clear.frame(height: 4)
         }
+    }
+
+    private static func inlineMarkdown(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
     }
 
     private func headingFont(for level: Int) -> Font {

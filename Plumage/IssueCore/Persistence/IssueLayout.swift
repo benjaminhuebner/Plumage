@@ -21,8 +21,10 @@ nonisolated enum IssueLayout {
         issueFolder(in: projectURL, folderName: folderName).appendingPathComponent("prompt.md")
     }
 
+    // /plumage-implement writes `PR.md` (uppercase, see SKILL.md). Match the
+    // canonical casing so lookups work on case-sensitive volumes.
     static func prURL(in projectURL: URL, folderName: String) -> URL {
-        issueFolder(in: projectURL, folderName: folderName).appendingPathComponent("pr.md")
+        issueFolder(in: projectURL, folderName: folderName).appendingPathComponent("PR.md")
     }
 
     static func templateURL(in projectURL: URL) -> URL {

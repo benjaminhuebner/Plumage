@@ -39,21 +39,18 @@ struct DiffTabView: View {
     @ViewBuilder
     private func diffList(_ files: [FileDiff]) -> some View {
         ScrollView {
-            ScrollViewReader { _ in
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(Array(files.enumerated()), id: \.offset) { offset, file in
-                        FileDiffSection(file: file)
-                            .id(stableID(for: file, offset: offset))
-                    }
+            LazyVStack(alignment: .leading, spacing: 16) {
+                // id by path so FileDiffSection's @State (isExpanded) tracks
+                // the file, not its position in the list. Without this a
+                // reorder or insertion would silently transfer the user's
+                // collapse state to a different file.
+                ForEach(files, id: \.path) { file in
+                    FileDiffSection(file: file)
                 }
-                .padding(.vertical, 8)
             }
+            .padding(.vertical, 8)
         }
         .frame(minHeight: 240)
-    }
-
-    private func stableID(for file: FileDiff, offset: Int) -> String {
-        "\(offset)|\(file.path)"
     }
 }
 

@@ -449,7 +449,10 @@ struct ProjectWindow: View {
         // user's text doesn't submit a partial block early.
         let slashCommand = "/\(action.slug) \(folderName)\r"
         let followUp: String? = {
-            guard action == .plan, let prompt else { return nil }
+            // An empty prompt would inject a bare \r right after the slash
+            // command, submitting a blank turn in claude's TUI — guard
+            // against both nil and "" so the no-prompt case is a true no-op.
+            guard action == .plan, let prompt, !prompt.isEmpty else { return nil }
             return prompt.replacingOccurrences(of: "\r", with: "") + "\r"
         }()
         let session = workflowTab.session

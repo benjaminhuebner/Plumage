@@ -15,6 +15,7 @@ nonisolated final class GitRepoWatcher: Sendable {
 
     private let signaler: Task<Void, Never>
     private let pump: Task<Void, Never>
+    private let teardown: @Sendable () -> Void
 
     convenience init(
         repoURL: URL,
@@ -55,6 +56,15 @@ nonisolated final class GitRepoWatcher: Sendable {
         debouncer: Debouncer<C>,
         onTeardown: @escaping @Sendable () -> Void
     ) where C.Duration == Duration {
+        // Store teardown so deinit can fire it directly. Without this, the
+        // FSEventSource only stops when continuation.onTermination runs,
+        // which requires somebody to finish the events stream — nothing in
+        // the normal lifecycle does that, so the source would leak per
+        // opened card. Both FSEventSource.stop() and the rawCont.finish()
+        // it wraps are idempotent, so a double-fire (deinit + onTermination
+        // if a consumer also cancels) is safe.
+        self.teardown = onTeardown
+
         let (stream, continuation) = AsyncStream<GitRepoChangeEvent>.makeStream()
         self.events = stream
 
@@ -83,5 +93,6 @@ nonisolated final class GitRepoWatcher: Sendable {
     deinit {
         signaler.cancel()
         pump.cancel()
+        teardown()
     }
 }

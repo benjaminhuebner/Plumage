@@ -201,23 +201,6 @@ struct IssueDetailModelTests {
         #expect(onDisk.contains("Hello."))  // original body still present on disk
     }
 
-    @Test("saveRaw throws SaveError.unresolvedConflict while external change is pending")
-    func saveRawRefusesWhenConflict() async throws {
-        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
-        let model = env.makeModel()
-        await model.load()
-        // Mark the buffer dirty so handleExternalChange actually raises a
-        // conflict (clean buffers auto-adopt disk changes).
-        model.bodyDraft = "Local edit."
-        let disk = Self.baseSpec(status: "blocked", body: "Hello, disk.")
-        await model.handleExternalChange(diskContent: disk)
-        #expect(model.conflict != nil)
-        let proposed = Self.baseSpec(status: "done", body: "Edited raw.")
-        await #expect(throws: IssueDetailModel.SaveError.unresolvedConflict) {
-            try await model.saveRaw(proposed)
-        }
-    }
-
     @Test("saveBody after resolveConflictKeep proceeds and overwrites disk")
     func saveBodyAfterKeepProceeds() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
@@ -231,21 +214,6 @@ struct IssueDetailModelTests {
         let written = try String(contentsOf: env.specURL, encoding: .utf8)
         #expect(written.contains("Mine wins."))
         #expect(!model.isBodyDirty)
-    }
-
-    @Test("saveRaw writes full content and re-applies frontmatter parse")
-    func saveRawPersistsFullContent() async throws {
-        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
-        let model = env.makeModel()
-        await model.load()
-        let raw = Self.baseSpec(status: "in-progress", body: "Raw replacement.")
-        try await model.saveRaw(raw)
-        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
-        #expect(onDisk.contains("status: in-progress"))
-        #expect(onDisk.contains("Raw replacement."))
-        // Model state reflects the freshly-written content.
-        #expect(model.issue?.status == .inProgress)
-        #expect(model.loadedBodyContent.contains("Raw replacement."))
     }
 
     @Test("load mirrors parsed issue into drafts so the view has one source of truth")

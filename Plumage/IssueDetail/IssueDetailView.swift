@@ -9,8 +9,15 @@ struct IssueDetailView: View {
     @State private var model: IssueDetailModel
     @State private var diffTabModel: DiffTabModel?
     @State private var gitRepoWatcher: GitRepoWatcher?
-    @State private var editorPosition = CodeEditor.Position()
-    @State private var editorMessages: Set<TextLocated<Message>> = []
+    // Each editable tab keeps its own cursor/scroll state so switching tabs
+    // doesn't drag row 80 of a 200-line spec into a 2-line prompt and vice
+    // versa. Messages are tab-scoped too in case a future hook re-wires
+    // FrontmatterMessageMap markers into one of them.
+    @State private var specEditorPosition = CodeEditor.Position()
+    @State private var promptEditorPosition = CodeEditor.Position()
+    @State private var specEditorMessages: Set<TextLocated<Message>> = []
+    @State private var promptEditorMessages: Set<TextLocated<Message>> = []
+    @State private var hasAppliedSmartDefaultTab: Bool = false
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
     @State private var pendingPopAction: (() -> Void)?
@@ -200,7 +207,7 @@ struct IssueDetailView: View {
             if !model.isCreating, let folderName = model.folderName {
                 Divider()
                 IssueWorkflowActionBar(status: currentStatus, type: currentType) { action in
-                    runWorkflow(action, folderName, model.loadedPromptContent)
+                    triggerWorkflow(action, folderName: folderName)
                 }
             }
             Divider()
@@ -219,8 +226,8 @@ struct IssueDetailView: View {
             } else {
                 SpecTabView(
                     text: bodyBinding,
-                    position: $editorPosition,
-                    messages: $editorMessages,
+                    position: $specEditorPosition,
+                    messages: $specEditorMessages,
                     language: markdownLanguage,
                     layout: editorLayout
                 )
@@ -235,23 +242,23 @@ struct IssueDetailView: View {
         case .prompt:
             PromptTabView(
                 text: promptBinding,
-                position: $editorPosition,
-                messages: $editorMessages,
+                position: $promptEditorPosition,
+                messages: $promptEditorMessages,
                 language: markdownLanguage,
                 layout: editorLayout
             )
         case .spec:
             SpecTabView(
                 text: bodyBinding,
-                position: $editorPosition,
-                messages: $editorMessages,
+                position: $specEditorPosition,
+                messages: $specEditorMessages,
                 language: markdownLanguage,
                 layout: editorLayout
             )
         case .pullRequest:
             PRTabView(content: model.prContent)
                 .task(id: model.selectedBodyTab) {
-                    // Reload-on-show: pr.md changes externally (e.g.
+                    // Reload-on-show: PR.md changes externally (e.g.
                     // /plumage-implement just wrote it), and the tab is
                     // read-only so there's no dirty-conflict to worry about.
                     if model.selectedBodyTab == .pullRequest {
@@ -266,15 +273,6 @@ struct IssueDetailView: View {
                     .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
             }
         }
-    }
-
-    @ViewBuilder
-    private func placeholderTab(text: String) -> some View {
-        VStack {
-            Text(text)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
     }
 
     private var backgroundTint: some View {
@@ -420,7 +418,8 @@ struct IssueDetailView: View {
         // Frontmatter error markers point into the raw spec — the tabbed
         // body editor only renders the body, so the markers have no row to
         // attach to here. The error banner above still surfaces the issue.
-        if !editorMessages.isEmpty { editorMessages = [] }
+        if !specEditorMessages.isEmpty { specEditorMessages = [] }
+        if !promptEditorMessages.isEmpty { promptEditorMessages = [] }
     }
 
     private func refreshDirtyCache() {
@@ -431,7 +430,12 @@ struct IssueDetailView: View {
     }
 
     private func applySmartDefaultTabIfNeeded() {
+        // Only on the very first load per view lifetime, so reopening the
+        // same card doesn't snap the user's deliberate tab choice back to
+        // the status-driven default.
+        guard !hasAppliedSmartDefaultTab else { return }
         guard let issue = model.issue else { return }
+        hasAppliedSmartDefaultTab = true
         model.selectedBodyTab = IssueDetailModel.defaultTab(for: issue.status)
     }
 
@@ -491,22 +495,35 @@ struct IssueDetailView: View {
         }
         Task {
             do {
-                try await saveCurrentTab()
+                try await saveAllEditableTabs()
             } catch {
                 presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
             }
         }
     }
 
-    private func saveCurrentTab() async throws {
-        switch model.selectedBodyTab {
-        case .prompt:
-            try await model.savePrompt()
-        case .spec:
-            try await model.saveBody()
-        case .pullRequest, .diff:
-            // Read-only tabs have nothing to save.
-            return
+    private func saveAllEditableTabs() async throws {
+        // Flush both editable buffers regardless of the currently-selected
+        // tab. Otherwise dirty Spec/Prompt content sitting behind a non-
+        // editable tab (PR, Diff) would be silently dropped on background
+        // autosave or Cmd-S. The model's per-buffer dirty guards keep this
+        // cheap when nothing changed.
+        var firstError: Error?
+        do { try await model.saveBody() } catch { firstError = firstError ?? error }
+        do { try await model.savePrompt() } catch { firstError = firstError ?? error }
+        if let firstError { throw firstError }
+    }
+
+    private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {
+        // Plan injects the prompt body into the claude REPL — flush the
+        // current draft to disk first so /plumage-plan and the workflow
+        // env see the same content the user just typed.
+        Task {
+            if action == .plan, model.isPromptDirty {
+                try? await model.savePrompt()
+            }
+            let payload = model.promptDraft
+            runWorkflow(action, folderName, payload.isEmpty ? nil : payload)
         }
     }
 
@@ -530,10 +547,10 @@ struct IssueDetailView: View {
             return
         }
         do {
-            // Flush both editable tabs (body and prompt) on pop so the user
-            // doesn't lose typed content when switching cards quickly.
-            try await model.saveBody()
-            try await model.savePrompt()
+            // Flush both editable tabs. saveAllEditableTabs runs both saves
+            // even if one fails, so a failing body save doesn't strand a
+            // dirty prompt buffer (or vice versa).
+            try await saveAllEditableTabs()
             endAction()
         } catch {
             pendingPopAction = endAction

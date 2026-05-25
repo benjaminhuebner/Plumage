@@ -347,33 +347,6 @@ final class IssueDetailModel {
         }
     }
 
-    func saveRaw(_ rawContent: String) async throws {
-        if case .externalChange = conflict {
-            throw SaveError.unresolvedConflict
-        }
-        guard let url = specURL else { return }
-        let prior = pendingBodySave
-        let writer = self.writer
-        let task = Task<Void, Error> {
-            _ = try? await prior?.value
-            let normalized = rawContent.replacingOccurrences(of: "\r\n", with: "\n")
-            try await Task.detached(priority: .userInitiated) {
-                try writer.write(normalized, to: url)
-            }.value
-        }
-        pendingBodySave = task
-        try await task.value
-
-        let fresh = await Task.detached(priority: .utility) {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        if let fresh {
-            let normalized = fresh.replacingOccurrences(of: "\r\n", with: "\n")
-            lastWrittenContent = normalized
-            applyLoaded(content: normalized)
-        }
-    }
-
     var isPromptDirty: Bool { promptDraft != loadedPromptContent }
 
     nonisolated static func defaultTab(for status: IssueStatus) -> BodyTab {
@@ -410,7 +383,10 @@ final class IssueDetailModel {
         }
         pendingPromptSave = task
         try await task.value
-        await loadPrompt()
+        // Only bump the baseline — never overwrite promptDraft. The user may
+        // have kept typing during the disk write; loadPrompt() would clobber
+        // those trailing keystrokes (mirrors the body-save pattern).
+        loadedPromptContent = contentToSave
     }
 
     func loadPR() async {
