@@ -108,6 +108,18 @@ nonisolated public enum DiffParser {
             state.currentFile?.status = .deleted
             return
         }
+        if line.hasPrefix("old mode ") {
+            let mode = String(line.dropFirst("old mode ".count))
+            let existingNew = state.currentFile?.modeChange?.new ?? ""
+            state.currentFile?.modeChange = ModeChange(old: mode, new: existingNew)
+            return
+        }
+        if line.hasPrefix("new mode ") {
+            let mode = String(line.dropFirst("new mode ".count))
+            let existingOld = state.currentFile?.modeChange?.old ?? ""
+            state.currentFile?.modeChange = ModeChange(old: existingOld, new: mode)
+            return
+        }
         if line.hasPrefix("rename from ") {
             let from = String(line.dropFirst("rename from ".count))
             state.currentFile?.status = .renamed(from: from)

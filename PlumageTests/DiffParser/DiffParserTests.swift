@@ -108,6 +108,18 @@ struct DiffParserTests {
         #expect(file.status == .copied(from: "Sources/Template.swift"))
     }
 
+    @Test("mode change: modeChange captures old + new, no hunks")
+    func modeChangeOnly() throws {
+        let diff = try loadFixture("mode-change.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "scripts/run.sh")
+        #expect(file.status == .modified)
+        #expect(file.modeChange == ModeChange(old: "100644", new: "100755"))
+        #expect(file.hunks.isEmpty)
+    }
+
     @Test("json edit: string + number + reserved tokens recognised")
     func jsonTokens() throws {
         let diff = try loadFixture("json-config-change.diff")
