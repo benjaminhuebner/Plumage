@@ -30,7 +30,7 @@ struct TerminalTabBar: View {
             .accessibilityLabel("New Terminal Tab")
         }
         .padding(.horizontal, 6)
-        .padding(.top, 4)
+        .padding(.top, 0)
         .padding(.bottom, 2)
         .overlay(alignment: .bottom) {
             Divider()

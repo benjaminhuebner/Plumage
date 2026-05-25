@@ -19,7 +19,7 @@ struct TerminalInspectorView: View {
                 }
             }
             .padding(.horizontal, 6)
-            .padding(.top, 2)
+            .padding(.top, 0)
             .padding(.bottom, 4)
         }
         .overlay(alignment: .top) {
