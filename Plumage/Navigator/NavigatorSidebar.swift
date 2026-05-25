@@ -32,16 +32,16 @@ struct NavigatorSidebar: View {
             }
 
             SidebarSectionHeader(title: "Docs", help: "New Doc") {
-                navigator.beginPendingCreate(.docs)
+                navigator.beginPendingCreate(.managedFile(type: .docs))
             }
             .trackSectionAnchor(.docs, in: $sectionAnchors)
-            if navigator.docs.isEmpty && !isPending(.docs) {
+            if navigator.docs.isEmpty && !isPending(.managedFile(type: .docs)) {
                 emptyPlaceholder("No docs yet")
             } else {
                 ForEach(navigator.docs, id: \.absoluteString) { url in
                     docRow(url)
                 }
-                if isPending(.docs) {
+                if isPending(.managedFile(type: .docs)) {
                     InlineCreateRow(projectURL: projectURL, icon: "doc.text")
                 }
             }
@@ -227,7 +227,7 @@ struct NavigatorSidebar: View {
     @ViewBuilder
     private var hooksGroup: some View {
         DisclosureGroup(isExpanded: $hooksExpanded) {
-            if navigator.hooks.isEmpty && !isPending(.hookFile) && !isPending(.hookFolder) {
+            if navigator.hooks.isEmpty && !isPending(.managedFile(type: .hooks)) && !isPending(.hookFolder) {
                 emptyPlaceholder("No hooks")
             } else {
                 ForEach(navigator.hooks, id: \.absoluteString) { url in
@@ -237,7 +237,7 @@ struct NavigatorSidebar: View {
                         icon: "scroll"
                     )
                 }
-                if isPending(.hookFile) {
+                if isPending(.managedFile(type: .hooks)) {
                     InlineCreateRow(projectURL: projectURL, icon: "scroll")
                 } else if isPending(.hookFolder) {
                     InlineCreateRow(projectURL: projectURL, icon: "folder")
@@ -248,7 +248,7 @@ struct NavigatorSidebar: View {
                 .clickableSidebarRow()
                 .trackSectionAnchor(.hooks, in: $sectionAnchors)
                 .contextMenu {
-                    Button("New Hook") { navigator.beginPendingCreate(.hookFile) }
+                    Button("New Hook") { navigator.beginPendingCreate(.managedFile(type: .hooks)) }
                     Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
                 }
         }

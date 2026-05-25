@@ -30,14 +30,14 @@ struct NewSidebarItemCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("New Doc") {
                 editorSave?.run()
-                beginInlineCreate?.run(.docs)
+                beginInlineCreate?.run(.managedFile(type: .docs))
             }
             .keyboardShortcut("d", modifiers: [.command, .option])
             .disabled(beginInlineCreate == nil)
 
             Button("New Hook") {
                 editorSave?.run()
-                beginInlineCreate?.run(.hookFile)
+                beginInlineCreate?.run(.managedFile(type: .hooks))
             }
             .keyboardShortcut("h", modifiers: [.command, .option])
             .disabled(beginInlineCreate == nil)

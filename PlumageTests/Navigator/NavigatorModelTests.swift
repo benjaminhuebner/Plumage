@@ -37,11 +37,11 @@ struct NavigatorModelTests {
     @Test("beginPendingCreate seeds the default name for each section")
     func beginPendingCreateSeedsName() async throws {
         let model = NavigatorModel()
-        model.beginPendingCreate(.docs)
-        #expect(model.pendingCreate?.section == .docs)
+        model.beginPendingCreate(.managedFile(type: .docs))
+        #expect(model.pendingCreate?.section == .managedFile(type: .docs))
         #expect(model.pendingCreate?.name == "untitled.md")
 
-        model.beginPendingCreate(.hookFile)
+        model.beginPendingCreate(.managedFile(type: .hooks))
         #expect(model.pendingCreate?.name == "untitled.sh")
         model.beginPendingCreate(.skill)
         #expect(model.pendingCreate?.name == "untitled-skill")
@@ -51,7 +51,7 @@ struct NavigatorModelTests {
     func cancelPendingCreate() async throws {
         let fixture = try NavigatorModelFixture()
         let model = NavigatorModel()
-        model.beginPendingCreate(.docs)
+        model.beginPendingCreate(.managedFile(type: .docs))
         model.cancelPendingCreate()
         #expect(model.pendingCreate == nil)
         // No file landed on disk.
@@ -63,7 +63,7 @@ struct NavigatorModelTests {
     func commitPendingCreateDoc() async throws {
         let fixture = try NavigatorModelFixture()
         let model = NavigatorModel()
-        model.beginPendingCreate(.docs)
+        model.beginPendingCreate(.managedFile(type: .docs))
         model.pendingCreate?.name = "intro.md"
         let route = await model.commitPendingCreate(projectURL: fixture.root)
         #expect(route == .managedFile(type: .docs, relativePath: "intro.md"))
@@ -76,7 +76,7 @@ struct NavigatorModelTests {
     func commitPendingCreateHook() async throws {
         let fixture = try NavigatorModelFixture()
         let model = NavigatorModel()
-        model.beginPendingCreate(.hookFile)
+        model.beginPendingCreate(.managedFile(type: .hooks))
         model.pendingCreate?.name = "lint"
         let route = await model.commitPendingCreate(projectURL: fixture.root)
         #expect(route == .managedFile(type: .hooks, relativePath: "lint.sh"))
@@ -87,7 +87,7 @@ struct NavigatorModelTests {
     func commitPendingCreateEmpty() async throws {
         let fixture = try NavigatorModelFixture()
         let model = NavigatorModel()
-        model.beginPendingCreate(.docs)
+        model.beginPendingCreate(.managedFile(type: .docs))
         model.pendingCreate?.name = "   "
         let route = await model.commitPendingCreate(projectURL: fixture.root)
         #expect(route == nil)
@@ -122,10 +122,10 @@ struct NavigatorModelTests {
     @Test("isPendingCreate matches the active section")
     func isPendingCreateMatches() async {
         let model = NavigatorModel()
-        #expect(!model.isPendingCreate(at: .docs))
-        model.beginPendingCreate(.docs)
-        #expect(model.isPendingCreate(at: .docs))
-        #expect(!model.isPendingCreate(at: .hookFile))
+        #expect(!model.isPendingCreate(at: .managedFile(type: .docs)))
+        model.beginPendingCreate(.managedFile(type: .docs))
+        #expect(model.isPendingCreate(at: .managedFile(type: .docs)))
+        #expect(!model.isPendingCreate(at: .managedFile(type: .hooks)))
         model.beginPendingCreate(.skillFile(skillName: "alpha", relativePath: "refs"))
         #expect(model.isPendingCreate(at: .skillFile(skillName: "alpha", relativePath: "refs")))
         #expect(!model.isPendingCreate(at: .skillFile(skillName: "alpha", relativePath: "")))
@@ -282,6 +282,62 @@ struct NavigatorModelTests {
         #expect(model.dropRejectMessage == "hi")
         model.clearBanner()
         #expect(model.dropRejectMessage == nil)
+    }
+
+    @Test("reload populates enumeratedItems for all managed types")
+    func reloadPopulatesEnumeratedItems() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/agents/reviewer.md", content: "a")
+        try fixture.makeFile(at: ".claude/agents/team/lead.md", content: "b")
+        try fixture.makeFile(at: ".claude/rules/style.md", content: "r")
+        try fixture.makeFile(at: ".claude/output-styles/yaml.md", content: "y")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        #expect(model.agents.count == 2)
+        #expect(model.rules.map(\.lastPathComponent) == ["style.md"])
+        #expect(model.outputStyles.map(\.lastPathComponent) == ["yaml.md"])
+        #expect(model.items(for: .docs).isEmpty)
+        #expect(model.items(for: .hooks).isEmpty)
+    }
+
+    @Test("reload flips claudeLocalMDExists / mcpJSONExists based on file presence")
+    func reloadDetectsSingleFileArtifacts() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        #expect(!model.claudeLocalMDExists)
+        #expect(!model.mcpJSONExists)
+        try fixture.makeFile(at: ".claude/CLAUDE.local.md", content: "local")
+        try fixture.makeFile(at: ".mcp.json", content: "{}")
+        await model.reload(projectURL: fixture.root)
+        #expect(model.claudeLocalMDExists)
+        #expect(model.mcpJSONExists)
+    }
+
+    @Test("commitPendingCreate on .managedFile(.agents) writes recursive-friendly file")
+    func commitPendingCreateAgent() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        model.beginPendingCreate(.managedFile(type: .agents))
+        model.pendingCreate?.name = "reviewer.md"
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        #expect(route == .managedFile(type: .agents, relativePath: "reviewer.md"))
+        #expect(model.agents.map(\.lastPathComponent) == ["reviewer.md"])
+        // Frontmatter stub landed on disk.
+        let agentFile = try #require(model.agents.first)
+        let body = try String(contentsOf: agentFile, encoding: .utf8)
+        #expect(body.contains("name: reviewer"))
+    }
+
+    @Test("commitPendingCreate on .managedFile(.outputStyles) keeps the .md extension")
+    func commitPendingCreateOutputStyle() async throws {
+        let fixture = try NavigatorModelFixture()
+        let model = NavigatorModel()
+        model.beginPendingCreate(.managedFile(type: .outputStyles))
+        model.pendingCreate?.name = "yaml"
+        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        #expect(route == .managedFile(type: .outputStyles, relativePath: "yaml.md"))
+        #expect(model.outputStyles.map(\.lastPathComponent) == ["yaml.md"])
     }
 }
 
