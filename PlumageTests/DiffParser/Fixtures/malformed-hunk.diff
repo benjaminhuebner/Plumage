@@ -1,0 +1,23 @@
+diff --git a/Sources/Good.swift b/Sources/Good.swift
+index 1111111..2222222 100644
+--- a/Sources/Good.swift
++++ b/Sources/Good.swift
+@@ -1,2 +1,2 @@
+ struct Good {
+-    let value = 1
++    let value = 2
+ }
+diff --git a/Sources/Broken.swift b/Sources/Broken.swift
+index 3333333..4444444 100644
+--- a/Sources/Broken.swift
++++ b/Sources/Broken.swift
+@@ -BOGUS @@
+ some body line that won't be read
++also added
+diff --git a/Sources/AlsoGood.swift b/Sources/AlsoGood.swift
+index 5555555..6666666 100644
+--- a/Sources/AlsoGood.swift
++++ b/Sources/AlsoGood.swift
+@@ -1,1 +1,1 @@
+-old
++new

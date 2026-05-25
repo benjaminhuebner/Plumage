@@ -1,0 +1,10 @@
+diff --git a/config.json b/config.json
+index 3333333..4444444 100644
+--- a/config.json
++++ b/config.json
+@@ -1,4 +1,4 @@
+ {
+-  "version": 1,
++  "version": 2,
+   "enabled": true
+ }

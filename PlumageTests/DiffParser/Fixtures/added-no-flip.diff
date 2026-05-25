@@ -1,0 +1,7 @@
+diff --git a/Sources/NewFile.swift b/Sources/NewFile.swift
+new file mode 100644
+index 0000000..abcdef0
+--- /dev/null
++++ /dev/null
+@@ -0,0 +1,1 @@
++content

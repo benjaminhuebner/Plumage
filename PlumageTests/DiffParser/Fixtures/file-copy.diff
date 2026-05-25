@@ -1,0 +1,12 @@
+diff --git a/Sources/Template.swift b/Sources/Variant.swift
+similarity index 90%
+copy from Sources/Template.swift
+copy to Sources/Variant.swift
+index 1111111..3333333 100644
+--- a/Sources/Template.swift
++++ b/Sources/Variant.swift
+@@ -1,3 +1,3 @@
+ struct Item {
+-    let label = "template"
++    let label = "variant"
+ }
