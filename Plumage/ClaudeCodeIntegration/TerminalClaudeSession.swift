@@ -13,7 +13,11 @@ final class TerminalClaudeSession {
 
     let cwd: URL
     let binaryURL: URL
-    private let sessionIDStoreURL: URL
+    // nil disables disk persistence — additional tabs from TerminalTabsModel
+    // pass persistConversationID: false so each new tab gets a fresh UUID
+    // without writing/reading the on-disk pointer. The default tab keeps the
+    // status-quo single-file persistence at .plumage/sessions/terminal-id.
+    private let sessionIDStoreURL: URL?
     private let sessionLogRoot: URL
     // Returns conversation IDs that must NOT be adopted by reconcile —
     // primarily the chat session's ID, since chat shares the same log dir.
@@ -54,16 +58,21 @@ final class TerminalClaudeSession {
         binaryURL: URL,
         sessionIDStoreOverride: URL? = nil,
         sessionLogRoot: URL? = nil,
-        excludedSessionIDs: @escaping () -> Set<String> = { [] }
+        excludedSessionIDs: @escaping () -> Set<String> = { [] },
+        persistConversationID: Bool = true
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
-        self.sessionIDStoreURL =
-            sessionIDStoreOverride
-            ?? cwd
-            .appendingPathComponent(".plumage", isDirectory: true)
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("terminal-id")
+        if persistConversationID {
+            self.sessionIDStoreURL =
+                sessionIDStoreOverride
+                ?? cwd
+                .appendingPathComponent(".plumage", isDirectory: true)
+                .appendingPathComponent("sessions", isDirectory: true)
+                .appendingPathComponent("terminal-id")
+        } else {
+            self.sessionIDStoreURL = nil
+        }
         self.sessionLogRoot =
             sessionLogRoot
             ?? FileManager.default.homeDirectoryForCurrentUser
@@ -313,8 +322,9 @@ final class TerminalClaudeSession {
         Self.persistID(bestID, to: sessionIDStoreURL)
     }
 
-    private nonisolated static func loadPersistedID(from url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url),
+    private nonisolated static func loadPersistedID(from url: URL?) -> String? {
+        guard let url,
+            let data = try? Data(contentsOf: url),
             let raw = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             !raw.isEmpty
@@ -322,7 +332,8 @@ final class TerminalClaudeSession {
         return raw
     }
 
-    private nonisolated static func persistID(_ id: String, to url: URL) {
+    private nonisolated static func persistID(_ id: String, to url: URL?) {
+        guard let url else { return }
         let parent = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(
             at: parent, withIntermediateDirectories: true)
