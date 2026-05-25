@@ -88,17 +88,6 @@ final class TerminalClaudeSession {
         }
     }
 
-    static func rebuilt(
-        for handleURL: URL, replacing prior: TerminalClaudeSession
-    ) -> TerminalClaudeSession {
-        if prior.cwd == handleURL { return prior }
-        prior.stop()
-        let binary =
-            (try? ProductionProcessRunner.locateBinary())
-            ?? URL(filePath: "/dev/null")
-        return TerminalClaudeSession(cwd: handleURL, binaryURL: binary)
-    }
-
     func attach() {
         switch state {
         case .idle, .exited:
@@ -268,6 +257,11 @@ final class TerminalClaudeSession {
 
     private func startLogWatcher() {
         guard logWatcher == nil else { return }
+        // Ephemeral sessions (sessionIDStoreURL == nil) opt out of reconcile,
+        // so the watcher would just fan out FSEvents into MainActor hops that
+        // immediately bail at reconcileSessionFromDisk's guard. With many
+        // open tabs the wasted hops add up; skip the watcher entirely.
+        guard sessionIDStoreURL != nil else { return }
         let watcher = SessionLogWatcher(directory: sessionLogDirectory()) { [weak self] in
             // FSEvents callback fires on the watcher's own dispatch queue;
             // hop to MainActor before touching @Observable state.

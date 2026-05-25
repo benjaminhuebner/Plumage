@@ -277,36 +277,6 @@ struct TerminalClaudeSessionTests {
         #expect(fired == 0)
     }
 
-    // MARK: - rebuilt(for:replacing:)
-
-    @Test("rebuilt with same cwd returns the same instance")
-    func rebuiltSameCwdShortCircuits() throws {
-        let env = try TempEnv.make()
-        defer { env.cleanup() }
-        let prior = env.makeSession()
-        let rebuilt = TerminalClaudeSession.rebuilt(for: prior.cwd, replacing: prior)
-        #expect(rebuilt === prior)
-    }
-
-    @Test("rebuilt with different cwd stops prior and returns a fresh session")
-    func rebuiltDifferentCwdReplaces() throws {
-        let env = try TempEnv.make()
-        defer { env.cleanup() }
-        let prior = env.makeSession()
-        prior.attach()
-        prior.markStarted()
-        var stopFired = 0
-        prior.registerStopHandler { stopFired += 1 }
-        let otherCwd = env.cwdRoot.appendingPathComponent("other")
-        try FileManager.default.createDirectory(at: otherCwd, withIntermediateDirectories: true)
-        let rebuilt = TerminalClaudeSession.rebuilt(for: otherCwd, replacing: prior)
-        #expect(rebuilt !== prior)
-        #expect(rebuilt.cwd == otherCwd)
-        #expect(stopFired == 1)
-        // Prior is now .exited; rebuilt is fresh .idle.
-        #expect(rebuilt.state == .idle)
-    }
-
     // MARK: - pendingInput queue
 
     @Test("pendingInput starts empty")
