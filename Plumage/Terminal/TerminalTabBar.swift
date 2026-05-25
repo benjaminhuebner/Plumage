@@ -9,7 +9,7 @@ struct TerminalTabBar: View {
                 TerminalTabPill(
                     tab: tab,
                     isActive: tab.id == model.selectedTabID,
-                    canClose: model.canCloseActiveTab,
+                    canClose: model.canClose(tab.id),
                     onSelect: { model.selectedTabID = tab.id },
                     onClose: { model.closeTab(id: tab.id) }
                 )

@@ -35,49 +35,61 @@ struct TerminalTabsModelTests {
         #expect(model.tabs.map(\.title) == ["Terminal 1", "Terminal 2"])
     }
 
-    @Test("closeTab on the only tab is a no-op")
-    func closeLastTabIsNoOp() {
+    @Test("the main terminal at index 0 is never closable")
+    func mainTerminalIsSticky() {
         let model = makeModel()
-        let onlyID = model.tabs[0].id
+        let mainID = model.tabs[0].id
+        #expect(model.canClose(mainID) == false)
         #expect(model.canCloseActiveTab == false)
 
-        model.closeTab(id: onlyID)
-
+        // Single-tab world.
+        model.closeTab(id: mainID)
         #expect(model.tabs.count == 1)
-        #expect(model.tabs[0].id == onlyID)
+        #expect(model.tabs[0].id == mainID)
+
+        // Multi-tab world: main still sticky.
+        model.addTab()
+        model.addTab()
+        #expect(model.canClose(mainID) == false)
+        model.closeTab(id: mainID)
+        #expect(model.tabs.count == 3)
+        #expect(model.tabs[0].id == mainID)
     }
 
-    @Test("closing the active tab selects the left neighbor")
-    func closingActivePicksLeftNeighbor() {
+    @Test("non-main tabs are closable and selection falls back to the left")
+    func closingNonMainPicksLeftNeighbor() {
         let model = makeModel()
         model.addTab()
         model.addTab()
-        let firstID = model.tabs[0].id
+        let mainID = model.tabs[0].id
         let middleID = model.tabs[1].id
         let lastID = model.tabs[2].id
 
-        // Active = last (set by addTab). Closing it picks the new last (was middle).
+        #expect(model.canClose(lastID))
+        // Active = last (set by addTab). Closing it picks middle.
         model.closeTab(id: lastID)
         #expect(model.selectedTabID == middleID)
 
-        // Now active = middle. Close it; left neighbor = first.
+        // Now active = middle. Closing it picks main.
         model.closeTab(id: middleID)
-        #expect(model.selectedTabID == firstID)
+        #expect(model.selectedTabID == mainID)
+        #expect(model.tabs.count == 1)
     }
 
-    @Test("closing the leftmost active tab falls back to the right neighbor")
-    func closingLeftmostFallsRight() {
+    @Test("canCloseActiveTab follows the selection")
+    func canCloseActiveTabFollowsSelection() {
         let model = makeModel()
         model.addTab()
-        let firstID = model.tabs[0].id
-        let secondID = model.tabs[1].id
+        let mainID = model.tabs[0].id
+        let extraID = model.tabs[1].id
+
+        // Selection just landed on the extra tab via addTab().
+        #expect(model.selectedTabID == extraID)
+        #expect(model.canCloseActiveTab)
 
         model.selectTab(at: 0)
-        #expect(model.selectedTabID == firstID)
-
-        model.closeTab(id: firstID)
-        #expect(model.tabs.count == 1)
-        #expect(model.selectedTabID == secondID)
+        #expect(model.selectedTabID == mainID)
+        #expect(model.canCloseActiveTab == false)
     }
 
     @Test("stopAll transitions every attached session to exited")

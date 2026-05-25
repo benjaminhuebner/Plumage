@@ -291,6 +291,12 @@ final class TerminalClaudeSession {
     // adopted as the new conversationID and persisted, so an app-restart
     // resumes the post-/clear session instead of the pre-/clear one.
     func reconcileSessionFromDisk() {
+        // Ephemeral sessions (sessionIDStoreURL == nil) opt out of reconcile
+        // entirely: without persistence, /clear-rotation tracking has no
+        // place to write its result, and Cross-Session adoption is the only
+        // remaining behavior — which is what callers explicitly asked us to
+        // avoid.
+        guard sessionIDStoreURL != nil else { return }
         guard let launchInstant else { return }
         let dir = sessionLogDirectory()
         let fm = FileManager.default

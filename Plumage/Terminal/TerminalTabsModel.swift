@@ -35,7 +35,18 @@ final class TerminalTabsModel {
         return tabs.first(where: { $0.id == id })?.session
     }
 
-    var canCloseActiveTab: Bool { tabs.count > 1 }
+    // The tab at index 0 is the main terminal — sticky, never closable.
+    // canCloseActiveTab is the keyboard-shortcut convenience; per-tab UI
+    // queries canClose(_:) instead.
+    var canCloseActiveTab: Bool {
+        guard let id = selectedTabID else { return false }
+        return canClose(id)
+    }
+
+    func canClose(_ tabID: UUID) -> Bool {
+        guard let idx = tabs.firstIndex(where: { $0.id == tabID }) else { return false }
+        return idx > 0
+    }
 
     func addTab() {
         let session = TerminalClaudeSession(
@@ -51,19 +62,17 @@ final class TerminalTabsModel {
     }
 
     func closeTab(id: UUID) {
-        // Guard the last-tab rule here too so callers can ignore canCloseActiveTab
-        // and rely on the model to defensively no-op.
-        guard tabs.count > 1 else { return }
+        // Defensive no-op for the main terminal — its slot is sticky.
+        guard canClose(id) else { return }
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let removed = tabs[idx]
         removed.session.stop()
         tabs.remove(at: idx)
         reindexTitles()
         if selectedTabID == id {
-            // Prefer left neighbor (idx-1); fall back to right (which is now at
-            // the removed position) if the closed tab was the leftmost.
-            let neighborIdx = idx > 0 ? idx - 1 : 0
-            selectedTabID = tabs[neighborIdx].id
+            // Prefer left neighbor — closable tabs always start at idx > 0,
+            // so the left neighbor always exists.
+            selectedTabID = tabs[idx - 1].id
         }
     }
 

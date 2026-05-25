@@ -58,11 +58,13 @@ struct ProjectWindow: View {
         self._session = State(
             initialValue: ClaudeSession(cwd: handle.url, binaryURL: binary)
         )
-        // Default tab keeps the status-quo persistent session ID at
-        // .plumage/sessions/terminal-id. Additional tabs spawned via
-        // TerminalTabsModel.addTab() opt out of persistence.
+        // Every terminal tab — including the main one at index 0 — runs as
+        // an ephemeral session: fresh conversationID per window-open, no
+        // disk persistence, no reconcile pickup. Otherwise the main tab
+        // could adopt a sibling claude session (e.g. a /plan or /implement
+        // run) that happened to write the same log dir last.
         let initialTerminalSession = TerminalClaudeSession(
-            cwd: handle.url, binaryURL: binary
+            cwd: handle.url, binaryURL: binary, persistConversationID: false
         )
         self._terminalTabs = State(
             initialValue: TerminalTabsModel(
@@ -127,7 +129,9 @@ struct ProjectWindow: View {
                         (try? ProductionProcessRunner.locateBinary())
                         ?? URL(filePath: "/dev/null")
                     let newInitial = TerminalClaudeSession(
-                        cwd: handle.url, binaryURL: newBinary)
+                        cwd: handle.url, binaryURL: newBinary,
+                        persistConversationID: false
+                    )
                     terminalTabs = TerminalTabsModel(
                         cwd: handle.url,
                         binaryURL: newBinary,
