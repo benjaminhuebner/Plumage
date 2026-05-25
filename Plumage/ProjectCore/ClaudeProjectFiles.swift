@@ -30,12 +30,22 @@ nonisolated enum ClaudeProjectFiles {
 
     static func create(_ type: ManagedFileType, name: String, projectURL: URL) throws -> URL {
         let dir = projectURL.appendingPathComponent(type.relativePath, isDirectory: true)
+        // Recursive sections (agents, rules) take user-typed paths as nested
+        // subpaths — `team/lead.md` lands at `.claude/agents/team/lead.md` and
+        // createFile creates the intermediate dir. Non-recursive sections
+        // collapse separators to `-` so a stray `/` can't escape the section.
+        let prepared = type.recursive ? name : flattenPathSeparators(name)
         let normalized = normalizedFileName(
-            name,
+            prepared,
             allowedExtensions: Array(type.allowedExtensions),
             fallback: type.defaultExtension)
-        let content = type.defaultStub(filename: normalized)
+        // defaultStub keys off the leaf for the frontmatter `name:` field.
+        let content = type.defaultStub(filename: (normalized as NSString).lastPathComponent)
         return try createFile(in: dir, baseName: normalized, defaultContent: content)
+    }
+
+    private static func flattenPathSeparators(_ name: String) -> String {
+        name.replacingOccurrences(of: "/", with: "-")
     }
 
     // MARK: - Type-specific wrappers (preserved for existing call-sites)
@@ -244,6 +254,10 @@ nonisolated enum ClaudeProjectFiles {
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true)
         let target = try findFreeName(in: directory, base: baseName)
+        // baseName may contain `/` for recursive sections (`team/lead.md`);
+        // ensure the leaf's parent dir exists. Idempotent for flat names.
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try defaultContent.write(to: target, atomically: true, encoding: .utf8)
         return target
     }
@@ -343,6 +357,9 @@ nonisolated enum ClaudeProjectFiles {
     // `._foo`) are skipped. Permission-denied subdirectories are swallowed by
     // `FileManager.enumerator` — they don't crash, they just don't contribute
     // entries (acceptable, matches the spec's "Permission denied" edge case).
+    // Symbolic links (file and directory) are skipped and not traversed —
+    // protects against symlink cycles under `.claude/agents` etc. that would
+    // otherwise hang the enumerator.
     // Returned URLs are sorted by their project-relative path so list output
     // is stable across runs and across snapshots.
     private static func listFilesRecursive(
@@ -353,14 +370,21 @@ nonisolated enum ClaudeProjectFiles {
         guard
             let enumerator = fileManager.enumerator(
                 at: directory,
-                includingPropertiesForKeys: [.isRegularFileKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
                 options: [.skipsHiddenFiles])
         else {
             return []
         }
         var results: [URL] = []
         for case let url as URL in enumerator {
-            let isRegular = (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+            let values = try? url.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            if values?.isSymbolicLink == true {
+                // Skip the link itself and any descendants reachable through it.
+                enumerator.skipDescendants()
+                continue
+            }
+            let isRegular = values?.isRegularFile ?? false
             guard isRegular, extensions.contains(url.pathExtension) else { continue }
             results.append(url)
         }

@@ -314,6 +314,22 @@ struct NavigatorModelTests {
         #expect(model.mcpJSONExists)
     }
 
+    @Test("reload surfaces CLAUDE.local.md / .mcp.json even when a managed enumerate throws")
+    func reloadExistenceFlagsSurviveEnumerateError() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/CLAUDE.local.md", content: "local")
+        try fixture.makeFile(at: ".mcp.json", content: "{}")
+        // Place a regular file where `.claude/docs` should be a directory —
+        // contentsOfDirectory throws "not a directory" and previously zeroed
+        // out the existence flags.
+        try fixture.makeFile(at: ".claude/docs", content: "not a directory")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        #expect(model.claudeLocalMDExists)
+        #expect(model.mcpJSONExists)
+        #expect(model.loadError != nil)
+    }
+
     @Test("commitPendingCreate on .managedFile(.agents) writes recursive-friendly file")
     func commitPendingCreateAgent() async throws {
         let fixture = try NavigatorModelFixture()

@@ -51,6 +51,14 @@ final class NavigatorModel {
     func reload(projectURL: URL) async {
         let snapshot = await Task.detached(priority: .userInitiated) { () -> Snapshot in
             var snap = Snapshot()
+            // Existence checks are cheap and never throw — run them up-front so
+            // a failure further down (e.g. enumerate on a missing-permission
+            // .claude/docs) doesn't hide the CLAUDE.local.md / .mcp.json rows.
+            let fm = FileManager.default
+            snap.claudeLocalMDExists = fm.fileExists(
+                atPath: ClaudeProjectFiles.claudeLocalMDURL(projectURL: projectURL).path)
+            snap.mcpJSONExists = fm.fileExists(
+                atPath: ClaudeProjectFiles.mcpJSONURL(projectURL: projectURL).path)
             do {
                 for type in ManagedFileType.allCases {
                     snap.items[type] = try ClaudeProjectFiles.enumerate(
@@ -59,11 +67,6 @@ final class NavigatorModel {
                 snap.claudeMarkdown = try ClaudeProjectFiles.enumerateClaudeMarkdown(
                     projectURL: projectURL)
                 snap.skills = try ClaudeProjectFiles.enumerateSkills(projectURL: projectURL)
-                let fm = FileManager.default
-                snap.claudeLocalMDExists = fm.fileExists(
-                    atPath: ClaudeProjectFiles.claudeLocalMDURL(projectURL: projectURL).path)
-                snap.mcpJSONExists = fm.fileExists(
-                    atPath: ClaudeProjectFiles.mcpJSONURL(projectURL: projectURL).path)
             } catch {
                 snap.error = error.localizedDescription
             }
