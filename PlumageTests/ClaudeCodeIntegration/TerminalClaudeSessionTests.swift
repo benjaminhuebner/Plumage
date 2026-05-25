@@ -154,6 +154,32 @@ struct TerminalClaudeSessionTests {
         #expect(args[1].contains(session.conversationID))
     }
 
+    @Test("shellSpawnArgs omits --permission-mode by default (nil mode)")
+    func shellArgsOmitsPermissionModeByDefault() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        #expect(!session.shellSpawnArgs()[1].contains("--permission-mode"))
+    }
+
+    @Test("shellSpawnArgs appends --permission-mode <rawCLIValue> when set")
+    func shellArgsAppendsPermissionMode() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        for mode in PermissionMode.allCases {
+            let session = TerminalClaudeSession(
+                cwd: env.cwdRoot,
+                binaryURL: env.fakeBinary,
+                sessionIDStoreOverride: env.sessionIDStore,
+                sessionLogRoot: env.sessionLogRoot,
+                permissionMode: mode
+            )
+            let cmd = session.shellSpawnArgs()[1]
+            #expect(cmd.contains("--permission-mode"))
+            #expect(cmd.contains("'\(mode.rawCLIValue)'"))
+        }
+    }
+
     @Test("shellSpawnArgs single-quote-escapes ' inside cwd")
     func shellArgsEscapesQuotes() throws {
         let env = try TempEnv.make()
