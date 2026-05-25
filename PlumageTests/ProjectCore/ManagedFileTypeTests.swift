@@ -70,6 +70,15 @@ struct ManagedFileTypeTests {
         #expect(ManagedFileType.outputStyles.sectionTitle == "Output Styles")
     }
 
+    @Test("singularName powers context-menu wording")
+    func singularNameMatchesSpec() {
+        #expect(ManagedFileType.docs.singularName == "Doc")
+        #expect(ManagedFileType.hooks.singularName == "Hook")
+        #expect(ManagedFileType.agents.singularName == "Agent")
+        #expect(ManagedFileType.rules.singularName == "Rule")
+        #expect(ManagedFileType.outputStyles.singularName == "Output Style")
+    }
+
     @Test("defaultStub for docs is blank (matches legacy createDoc)")
     func defaultStubDocsBlank() {
         #expect(ManagedFileType.docs.defaultStub(filename: "intro.md").isEmpty)

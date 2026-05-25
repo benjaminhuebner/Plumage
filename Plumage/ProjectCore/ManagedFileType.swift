@@ -61,6 +61,18 @@ nonisolated enum ManagedFileType: String, CaseIterable, Sendable, Hashable, Coda
         }
     }
 
+    // Singular form used in context-menu buttons ("New Agent", "New Rule",
+    // "New Output Style") and in keyboard-shortcut menu items.
+    var singularName: String {
+        switch self {
+        case .docs: return "Doc"
+        case .hooks: return "Hook"
+        case .agents: return "Agent"
+        case .rules: return "Rule"
+        case .outputStyles: return "Output Style"
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .docs: return "doc.text"
