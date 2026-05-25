@@ -120,6 +120,10 @@ nonisolated public enum DiffParser {
             state.currentFile?.modeChange = ModeChange(old: existingOld, new: mode)
             return
         }
+        if line.hasPrefix("Binary files ") {
+            state.currentFile?.status = .binary
+            return
+        }
         if line.hasPrefix("rename from ") {
             let from = String(line.dropFirst("rename from ".count))
             state.currentFile?.status = .renamed(from: from)

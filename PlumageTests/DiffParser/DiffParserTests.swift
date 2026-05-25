@@ -120,6 +120,17 @@ struct DiffParserTests {
         #expect(file.hunks.isEmpty)
     }
 
+    @Test("binary file: status .binary, no hunks")
+    func binaryFile() throws {
+        let diff = try loadFixture("binary-file.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Assets/logo.png")
+        #expect(file.status == .binary)
+        #expect(file.hunks.isEmpty)
+    }
+
     @Test("json edit: string + number + reserved tokens recognised")
     func jsonTokens() throws {
         let diff = try loadFixture("json-config-change.diff")
