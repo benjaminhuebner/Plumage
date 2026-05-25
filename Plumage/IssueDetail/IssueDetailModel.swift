@@ -490,43 +490,17 @@ final class IssueDetailModel {
         conflict = nil
     }
 
-    // Live preview of what the raw spec would look like on disk if the
-    // user saved right now. Lives on the model rather than the view so it
-    // can stay in lock-step with how FrontmatterMutator formats fields,
-    // and so the view layer is free of YAML-construction logic.
-    var synthesizedRawPreview: String {
-        let labelsLine = FrontmatterMutator.formatLabels(labelsDraft)
-        let titleLine =
-            titleDraft.isEmpty
-            ? ""
-            : FrontmatterMutator.formatTitleValue(titleDraft)
-        return """
-            ---
-            id: <pending>
-            title: \(titleLine)
-            type: \(typeDraft.rawValue)
-            status: \(statusDraft.rawValue)
-            labels: \(labelsLine)
-            ---
-
-            \(bodyDraft)
-            """
-    }
-
     var navigationTitle: String {
         if isCreating { return "New Issue" }
         return issue?.title ?? folderName ?? ""
     }
 
-    func isRawDirty(_ rawDraft: String) -> Bool {
-        rawDraft != loadedSpecContent
-    }
-
-    func dirtyFolderName(rawDirty: Bool, bodyDirtyOverride: Bool? = nil) -> String? {
+    func dirtyFolderName(bodyDirtyOverride: Bool? = nil, promptDirtyOverride: Bool? = nil) -> String? {
         // Creating mode never has a folder yet; never report dirty.
         guard !isCreating else { return nil }
         let bodyDirty = bodyDirtyOverride ?? isBodyDirty
-        guard rawDirty || bodyDirty else { return nil }
+        let promptDirty = promptDirtyOverride ?? isPromptDirty
+        guard bodyDirty || promptDirty else { return nil }
         return folderName
     }
 
