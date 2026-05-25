@@ -1,8 +1,9 @@
 import Foundation
 // LanguageSupport 0.15.4 (CodeEditorView) hasn't adopted Swift 6 strict
-// concurrency — its `LanguageConfiguration.Token` enum isn't Sendable. We
-// wrap it in `DiffToken` here and need `@preconcurrency` to allow the
-// non-Sendable kind to live inside our Sendable wrapper.
+// concurrency — its `LanguageConfiguration.Token` enum isn't Sendable. The
+// enum's payload is itself a value-type (`Flavour`), so wrapping it in our
+// Sendable `DiffToken` is runtime-safe; we need `@preconcurrency` only to
+// silence the compile-time check (notes.md 2026-05-13 #00008).
 @preconcurrency import LanguageSupport
 
 nonisolated public struct Hunk: Sendable, Equatable, Hashable {
@@ -55,18 +56,15 @@ nonisolated public struct Line: Sendable, Equatable, Hashable {
     }
 }
 
-// Wrapper around LanguageSupport's tokeniser output. The library's
-// `Tokeniser.Token` and `LanguageConfiguration.Token` only conform to
-// `Equatable`; we need Sendable + Hashable on every output type of this
-// module (cache-key precondition, decisions.md 2026-05-25 #00040 will
-// document). `kind` carries the upstream enum verbatim so consumers can
-// pattern-match on it; `range` matches the NSRange-convention CodeEditorView
-// uses throughout (notes.md 2026-05-13 #00008).
+// `range` is a `Range<String.Index>` into the enclosing `Line.content`. Slicing
+// works directly via `content[token.range]`. The indices are only meaningful
+// with the exact `content` string that produced them — different strings have
+// different `String.Index` spaces.
 nonisolated public struct DiffToken: Sendable, Equatable, Hashable {
     public let kind: LanguageConfiguration.Token
-    public let range: NSRange
+    public let range: Range<String.Index>
 
-    public init(kind: LanguageConfiguration.Token, range: NSRange) {
+    public init(kind: LanguageConfiguration.Token, range: Range<String.Index>) {
         self.kind = kind
         self.range = range
     }
@@ -77,8 +75,69 @@ nonisolated public struct DiffToken: Sendable, Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(range)
-        // LanguageConfiguration.Token is Equatable but not Hashable; the
-        // mirror description is deterministic for a given case + payload.
-        hasher.combine(String(describing: kind))
+        Self.hash(kind: kind, into: &hasher)
+    }
+
+    // Explicit per-case discriminator. Upstream `LanguageConfiguration.Token`
+    // is Equatable but not Hashable, so we cannot synthesise. A new upstream
+    // case shows up as a non-exhaustive switch warning here — preferable to
+    // silent Mirror drift.
+    private static func hash(kind: LanguageConfiguration.Token, into hasher: inout Hasher) {
+        switch kind {
+        case .roundBracketOpen: hasher.combine(0)
+        case .roundBracketClose: hasher.combine(1)
+        case .squareBracketOpen: hasher.combine(2)
+        case .squareBracketClose: hasher.combine(3)
+        case .curlyBracketOpen: hasher.combine(4)
+        case .curlyBracketClose: hasher.combine(5)
+        case .string: hasher.combine(6)
+        case .character: hasher.combine(7)
+        case .number: hasher.combine(8)
+        case .singleLineComment: hasher.combine(9)
+        case .nestedCommentOpen: hasher.combine(10)
+        case .nestedCommentClose: hasher.combine(11)
+        case .identifier(let flavour):
+            hasher.combine(12)
+            hash(flavour: flavour, into: &hasher)
+        case .operator(let flavour):
+            hasher.combine(13)
+            hash(flavour: flavour, into: &hasher)
+        case .keyword: hasher.combine(14)
+        case .symbol: hasher.combine(15)
+        case .regexp: hasher.combine(16)
+        }
+    }
+
+    private static func hash(flavour: LanguageConfiguration.Flavour?, into hasher: inout Hasher) {
+        guard let flavour else {
+            hasher.combine(0)
+            return
+        }
+        hasher.combine(1)
+        switch flavour {
+        case .module: hasher.combine(0)
+        case .type(let typeFlavour):
+            hasher.combine(1)
+            hash(typeFlavour: typeFlavour, into: &hasher)
+        case .parameter: hasher.combine(2)
+        case .typeParameter: hasher.combine(3)
+        case .variable: hasher.combine(4)
+        case .property: hasher.combine(5)
+        case .enumCase: hasher.combine(6)
+        case .function: hasher.combine(7)
+        case .method: hasher.combine(8)
+        case .macro: hasher.combine(9)
+        case .modifier: hasher.combine(10)
+        }
+    }
+
+    private static func hash(typeFlavour: LanguageConfiguration.TypeFlavour, into hasher: inout Hasher) {
+        switch typeFlavour {
+        case .class: hasher.combine(0)
+        case .struct: hasher.combine(1)
+        case .enum: hasher.combine(2)
+        case .protocol: hasher.combine(3)
+        case .other: hasher.combine(4)
+        }
     }
 }

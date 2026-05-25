@@ -1,7 +1,7 @@
 import LanguageSupport
 
 extension LanguageConfiguration {
-    static func markdown() -> LanguageConfiguration {
+    nonisolated static func markdown() -> LanguageConfiguration {
         LanguageConfiguration(
             name: "Markdown",
             supportsSquareBrackets: true,

@@ -250,4 +250,158 @@ struct DiffParserTests {
         #expect(added.tokens.contains { $0.kind == .number })
         #expect(trueLine.tokens.contains { $0.kind == .keyword })
     }
+
+    // MARK: - Regression: multi-hunk file with a malformed second @@
+
+    @Test("malformed second hunk preserves prior good hunks of same file")
+    func multiHunkSecondMalformed() throws {
+        let diff = try loadFixture("multi-hunk-second-malformed.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Sources/Partial.swift")
+        // The first hunk is well-formed and must survive the malformed second.
+        try #require(file.hunks.count == 1)
+        let kinds = file.hunks[0].lines.map { $0.kind }
+        #expect(kinds == [.removed, .added])
+    }
+
+    // MARK: - Path handling
+
+    @Test("path with spaces survives extractPath")
+    func pathWithSpaces() throws {
+        let diff = try loadFixture("path-with-spaces.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        #expect(files[0].path == "Sources/has space.txt")
+    }
+
+    @Test("C-quoted path in diff --git header is recovered without surrounding quotes")
+    func pathQuoted() throws {
+        let diff = try loadFixture("path-quoted.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        #expect(files[0].path == "Sources/qu oted.txt")
+    }
+
+    @Test("+++ b/<path> updates the file path when diff --git disagrees")
+    func adoptDestinationPathFromTripletPlus() {
+        let diff = """
+            diff --git a/old/name b/old/name
+            index 1111111..2222222 100644
+            --- a/old/name
+            +++ b/new/name
+            @@ -1,1 +1,1 @@
+            -old
+            +new
+            """
+        let files = DiffParser.parse(unifiedDiff: diff)
+        #expect(files.first?.path == "new/name")
+    }
+
+    @Test("diff --git with no path emits no FileDiff")
+    func emptyPathSkipped() {
+        // `diff --git ` with no a/ b/ paths is malformed; should be skipped.
+        let diff = "diff --git \n@@ -1,1 +1,1 @@\n-a\n+b\n"
+        let files = DiffParser.parse(unifiedDiff: diff)
+        #expect(files.isEmpty)
+    }
+
+    // MARK: - Status guards
+
+    @Test("--- /dev/null does NOT flip an explicit .added to .deleted via stray +++ /dev/null")
+    func addedDoesNotFlipToDeleted() throws {
+        let diff = try loadFixture("added-no-flip.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        // The fixture has a malformed `+++ /dev/null` after `new file mode`;
+        // status must remain .added (override guard refuses to flip).
+        #expect(files[0].status == .added)
+    }
+
+    @Test(".modified with pending modeChange is not stomped by /dev/null")
+    func modeChangeSurvivesDevNullOverride() {
+        let diff = """
+            diff --git a/run.sh b/run.sh
+            old mode 100644
+            new mode 100755
+            index 1111111..2222222
+            +++ /dev/null
+            """
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try? #require(files.count == 1)
+        #expect(files.first?.status == .modified)
+        #expect(files.first?.modeChange == ModeChange(old: "100644", new: "100755"))
+    }
+
+    // MARK: - Mode change pair
+
+    @Test("half-formed mode change (only old mode) emits modeChange == nil")
+    func halfFormedModeChange() throws {
+        let diff = try loadFixture("half-mode-change.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        #expect(files[0].modeChange == nil)
+    }
+
+    // MARK: - Contradictory status + body
+
+    @Test("binary status drops any stray text hunks")
+    func binaryDropsHunks() {
+        let diff = """
+            diff --git a/asset.bin b/asset.bin
+            index 1111111..2222222 100644
+            --- a/asset.bin
+            +++ b/asset.bin
+            Binary files a/asset.bin and b/asset.bin differ
+            @@ -1,1 +1,1 @@
+            -stray
+            +stray
+            """
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try? #require(files.count == 1)
+        #expect(files.first?.status == .binary)
+        #expect(files.first?.hunks.isEmpty == true)
+    }
+
+    // MARK: - Body line edge cases
+
+    @Test("empty body line inside a hunk parses as a blank context line")
+    func emptyContextLine() throws {
+        let diff = try loadFixture("empty-context-line.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let hunk = try #require(files[0].hunks.first)
+        let kinds = hunk.lines.map { $0.kind }
+        #expect(kinds == [.context, .context, .removed, .added])
+        // The middle context line is blank.
+        #expect(hunk.lines[1].content.isEmpty)
+    }
+
+    // MARK: - Tokenisation
+
+    @Test("JSON string with escaped backslash before closing quote tokenises")
+    func jsonEscapedBackslash() throws {
+        let diff = try loadFixture("json-escaped-backslash.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let hunk = try #require(files[0].hunks.first)
+        let added = try #require(hunk.lines.first { $0.kind == .added })
+        // The added line contains "C:\\new\\". Without the escape-aware regex
+        // the closing quote would be consumed as part of \", failing to match.
+        #expect(added.tokens.contains { $0.kind == .string })
+    }
+
+    @Test("emoji content: token ranges round-trip via Range<String.Index>")
+    func emojiTokenRanges() throws {
+        let diff = try loadFixture("emoji-content.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let hunk = try #require(files[0].hunks.first)
+        let added = try #require(hunk.lines.first { $0.kind == .added })
+        // Each token range must produce a valid Substring without trapping.
+        for token in added.tokens {
+            _ = added.content[token.range]
+        }
+    }
 }
