@@ -249,21 +249,15 @@ struct IssueDetailView: View {
                 layout: editorLayout
             )
         case .pullRequest:
-            PRTabView(
-                content: model.prContent,
-                position: $editorPosition,
-                messages: $editorMessages,
-                language: markdownLanguage,
-                layout: editorLayout
-            )
-            .task(id: model.selectedBodyTab) {
-                // Reload-on-show: pr.md changes externally (e.g.
-                // /plumage-implement just wrote it), and the tab is
-                // read-only so there's no dirty-conflict to worry about.
-                if model.selectedBodyTab == .pullRequest {
-                    await model.loadPR()
+            PRTabView(content: model.prContent)
+                .task(id: model.selectedBodyTab) {
+                    // Reload-on-show: pr.md changes externally (e.g.
+                    // /plumage-implement just wrote it), and the tab is
+                    // read-only so there's no dirty-conflict to worry about.
+                    if model.selectedBodyTab == .pullRequest {
+                        await model.loadPR()
+                    }
                 }
-            }
         case .diff:
             if let diffTabModel {
                 DiffTabView(model: diffTabModel)
