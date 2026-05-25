@@ -100,12 +100,29 @@ nonisolated public enum DiffParser {
     // MARK: - Header (non-body, non-hunk)
 
     private static func handleHeaderLine(_ line: String, state: inout ParseState) {
-        // Subsequent tasks fill this in. For now only --- / +++ path
-        // confirmation is recognised; everything else is intentionally
-        // skipped (forgiving parse).
-        if line.hasPrefix("--- ") || line.hasPrefix("+++ ") {
+        if line.hasPrefix("new file mode ") {
+            state.currentFile?.status = .added
             return
         }
+        if line.hasPrefix("deleted file mode ") {
+            state.currentFile?.status = .deleted
+            return
+        }
+        if line.hasPrefix("--- ") {
+            let path = String(line.dropFirst("--- ".count))
+            if path == "/dev/null" {
+                state.currentFile?.status = .added
+            }
+            return
+        }
+        if line.hasPrefix("+++ ") {
+            let path = String(line.dropFirst("+++ ".count))
+            if path == "/dev/null" {
+                state.currentFile?.status = .deleted
+            }
+            return
+        }
+        // Unknown header lines are intentionally skipped (forgiving parse).
     }
 
     // MARK: - Hunk

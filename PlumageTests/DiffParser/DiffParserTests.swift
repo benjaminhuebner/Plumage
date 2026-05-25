@@ -62,6 +62,32 @@ struct DiffParserTests {
         #expect(added.tokens.contains { $0.kind == .string })
     }
 
+    @Test("file added: status .added, all body lines are .added")
+    func fileAdded() throws {
+        let diff = try loadFixture("file-added.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Sources/NewFile.swift")
+        #expect(file.status == .added)
+        let hunk = try #require(file.hunks.first)
+        let kinds = Set(hunk.lines.map { $0.kind })
+        #expect(kinds == [.added])
+    }
+
+    @Test("file deleted: status .deleted, all body lines are .removed")
+    func fileDeleted() throws {
+        let diff = try loadFixture("file-deleted.diff")
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        let file = files[0]
+        #expect(file.path == "Sources/Legacy.swift")
+        #expect(file.status == .deleted)
+        let hunk = try #require(file.hunks.first)
+        let kinds = Set(hunk.lines.map { $0.kind })
+        #expect(kinds == [.removed])
+    }
+
     @Test("json edit: string + number + reserved tokens recognised")
     func jsonTokens() throws {
         let diff = try loadFixture("json-config-change.diff")
