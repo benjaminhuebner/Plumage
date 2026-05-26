@@ -4,6 +4,7 @@ struct ProjectSettingsView: View {
     let projectURL: URL
 
     @State private var model: ProjectSettingsModel
+    @Environment(\.onProjectConfigSaved) private var onProjectConfigSaved
 
     init(projectURL: URL) {
         self.projectURL = projectURL
@@ -22,7 +23,10 @@ struct ProjectSettingsView: View {
             .frame(maxWidth: 920, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task { await model.load() }
+        .task {
+            model.onSaved = onProjectConfigSaved
+            await model.load()
+        }
         .overlay(alignment: .bottom) {
             if case .failed(let message) = model.saveStatus {
                 saveErrorBanner(message: message)

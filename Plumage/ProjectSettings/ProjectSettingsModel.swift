@@ -49,6 +49,12 @@ final class ProjectSettingsModel {
     // Injectable write callback so tests can drive the debounced path without
     // hitting disk. Default uses ConfigWriter.write atomically.
     private let writer: @MainActor (ProjectConfig, URL) throws -> Void
+    // Fires after every successful save with the snapshot just persisted.
+    // ProjectSettingsView wires this to an environment callback that
+    // ProjectWindow uses to refresh ProjectModel.state and
+    // TerminalTabsModel.modelsConfig — without it, picker changes hit disk
+    // but live tabs keep spawning with the stale ModelsConfig.
+    var onSaved: @MainActor (ProjectConfig) -> Void = { _ in }
 
     init(
         projectURL: URL,
@@ -180,6 +186,7 @@ final class ProjectSettingsModel {
             }.value
             baseConfig = snapshot
             saveStatus = .saved
+            onSaved(snapshot)
         } catch {
             saveStatus = .failed(message: error.localizedDescription)
         }

@@ -19,6 +19,14 @@ final class ProjectModel {
         self.state = newState
     }
 
+    // In-memory state update from a known-good snapshot. ProjectSettingsModel
+    // calls this right after persisting to disk so the rest of the window
+    // (terminalTabs.modelsConfig, runWorkflow's workflows lookup) sees the
+    // mutation without an extra disk re-read on the main actor.
+    func setLoaded(_ config: ProjectConfig) {
+        state = .loaded(config)
+    }
+
     private nonisolated static func loadConfig(at url: URL) -> LoadState {
         do {
             let config = try ConfigLoader.load(at: url)

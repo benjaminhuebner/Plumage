@@ -358,6 +358,14 @@ struct ProjectWindow: View {
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
                 .environment(\.runWorkflow, runWorkflow(_:folderName:))
+                .environment(\.onProjectConfigSaved) { saved in
+                    // Mirror the disk-write into ProjectModel so the rest of
+                    // the window (runWorkflow → currentConfig().workflows)
+                    // and the live tabs model both see the picker change
+                    // immediately, without waiting for a window reopen.
+                    model.setLoaded(saved)
+                    terminalTabs.modelsConfig = saved.models
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
