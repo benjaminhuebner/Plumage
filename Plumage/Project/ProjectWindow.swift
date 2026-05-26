@@ -126,23 +126,38 @@ struct ProjectWindow: View {
                 // about-to-be-released old session, return [] once rebuilt
                 // swapped it out, and silently allow the chat session's ID to
                 // be adopted by the terminal reconcile.
-                session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
-                // Window reused for a different handle: stop all existing
-                // tabs and spin up a fresh tabs model with a new default tab.
-                if terminalTabs.cwd != handle.url {
+                // Load config synchronously so the initial sessions pick up
+                // per-project model overrides before attach(). The async
+                // model.reload below covers the @Observable view-state path.
+                let initialConfig = try? ConfigLoader.load(at: handle.url)
+                let chatModel = initialConfig?.models?.chat ?? .default
+                let terminalsModel = initialConfig?.models?.terminals ?? .default
+                session = ClaudeSession.rebuilt(
+                    for: handle.url, replacing: session, modelChoice: chatModel
+                )
+                // Window reused for a different handle, OR the terminals
+                // model preference changed in config: rebuild the tabs model
+                // so the next-spawned default tab uses the right model.
+                if terminalTabs.cwd != handle.url
+                    || terminalTabs.mainSession.modelChoice != terminalsModel
+                {
                     terminalTabs.stopAll()
                     let newBinary =
                         (try? ProductionProcessRunner.locateBinary())
                         ?? URL(filePath: "/dev/null")
                     let newInitial = TerminalClaudeSession(
                         cwd: handle.url, binaryURL: newBinary,
+                        modelChoice: terminalsModel,
                         persistConversationID: false
                     )
                     terminalTabs = TerminalTabsModel(
                         cwd: handle.url,
                         binaryURL: newBinary,
-                        initialSession: newInitial
+                        initialSession: newInitial,
+                        modelsConfig: initialConfig?.models
                     )
+                } else {
+                    terminalTabs.modelsConfig = initialConfig?.models
                 }
                 // Chat shares the claude log dir with terminal; without this
                 // exclude the terminal's reconcile would adopt chat's session

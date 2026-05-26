@@ -340,6 +340,40 @@ struct TerminalTabsModelTests {
         #expect(model.selectedTabID == secondID)
     }
 
+    // MARK: - Models config threading
+
+    @Test("addTab picks up models.terminals from current config")
+    func addTabUsesTerminalsModel() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(terminals: .sonnet)
+        model.addTab()
+        #expect(model.tabs.last?.session.modelChoice == .sonnet)
+    }
+
+    @Test("addWorkflowTab picks up models.<action> per workflow")
+    func addWorkflowTabUsesWorkflowModel() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(
+            plan: .opusPlan, implement: .opus, review: .haiku
+        )
+        let plan = model.addWorkflowTab(action: .plan, slug: "x")
+        let impl = model.addWorkflowTab(action: .implement, slug: "x")
+        let rev = model.addWorkflowTab(action: .review, slug: "x")
+        #expect(plan.session.modelChoice == .opusPlan)
+        #expect(impl.session.modelChoice == .opus)
+        #expect(rev.session.modelChoice == .haiku)
+    }
+
+    @Test("missing modelsConfig falls back to .default")
+    func defaultModelFallback() {
+        let model = makeModel()
+        model.modelsConfig = nil
+        model.addTab()
+        let wf = model.addWorkflowTab(action: .implement, slug: "x")
+        #expect(model.tabs.last?.session.modelChoice == .default)
+        #expect(wf.session.modelChoice == .default)
+    }
+
     // MARK: - Helpers
 
     private func makeModel(
