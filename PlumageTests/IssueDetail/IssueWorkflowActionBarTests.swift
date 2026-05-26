@@ -113,7 +113,7 @@ struct WorkflowActionDisabledTooltipTests {
         for action in WorkflowAction.allCases {
             #expect(
                 action.disabledTooltip(status: .done, type: .feature)
-                    == "Issue ist abgeschlossen."
+                    == "Issue is done."
             )
         }
     }
@@ -123,7 +123,7 @@ struct WorkflowActionDisabledTooltipTests {
         for action in WorkflowAction.allCases {
             #expect(
                 action.disabledTooltip(status: .blocked, type: .feature)
-                    == "Issue ist blockiert."
+                    == "Issue is blocked."
             )
         }
     }
@@ -132,7 +132,7 @@ struct WorkflowActionDisabledTooltipTests {
     func planNonFeatureDraft() {
         #expect(
             WorkflowAction.plan.disabledTooltip(status: .draft, type: .chore)
-                .contains("Nur Feature-Issues")
+                .contains("Only feature issues")
         )
     }
 
@@ -140,7 +140,7 @@ struct WorkflowActionDisabledTooltipTests {
     func planAlreadyApprovedFallback() {
         #expect(
             WorkflowAction.plan.disabledTooltip(status: .approved, type: .feature)
-                == "Issue ist bereits approved oder weiter."
+                == "Issue is already approved or further along."
         )
     }
 
@@ -148,7 +148,7 @@ struct WorkflowActionDisabledTooltipTests {
     func implementMustBePlanned() {
         #expect(
             WorkflowAction.implement.disabledTooltip(status: .draft, type: .feature)
-                == "Issue muss erst geplant werden (Plan-Button)."
+                == "Issue must be planned first (Plan button)."
         )
     }
 
@@ -156,7 +156,7 @@ struct WorkflowActionDisabledTooltipTests {
     func reviewNotYetImplemented() {
         #expect(
             WorkflowAction.review.disabledTooltip(status: .inProgress, type: .feature)
-                == "Issue ist noch nicht implementiert."
+                == "Issue is not yet implemented."
         )
     }
 }

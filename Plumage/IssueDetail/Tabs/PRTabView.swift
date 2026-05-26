@@ -16,9 +16,9 @@ struct PRTabView: View {
         } else {
             BodyTabEmptyState(
                 symbol: "doc.text.magnifyingglass",
-                title: "Noch keine pr.md",
+                title: "No pr.md yet",
                 detail:
-                    "Wird von `/plumage-implement` angelegt, sobald das Issue auf `waiting-for-review` wechselt."
+                    "Created by `/plumage-implement` once the issue moves to `waiting-for-review`."
             )
         }
     }

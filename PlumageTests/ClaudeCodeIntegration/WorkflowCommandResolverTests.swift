@@ -138,4 +138,43 @@ struct WorkflowCommandResolverTests {
         )
         #expect(lines == ["/cmd"])
     }
+
+    @Test("substitution does not cascade — literal <spec> in prompt stays literal")
+    func substitutionNoCascade() throws {
+        // prompt.md contains the literal token "<spec>". A naive sequential
+        // substitution (slug → prompt → spec) would expand the user's
+        // literal text into the actual spec content. Single-pass resolver
+        // must leave it alone.
+        let fx = try makeFixture(
+            spec: "ACTUAL-SPEC-CONTENT",
+            prompt: "Document the <spec> handling please."
+        )
+        defer { fx.cleanup() }
+        let lines = WorkflowCommandResolver.resolve(
+            action: .plan, slug: "x",
+            specURL: fx.specURL, promptURL: fx.promptURL,
+            override: nil
+        )
+        #expect(lines.count == 2)
+        #expect(lines[0] == "/plumage-plan x")
+        #expect(lines[1] == "Document the <spec> handling please.")
+        #expect(!lines[1].contains("ACTUAL-SPEC-CONTENT"))
+    }
+
+    @Test("substitution does not cascade — literal <prompt> in slug stays literal")
+    func substitutionNoCascadeSlug() throws {
+        let fx = try makeFixture(prompt: "PROMPT-BODY")
+        defer { fx.cleanup() }
+        // Unrealistic slug, but it stresses the same single-pass invariant:
+        // the slug payload, once written into the line, must not be rescanned
+        // for further token expansion.
+        let override = WorkflowOverride(command: "/cmd <slug>")
+        let lines = WorkflowCommandResolver.resolve(
+            action: .plan, slug: "<prompt>",
+            specURL: fx.specURL, promptURL: fx.promptURL,
+            override: override
+        )
+        #expect(lines == ["/cmd <prompt>"])
+        #expect(!(lines.first ?? "").contains("PROMPT-BODY"))
+    }
 }

@@ -15,8 +15,15 @@ struct ProjectSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                workflowCommandsSection
-                modelsSection
+                switch model.loadState {
+                case .loading:
+                    loadingPlaceholder
+                case .failed(let message):
+                    loadFailedBanner(message: message)
+                case .loaded:
+                    workflowCommandsSection
+                    modelsSection
+                }
                 Spacer(minLength: 32)
             }
             .padding(28)
@@ -32,6 +39,35 @@ struct ProjectSettingsView: View {
                 saveErrorBanner(message: message)
             }
         }
+    }
+
+    @ViewBuilder
+    private var loadingPlaceholder: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Loading project settings…")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+        }
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func loadFailedBanner(message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Could not load project settings")
+                    .font(.subheadline).bold()
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -139,7 +175,8 @@ struct ProjectSettingsView: View {
             ForEach(ModelSlot.allCases, id: \.self) { slot in
                 ModelPickerRow(
                     label: slot.label,
-                    choice: modelBinding(for: slot)
+                    choice: modelBinding(for: slot),
+                    fallback: ModelsConfig.slotDefault(for: slot)
                 )
             }
             Label(

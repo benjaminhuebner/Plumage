@@ -24,24 +24,63 @@ struct ClaudeThemeInstallerTests {
         #expect(overrides["background"] as? String == "transparent")
     }
 
-    @Test("ensureSettingsTheme sets theme when absent — uses claude's custom: prefix")
-    func setsThemeWhenAbsent() throws {
+    @Test("perSessionSettingsJSON is valid JSON with the custom:plumage theme value")
+    func perSessionJSONShape() throws {
+        let data = try #require(
+            ClaudeThemeInstaller.perSessionSettingsJSON.data(using: .utf8))
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // claude requires the `custom:` prefix — bare "plumage" is silently
+        // treated as an unknown built-in and falls back to "Dark mode".
+        #expect(json["theme"] as? String == "custom:plumage")
+        // Must stay free of characters that would break single-quote shell
+        // wrapping in TerminalClaudeSession.shellQuotedAttachArgs.
+        #expect(!ClaudeThemeInstaller.perSessionSettingsJSON.contains("'"))
+        #expect(!ClaudeThemeInstaller.perSessionSettingsJSON.contains("\n"))
+    }
+
+    @Test("removeManagedThemeFromSettings strips custom:plumage and leaves siblings alone")
+    func removesCustomPlumage() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
         let settings = tmp.appendingPathComponent("settings.json")
-        try "{}".write(to: settings, atomically: true, encoding: .utf8)
+        try #"{"theme": "custom:plumage", "model": "sonnet", "untouched": true}"#
+            .write(to: settings, atomically: true, encoding: .utf8)
 
-        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
 
         let data = try Data(contentsOf: settings)
         let json = try #require(
             try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        // Bare "plumage" is treated as an unknown built-in by claude — must
-        // be stored with the "custom:" prefix to be recognized.
-        #expect(json["theme"] as? String == "custom:plumage")
+        // The theme key is gone entirely so claude falls back to whatever
+        // default it picks for the user's own terminal.
+        #expect(json["theme"] == nil)
+        // Unrelated keys must survive — settings.json is shared state owned
+        // by claude (api_key_helper, permissions, model, …).
+        #expect(json["model"] as? String == "sonnet")
+        #expect(json["untouched"] as? Bool == true)
     }
 
-    @Test("ensureSettingsTheme preserves user's non-plumage theme choice")
+    @Test("removeManagedThemeFromSettings strips legacy bare 'plumage' value")
+    func removesLegacyBareValue() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let settings = tmp.appendingPathComponent("settings.json")
+        // Pre-`custom:` Plumage builds wrote the bare name. Treat it as ours
+        // and migrate it out the same way.
+        try #"{"theme": "plumage", "other": "value"}"#
+            .write(to: settings, atomically: true, encoding: .utf8)
+
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
+
+        let data = try Data(contentsOf: settings)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["theme"] == nil)
+        #expect(json["other"] as? String == "value")
+    }
+
+    @Test("removeManagedThemeFromSettings preserves a user-chosen non-plumage theme")
     func preservesUserTheme() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -49,48 +88,64 @@ struct ClaudeThemeInstallerTests {
         try #"{"theme": "dark-daltonized", "other": "value"}"#
             .write(to: settings, atomically: true, encoding: .utf8)
 
-        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
 
         let data = try Data(contentsOf: settings)
         let json = try #require(
             try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // User picked their own theme — we never overwrite or remove it.
         #expect(json["theme"] as? String == "dark-daltonized")
         #expect(json["other"] as? String == "value")
     }
 
-    @Test("ensureSettingsTheme creates settings file when missing")
-    func createsSettingsWhenMissing() throws {
+    @Test("removeManagedThemeFromSettings is a no-op when settings.json has no theme key")
+    func noOpWhenThemeAbsent() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let settings = tmp.appendingPathComponent("settings.json")
+        let before = #"{"model": "sonnet"}"#
+        try before.write(to: settings, atomically: true, encoding: .utf8)
+
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
+
+        // No theme key means nothing for us to do — leave the file byte-for-
+        // byte intact rather than re-serializing it (which could churn key
+        // order or formatting in a way that surprises other tooling).
+        let after = try String(contentsOf: settings, encoding: .utf8)
+        #expect(after == before)
+    }
+
+    @Test("removeManagedThemeFromSettings is a no-op when settings.json does not exist")
+    func noOpWhenFileMissing() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
         let settings = tmp.appendingPathComponent("settings.json")
 
-        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
 
-        let data = try Data(contentsOf: settings)
-        let json = try #require(
-            try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["theme"] as? String == "custom:plumage")
+        // We never create settings.json — that's claude's job. A fresh
+        // install must not produce an empty file as a side effect.
+        #expect(!FileManager.default.fileExists(atPath: settings.path))
     }
 
-    @Test("ensureSettingsTheme leaves an unparseable settings.json untouched")
+    @Test("removeManagedThemeFromSettings leaves an unparseable settings.json untouched")
     func bailsOnCorruptSettings() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
         let settings = tmp.appendingPathComponent("settings.json")
-        // settings.json is owned by claude (api_key_helper, permissions, model,
-        // …). If JSONSerialization can't parse it (BOM, trailing commas from
-        // another tool, hand-edit), we must NOT silently overwrite — that
-        // would destroy unrelated config. The installer should bail.
+        // settings.json is owned by claude. If JSONSerialization can't parse
+        // it (BOM, trailing commas from another tool, hand-edit), we must
+        // NOT silently overwrite — that would destroy unrelated config.
         let corrupt = "not valid { json } # with comment"
         try corrupt.write(to: settings, atomically: true, encoding: .utf8)
 
-        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
 
         let after = try String(contentsOf: settings, encoding: .utf8)
         #expect(after == corrupt)
     }
 
-    @Test("ensureSettingsTheme leaves a JSON-array settings.json untouched")
+    @Test("removeManagedThemeFromSettings leaves a JSON-array settings.json untouched")
     func bailsOnNonDictRoot() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -100,47 +155,10 @@ struct ClaudeThemeInstallerTests {
         let arrayRoot = "[\"foo\", \"bar\"]"
         try arrayRoot.write(to: settings, atomically: true, encoding: .utf8)
 
-        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
 
         let after = try String(contentsOf: settings, encoding: .utf8)
         #expect(after == arrayRoot)
-    }
-
-    @Test("ensureSettingsTheme migrates legacy bare 'plumage' to 'custom:plumage'")
-    func migratesLegacyBareName() throws {
-        let tmp = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let settings = tmp.appendingPathComponent("settings.json")
-        // Older Plumage builds wrote the bare name. claude treats it as an
-        // unknown built-in and falls back to "Dark mode", so this is broken
-        // for users on the legacy value — we forward-migrate it.
-        try #"{"theme": "plumage", "untouched": true}"#
-            .write(to: settings, atomically: true, encoding: .utf8)
-
-        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
-
-        let data = try Data(contentsOf: settings)
-        let json = try #require(
-            try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["theme"] as? String == "custom:plumage")
-        #expect(json["untouched"] as? Bool == true)
-    }
-
-    @Test("ensureSettingsTheme re-syncs existing custom:plumage entry without churn")
-    func resyncsCustomPlumageEntry() throws {
-        let tmp = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        let settings = tmp.appendingPathComponent("settings.json")
-        try #"{"theme": "custom:plumage", "untouched": true}"#
-            .write(to: settings, atomically: true, encoding: .utf8)
-
-        try ClaudeThemeInstaller.ensureSettingsTheme(settingsURL: settings)
-
-        let data = try Data(contentsOf: settings)
-        let json = try #require(
-            try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["theme"] as? String == "custom:plumage")
-        #expect(json["untouched"] as? Bool == true)
     }
 
     private func makeTempDir() throws -> URL {

@@ -476,45 +476,31 @@ struct ProjectWindow: View {
 
         let session = workflowTab.session
         let slug = action.slug
+        // CR (\r) is what the terminal sends on Enter. claude's TUI treats
+        // \n as a multi-line continuation (Shift+Enter style) and only \r as
+        // submit — strip embedded \r from each line first so a stray Enter
+        // doesn't submit a partial block early, then append \r as the
+        // terminator.
+        let payloads = lines.map { line in
+            line.replacingOccurrences(of: "\r", with: "") + "\r"
+        }
 
         workflowTask = Task { @MainActor in
-            for (index, line) in lines.enumerated() {
-                // CR (\r) is what the terminal sends on Enter. claude's TUI
-                // treats \n as a multi-line continuation (Shift+Enter style)
-                // and only \r as submit — strip embedded \r first so a stray
-                // Enter in the line doesn't submit a partial block early.
-                let payload = line.replacingOccurrences(of: "\r", with: "") + "\r"
-                let isFirst = index == 0
-                let result =
-                    isFirst
-                    ? await session.inject(slashCommand: payload, followUpBody: nil)
-                    : await session.inject(
-                        slashCommand: payload, followUpBody: nil,
-                        timeout: .seconds(0)
-                    )
-                switch result {
-                case .sessionExited:
-                    Self.log.info(
-                        "runWorkflow: session exited mid-inject for \(slug, privacy: .public)."
-                    )
-                    return
-                case .timedOut where isFirst:
-                    Self.log.warning(
-                        "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
-                    )
-                    return
-                case .timedOut, .cancelled:
-                    return
-                case .injected:
-                    if index + 1 < lines.count {
-                        // Give claude's REPL a moment to receive + render the
-                        // prior line before pushing the next one. 800ms mirrors
-                        // the prior plan-prompt-bodyDelay so existing UX timing
-                        // stays unchanged for the default template path.
-                        try? await Task.sleep(for: .milliseconds(800))
-                        if Task.isCancelled { return }
-                    }
-                }
+            // Single inject call covers every line: consumePending() runs
+            // exactly once at entry so the prior line can never be silently
+            // drained between iterations (see TerminalClaudeSession.injectLines).
+            let result = await session.injectLines(payloads)
+            switch result {
+            case .sessionExited:
+                Self.log.info(
+                    "runWorkflow: session exited mid-inject for \(slug, privacy: .public)."
+                )
+            case .timedOut:
+                Self.log.warning(
+                    "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
+                )
+            case .injected, .cancelled:
+                break
             }
         }
     }

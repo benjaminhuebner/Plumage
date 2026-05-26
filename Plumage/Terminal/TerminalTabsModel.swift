@@ -12,7 +12,7 @@ final class TerminalTabsModel {
     // Per-project model overrides. ProjectWindow refreshes this on config
     // reload so a newly-spawned tab picks up the latest picker selection;
     // already-running tabs keep their original model (the spec calls out
-    // "Änderung wirkt erst auf neue Sessions/Tabs.").
+    // "changes only take effect for new sessions/tabs").
     var modelsConfig: ModelsConfig?
     // Injected by ProjectWindow — currently returns the chat session's
     // conversationID so terminal reconcile never adopts it. With every

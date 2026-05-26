@@ -146,8 +146,20 @@ struct ProjectSettingsModelTests {
     }
 }
 
-@MainActor
-private final class WriteCounter {
-    var value: Int = 0
-    func bump() { value += 1 }
+// @unchecked Sendable: the writer closure runs off MainActor since the
+// production write happens in a detached task. NSLock keeps bump/value safe
+// regardless of which actor calls in.
+private final class WriteCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Int = 0
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _value
+    }
+    func bump() {
+        lock.lock()
+        defer { lock.unlock() }
+        _value += 1
+    }
 }

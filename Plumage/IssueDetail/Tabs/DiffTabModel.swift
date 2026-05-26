@@ -70,7 +70,7 @@ final class DiffTabModel {
                 let rawDiff = try await runner.run(repoURL: repo, base: base)
                 if Task.isCancelled { return }
                 let parsed = DiffParser.parse(unifiedDiff: rawDiff)
-                guard let self, await self.isCurrentGeneration(generation) else { return }
+                guard let self, self.isCurrentGeneration(generation) else { return }
                 if parsed.isEmpty {
                     self.state = .empty
                 } else {
@@ -79,10 +79,10 @@ final class DiffTabModel {
             } catch is CancellationError {
                 return
             } catch let error as GitDiffError {
-                guard let self, await self.isCurrentGeneration(generation) else { return }
+                guard let self, self.isCurrentGeneration(generation) else { return }
                 self.state = .error(error)
             } catch {
-                guard let self, await self.isCurrentGeneration(generation) else { return }
+                guard let self, self.isCurrentGeneration(generation) else { return }
                 self.state = .error(.spawnFailed(error.localizedDescription))
             }
         }

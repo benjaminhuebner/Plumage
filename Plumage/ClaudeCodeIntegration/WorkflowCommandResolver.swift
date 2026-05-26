@@ -10,6 +10,16 @@ nonisolated enum WorkflowCommandResolver {
         .review: ["/plumage-review <slug>"],
     ]
 
+    // Matches each placeholder token in a single left-to-right scan so
+    // substituted content can never re-enter the substitution chain
+    // (prompt.md containing literal `<spec>` no longer expands recursively).
+    private static let tokenPattern: NSRegularExpression = {
+        guard let regex = try? NSRegularExpression(pattern: "<(slug|prompt|spec)>", options: []) else {
+            preconditionFailure("Invariant: workflow token regex must compile")
+        }
+        return regex
+    }()
+
     static func resolve(
         action: WorkflowAction,
         slug: String,
@@ -32,11 +42,12 @@ nonisolated enum WorkflowCommandResolver {
             (try? String(contentsOf: specURL, encoding: .utf8)) ?? ""
 
         return template.compactMap { line in
-            let substituted =
-                line
-                .replacingOccurrences(of: "<slug>", with: slug)
-                .replacingOccurrences(of: "<prompt>", with: promptContents)
-                .replacingOccurrences(of: "<spec>", with: specContents)
+            let substituted = substitute(
+                line: line,
+                slug: slug,
+                prompt: promptContents,
+                spec: specContents
+            )
             // Filter lines that resolve to empty content. A bare `<prompt>`
             // template with an empty prompt would otherwise inject a blank
             // turn into claude's REPL.
@@ -45,5 +56,52 @@ nonisolated enum WorkflowCommandResolver {
             }
             return substituted
         }
+    }
+
+    // Single-pass substitution: walks the line once, replaces every matched
+    // token with the corresponding payload. Substituted payloads are NOT
+    // rescanned, so a `<prompt>` substitution that happens to expand to a
+    // string containing `<spec>` stays literal.
+    private static func substitute(
+        line: String, slug: String, prompt: String, spec: String
+    ) -> String {
+        let nsLine = line as NSString
+        let range = NSRange(location: 0, length: nsLine.length)
+        let matches = tokenPattern.matches(in: line, options: [], range: range)
+        guard !matches.isEmpty else { return line }
+
+        var result = ""
+        var cursor = 0
+        for match in matches {
+            if match.range.location > cursor {
+                result.append(
+                    nsLine.substring(
+                        with: NSRange(
+                            location: cursor,
+                            length: match.range.location - cursor
+                        )
+                    )
+                )
+            }
+            let tokenName = nsLine.substring(with: match.range(at: 1))
+            switch tokenName {
+            case "slug": result.append(slug)
+            case "prompt": result.append(prompt)
+            case "spec": result.append(spec)
+            default: result.append(nsLine.substring(with: match.range))
+            }
+            cursor = match.range.location + match.range.length
+        }
+        if cursor < nsLine.length {
+            result.append(
+                nsLine.substring(
+                    with: NSRange(
+                        location: cursor,
+                        length: nsLine.length - cursor
+                    )
+                )
+            )
+        }
+        return result
     }
 }

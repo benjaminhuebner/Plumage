@@ -22,8 +22,8 @@ struct DiffTabView: View {
     private var emptyState: some View {
         BodyTabEmptyState(
             symbol: "checkmark.diamond",
-            title: "Keine Änderungen auf diesem Branch",
-            detail: "Committe etwas, um den Diff zu sehen."
+            title: "No changes on this branch",
+            detail: "Commit something to see the diff."
         )
     }
 
@@ -31,7 +31,7 @@ struct DiffTabView: View {
     private func errorState(_ error: GitDiffError) -> some View {
         BodyTabEmptyState(
             symbol: "exclamationmark.triangle",
-            title: "Diff konnte nicht geladen werden",
+            title: "Could not load diff",
             detail: error.displayMessage
         )
     }

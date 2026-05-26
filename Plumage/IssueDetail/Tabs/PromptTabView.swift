@@ -21,7 +21,7 @@ struct PromptTabView: View {
             .frame(minHeight: 240)
 
             if text.isEmpty {
-                Text("Beschreibe die Idee für dieses Issue …")
+                Text("Describe the idea for this issue …")
                     .foregroundStyle(.tertiary)
                     .padding(.top, 8)
                     .padding(.leading, 16)

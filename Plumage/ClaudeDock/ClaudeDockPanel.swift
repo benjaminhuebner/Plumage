@@ -82,7 +82,7 @@ private struct DockPanelHeader: View {
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
-            .accessibilityLabel("Claude schließen")
+            .accessibilityLabel("Close Claude")
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)

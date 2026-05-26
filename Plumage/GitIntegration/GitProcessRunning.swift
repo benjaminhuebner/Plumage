@@ -16,7 +16,7 @@ nonisolated enum GitProcessRunnerError: Error, Sendable, Equatable {
     var displayMessage: String {
         switch self {
         case .gitNotFound:
-            return "`git` nicht gefunden — Command-Line-Tools installiert?"
+            return "`git` not found — are the Command Line Tools installed?"
         case .spawnFailed(let description):
             return "Failed to launch git: \(description)"
         case .nonZeroExit(let code, let stderr):

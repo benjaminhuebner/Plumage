@@ -90,18 +90,18 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
     }
 
     func disabledTooltip(status: IssueStatus, type: IssueType) -> String {
-        if status == .done { return "Issue ist abgeschlossen." }
-        if status == .blocked { return "Issue ist blockiert." }
+        if status == .done { return "Issue is done." }
+        if status == .blocked { return "Issue is blocked." }
         switch self {
         case .plan:
             if status == .draft && type != .feature {
-                return "Nur Feature-Issues werden geplant — chore/spike/refactor gehen direkt in Implement."
+                return "Only feature issues are planned — chore/spike/refactor go directly to Implement."
             }
-            return "Issue ist bereits approved oder weiter."
+            return "Issue is already approved or further along."
         case .implement:
-            return "Issue muss erst geplant werden (Plan-Button)."
+            return "Issue must be planned first (Plan button)."
         case .review:
-            return "Issue ist noch nicht implementiert."
+            return "Issue is not yet implemented."
         }
     }
 }

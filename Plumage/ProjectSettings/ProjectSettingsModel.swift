@@ -36,19 +36,25 @@ final class ProjectSettingsModel {
     }
 
     // Debounce window between the latest mutation and the disk write. 500ms
-    // matches the spec ("Disk-Write debounced (500 ms) gegen Tipp-Spam.").
+    // matches the spec ("disk write debounced (500 ms) against typing spam").
     static let debounceInterval: Duration = .milliseconds(500)
 
     private var pendingSaveTask: Task<Void, Never>?
-    // Last loaded config so writes preserve every unknown top-level key —
-    // ConfigWriter handles that, but we still need the rest of the struct
-    // (name, schemaVersion, git, …) intact when handing off to it.
+    // Most-recently-started actual save. New saves chain off this so two
+    // saves can never race on the disk write (last-writer-wins is fine,
+    // overlapping reads aren't).
+    private var inFlightSave: Task<Void, Never>?
+    // Last loaded config so writes preserve the rest of the struct (name,
+    // schemaVersion, git, …) intact when handing off to ConfigWriter.
     private var baseConfig: ProjectConfig?
     private let bundleURL: URL?
 
     // Injectable write callback so tests can drive the debounced path without
-    // hitting disk. Default uses ConfigWriter.write atomically.
-    private let writer: @MainActor (ProjectConfig, URL) throws -> Void
+    // hitting disk. Sendable so the production path can actually offload the
+    // I/O off MainActor — a previous @MainActor closure made the
+    // `Task.detached` hop pointless (writer ran back on the main thread and
+    // blocked the UI during disk I/O).
+    private let writer: @Sendable (ProjectConfig, URL) throws -> Void
     // Fires after every successful save with the snapshot just persisted.
     // ProjectSettingsView wires this to an environment callback that
     // ProjectWindow uses to refresh ProjectModel.state and
@@ -58,7 +64,7 @@ final class ProjectSettingsModel {
 
     init(
         projectURL: URL,
-        writer: @escaping @MainActor (ProjectConfig, URL) throws -> Void = { config, bundle in
+        writer: @escaping @Sendable (ProjectConfig, URL) throws -> Void = { config, bundle in
             try ConfigWriter.write(config, atBundle: bundle)
         }
     ) {
@@ -105,7 +111,13 @@ final class ProjectSettingsModel {
     static let implementDefault = "/plumage-implement <slug>"
     static let reviewDefault = "/plumage-review <slug>"
 
+    // Edits are rejected when the load failed or hasn't completed yet — the
+    // UI should disable inputs in those states, but this guard catches any
+    // call site that slips through (e.g. an async refresh racing the load).
+    var canEdit: Bool { loadState == .loaded }
+
     func resetCommand(for action: WorkflowAction) {
+        guard canEdit else { return }
         switch action {
         case .plan: planCommand = Self.planDefault
         case .implement: implementCommand = Self.implementDefault
@@ -123,6 +135,7 @@ final class ProjectSettingsModel {
     }
 
     func setCommand(_ value: String, for action: WorkflowAction) {
+        guard canEdit else { return }
         switch action {
         case .plan: planCommand = value
         case .implement: implementCommand = value
@@ -142,6 +155,7 @@ final class ProjectSettingsModel {
     }
 
     func setModel(_ value: ModelChoice, for slot: ModelSlot) {
+        guard canEdit else { return }
         switch slot {
         case .chat: chatModel = value
         case .terminals: terminalsModel = value
@@ -173,6 +187,21 @@ final class ProjectSettingsModel {
     }
 
     private func performSave() async {
+        // Chain off any in-flight save so reads + writes against disk
+        // serialize. Without this, scheduleSave_B firing while
+        // performSave_A's writer is still on the wire could let both writes
+        // race the file (writer_B reads pre-A disk state and overwrites
+        // writer_A's contribution).
+        let prior = inFlightSave
+        let task = Task { @MainActor in
+            await prior?.value
+            await self.doSave()
+        }
+        inFlightSave = task
+        await task.value
+    }
+
+    private func doSave() async {
         guard let base = baseConfig, let bundle = bundleURL else {
             saveStatus = .failed(message: "Project bundle not available.")
             return
@@ -181,7 +210,10 @@ final class ProjectSettingsModel {
         let snapshot = mutated(from: base)
         let writer = self.writer
         do {
-            try await Task.detached(priority: .userInitiated) { @MainActor in
+            // Detached + Sendable closure: actually runs off MainActor so
+            // disk I/O doesn't block the UI. ConfigWriter.write is
+            // nonisolated and ProjectConfig/URL are Sendable.
+            try await Task.detached(priority: .userInitiated) {
                 try writer(snapshot, bundle)
             }.value
             baseConfig = snapshot

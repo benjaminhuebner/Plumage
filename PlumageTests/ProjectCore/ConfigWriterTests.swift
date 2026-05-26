@@ -125,13 +125,16 @@ struct ConfigWriterTests {
         #expect(reloaded.workflows?.review?.command == "/review-cmd")
     }
 
-    @Test("missing config.json is written cleanly with known keys")
+    @Test("missing config.json gets created containing only the writable subset")
     func missingConfigCreatesFile() throws {
         let project = try TempProject.make(content: nil)
         let bundle = project.appendingPathComponent("Test.plumage", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: project) }
 
+        // ConfigWriter is scoped to workflows/models — name/schemaVersion/etc.
+        // are caller-owned and stay untouched on disk. Asserting via raw JSON
+        // because ConfigLoader.load would fail (no required `name` field).
         let config = ProjectConfig(
             name: "Fresh", schemaVersion: 2, issueIdPadding: 5,
             git: nil,
@@ -140,9 +143,58 @@ struct ConfigWriterTests {
         )
         try ConfigWriter.write(config, atBundle: bundle)
 
-        let reloaded = try ConfigLoader.load(at: project)
-        #expect(reloaded.name == "Fresh")
-        #expect(reloaded.models?.chat == .sonnet)
+        let configURL = bundle.appendingPathComponent("config.json")
+        let written = try Data(contentsOf: configURL)
+        let parsed = try #require(
+            JSONSerialization.jsonObject(with: written) as? [String: Any]
+        )
+        let models = try #require(parsed["models"] as? [String: Any])
+        #expect(models["chat"] as? String == "sonnet")
+        // Non-writable keys do NOT appear in the freshly-created file.
+        #expect(parsed["name"] == nil)
+        #expect(parsed["schemaVersion"] == nil)
+    }
+
+    @Test("write leaves git untouched even when snapshot's git differs")
+    func gitNotClobbered() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        // Simulate an external tool changing git.defaultBranch between the
+        // in-app load and the in-app save. ConfigWriter must NOT overwrite
+        // the external edit with the in-memory baseConfig's `git`.
+        let configURL = bundle.appendingPathComponent("config.json")
+        let original = try Data(contentsOf: configURL)
+        var parsed = try #require(
+            JSONSerialization.jsonObject(with: original) as? [String: Any]
+        )
+        var git = try #require(parsed["git"] as? [String: Any])
+        git["defaultBranch"] = "trunk"
+        parsed["git"] = git
+        let mutatedJSON = try JSONSerialization.data(
+            withJSONObject: parsed, options: [.prettyPrinted]
+        )
+        try mutatedJSON.write(to: configURL, options: [.atomic])
+
+        // Stale in-memory loaded config still has git.defaultBranch=main.
+        var loaded = try ConfigLoader.load(at: project)
+        loaded = ProjectConfig(
+            name: loaded.name, schemaVersion: loaded.schemaVersion,
+            issueIdPadding: loaded.issueIdPadding,
+            git: GitConfig(defaultBranch: "main"),
+            workflows: nil, models: ModelsConfig(chat: .sonnet)
+        )
+        try ConfigWriter.write(loaded, atBundle: bundle)
+
+        let after = try Data(contentsOf: configURL)
+        let afterParsed = try #require(
+            JSONSerialization.jsonObject(with: after) as? [String: Any]
+        )
+        let afterGit = try #require(afterParsed["git"] as? [String: Any])
+        // External edit survives: trunk, NOT main.
+        #expect(afterGit["defaultBranch"] as? String == "trunk")
+        // Sibling git keys also preserved.
+        #expect(afterGit["branchPrefix"] as? String == "issue/")
     }
 
     @Test("setting a sub-field of models to nil removes it from disk")

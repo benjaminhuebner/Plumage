@@ -185,6 +185,22 @@ final class TerminalClaudeSession {
         timeout: Duration = .seconds(5),
         bodyDelay: Duration = .milliseconds(800)
     ) async -> InjectResult {
+        let lines: [String] = followUpBody.map { [slashCommand, $0] } ?? [slashCommand]
+        return await injectLines(lines, timeout: timeout, bodyDelay: bodyDelay)
+    }
+
+    // Enqueue every entry in `lines` in order, with a single wait-for-running
+    // gate up front and `bodyDelay` between subsequent enqueues. Critically,
+    // consumePending() runs exactly ONCE at entry — looping over inject()
+    // would re-consume on every iteration and race the terminal view's
+    // pendingInput drain (the prior line could be silently dropped before it
+    // ever reached the subprocess).
+    func injectLines(
+        _ lines: [String],
+        timeout: Duration = .seconds(5),
+        bodyDelay: Duration = .milliseconds(800)
+    ) async -> InjectResult {
+        guard !lines.isEmpty else { return .injected }
         _ = consumePending()
 
         let deadline = ContinuousClock.now + timeout
@@ -196,11 +212,13 @@ final class TerminalClaudeSession {
         if Task.isCancelled { return .cancelled }
         guard isRunningState(state) else { return .timedOut }
 
-        enqueue(slashCommand)
-        if let followUpBody {
-            try? await Task.sleep(for: bodyDelay)
-            if Task.isCancelled { return .cancelled }
-            enqueue(followUpBody)
+        for (index, line) in lines.enumerated() {
+            if index > 0 {
+                try? await Task.sleep(for: bodyDelay)
+                if Task.isCancelled { return .cancelled }
+                if case .exited = state { return .sessionExited }
+            }
+            enqueue(line)
         }
         return .injected
     }
@@ -238,11 +256,17 @@ final class TerminalClaudeSession {
         return ["--resume", conversationID]
     }
 
-    // /bin/sh -c "cd '<cwd>' && exec '<claude>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
+    // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
     func shellSpawnArgs() -> [String] {
         let quotedCwd = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let quotedBin = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        var args = resumeOrInitArgs()
+        // Inject the plumage theme per-session via --settings instead of
+        // writing it into the user's global ~/.claude/settings.json — that
+        // earlier approach also re-skinned the user's own claude terminal.
+        // Inline JSON contains no single quotes so shellQuotedAttachArgs
+        // wraps it safely with one quote pair.
+        var args = ["--settings", ClaudeThemeInstaller.perSessionSettingsJSON]
+        args += resumeOrInitArgs()
         if let permissionMode {
             args += ["--permission-mode", permissionMode.rawCLIValue]
         }
