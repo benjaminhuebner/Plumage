@@ -190,13 +190,34 @@ struct TerminalTabsModelTests {
         #expect(model.tabs[0].id == mainID)
     }
 
-    @Test("addWorkflowTab passes the action's permissionMode to the session")
-    func addWorkflowTabSetsPermissionMode() {
+    @Test("plan tab with default opusplan model uses --permission-mode plan")
+    func addWorkflowTabPlanWithOpusplanForcesPlanMode() {
         let model = makeModel()
+        // No modelsConfig → falls back to slot default (opusplan).
         let tab = model.addWorkflowTab(action: .plan, slug: "x")
         let cmd = tab.session.shellSpawnArgs()[1]
-        #expect(cmd.contains("--permission-mode"))
-        #expect(cmd.contains("'plan'"))
+        #expect(cmd.contains("'--permission-mode' 'plan'"))
+        #expect(cmd.contains("'--model' 'opusplan'"))
+    }
+
+    @Test("plan tab with non-opusplan model opts out of plan mode")
+    func addWorkflowTabPlanWithOpusSkipsPlanMode() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(plan: .opus)
+        let tab = model.addWorkflowTab(action: .plan, slug: "x")
+        let cmd = tab.session.shellSpawnArgs()[1]
+        // permission-mode falls back to default → no --permission-mode flag.
+        #expect(!cmd.contains("'--permission-mode' 'plan'"))
+        #expect(cmd.contains("'--model' 'opus'"))
+    }
+
+    @Test("implement tab always uses acceptEdits regardless of model")
+    func addWorkflowTabImplementUsesAcceptEdits() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(implement: .sonnet)
+        let tab = model.addWorkflowTab(action: .implement, slug: "x")
+        let cmd = tab.session.shellSpawnArgs()[1]
+        #expect(cmd.contains("'--permission-mode' 'acceptEdits'"))
     }
 
     @Test("workflow tabs are closable (only the main tab is sticky)")
@@ -338,6 +359,40 @@ struct TerminalTabsModelTests {
         #expect(model.selectedTabID == secondID)
         model.selectTab(at: 2)
         #expect(model.selectedTabID == secondID)
+    }
+
+    // MARK: - Models config threading
+
+    @Test("addTab picks up models.terminals from current config")
+    func addTabUsesTerminalsModel() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(terminals: .sonnet)
+        model.addTab()
+        #expect(model.tabs.last?.session.modelChoice == .sonnet)
+    }
+
+    @Test("addWorkflowTab picks up models.<action> per workflow")
+    func addWorkflowTabUsesWorkflowModel() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(
+            plan: .opusPlan, implement: .opus, review: .haiku
+        )
+        let plan = model.addWorkflowTab(action: .plan, slug: "x")
+        let impl = model.addWorkflowTab(action: .implement, slug: "x")
+        let rev = model.addWorkflowTab(action: .review, slug: "x")
+        #expect(plan.session.modelChoice == .opusPlan)
+        #expect(impl.session.modelChoice == .opus)
+        #expect(rev.session.modelChoice == .haiku)
+    }
+
+    @Test("missing modelsConfig falls back to slot defaults")
+    func defaultModelFallback() {
+        let model = makeModel()
+        model.modelsConfig = nil
+        model.addTab()
+        let wf = model.addWorkflowTab(action: .implement, slug: "x")
+        #expect(model.tabs.last?.session.modelChoice == ModelsConfig.terminalsDefault)
+        #expect(wf.session.modelChoice == ModelsConfig.implementDefault)
     }
 
     // MARK: - Helpers

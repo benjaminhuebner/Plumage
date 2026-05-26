@@ -60,6 +60,8 @@
 			<string>Plumage Project</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
+			<key>CFBundleTypeIconFile</key>
+			<string>PlumageDocument</string>
 			<key>LSHandlerRank</key>
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>

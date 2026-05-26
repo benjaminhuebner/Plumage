@@ -1,0 +1,107 @@
+import Foundation
+
+nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
+    case plan
+    case implement
+    case review
+
+    var slug: String {
+        switch self {
+        case .plan: "plumage-plan"
+        case .implement: "plumage-implement"
+        case .review: "plumage-review"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .plan: "Plan with Plumage"
+        case .implement: "Implement with Plumage"
+        case .review: "Review with Plumage"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .plan: "sparkles"
+        case .implement: "hammer"
+        case .review: "checkmark.seal"
+        }
+    }
+
+    // Static, model-independent permission-mode mapping. Implement/Review are
+    // always the same regardless of model choice. Plan is special-cased below
+    // because the `opusplan` model alias implies plan-mode semantics on its
+    // own, but `opus` / `sonnet` / `haiku` shouldn't force `--permission-mode
+    // plan` on the subprocess — see resolvedPermissionMode(model:).
+    var permissionMode: PermissionMode {
+        switch self {
+        case .plan: .plan
+        case .implement: .acceptEdits
+        case .review: .default
+        }
+    }
+
+    // The permission mode used for an actual workflow-tab spawn. Plan only
+    // forces `--permission-mode plan` when the user keeps the slot-default
+    // `opusplan` model; picking a different model for Plan opts the user
+    // out of plan mode entirely (interactive opus/sonnet/haiku session,
+    // injected `/plumage-plan <slug>` still runs).
+    func resolvedPermissionMode(model: ModelChoice) -> PermissionMode {
+        switch self {
+        case .plan:
+            return model == .opusPlan ? .plan : .default
+        case .implement:
+            return .acceptEdits
+        case .review:
+            return .default
+        }
+    }
+
+    var modelSlot: ModelSlot {
+        switch self {
+        case .plan: .planAction
+        case .implement: .implementAction
+        case .review: .reviewAction
+        }
+    }
+
+    func tabTitle(slug: String) -> String {
+        let action: String
+        switch self {
+        case .plan: action = "Plan"
+        case .implement: action = "Implement"
+        case .review: action = "Review"
+        }
+        return "\(action): \(slug)"
+    }
+
+    func isEnabled(status: IssueStatus, type: IssueType) -> Bool {
+        switch self {
+        case .plan:
+            return status == .draft && type == .feature
+        case .implement:
+            if status == .approved || status == .inProgress { return true }
+            if status == .draft, type != .feature { return true }
+            return false
+        case .review:
+            return status == .waitingForReview
+        }
+    }
+
+    func disabledTooltip(status: IssueStatus, type: IssueType) -> String {
+        if status == .done { return "Issue is done." }
+        if status == .blocked { return "Issue is blocked." }
+        switch self {
+        case .plan:
+            if status == .draft && type != .feature {
+                return "Only feature issues are planned — chore/spike/refactor go directly to Implement."
+            }
+            return "Issue is already approved or further along."
+        case .implement:
+            return "Issue must be planned first (Plan button)."
+        case .review:
+            return "Issue is not yet implemented."
+        }
+    }
+}

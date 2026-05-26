@@ -8,6 +8,24 @@ nonisolated enum NextIssueAllocatorError: Error, Equatable, Sendable {
     case ioFailure(String)
 }
 
+// LocalizedError conformance so SwiftUI's Alert / `error.localizedDescription`
+// surfaces a usable message instead of the generic NSError bridge ("…error 0.").
+extension NextIssueAllocatorError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .slugCollision(let folder):
+            return "An issue with this slug already exists: \(folder). Choose a different title."
+        case .invalidSlug:
+            return
+                "Title produces no valid slug after normalization. At least one letter or digit is required."
+        case .templateMissing(let url):
+            return "_TEMPLATE.md is missing at \(url.path)."
+        case .ioFailure(let reason):
+            return "Failed to create issue: \(reason)"
+        }
+    }
+}
+
 nonisolated struct NextIssueAllocator: Sendable {
     let projectURL: URL
 
@@ -20,6 +38,7 @@ nonisolated struct NextIssueAllocator: Sendable {
         title: String,
         type: IssueType,
         labels: [String],
+        prompt: String,
         now: Date = .now
     ) throws -> URL {
         guard Self.isValidSlug(slug) else { throw NextIssueAllocatorError.invalidSlug }
@@ -55,6 +74,7 @@ nonisolated struct NextIssueAllocator: Sendable {
         let folderName = "\(padded)-\(slug)"
         let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
         let specURL = IssueLayout.specURL(in: projectURL, folderName: folderName)
+        let promptURL = IssueLayout.promptURL(in: projectURL, folderName: folderName)
 
         do {
             try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
@@ -62,6 +82,10 @@ nonisolated struct NextIssueAllocator: Sendable {
                 throw NextIssueAllocatorError.ioFailure("could not encode spec as UTF-8")
             }
             try data.write(to: specURL, options: .atomic)
+            // Empty prompt → write 0-byte file deliberately so every issue
+            // folder has the same shape (spec.md + prompt.md).
+            let promptData = prompt.data(using: .utf8) ?? Data()
+            try promptData.write(to: promptURL, options: .atomic)
         } catch let error as NextIssueAllocatorError {
             throw error
         } catch {

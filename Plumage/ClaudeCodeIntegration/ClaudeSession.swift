@@ -40,6 +40,7 @@ final class ClaudeSession {
 
     let cwd: URL
     let binaryURL: URL
+    let modelChoice: ModelChoice
     private let autoSpawn: Bool
     private let sessionLogRoot: URL
     private let sessionIDStoreURL: URL
@@ -67,6 +68,7 @@ final class ClaudeSession {
     init(
         cwd: URL,
         binaryURL: URL,
+        modelChoice: ModelChoice = .default,
         autoSpawn: Bool = true,
         sessionLogRoot: URL? = nil,
         sessionIDStoreOverride: URL? = nil,
@@ -74,6 +76,7 @@ final class ClaudeSession {
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
+        self.modelChoice = modelChoice
         self.autoSpawn = autoSpawn
         self.rehydrationCap = rehydrationCap
         self.sessionLogRoot =
@@ -133,13 +136,18 @@ final class ClaudeSession {
     // existing session's cwd, keeps the session; otherwise stops the prior
     // and returns a fresh ClaudeSession bound to the new cwd. Centralises
     // the binary-location lookup so the call site doesn't duplicate it.
-    static func rebuilt(for handleURL: URL, replacing prior: ClaudeSession) -> ClaudeSession {
-        if prior.cwd == handleURL { return prior }
+    static func rebuilt(
+        for handleURL: URL,
+        replacing prior: ClaudeSession,
+        modelChoice: ModelChoice? = nil
+    ) -> ClaudeSession {
+        let newChoice = modelChoice ?? prior.modelChoice
+        if prior.cwd == handleURL && prior.modelChoice == newChoice { return prior }
         prior.stop()
         let binary =
             (try? ProductionProcessRunner.locateBinary())
             ?? URL(filePath: "/dev/null")
-        return ClaudeSession(cwd: handleURL, binaryURL: binary)
+        return ClaudeSession(cwd: handleURL, binaryURL: binary, modelChoice: newChoice)
     }
 
     func send(_ text: String) async {
@@ -498,7 +506,7 @@ final class ClaudeSession {
                 "--input-format", "stream-json",
                 "--output-format", "stream-json",
                 "--verbose",
-            ] + resumeOrInitArgs()
+            ] + resumeOrInitArgs() + modelChoice.cliArg
         newProcess.standardInput = stdinPipe
         newProcess.standardOutput = stdoutPipe
         newProcess.standardError = FileHandle.nullDevice

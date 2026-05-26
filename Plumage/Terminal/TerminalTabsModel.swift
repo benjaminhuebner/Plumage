@@ -9,6 +9,11 @@ final class TerminalTabsModel {
 
     let cwd: URL
     let binaryURL: URL
+    // Per-project model overrides. ProjectWindow refreshes this on config
+    // reload so a newly-spawned tab picks up the latest picker selection;
+    // already-running tabs keep their original model (the spec calls out
+    // "changes only take effect for new sessions/tabs").
+    var modelsConfig: ModelsConfig?
     // Injected by ProjectWindow — currently returns the chat session's
     // conversationID so terminal reconcile never adopts it. With every
     // tab running ephemeral, reconcile is structurally disabled (its
@@ -27,10 +32,12 @@ final class TerminalTabsModel {
         cwd: URL,
         binaryURL: URL,
         initialSession: TerminalClaudeSession,
+        modelsConfig: ModelsConfig? = nil,
         excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] }
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
+        self.modelsConfig = modelsConfig
         self.sharedExcludedSessionIDs = excludedSessionIDs
         let firstTab = TerminalTab(session: initialSession, title: Self.title(for: 0))
         self.tabs = [firstTab]
@@ -76,6 +83,7 @@ final class TerminalTabsModel {
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,
+            modelChoice: modelsConfig?.terminalsResolved ?? ModelsConfig.terminalsDefault,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false
         )
@@ -96,12 +104,18 @@ final class TerminalTabsModel {
 
     @discardableResult
     func addWorkflowTab(action: WorkflowAction, slug: String) -> TerminalTab {
+        let resolved =
+            modelsConfig?.workflowResolved(action)
+            ?? ModelsConfig.slotDefault(
+                for: action.modelSlot
+            )
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,
+            modelChoice: resolved,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
-            permissionMode: action.permissionMode
+            permissionMode: action.resolvedPermissionMode(model: resolved)
         )
         let tab = TerminalTab(
             session: session,

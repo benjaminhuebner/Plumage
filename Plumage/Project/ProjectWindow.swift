@@ -126,23 +126,40 @@ struct ProjectWindow: View {
                 // about-to-be-released old session, return [] once rebuilt
                 // swapped it out, and silently allow the chat session's ID to
                 // be adopted by the terminal reconcile.
-                session = ClaudeSession.rebuilt(for: handle.url, replacing: session)
-                // Window reused for a different handle: stop all existing
-                // tabs and spin up a fresh tabs model with a new default tab.
-                if terminalTabs.cwd != handle.url {
+                // Load config synchronously so the initial sessions pick up
+                // per-project model overrides before attach(). The async
+                // model.reload below covers the @Observable view-state path.
+                let initialConfig = try? ConfigLoader.load(at: handle.url)
+                let chatModel =
+                    initialConfig?.models?.chat ?? ModelsConfig.chatDefault
+                let terminalsModel =
+                    initialConfig?.models?.terminals ?? ModelsConfig.terminalsDefault
+                session = ClaudeSession.rebuilt(
+                    for: handle.url, replacing: session, modelChoice: chatModel
+                )
+                // Window reused for a different handle, OR the terminals
+                // model preference changed in config: rebuild the tabs model
+                // so the next-spawned default tab uses the right model.
+                if terminalTabs.cwd != handle.url
+                    || terminalTabs.mainSession.modelChoice != terminalsModel
+                {
                     terminalTabs.stopAll()
                     let newBinary =
                         (try? ProductionProcessRunner.locateBinary())
                         ?? URL(filePath: "/dev/null")
                     let newInitial = TerminalClaudeSession(
                         cwd: handle.url, binaryURL: newBinary,
+                        modelChoice: terminalsModel,
                         persistConversationID: false
                     )
                     terminalTabs = TerminalTabsModel(
                         cwd: handle.url,
                         binaryURL: newBinary,
-                        initialSession: newInitial
+                        initialSession: newInitial,
+                        modelsConfig: initialConfig?.models
                     )
+                } else {
+                    terminalTabs.modelsConfig = initialConfig?.models
                 }
                 // Chat shares the claude log dir with terminal; without this
                 // exclude the terminal's reconcile would adopt chat's session
@@ -340,7 +357,15 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
-                .environment(\.runWorkflow, runWorkflow(_:folderName:prompt:))
+                .environment(\.runWorkflow, runWorkflow(_:folderName:))
+                .environment(\.onProjectConfigSaved) { saved in
+                    // Mirror the disk-write into ProjectModel so the rest of
+                    // the window (runWorkflow → currentConfig().workflows)
+                    // and the live tabs model both see the picker change
+                    // immediately, without waiting for a window reopen.
+                    model.setLoaded(saved)
+                    terminalTabs.modelsConfig = saved.models
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
@@ -411,7 +436,7 @@ struct ProjectWindow: View {
         }
     }
 
-    private func runWorkflow(_ action: WorkflowAction, folderName: String, prompt: String?) {
+    private func runWorkflow(_ action: WorkflowAction, folderName: String) {
         // Reject folder names that would corrupt the inject: \r submits in
         // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
         // exactly these three. Folder names are user-controlled via Finder
@@ -423,11 +448,7 @@ struct ProjectWindow: View {
             return
         }
 
-        // Cancel any prior inject still mid-sleep before its body enqueue.
-        // Without this, a quick second click would: drain the prior slash
-        // command from pendingInput (or find it already flushed), enqueue a
-        // new command, and then the prior task would wake from its 800ms
-        // sleep and tack its body onto whatever ran most recently.
+        // Cancel any prior inject still mid-sleep before its next enqueue.
         workflowTask?.cancel()
         isTerminalInspectorOpen = true
 
@@ -442,29 +463,37 @@ struct ProjectWindow: View {
         }
         let workflowTab = terminalTabs.addWorkflowTab(action: action, slug: folderName)
 
-        // CR (\r) is what the terminal sends on Enter. claude's TUI treats
-        // \n as a multi-line continuation (Shift+Enter style) and only \r as
-        // submit — sending \n appended to the slash command just inserts a
-        // blank line. Strip \r from the body so a stray Enter inside the
-        // user's text doesn't submit a partial block early.
-        let slashCommand = "/\(action.slug) \(folderName)\r"
-        let followUp: String? = {
-            // An empty prompt would inject a bare \r right after the slash
-            // command, submitting a blank turn in claude's TUI — guard
-            // against both nil and "" so the no-prompt case is a true no-op.
-            guard action == .plan, let prompt, !prompt.isEmpty else { return nil }
-            return prompt.replacingOccurrences(of: "\r", with: "") + "\r"
-        }()
+        // Resolve the template (default or per-project override) into the
+        // sequence of lines that need to be injected into claude's REPL.
+        let lines = WorkflowCommandResolver.resolve(
+            action: action,
+            slug: folderName,
+            specURL: IssueLayout.specURL(in: handle.url, folderName: folderName),
+            promptURL: IssueLayout.promptURL(in: handle.url, folderName: folderName),
+            override: currentConfig()?.workflows?[action]
+        )
+        guard !lines.isEmpty else { return }
+
         let session = workflowTab.session
         let slug = action.slug
+        // CR (\r) is what the terminal sends on Enter. claude's TUI treats
+        // \n as a multi-line continuation (Shift+Enter style) and only \r as
+        // submit — strip embedded \r from each line first so a stray Enter
+        // doesn't submit a partial block early, then append \r as the
+        // terminator.
+        let payloads = lines.map { line in
+            line.replacingOccurrences(of: "\r", with: "") + "\r"
+        }
 
         workflowTask = Task { @MainActor in
-            let result = await session.inject(
-                slashCommand: slashCommand, followUpBody: followUp)
+            // Single inject call covers every line: consumePending() runs
+            // exactly once at entry so the prior line can never be silently
+            // drained between iterations (see TerminalClaudeSession.injectLines).
+            let result = await session.injectLines(payloads)
             switch result {
             case .sessionExited:
                 Self.log.info(
-                    "runWorkflow: session exited before inject for \(slug, privacy: .public)."
+                    "runWorkflow: session exited mid-inject for \(slug, privacy: .public)."
                 )
             case .timedOut:
                 Self.log.warning(
@@ -474,6 +503,11 @@ struct ProjectWindow: View {
                 break
             }
         }
+    }
+
+    private func currentConfig() -> ProjectConfig? {
+        if case .loaded(let config) = model.state { return config }
+        return nil
     }
 
     private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")

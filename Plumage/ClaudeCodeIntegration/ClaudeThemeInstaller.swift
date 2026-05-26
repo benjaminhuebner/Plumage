@@ -1,13 +1,17 @@
 import Foundation
 
-// Installs Plumage's bundled `plumage` claude theme into ~/.claude/ so the
-// embedded terminal renders without opaque block backgrounds, regardless of
-// macOS appearance. The bundled JSON is the single source of truth; we
+// Installs Plumage's bundled `plumage` claude theme into ~/.claude/themes/ so
+// the embedded terminal renders without opaque block backgrounds, regardless
+// of macOS appearance. The bundled JSON is the single source of truth; we
 // overwrite on each Plumage boot so a Plumage update can ship a refreshed
-// theme. Settings.json is updated more carefully — only flip `theme` to
-// `plumage` if the user hasn't explicitly chosen a different non-plumage
-// theme since the last install (i.e., if the field is missing OR already
-// set to `plumage`).
+// theme.
+//
+// The theme is activated *per session* via `claude --settings <inline-json>`
+// from TerminalClaudeSession.shellSpawnArgs — NOT by writing to the global
+// ~/.claude/settings.json. That keeps the user's own claude terminal on the
+// user's own theme. Earlier Plumage builds did write the global key; on boot
+// we strip it back out via removeManagedThemeFromSettings so users return to
+// whatever they had before (or to claude's default).
 // Pure file-I/O type with no UI state. Nonisolated so it can run from any
 // context (NSApplicationDelegate callback, tests, etc.) without forcing a
 // hop to MainActor — the default-actor-isolation project setting would
@@ -22,12 +26,28 @@ nonisolated enum ClaudeThemeInstaller {
     // claude's settings.json stores custom themes with a `custom:` prefix —
     // a bare `"theme": "plumage"` is treated as an unknown built-in name and
     // silently falls back to "Dark mode". The custom-theme file in
-    // ~/.claude/themes/<name>.json keeps its bare name; only the settings.json
+    // ~/.claude/themes/<name>.json keeps its bare name; only the settings
     // value gets the prefix. Verified against claude 2.1.150 by selecting
     // "plumage (custom)" through `/theme` and reading back the stored value.
     static let settingsThemeValue = "custom:\(themeName)"
     static let bundledResource = "plumage-theme"
     static let bundledExtension = "json"
+    // Inline JSON passed via `claude --settings '<json>'` to scope Plumage's
+    // session-specific overrides without touching the user's global
+    // ~/.claude/settings.json. Single quotes and newlines are excluded so
+    // shellQuotedAttachArgs can wrap the value with a single pair of quotes.
+    //
+    // Keys:
+    // - `theme`: pins claude to the bundled `plumage` custom theme.
+    // - `promptSuggestionEnabled`: disables the "Predicted next user prompt"
+    //   suggestion line claude renders after each turn. Claude defaults this
+    //   on; the user's `Terminal.app` claude is suggestion-free because they
+    //   toggled it off there via `/config`, but the user's persisted value
+    //   doesn't carry into Plumage sessions when the embedded terminal is the
+    //   first surface they touch. Pinning to `false` per-session matches the
+    //   Terminal.app behavior without forcing a global write.
+    static let perSessionSettingsJSON =
+        #"{"theme":"custom:plumage","promptSuggestionEnabled":false}"#
 
     static func installIfNeeded(bundle: Bundle = .main, fileManager: FileManager = .default) {
         do {
@@ -36,7 +56,7 @@ nonisolated enum ClaudeThemeInstaller {
                     forResource: bundledResource, withExtension: bundledExtension)
             else { throw InstallError.bundleResourceMissing }
             try writeThemeFile(sourceURL: sourceURL, fileManager: fileManager)
-            try ensureSettingsTheme(fileManager: fileManager)
+            try removeManagedThemeFromSettings(fileManager: fileManager)
         } catch {
             // Theme install is best-effort. A failure here must not block
             // Plumage's startup — the embedded terminal still works with
@@ -56,40 +76,30 @@ nonisolated enum ClaudeThemeInstaller {
         try data.write(to: target, options: .atomic)
     }
 
-    static func ensureSettingsTheme(
+    // One-shot migration of earlier Plumage builds: they wrote
+    // `"theme":"custom:plumage"` (or the legacy bare `"plumage"`) into the
+    // user's global ~/.claude/settings.json, which leaked the Plumage look
+    // into the user's own claude terminal. Now that the theme is injected
+    // per-session via --settings, strip our managed value back out. Touch
+    // ONLY the theme key — settings.json is shared state owned by claude
+    // (api_key_helper, permissions, model, …); leave everything else as-is,
+    // and bail on anything we can't safely parse rather than clobber.
+    static func removeManagedThemeFromSettings(
         fileManager: FileManager = .default,
         settingsURL: URL? = nil
     ) throws {
         let url = try settingsURL ?? defaultSettingsFileURL(fileManager: fileManager)
-        var json: [String: Any]
-        if fileManager.fileExists(atPath: url.path) {
-            // File exists but unreadable or unparseable: bail rather than
-            // clobber. settings.json is shared state owned by claude — an
-            // overwrite would destroy api_key_helper / permissions / model
-            // entries that other tooling depends on. Theme install is best-
-            // effort; skipping is safer than data loss.
-            guard let data = try? Data(contentsOf: url),
-                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { return }
-            json = parsed
-        } else {
-            json = [:]
-        }
-        // Only set theme if absent or already pointing at our theme. Accept
-        // both `custom:plumage` (the value claude expects) and the legacy bare
-        // `plumage` from earlier Plumage builds so we migrate that forward
-        // without surprising users. Any other value is a manual user choice
-        // and stays put.
-        let current = json["theme"] as? String
-        let isOurValue = current == settingsThemeValue || current == themeName
-        if current == nil || isOurValue {
-            json["theme"] = settingsThemeValue
-            let updated = try JSONSerialization.data(
-                withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-            try fileManager.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try updated.write(to: url, options: .atomic)
-        }
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        guard let data = try? Data(contentsOf: url),
+            var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return }
+        guard let current = json["theme"] as? String,
+            current == settingsThemeValue || current == themeName
+        else { return }
+        json.removeValue(forKey: "theme")
+        let updated = try JSONSerialization.data(
+            withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try updated.write(to: url, options: .atomic)
     }
 
     static func defaultThemeFileURL(fileManager: FileManager) throws -> URL {

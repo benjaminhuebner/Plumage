@@ -18,6 +18,6 @@ struct BodyTabEmptyState: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
         }
-        .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }

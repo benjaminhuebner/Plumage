@@ -23,6 +23,15 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            mainList
+            Divider()
+            projectSettingsFooter
+        }
+    }
+
+    @ViewBuilder
+    private var mainList: some View {
         List(selection: selectionBinding) {
             SidebarSectionHeader(title: "Issues", help: "New Issue") {
                 openCreateIssue(.draft)
@@ -336,6 +345,34 @@ struct NavigatorSidebar: View {
                     Button("New Skill") { navigator.beginPendingCreate(.skill) }
                 }
         }
+    }
+
+    @ViewBuilder
+    private var projectSettingsFooter: some View {
+        let isActive = selection == NavigatorRoute.projectSettings
+        Button {
+            selection = .projectSettings
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "slider.horizontal.3")
+                    .frame(width: 18)
+                Text("Project Settings")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if isActive {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.accentColor.opacity(0.18))
+                }
+            }
+            .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder

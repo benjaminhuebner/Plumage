@@ -2,11 +2,11 @@ import SwiftUI
 
 extension EnvironmentValues {
     // Injected by ProjectWindow. The view layer (IssueDetailView) calls this
-    // with the issue's folderName and an optional prompt (for the Plan action
-    // the prompt is the prompt.md content; other actions ignore it); the
-    // implementation opens the terminal inspector and feeds the matching slash
-    // command into the running claude session via TerminalClaudeSession's
-    // pendingInput queue. Default is a no-op so preview/test contexts work
-    // unwired.
-    @Entry var runWorkflow: (WorkflowAction, String, String?) -> Void = { _, _, _ in }
+    // with the issue's folderName; the implementation opens the terminal
+    // inspector and feeds the workflow's resolved lines into the running
+    // claude session via TerminalClaudeSession's pendingInput queue. The
+    // WorkflowCommandResolver reads spec.md / prompt.md off disk, so callers
+    // must flush dirty buffers first. Default is a no-op so preview/test
+    // contexts work unwired.
+    @Entry var runWorkflow: (WorkflowAction, String) -> Void = { _, _ in }
 }

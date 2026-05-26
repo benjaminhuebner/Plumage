@@ -1,0 +1,130 @@
+import SwiftUI
+
+struct IssueMetaRow: View {
+    let status: IssueStatus
+    let type: IssueType
+    let labels: [String]
+    let dates: Dates?
+    let onSelectStatus: (IssueStatus) -> Void
+    let onSelectType: (IssueType) -> Void
+    let onAddLabel: (String) -> Void
+    let onRemoveLabel: (String) -> Void
+    let isDisabled: Bool
+
+    struct Dates: Equatable {
+        let created: Date
+        let updated: Date
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            statusMenu
+                .disabled(isDisabled)
+            typeMenu
+                .disabled(isDisabled)
+            Rectangle()
+                .fill(.quaternary)
+                .frame(width: 1)
+                .frame(maxHeight: 16)
+                .padding(.horizontal, 2)
+                .accessibilityHidden(true)
+            LabelChipEditor(
+                labels: labels,
+                onAdd: onAddLabel,
+                onRemove: onRemoveLabel
+            )
+            .disabled(isDisabled)
+            Spacer(minLength: 0)
+            if let dates {
+                timestampsView(dates)
+            }
+        }
+    }
+
+    private var statusMenu: some View {
+        Menu {
+            ForEach(IssueStatus.allCases, id: \.self) { entry in
+                Button {
+                    onSelectStatus(entry)
+                } label: {
+                    HStack {
+                        Text(entry.label)
+                        if entry == status {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            IssueStatusPill(status: status)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    private var typeMenu: some View {
+        Menu {
+            ForEach(IssueType.allCases, id: \.self) { entry in
+                Button {
+                    onSelectType(entry)
+                } label: {
+                    HStack {
+                        Text(entry.rawValue.capitalized)
+                        if entry == type {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            IssueTypePill(type: type)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func timestampsView(_ dates: Dates) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "clock")
+                .imageScale(.small)
+                .foregroundStyle(.tertiary)
+            Text("created \(Self.dateFormatter.string(from: dates.created))")
+                .foregroundStyle(.secondary)
+            Text("·")
+                .foregroundStyle(.quaternary)
+            Text("updated \(Self.dateFormatter.string(from: dates.updated))")
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.dateFormat = "d MMM, HH:mm"
+        return formatter
+    }()
+}
+
+#Preview {
+    IssueMetaRow(
+        status: .waitingForReview,
+        type: .feature,
+        labels: ["settings", "workflow"],
+        dates: .init(created: Date(timeIntervalSinceNow: -3600), updated: Date()),
+        onSelectStatus: { _ in },
+        onSelectType: { _ in },
+        onAddLabel: { _ in },
+        onRemoveLabel: { _ in },
+        isDisabled: false
+    )
+    .padding()
+    .frame(width: 800)
+}

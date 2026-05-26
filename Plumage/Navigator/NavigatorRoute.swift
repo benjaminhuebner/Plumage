@@ -10,6 +10,10 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case mcpJSON
     case skillFile(skill: String, relativePath: String)
     case settings(SettingsFile)
+    // Per-project Plumage settings (workflow command overrides, model picks
+    // for Chat / Terminals / Workflow tabs). Detail-view is a custom
+    // ProjectSettingsView, not a JSON file editor.
+    case projectSettings
 
     // On-disk URL for routes that point at a user-managed file (rename, trash,
     // open in DocEditor). Returns nil for routes that don't map to a single
@@ -32,7 +36,8 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
                 .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
                 .appendingPathComponent(skill, isDirectory: true)
                 .appendingPathComponent(path)
-        case .kanban, .issue, .claudeMD, .claudeLocalMD, .mcpJSON, .settings:
+        case .kanban, .issue, .claudeMD, .claudeLocalMD, .mcpJSON, .settings,
+            .projectSettings:
             return nil
         }
     }

@@ -11,23 +11,23 @@ nonisolated enum GitMergeError: Error, Sendable, Equatable {
     var displayMessage: String {
         switch self {
         case .gitNotFound:
-            return "`git` nicht gefunden — Command-Line-Tools installiert?"
+            return "`git` not found — are the Command Line Tools installed?"
         case .workingTreeDirty(let files):
             let head = files.prefix(5).joined(separator: ", ")
-            let suffix = files.count > 5 ? " …und \(files.count - 5) weitere" : ""
-            return "Working tree ist dirty: \(head)\(suffix). Commit oder stash vor dem Merge."
+            let suffix = files.count > 5 ? " …and \(files.count - 5) more" : ""
+            return "Working tree is dirty: \(head)\(suffix). Commit or stash before merging."
         case .branchNotFound(let name):
             return
-                "Branch `\(name)` lokal nicht gefunden. "
-                + "Wenn er nur remote lebt: `git fetch && git checkout \(name)` im Terminal."
+                "Branch `\(name)` not found locally. "
+                + "If it only exists on the remote: `git fetch && git checkout \(name)` in the terminal."
         case .notFastForward(let defaultBranch, let issueBranch):
             return
-                "Cannot fast-forward: `\(defaultBranch)` hat Commits seit `\(issueBranch)` abgezweigt wurde. "
-                + "Rebase `\(issueBranch)` auf `\(defaultBranch)` und retry."
+                "Cannot fast-forward: `\(defaultBranch)` has commits since `\(issueBranch)` was branched off. "
+                + "Rebase `\(issueBranch)` onto `\(defaultBranch)` and retry."
         case .checkoutFailed(let stderr):
-            return "git checkout fehlgeschlagen: \(stderr)"
+            return "git checkout failed: \(stderr)"
         case .mergeFailed(let stderr):
-            return "git merge --ff-only fehlgeschlagen: \(stderr)"
+            return "git merge --ff-only failed: \(stderr)"
         }
     }
 }

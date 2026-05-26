@@ -10,13 +10,13 @@ nonisolated enum GitDiffError: Error, Sendable, Equatable {
     var displayMessage: String {
         switch self {
         case .gitNotFound:
-            return "`git` nicht gefunden — Command-Line-Tools installiert?"
+            return "`git` not found — are the Command Line Tools installed?"
         case .repoNotFound(let url):
-            return "Kein Git-Repo gefunden in `\(url.path)`."
+            return "No git repo found in `\(url.path)`."
         case .baseBranchMissing(let base):
-            return "Base-Branch `\(base)` nicht gefunden — Repo initial?"
+            return "Base branch `\(base)` not found — is this the initial repo state?"
         case .nonZeroExit(_, let stderr):
-            return "git diff fehlgeschlagen: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+            return "git diff failed: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
         case .spawnFailed(let description):
             return "Failed to launch git: \(description)"
         }

@@ -330,7 +330,7 @@ final class IssueDetailModel {
         let type = typeDraft
         let labels = labelsDraft
         let status = statusDraft
-        let body = bodyDraft
+        let prompt = bodyDraft
         let mutator = self.mutator
         let now = clock()
 
@@ -338,7 +338,7 @@ final class IssueDetailModel {
         do {
             allocatedURL = try await Task.detached(priority: .userInitiated) {
                 try allocator.allocate(
-                    slug: slug, title: title, type: type, labels: labels, now: now
+                    slug: slug, title: title, type: type, labels: labels, prompt: prompt, now: now
                 )
             }.value
         } catch {
@@ -346,25 +346,35 @@ final class IssueDetailModel {
             throw error
         }
 
-        let mutation = FrontmatterMutation(
-            status: .set(status),
-            body: body.isEmpty ? .keep : .set(body)
-        )
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                try mutator.mutate(specURL: allocatedURL, mutation: mutation, now: now)
-            }.value
+        // Status defaults to .draft in the template — skip the mutator round-
+        // trip when the chosen status already matches.
+        if status != .draft {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try mutator.mutate(
+                        specURL: allocatedURL,
+                        mutation: FrontmatterMutation(status: .set(status)),
+                        now: now
+                    )
+                }.value
+                allocationError = nil
+            } catch {
+                // Allocation already produced the folder on disk; surface the
+                // error to the user, but still transition to .loaded so they
+                // see the allocated issue and can retry the status save.
+                allocationError = "\(error)"
+            }
+        } else {
             allocationError = nil
-        } catch {
-            // Allocation already produced the folder on disk; surface the
-            // error to the user, but still transition to .loaded so they
-            // see the allocated issue and can retry the body/status save.
-            allocationError = "\(error)"
         }
 
         specURL = allocatedURL
         let newFolderName = allocatedURL.deletingLastPathComponent().lastPathComponent
         kind = .loaded(folderName: newFolderName)
+        // Seed prompt state pre-load so the Prompt tab renders the just-written
+        // content immediately; load() only refreshes spec frontmatter/body.
+        promptDraft = prompt
+        loadedPromptContent = prompt
         await load()
     }
 
@@ -666,6 +676,7 @@ nonisolated protocol IssueAllocating: Sendable {
         title: String,
         type: IssueType,
         labels: [String],
+        prompt: String,
         now: Date
     ) throws -> URL
 }
@@ -678,6 +689,7 @@ nonisolated struct DefaultIssueAllocating: IssueAllocating {
         title: String,
         type: IssueType,
         labels: [String],
+        prompt: String,
         now: Date
     ) throws -> URL {
         try NextIssueAllocator(projectURL: projectURL).allocate(
@@ -685,6 +697,7 @@ nonisolated struct DefaultIssueAllocating: IssueAllocating {
             title: title,
             type: type,
             labels: labels,
+            prompt: prompt,
             now: now
         )
     }

@@ -14,9 +14,7 @@ struct IssueDetailView: View {
     // versa. Messages are tab-scoped too in case a future hook re-wires
     // FrontmatterMessageMap markers into one of them.
     @State private var specEditorPosition = CodeEditor.Position()
-    @State private var promptEditorPosition = CodeEditor.Position()
     @State private var specEditorMessages: Set<TextLocated<Message>> = []
-    @State private var promptEditorMessages: Set<TextLocated<Message>> = []
     @State private var hasAppliedSmartDefaultTab: Bool = false
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
@@ -153,6 +151,47 @@ struct IssueDetailView: View {
 
     @ViewBuilder
     private var content: some View {
+        switch model.loadState {
+        case .idle:
+            ProgressView().controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed(let message):
+            Text(message)
+                .foregroundStyle(.secondary)
+                .padding(32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .loaded:
+            if model.isCreating || model.issue != nil {
+                renderedDetail()
+            } else {
+                Text("Issue could not be parsed.")
+                    .foregroundStyle(.secondary)
+                    .padding(32)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func renderedDetail() -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            compactHeader
+            if model.isCreating {
+                SpecTabView(
+                    text: bodyBinding,
+                    position: $specEditorPosition,
+                    messages: $specEditorMessages,
+                    language: markdownLanguage,
+                    layout: editorLayout
+                )
+            } else {
+                tabBody
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var compactHeader: some View {
         VStack(spacing: 0) {
             if !model.isCreating {
                 IssueDetailBanner(
@@ -162,31 +201,6 @@ struct IssueDetailView: View {
                     onKeep: { model.resolveConflictKeep() }
                 )
             }
-            switch model.loadState {
-            case .idle:
-                ProgressView().controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .failed(let message):
-                Text(message)
-                    .foregroundStyle(.secondary)
-                    .padding(32)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .loaded:
-                if model.isCreating || model.issue != nil {
-                    renderedDetail()
-                } else {
-                    Text("Issue could not be parsed.")
-                        .foregroundStyle(.secondary)
-                        .padding(32)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func renderedDetail() -> some View {
-        VStack(alignment: .leading, spacing: 16) {
             IssueDetailTopBar(
                 paddedID: paddedID,
                 branch: branch,
@@ -195,61 +209,44 @@ struct IssueDetailView: View {
                 onCopyID: model.copyIDToPasteboard,
                 onSave: attemptSave
             )
-            IssueDetailHero(
-                status: currentStatus,
-                type: currentType,
-                labels: currentLabels,
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            IssueTitleRow(
                 titleDraft: titleBinding,
                 titlePlaceholder: model.isCreating ? "Issue title" : "Title",
                 autoFocusTitle: model.isCreating,
                 onCommitTitle: onCommitTitle,
-                onAddLabel: onAddLabel,
-                onRemoveLabel: onRemoveLabel,
-                isDisabled: detailFieldsDisabled
+                isDisabled: detailFieldsDisabled,
+                workflowBar: workflowBarConfig
             )
-            if !model.isCreating, let folderName = model.folderName {
-                Divider()
-                IssueWorkflowActionBar(status: currentStatus, type: currentType) { action in
-                    triggerWorkflow(action, folderName: folderName)
-                }
-            }
-            Divider()
-            IssueDetailFormRows(
-                type: currentType,
-                status: currentStatus,
-                dates: formDates,
-                onSelectType: onSelectType,
-                onSelectStatus: onSelectStatus,
-                isDisabled: detailFieldsDisabled
-            )
-            Divider()
+            .padding(.horizontal, 16)
+            .padding(.top, 2)
+            .padding(.bottom, 6)
             if !model.isCreating {
-                BodyTabPicker(selectedTab: bodyTabBinding)
-                tabBody
-            } else {
-                SpecTabView(
-                    text: bodyBinding,
-                    position: $specEditorPosition,
-                    messages: $specEditorMessages,
-                    language: markdownLanguage,
-                    layout: editorLayout
+                IssueMetaRow(
+                    status: currentStatus,
+                    type: currentType,
+                    labels: currentLabels,
+                    dates: metaDates,
+                    onSelectStatus: onSelectStatus,
+                    onSelectType: onSelectType,
+                    onAddLabel: onAddLabel,
+                    onRemoveLabel: onRemoveLabel,
+                    isDisabled: detailFieldsDisabled
                 )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 5)
+                BodyTabPicker(selectedTab: bodyTabBinding)
+                    .padding(.horizontal, 12)
             }
         }
-        .padding(24)
     }
 
     @ViewBuilder
     private var tabBody: some View {
         switch model.selectedBodyTab {
         case .prompt:
-            PromptTabView(
-                text: promptBinding,
-                position: $promptEditorPosition,
-                messages: $promptEditorMessages,
-                language: markdownLanguage,
-                layout: editorLayout
-            )
+            PromptTabView(text: promptBinding)
         case .spec:
             SpecTabView(
                 text: bodyBinding,
@@ -287,12 +284,13 @@ struct IssueDetailView: View {
                     )
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .diff:
             if let diffTabModel {
                 DiffTabView(model: diffTabModel)
             } else {
                 ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         }
     }
@@ -335,9 +333,18 @@ struct IssueDetailView: View {
         return model.issue?.labels ?? []
     }
 
-    private var formDates: IssueDetailFormRows.Dates? {
-        guard !model.isCreating, let issue = model.issue else { return nil }
+    private var metaDates: IssueMetaRow.Dates? {
+        guard let issue = model.issue else { return nil }
         return .init(created: issue.created, updated: issue.updated)
+    }
+
+    private var workflowBarConfig: IssueTitleRow.WorkflowBarConfig? {
+        guard !model.isCreating, let folderName = model.folderName else { return nil }
+        return .init(
+            status: currentStatus,
+            type: currentType,
+            runWorkflow: { action in triggerWorkflow(action, folderName: folderName) }
+        )
     }
 
     private var paddedID: String? {
@@ -441,7 +448,6 @@ struct IssueDetailView: View {
         // body editor only renders the body, so the markers have no row to
         // attach to here. The error banner above still surfaces the issue.
         if !specEditorMessages.isEmpty { specEditorMessages = [] }
-        if !promptEditorMessages.isEmpty { promptEditorMessages = [] }
     }
 
     private func refreshDirtyCache() {
@@ -549,15 +555,16 @@ struct IssueDetailView: View {
     }
 
     private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {
-        // Plan injects the prompt body into the claude REPL — flush the
-        // current draft to disk first so /plumage-plan and the workflow
-        // env see the same content the user just typed.
+        // WorkflowCommandResolver reads spec.md and prompt.md from disk, so
+        // both dirty buffers must be flushed before the inject runs.
         Task {
-            if action == .plan, model.isPromptDirty {
+            if model.isPromptDirty {
                 try? await model.savePrompt()
             }
-            let payload = model.promptDraft
-            runWorkflow(action, folderName, payload.isEmpty ? nil : payload)
+            if model.isBodyDirty {
+                try? await model.saveBody()
+            }
+            runWorkflow(action, folderName)
         }
     }
 
@@ -567,10 +574,6 @@ struct IssueDetailView: View {
 
     private func triggerBack(_ action: @escaping () -> Void) {
         Task { await attemptPop(endAction: action) }
-    }
-
-    private var backToBoardAction: (() -> Void)? {
-        dismissToOrigin.map { action in { triggerBack(action) } }
     }
 
     private func attemptPop(endAction: @escaping () -> Void) async {
