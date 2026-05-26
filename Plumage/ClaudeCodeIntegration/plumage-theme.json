@@ -25,9 +25,9 @@
     "claude": "rgb(218,165,32)",
     "claudeShimmer": "rgb(218,165,32)",
 
-    "subtle": "rgb(140,140,140)",
-    "inactive": "rgb(120,120,120)",
-    "inactiveShimmer": "rgb(140,140,140)",
+    "subtle": "rgb(180,180,180)",
+    "inactive": "rgb(160,160,160)",
+    "inactiveShimmer": "rgb(180,180,180)",
 
     "permission": "rgb(140,140,200)",
     "permissionShimmer": "rgb(160,160,220)",
