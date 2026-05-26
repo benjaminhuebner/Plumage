@@ -32,11 +32,22 @@ nonisolated enum ClaudeThemeInstaller {
     static let settingsThemeValue = "custom:\(themeName)"
     static let bundledResource = "plumage-theme"
     static let bundledExtension = "json"
-    // Inline JSON passed via `claude --settings '<json>'` to scope the theme
-    // to a single Plumage-spawned session without touching the user's global
+    // Inline JSON passed via `claude --settings '<json>'` to scope Plumage's
+    // session-specific overrides without touching the user's global
     // ~/.claude/settings.json. Single quotes and newlines are excluded so
     // shellQuotedAttachArgs can wrap the value with a single pair of quotes.
-    static let perSessionSettingsJSON = #"{"theme":"custom:plumage"}"#
+    //
+    // Keys:
+    // - `theme`: pins claude to the bundled `plumage` custom theme.
+    // - `promptSuggestionEnabled`: disables the "Predicted next user prompt"
+    //   suggestion line claude renders after each turn. Claude defaults this
+    //   on; the user's `Terminal.app` claude is suggestion-free because they
+    //   toggled it off there via `/config`, but the user's persisted value
+    //   doesn't carry into Plumage sessions when the embedded terminal is the
+    //   first surface they touch. Pinning to `false` per-session matches the
+    //   Terminal.app behavior without forcing a global write.
+    static let perSessionSettingsJSON =
+        #"{"theme":"custom:plumage","promptSuggestionEnabled":false}"#
 
     static func installIfNeeded(bundle: Bundle = .main, fileManager: FileManager = .default) {
         do {
