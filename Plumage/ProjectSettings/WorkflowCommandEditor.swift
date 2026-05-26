@@ -10,8 +10,20 @@ struct WorkflowCommandEditor: NSViewRepresentable {
     var onPlaceholderInsert: (WorkflowPlaceholder) -> Void = { _ in }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
+        let textView = WorkflowCommandTextView()
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(
+            width: 0, height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.widthTracksTextView = true
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.documentView = textView
+        scrollView.drawsBackground = false
         textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
