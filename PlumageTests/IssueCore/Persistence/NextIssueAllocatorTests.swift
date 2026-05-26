@@ -120,14 +120,14 @@ struct NextIssueAllocatorErrorDescriptionTests {
         let error = NextIssueAllocatorError.slugCollision(existingFolder: "00042-foo")
         let description = error.localizedDescription
         #expect(description.contains("00042-foo"))
-        #expect(description.contains("existiert bereits"))
+        #expect(description.contains("already exists"))
         #expect(!description.contains("error 0"))
     }
 
     @Test("invalidSlug description hints at the cause")
     func invalidSlugDescription() {
         let description = NextIssueAllocatorError.invalidSlug.localizedDescription
-        #expect(description.contains("Slug"))
+        #expect(description.contains("slug"))
         #expect(!description.contains("error 1"))
     }
 
