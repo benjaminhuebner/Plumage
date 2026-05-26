@@ -153,6 +153,47 @@ struct IssueDetailView: View {
 
     @ViewBuilder
     private var content: some View {
+        switch model.loadState {
+        case .idle:
+            ProgressView().controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed(let message):
+            Text(message)
+                .foregroundStyle(.secondary)
+                .padding(32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .loaded:
+            if model.isCreating || model.issue != nil {
+                renderedDetail()
+            } else {
+                Text("Issue could not be parsed.")
+                    .foregroundStyle(.secondary)
+                    .padding(32)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func renderedDetail() -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            compactHeader
+            if model.isCreating {
+                SpecTabView(
+                    text: bodyBinding,
+                    position: $specEditorPosition,
+                    messages: $specEditorMessages,
+                    language: markdownLanguage,
+                    layout: editorLayout
+                )
+            } else {
+                tabBody
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var compactHeader: some View {
         VStack(spacing: 0) {
             if !model.isCreating {
                 IssueDetailBanner(
@@ -162,31 +203,6 @@ struct IssueDetailView: View {
                     onKeep: { model.resolveConflictKeep() }
                 )
             }
-            switch model.loadState {
-            case .idle:
-                ProgressView().controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .failed(let message):
-                Text(message)
-                    .foregroundStyle(.secondary)
-                    .padding(32)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .loaded:
-                if model.isCreating || model.issue != nil {
-                    renderedDetail()
-                } else {
-                    Text("Issue could not be parsed.")
-                        .foregroundStyle(.secondary)
-                        .padding(32)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func renderedDetail() -> some View {
-        VStack(alignment: .leading, spacing: 16) {
             IssueDetailTopBar(
                 paddedID: paddedID,
                 branch: branch,
@@ -195,48 +211,38 @@ struct IssueDetailView: View {
                 onCopyID: model.copyIDToPasteboard,
                 onSave: attemptSave
             )
-            IssueDetailHero(
-                status: currentStatus,
-                type: currentType,
-                labels: currentLabels,
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            IssueTitleRow(
                 titleDraft: titleBinding,
                 titlePlaceholder: model.isCreating ? "Issue title" : "Title",
                 autoFocusTitle: model.isCreating,
                 onCommitTitle: onCommitTitle,
-                onAddLabel: onAddLabel,
-                onRemoveLabel: onRemoveLabel,
-                isDisabled: detailFieldsDisabled
+                isDisabled: detailFieldsDisabled,
+                workflowBar: workflowBarConfig
             )
-            if !model.isCreating, let folderName = model.folderName {
-                Divider()
-                IssueWorkflowActionBar(status: currentStatus, type: currentType) { action in
-                    triggerWorkflow(action, folderName: folderName)
-                }
-            }
-            Divider()
-            IssueDetailFormRows(
-                type: currentType,
-                status: currentStatus,
-                dates: formDates,
-                onSelectType: onSelectType,
-                onSelectStatus: onSelectStatus,
-                isDisabled: detailFieldsDisabled
-            )
-            Divider()
+            .padding(.horizontal, 16)
+            .padding(.top, 2)
+            .padding(.bottom, 6)
             if !model.isCreating {
-                BodyTabPicker(selectedTab: bodyTabBinding)
-                tabBody
-            } else {
-                SpecTabView(
-                    text: bodyBinding,
-                    position: $specEditorPosition,
-                    messages: $specEditorMessages,
-                    language: markdownLanguage,
-                    layout: editorLayout
+                IssueMetaRow(
+                    status: currentStatus,
+                    type: currentType,
+                    labels: currentLabels,
+                    dates: metaDates,
+                    onSelectStatus: onSelectStatus,
+                    onSelectType: onSelectType,
+                    onAddLabel: onAddLabel,
+                    onRemoveLabel: onRemoveLabel,
+                    isDisabled: detailFieldsDisabled
                 )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 5)
+                BodyTabPicker(selectedTab: bodyTabBinding)
+                    .padding(.horizontal, 12)
             }
         }
-        .padding(24)
+        .background(.thinMaterial)
     }
 
     @ViewBuilder
@@ -335,9 +341,18 @@ struct IssueDetailView: View {
         return model.issue?.labels ?? []
     }
 
-    private var formDates: IssueDetailFormRows.Dates? {
-        guard !model.isCreating, let issue = model.issue else { return nil }
+    private var metaDates: IssueMetaRow.Dates? {
+        guard let issue = model.issue else { return nil }
         return .init(created: issue.created, updated: issue.updated)
+    }
+
+    private var workflowBarConfig: IssueTitleRow.WorkflowBarConfig? {
+        guard !model.isCreating, let folderName = model.folderName else { return nil }
+        return .init(
+            status: currentStatus,
+            type: currentType,
+            runWorkflow: { action in triggerWorkflow(action, folderName: folderName) }
+        )
     }
 
     private var paddedID: String? {

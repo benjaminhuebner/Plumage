@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct IssueDetailTopBar: View {
-    // nil in creating mode (no ID/branch until allocation).
     let paddedID: String?
     let branch: String?
     let showsCopyID: Bool
@@ -10,22 +9,23 @@ struct IssueDetailTopBar: View {
     let onSave: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            if paddedID != nil || branch != nil {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let paddedID {
-                        Text(paddedID)
-                            .font(.system(.subheadline, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    }
-                    if let branch {
-                        Text(branch)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
+        HStack(spacing: 6) {
+            if let paddedID {
+                Text(paddedID)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            if paddedID != nil, branch != nil {
+                Text("|")
+                    .font(.caption)
+                    .foregroundStyle(.quaternary)
+            }
+            if let branch {
+                Text(branch)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer()
             if showsCopyID {
@@ -38,6 +38,7 @@ struct IssueDetailTopBar: View {
         }
         .buttonStyle(.borderless)
         .labelStyle(.titleAndIcon)
+        .font(.caption)
     }
 }
 

@@ -1,43 +1,29 @@
 import SwiftUI
 
-struct IssueDetailHero: View {
-    let status: IssueStatus
-    let type: IssueType
-    let labels: [String]
+struct IssueTitleRow: View {
     let titleDraft: Binding<String>
     let titlePlaceholder: String
     let autoFocusTitle: Bool
     let onCommitTitle: () -> Void
-    let onAddLabel: (String) -> Void
-    let onRemoveLabel: (String) -> Void
     let isDisabled: Bool
+    let workflowBar: WorkflowBarConfig?
+
+    struct WorkflowBarConfig {
+        let status: IssueStatus
+        let type: IssueType
+        let runWorkflow: (WorkflowAction) -> Void
+    }
 
     @FocusState private var titleFocused: Bool
-    // Tracks the draft snapshot we last forwarded to the parent so that
-    // Enter (onSubmit) followed by focus-loss doesn't double-fire the
-    // commit. The model guards no-op writes by content too, but skipping
-    // the second dispatch saves a needless detached task + disk read.
     @State private var lastCommittedDraft: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 8) {
-                IssueStatusPill(status: status)
-                IssueTypePill(type: type)
-                LabelChipEditor(
-                    labels: labels,
-                    onAdd: onAddLabel,
-                    onRemove: onRemoveLabel
-                )
-                .disabled(isDisabled)
-                Spacer(minLength: 0)
-            }
+        HStack(alignment: .top, spacing: 12) {
             TextField(titlePlaceholder, text: titleDraft)
-                .font(.largeTitle.weight(.bold))
+                .font(.title2.weight(.bold))
                 .textFieldStyle(.plain)
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .focused($titleFocused)
                 .disabled(isDisabled)
                 .onSubmit(commitIfChanged)
@@ -45,15 +31,18 @@ struct IssueDetailHero: View {
                     if !focused { commitIfChanged() }
                 }
                 .task {
-                    // The first focus assignment is dropped intermittently if
-                    // it runs before the navigation push finishes animating;
-                    // a single async hop after the view appears lands focus
-                    // reliably (same trick as the prior sheet path).
                     if autoFocusTitle {
                         try? await Task.sleep(for: .milliseconds(50))
                         titleFocused = true
                     }
                 }
+            if let config = workflowBar {
+                IssueWorkflowActionBar(
+                    status: config.status,
+                    type: config.type,
+                    runWorkflow: config.runWorkflow
+                )
+            }
         }
     }
 
@@ -65,22 +54,33 @@ struct IssueDetailHero: View {
     }
 }
 
-#Preview {
+#Preview("Loaded") {
     StatefulPreviewWrapper("Better Issue-Details View") { title in
-        IssueDetailHero(
-            status: .inProgress,
-            type: .feature,
-            labels: ["ui", "ux"],
+        IssueTitleRow(
             titleDraft: title,
             titlePlaceholder: "Title",
             autoFocusTitle: false,
             onCommitTitle: {},
-            onAddLabel: { _ in },
-            onRemoveLabel: { _ in },
-            isDisabled: false
+            isDisabled: false,
+            workflowBar: .init(status: .inProgress, type: .feature) { _ in }
         )
         .padding()
-        .frame(width: 600)
+        .frame(width: 700)
+    }
+}
+
+#Preview("Creating") {
+    StatefulPreviewWrapper("") { title in
+        IssueTitleRow(
+            titleDraft: title,
+            titlePlaceholder: "Issue title",
+            autoFocusTitle: false,
+            onCommitTitle: {},
+            isDisabled: false,
+            workflowBar: nil
+        )
+        .padding()
+        .frame(width: 700)
     }
 }
 
