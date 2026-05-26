@@ -45,7 +45,7 @@ struct ProjectSettingsView: View {
                 Spacer(minLength: 0)
             }
             Text(
-                "Plumage-Konfiguration für dieses Projekt. Änderungen werden in `Plumage.plumage/config.json` gespeichert."
+                "Plumage configuration for this project. Changes are saved to `Plumage.plumage/config.json`."
             )
             .foregroundStyle(.secondary)
             .font(.callout)
@@ -58,12 +58,12 @@ struct ProjectSettingsView: View {
         case .saving:
             HStack(spacing: 4) {
                 ProgressView().controlSize(.small)
-                Text("Speichere…")
+                Text("Saving…")
             }
             .foregroundStyle(.secondary)
             .font(.caption)
         case .saved:
-            Label("Gespeichert", systemImage: "checkmark.circle.fill")
+            Label("Saved", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .font(.caption)
         case .idle, .failed:
@@ -76,7 +76,7 @@ struct ProjectSettingsView: View {
         sectionHeader(
             title: "Workflow Commands",
             description:
-                "Custom Slash-Commands für die drei Workflow-Buttons. Platzhalter `<slug>`, `<prompt>`, `<spec>` werden beim Run substituiert."
+                "Custom slash-commands for the three workflow buttons. The placeholders `<slug>`, `<prompt>`, `<spec>` are substituted at run time."
         )
         VStack(alignment: .leading, spacing: 18) {
             workflowEditor(for: .plan, binding: bindings.planCommand)
@@ -95,7 +95,7 @@ struct ProjectSettingsView: View {
                 Text(action.label)
                     .font(.headline)
                 Spacer()
-                Button("Auf Default zurücksetzen") {
+                Button("Reset to default") {
                     model.resetCommand(for: action)
                 }
                 .controlSize(.small)
@@ -133,7 +133,7 @@ struct ProjectSettingsView: View {
     private var modelsSection: some View {
         sectionHeader(
             title: "Models",
-            description: "Modell-Auswahl pro Session-Typ."
+            description: "Model selection per session type."
         )
         VStack(alignment: .leading, spacing: 8) {
             ForEach(ModelSlot.allCases, id: \.self) { slot in
@@ -143,7 +143,7 @@ struct ProjectSettingsView: View {
                 )
             }
             Label(
-                "Änderung wirkt erst auf neue Sessions/Tabs.",
+                "Changes only apply to new sessions and tabs.",
                 systemImage: "info.circle"
             )
             .font(.caption)
@@ -170,7 +170,7 @@ struct ProjectSettingsView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Speichern fehlgeschlagen")
+                Text("Save failed")
                     .font(.subheadline).bold()
                 Text(message)
                     .font(.caption)
