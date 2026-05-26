@@ -113,6 +113,41 @@ struct NextIssueAllocatorPureTests {
     }
 }
 
+@Suite("NextIssueAllocatorError descriptions")
+struct NextIssueAllocatorErrorDescriptionTests {
+    @Test("slugCollision description names the existing folder")
+    func slugCollisionDescription() {
+        let error = NextIssueAllocatorError.slugCollision(existingFolder: "00042-foo")
+        let description = error.localizedDescription
+        #expect(description.contains("00042-foo"))
+        #expect(description.contains("existiert bereits"))
+        #expect(!description.contains("error 0"))
+    }
+
+    @Test("invalidSlug description hints at the cause")
+    func invalidSlugDescription() {
+        let description = NextIssueAllocatorError.invalidSlug.localizedDescription
+        #expect(description.contains("Slug"))
+        #expect(!description.contains("error 1"))
+    }
+
+    @Test("templateMissing description includes the path")
+    func templateMissingDescription() {
+        let url = URL(fileURLWithPath: "/tmp/proj/.claude/issues/_TEMPLATE.md")
+        let description = NextIssueAllocatorError.templateMissing(url).localizedDescription
+        #expect(description.contains("/tmp/proj/.claude/issues/_TEMPLATE.md"))
+        #expect(description.contains("_TEMPLATE.md"))
+        #expect(!description.contains("error 2"))
+    }
+
+    @Test("ioFailure description surfaces the underlying reason")
+    func ioFailureDescription() {
+        let description = NextIssueAllocatorError.ioFailure("disk full").localizedDescription
+        #expect(description.contains("disk full"))
+        #expect(!description.contains("error 3"))
+    }
+}
+
 @Suite("NextIssueAllocator.allocate")
 struct NextIssueAllocatorAllocateTests {
     @Test("allocates next ID, writes spec with type/labels, returns spec URL")

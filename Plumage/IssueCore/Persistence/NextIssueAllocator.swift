@@ -8,6 +8,25 @@ nonisolated enum NextIssueAllocatorError: Error, Equatable, Sendable {
     case ioFailure(String)
 }
 
+// LocalizedError-Konformanz, damit SwiftUI's Alert/`error.localizedDescription`
+// statt der generischen NSError-Brücke ("…error 0.") eine nutzbare Meldung
+// zeigt. User-facing Texte auf Deutsch per Projekt-Kommunikationsregel.
+extension NextIssueAllocatorError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .slugCollision(let folder):
+            return "Ein Issue mit diesem Slug existiert bereits: \(folder). Wähle einen anderen Titel."
+        case .invalidSlug:
+            return
+                "Titel ergibt nach Normalisierung keinen gültigen Slug. Mindestens ein Buchstabe oder eine Ziffer wird benötigt."
+        case .templateMissing(let url):
+            return "_TEMPLATE.md fehlt unter \(url.path)."
+        case .ioFailure(let reason):
+            return "Schreibfehler beim Anlegen des Issues: \(reason)"
+        }
+    }
+}
+
 nonisolated struct NextIssueAllocator: Sendable {
     let projectURL: URL
 
