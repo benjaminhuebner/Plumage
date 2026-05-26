@@ -267,7 +267,7 @@ struct IssueDetailModelTests {
         #expect(model.canSaveInCreatingMode)
     }
 
-    @Test("createIssueFromDraft calls allocator then mutator and transitions to loaded")
+    @Test("createIssueFromDraft passes body as prompt, flips non-draft status, seeds prompt fields")
     func createIssueAllocatorThenMutatorSequence() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "draft", body: "Loaded body."))
         let recorder = AllocatorMutatorRecorder(allocatedSpecURL: env.specURL)
@@ -288,11 +288,12 @@ struct IssueDetailModelTests {
 
         let calls = recorder.calls
         #expect(calls.count == 2)
-        if case .allocate(let slug, let title, let type, let labels, _, let now) = calls[0] {
+        if case .allocate(let slug, let title, let type, let labels, let prompt, let now) = calls[0] {
             #expect(slug == "my-new-issue")
             #expect(title == "My New Issue")
             #expect(type == .chore)
             #expect(labels == ["ui"])
+            #expect(prompt == "Some body content")
             #expect(now == self.now)
         } else {
             #expect(Bool(false), "first call should be allocate, was \(calls[0])")
@@ -300,12 +301,11 @@ struct IssueDetailModelTests {
         if case .mutate(let specURL, let mutation, let now) = calls[1] {
             #expect(specURL == env.specURL)
             #expect(mutation.status == .set(.inProgress))
-            #expect(mutation.body == .set("Some body content"))
+            #expect(mutation.body == .keep)
             #expect(now == self.now)
         } else {
             #expect(Bool(false), "second call should be mutate, was \(calls[1])")
         }
-        // Kind transitioned to .loaded with the allocated folder name.
         if case .loaded(let folderName) = model.kind {
             #expect(folderName == env.specURL.deletingLastPathComponent().lastPathComponent)
         } else {
@@ -313,6 +313,8 @@ struct IssueDetailModelTests {
         }
         #expect(model.specURL == env.specURL)
         #expect(model.allocationError == nil)
+        #expect(model.promptDraft == "Some body content")
+        #expect(model.loadedPromptContent == "Some body content")
     }
 
     @Test("createIssueFromDraft with empty title throws and does not call allocator")
@@ -337,8 +339,8 @@ struct IssueDetailModelTests {
         }
     }
 
-    @Test("createIssueFromDraft keeps body unchanged when bodyDraft is empty")
-    func createIssueOmitsBodyWhenEmpty() async throws {
+    @Test("createIssueFromDraft skips mutator when status is template-default draft")
+    func createIssueSkipsMutatorForDraftStatus() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "draft"))
         let recorder = AllocatorMutatorRecorder(allocatedSpecURL: env.specURL)
         let model = IssueDetailModel(
@@ -349,12 +351,18 @@ struct IssueDetailModelTests {
             clock: { self.now }
         )
         model.titleDraft = "Title"
+        model.bodyDraft = "An idea."
+
         try await model.createIssueFromDraft()
-        if case .mutate(_, let mutation, _) = recorder.calls[1] {
-            #expect(mutation.body == .keep)
+
+        #expect(recorder.calls.count == 1)
+        if case .allocate(_, _, _, _, let prompt, _) = recorder.calls[0] {
+            #expect(prompt == "An idea.")
         } else {
-            #expect(Bool(false))
+            #expect(Bool(false), "expected allocate call, got \(recorder.calls[0])")
         }
+        #expect(model.promptDraft == "An idea.")
+        #expect(model.loadedPromptContent == "An idea.")
     }
 
     @Test("defaultTab maps status to expected smart-default tab")
