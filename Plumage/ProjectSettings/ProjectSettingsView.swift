@@ -33,14 +33,37 @@ struct ProjectSettingsView: View {
     @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Project Settings")
-                .font(.title)
-                .bold()
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Project Settings")
+                    .font(.title)
+                    .bold()
+                saveStatusBadge
+                Spacer(minLength: 0)
+            }
             Text(
                 "Plumage-Konfiguration für dieses Projekt. Änderungen werden in `Plumage.plumage/config.json` gespeichert."
             )
             .foregroundStyle(.secondary)
             .font(.callout)
+        }
+    }
+
+    @ViewBuilder
+    private var saveStatusBadge: some View {
+        switch model.saveStatus {
+        case .saving:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("Speichere…")
+            }
+            .foregroundStyle(.secondary)
+            .font(.caption)
+        case .saved:
+            Label("Gespeichert", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        case .idle, .failed:
+            EmptyView()
         }
     }
 
@@ -100,7 +123,7 @@ struct ProjectSettingsView: View {
     private var modelsSection: some View {
         sectionHeader(
             title: "Models",
-            description: "Modell-Auswahl pro Session-Typ. Änderung wirkt erst auf neue Sessions/Tabs."
+            description: "Modell-Auswahl pro Session-Typ."
         )
         VStack(alignment: .leading, spacing: 8) {
             ForEach(ModelSlot.allCases, id: \.self) { slot in
@@ -109,6 +132,13 @@ struct ProjectSettingsView: View {
                     choice: modelBinding(for: slot)
                 )
             }
+            Label(
+                "Änderung wirkt erst auf neue Sessions/Tabs.",
+                systemImage: "info.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 6)
         }
     }
 
