@@ -17,11 +17,17 @@ struct IssueMetaRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 6) {
+        HStack(alignment: .center, spacing: 8) {
             statusMenu
                 .disabled(isDisabled)
             typeMenu
                 .disabled(isDisabled)
+            Rectangle()
+                .fill(.quaternary)
+                .frame(width: 1)
+                .frame(maxHeight: 16)
+                .padding(.horizontal, 2)
+                .accessibilityHidden(true)
             LabelChipEditor(
                 labels: labels,
                 onAdd: onAddLabel,
@@ -50,15 +56,12 @@ struct IssueMetaRow: View {
                 }
             }
         } label: {
-            HStack(spacing: 3) {
-                IssueStatusPill(status: status)
-                Image(systemName: "chevron.down")
-                    .imageScale(.small)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            IssueStatusPill(status: status)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
     }
 
@@ -77,15 +80,12 @@ struct IssueMetaRow: View {
                 }
             }
         } label: {
-            HStack(spacing: 3) {
-                IssueTypePill(type: type)
-                Image(systemName: "chevron.down")
-                    .imageScale(.small)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            IssueTypePill(type: type)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
     }
 

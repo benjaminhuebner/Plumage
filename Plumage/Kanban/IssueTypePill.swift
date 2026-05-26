@@ -10,6 +10,8 @@ struct IssueTypePill: View {
             .padding(.vertical, 3)
             .foregroundStyle(type.foregroundOnTint)
             .background(type.color, in: Capsule())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Type: \(type.rawValue.capitalized)")
     }
 }
 

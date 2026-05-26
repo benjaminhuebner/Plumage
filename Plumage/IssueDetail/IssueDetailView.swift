@@ -14,9 +14,7 @@ struct IssueDetailView: View {
     // versa. Messages are tab-scoped too in case a future hook re-wires
     // FrontmatterMessageMap markers into one of them.
     @State private var specEditorPosition = CodeEditor.Position()
-    @State private var promptEditorPosition = CodeEditor.Position()
     @State private var specEditorMessages: Set<TextLocated<Message>> = []
-    @State private var promptEditorMessages: Set<TextLocated<Message>> = []
     @State private var hasAppliedSmartDefaultTab: Bool = false
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
@@ -242,20 +240,13 @@ struct IssueDetailView: View {
                     .padding(.horizontal, 12)
             }
         }
-        .background(.thinMaterial)
     }
 
     @ViewBuilder
     private var tabBody: some View {
         switch model.selectedBodyTab {
         case .prompt:
-            PromptTabView(
-                text: promptBinding,
-                position: $promptEditorPosition,
-                messages: $promptEditorMessages,
-                language: markdownLanguage,
-                layout: editorLayout
-            )
+            PromptTabView(text: promptBinding)
         case .spec:
             SpecTabView(
                 text: bodyBinding,
@@ -293,12 +284,13 @@ struct IssueDetailView: View {
                     )
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .diff:
             if let diffTabModel {
                 DiffTabView(model: diffTabModel)
             } else {
                 ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         }
     }
@@ -456,7 +448,6 @@ struct IssueDetailView: View {
         // body editor only renders the body, so the markers have no row to
         // attach to here. The error banner above still surfaces the issue.
         if !specEditorMessages.isEmpty { specEditorMessages = [] }
-        if !promptEditorMessages.isEmpty { promptEditorMessages = [] }
     }
 
     private func refreshDirtyCache() {
@@ -583,10 +574,6 @@ struct IssueDetailView: View {
 
     private func triggerBack(_ action: @escaping () -> Void) {
         Task { await attemptPop(endAction: action) }
-    }
-
-    private var backToBoardAction: (() -> Void)? {
-        dismissToOrigin.map { action in { triggerBack(action) } }
     }
 
     private func attemptPop(endAction: @escaping () -> Void) async {
