@@ -67,8 +67,6 @@ struct NextIssueAllocatorPureTests {
             labels: []
             model: null
             ---
-
-            # Issue <<<ID_PADDED>>>: <<<TITLE>>>
             """
 
         let rendered = NextIssueAllocator.substituteTemplate(
@@ -88,7 +86,6 @@ struct NextIssueAllocatorPureTests {
         #expect(rendered.contains("labels: [chore, v0.1]\n"))
         #expect(rendered.contains("branch: issue/00002-bar\n"))
         #expect(rendered.contains("created: 2026-05-13T07:00:00Z\n"))
-        #expect(rendered.contains("# Issue 00002: Bar"))
         #expect(!rendered.contains("<<<"))
     }
 
@@ -298,8 +295,6 @@ private struct Fixture {
             labels: []
             model: null
             ---
-
-            # Issue <<<ID_PADDED>>>: <<<TITLE>>>
             """
         try FileManager.default.createDirectory(
             at: target.deletingLastPathComponent(), withIntermediateDirectories: true
