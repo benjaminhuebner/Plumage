@@ -46,6 +46,7 @@ struct PlumageApp: App {
             NewIssueCommand()
             NewSidebarItemCommands()
             SpecEditorCommands()
+            GitCommand()
             TerminalCommand()
         }
         .restorationBehavior(.disabled)
