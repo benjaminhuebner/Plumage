@@ -39,6 +39,19 @@ struct ClaudeThemeInstallerTests {
         #expect(!ClaudeThemeInstaller.perSessionSettingsJSON.contains("\n"))
     }
 
+    @Test("perSessionSettingsJSON pins promptSuggestionEnabled=false")
+    func perSessionDisablesPromptSuggestions() throws {
+        let data = try #require(
+            ClaudeThemeInstaller.perSessionSettingsJSON.data(using: .utf8))
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // claude defaults `promptSuggestionEnabled` to true and renders a
+        // "Predicted next user prompt" line after every turn. Plumage opts out
+        // per-session so the embedded terminal matches a user's suggestion-
+        // free Terminal.app setup without writing to ~/.claude/settings.json.
+        #expect(json["promptSuggestionEnabled"] as? Bool == false)
+    }
+
     @Test("removeManagedThemeFromSettings strips custom:plumage and leaves siblings alone")
     func removesCustomPlumage() throws {
         let tmp = try makeTempDir()
