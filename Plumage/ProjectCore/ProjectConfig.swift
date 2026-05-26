@@ -42,10 +42,6 @@ nonisolated struct WorkflowsConfig: Codable, Hashable, Sendable {
 
 nonisolated struct WorkflowOverride: Codable, Hashable, Sendable {
     var command: String
-
-    init(command: String) {
-        self.command = command
-    }
 }
 
 nonisolated struct ModelsConfig: Codable, Hashable, Sendable {

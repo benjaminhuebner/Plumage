@@ -86,10 +86,14 @@ final class WorkflowCommandPlaceholderCell: NSTextAttachmentCell, @unchecked Sen
 enum WorkflowCommandSerialization {
     // Regex matches the three known placeholders only. Unknown tokens like
     // `<xyz>` stay as literal text so a user-typed `<3` doesn't get eaten.
+    // Static pattern is a compile-time-constant regex; force-unwrap is the
+    // documented idiom for "this can never fail because the literal is valid".
     nonisolated private static let pattern: NSRegularExpression = {
         let raw = "<(slug|prompt|spec)>"
-        // swiftlint:disable:next force_try
-        return try! NSRegularExpression(pattern: raw, options: [])
+        guard let regex = try? NSRegularExpression(pattern: raw, options: []) else {
+            preconditionFailure("Invariant: placeholder regex must compile")
+        }
+        return regex
     }()
 
     @MainActor
