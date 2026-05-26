@@ -29,11 +29,32 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
         }
     }
 
+    // Static, model-independent permission-mode mapping. Implement/Review are
+    // always the same regardless of model choice. Plan is special-cased below
+    // because the `opusplan` model alias implies plan-mode semantics on its
+    // own, but `opus` / `sonnet` / `haiku` shouldn't force `--permission-mode
+    // plan` on the subprocess — see resolvedPermissionMode(model:).
     var permissionMode: PermissionMode {
         switch self {
         case .plan: .plan
         case .implement: .acceptEdits
         case .review: .default
+        }
+    }
+
+    // The permission mode used for an actual workflow-tab spawn. Plan only
+    // forces `--permission-mode plan` when the user keeps the slot-default
+    // `opusplan` model; picking a different model for Plan opts the user
+    // out of plan mode entirely (interactive opus/sonnet/haiku session,
+    // injected `/plumage-plan <slug>` still runs).
+    func resolvedPermissionMode(model: ModelChoice) -> PermissionMode {
+        switch self {
+        case .plan:
+            return model == .opusPlan ? .plan : .default
+        case .implement:
+            return .acceptEdits
+        case .review:
+            return .default
         }
     }
 

@@ -190,13 +190,34 @@ struct TerminalTabsModelTests {
         #expect(model.tabs[0].id == mainID)
     }
 
-    @Test("addWorkflowTab passes the action's permissionMode to the session")
-    func addWorkflowTabSetsPermissionMode() {
+    @Test("plan tab with default opusplan model uses --permission-mode plan")
+    func addWorkflowTabPlanWithOpusplanForcesPlanMode() {
         let model = makeModel()
+        // No modelsConfig → falls back to slot default (opusplan).
         let tab = model.addWorkflowTab(action: .plan, slug: "x")
         let cmd = tab.session.shellSpawnArgs()[1]
-        #expect(cmd.contains("--permission-mode"))
-        #expect(cmd.contains("'plan'"))
+        #expect(cmd.contains("'--permission-mode' 'plan'"))
+        #expect(cmd.contains("'--model' 'opusplan'"))
+    }
+
+    @Test("plan tab with non-opusplan model opts out of plan mode")
+    func addWorkflowTabPlanWithOpusSkipsPlanMode() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(plan: .opus)
+        let tab = model.addWorkflowTab(action: .plan, slug: "x")
+        let cmd = tab.session.shellSpawnArgs()[1]
+        // permission-mode falls back to default → no --permission-mode flag.
+        #expect(!cmd.contains("'--permission-mode' 'plan'"))
+        #expect(cmd.contains("'--model' 'opus'"))
+    }
+
+    @Test("implement tab always uses acceptEdits regardless of model")
+    func addWorkflowTabImplementUsesAcceptEdits() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(implement: .sonnet)
+        let tab = model.addWorkflowTab(action: .implement, slug: "x")
+        let cmd = tab.session.shellSpawnArgs()[1]
+        #expect(cmd.contains("'--permission-mode' 'acceptEdits'"))
     }
 
     @Test("workflow tabs are closable (only the main tab is sticky)")

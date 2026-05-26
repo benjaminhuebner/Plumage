@@ -115,7 +115,7 @@ final class TerminalTabsModel {
             modelChoice: resolved,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
-            permissionMode: action.permissionMode
+            permissionMode: action.resolvedPermissionMode(model: resolved)
         )
         let tab = TerminalTab(
             session: session,
