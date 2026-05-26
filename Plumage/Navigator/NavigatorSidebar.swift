@@ -73,6 +73,7 @@ struct NavigatorSidebar: View {
             flatGroup(for: .outputStyles, expanded: $outputStylesExpanded)
             skillsGroup
             settingsGroup
+            projectSettingsRow
         }
         .listStyle(.sidebar)
         .coordinateSpace(.named("navigator.sidebar"))
@@ -336,6 +337,13 @@ struct NavigatorSidebar: View {
                     Button("New Skill") { navigator.beginPendingCreate(.skill) }
                 }
         }
+    }
+
+    @ViewBuilder
+    private var projectSettingsRow: some View {
+        Label("Project Settings", systemImage: "slider.horizontal.3")
+            .tag(NavigatorRoute.projectSettings)
+            .clickableSidebarRow()
     }
 
     @ViewBuilder

@@ -47,6 +47,8 @@ struct NavigatorDetail: View {
             )
         case .settings(let file):
             DocEditorView(fileURL: ClaudeProjectFiles.settingsURL(projectURL: projectURL, file: file))
+        case .projectSettings:
+            ProjectSettingsView(projectURL: projectURL)
         }
     }
 }
