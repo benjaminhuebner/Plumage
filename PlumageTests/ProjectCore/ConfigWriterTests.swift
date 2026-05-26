@@ -1,0 +1,183 @@
+import Foundation
+import Testing
+
+@testable import Plumage
+
+@Suite("ConfigWriter")
+struct ConfigWriterTests {
+    private func tempBundle(content: String?) throws -> (project: URL, bundle: URL) {
+        let project = try TempProject.make(content: content)
+        let bundle = project.appendingPathComponent("Test.plumage", isDirectory: true)
+        return (project, bundle)
+    }
+
+    private static let sampleConfig: String = """
+        {
+          "schemaVersion": 2,
+          "minPlumageVersion": "0.1.0",
+          "createdWithPlumageVersion": "0.1.0-bootstrap",
+          "name": "Plumage",
+          "projectType": "macOS",
+          "createdAt": "2026-05-12T00:00:00Z",
+          "issueIdPadding": 5,
+          "agentTimeouts": {
+            "planModeProbeMs": 5000
+          },
+          "git": {
+            "branchPrefix": "issue/",
+            "defaultBranch": "main",
+            "agentFilesInGit": true
+          },
+          "paths": {
+            "issues": ".claude/issues",
+            "archive": ".claude/issues/archive"
+          },
+          "plumageManaged": {
+            "mcps": [
+              { "name": "XcodeBuildMCP", "version": "2.3.2" }
+            ],
+            "skills": [
+              { "name": "plan-issue" }
+            ]
+          }
+        }
+        """
+
+    @Test("write preserves all unknown keys verbatim")
+    func unknownKeysPreserved() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let loaded = try ConfigLoader.load(at: project)
+        var mutated = loaded
+        mutated.models = ModelsConfig(chat: .opus)
+        try ConfigWriter.write(mutated, atBundle: bundle)
+
+        let configURL = bundle.appendingPathComponent("config.json")
+        let written = try Data(contentsOf: configURL)
+        let parsed = try #require(
+            JSONSerialization.jsonObject(with: written) as? [String: Any]
+        )
+
+        // Unknown top-level keys survive bit-exact via JSONSerialization
+        // round-trip (atomic JSON types compare by Equatable).
+        #expect(parsed["minPlumageVersion"] as? String == "0.1.0")
+        #expect(parsed["createdWithPlumageVersion"] as? String == "0.1.0-bootstrap")
+        #expect(parsed["projectType"] as? String == "macOS")
+        #expect(parsed["createdAt"] as? String == "2026-05-12T00:00:00Z")
+        let agentTimeouts = try #require(parsed["agentTimeouts"] as? [String: Any])
+        #expect(agentTimeouts["planModeProbeMs"] as? Int == 5000)
+        let paths = try #require(parsed["paths"] as? [String: Any])
+        #expect(paths["issues"] as? String == ".claude/issues")
+        #expect(paths["archive"] as? String == ".claude/issues/archive")
+        let managed = try #require(parsed["plumageManaged"] as? [String: Any])
+        let mcps = try #require(managed["mcps"] as? [[String: Any]])
+        #expect(mcps.first?["name"] as? String == "XcodeBuildMCP")
+        let git = try #require(parsed["git"] as? [String: Any])
+        #expect(git["branchPrefix"] as? String == "issue/")
+        #expect(git["defaultBranch"] as? String == "main")
+        #expect(git["agentFilesInGit"] as? Bool == true)
+
+        // Known keys are also present.
+        let models = try #require(parsed["models"] as? [String: Any])
+        #expect(models["chat"] as? String == "opus")
+    }
+
+    @Test("write removes a known section that is now nil")
+    func nilSectionRemoved() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        var loaded = try ConfigLoader.load(at: project)
+        loaded.models = ModelsConfig(chat: .opus)
+        try ConfigWriter.write(loaded, atBundle: bundle)
+
+        var second = try ConfigLoader.load(at: project)
+        second.models = nil
+        try ConfigWriter.write(second, atBundle: bundle)
+
+        let configURL = bundle.appendingPathComponent("config.json")
+        let written = try Data(contentsOf: configURL)
+        let parsed = try #require(
+            JSONSerialization.jsonObject(with: written) as? [String: Any]
+        )
+        #expect(parsed["models"] == nil)
+        // Unknown keys still survive.
+        #expect(parsed["plumageManaged"] != nil)
+    }
+
+    @Test("write round-trips workflows section")
+    func workflowsRoundTrip() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        var loaded = try ConfigLoader.load(at: project)
+        loaded.workflows = WorkflowsConfig(
+            plan: WorkflowOverride(command: "/my-plan <slug>\n<spec>"),
+            implement: nil,
+            review: WorkflowOverride(command: "/review-cmd")
+        )
+        try ConfigWriter.write(loaded, atBundle: bundle)
+
+        let reloaded = try ConfigLoader.load(at: project)
+        #expect(reloaded.workflows?.plan?.command == "/my-plan <slug>\n<spec>")
+        #expect(reloaded.workflows?.implement == nil)
+        #expect(reloaded.workflows?.review?.command == "/review-cmd")
+    }
+
+    @Test("missing config.json is written cleanly with known keys")
+    func missingConfigCreatesFile() throws {
+        let project = try TempProject.make(content: nil)
+        let bundle = project.appendingPathComponent("Test.plumage", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let config = ProjectConfig(
+            name: "Fresh", schemaVersion: 2, issueIdPadding: 5,
+            git: nil,
+            workflows: nil,
+            models: ModelsConfig(chat: .sonnet)
+        )
+        try ConfigWriter.write(config, atBundle: bundle)
+
+        let reloaded = try ConfigLoader.load(at: project)
+        #expect(reloaded.name == "Fresh")
+        #expect(reloaded.models?.chat == .sonnet)
+    }
+
+    @Test("setting a sub-field of models to nil removes it from disk")
+    func partialModelsOverwrite() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        var loaded = try ConfigLoader.load(at: project)
+        loaded.models = ModelsConfig(chat: .opus, terminals: .sonnet)
+        try ConfigWriter.write(loaded, atBundle: bundle)
+
+        var second = try ConfigLoader.load(at: project)
+        second.models = ModelsConfig(chat: nil, terminals: .haiku)
+        try ConfigWriter.write(second, atBundle: bundle)
+
+        let reloaded = try ConfigLoader.load(at: project)
+        #expect(reloaded.models?.chat == nil)
+        #expect(reloaded.models?.terminals == .haiku)
+    }
+
+    @Test("missing bundle throws bundleMissing")
+    func missingBundleThrows() throws {
+        let project = try TempProject.make(content: nil)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let bundle = project.appendingPathComponent("NotThere.plumage", isDirectory: true)
+
+        let config = ProjectConfig(
+            name: "X", schemaVersion: 2, issueIdPadding: nil,
+            git: nil, workflows: nil, models: nil
+        )
+        #expect {
+            try ConfigWriter.write(config, atBundle: bundle)
+        } throws: { error in
+            if case ConfigWriter.WriteError.bundleMissing = error { return true }
+            return false
+        }
+    }
+}
