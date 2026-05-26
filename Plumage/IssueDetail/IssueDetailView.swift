@@ -549,15 +549,16 @@ struct IssueDetailView: View {
     }
 
     private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {
-        // Plan injects the prompt body into the claude REPL — flush the
-        // current draft to disk first so /plumage-plan and the workflow
-        // env see the same content the user just typed.
+        // WorkflowCommandResolver reads spec.md and prompt.md from disk, so
+        // both dirty buffers must be flushed before the inject runs.
         Task {
-            if action == .plan, model.isPromptDirty {
+            if model.isPromptDirty {
                 try? await model.savePrompt()
             }
-            let payload = model.promptDraft
-            runWorkflow(action, folderName, payload.isEmpty ? nil : payload)
+            if model.isBodyDirty {
+                try? await model.saveBody()
+            }
+            runWorkflow(action, folderName)
         }
     }
 

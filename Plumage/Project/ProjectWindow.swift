@@ -355,7 +355,7 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
-                .environment(\.runWorkflow, runWorkflow(_:folderName:prompt:))
+                .environment(\.runWorkflow, runWorkflow(_:folderName:))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
@@ -426,7 +426,7 @@ struct ProjectWindow: View {
         }
     }
 
-    private func runWorkflow(_ action: WorkflowAction, folderName: String, prompt: String?) {
+    private func runWorkflow(_ action: WorkflowAction, folderName: String) {
         // Reject folder names that would corrupt the inject: \r submits in
         // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
         // exactly these three. Folder names are user-controlled via Finder
@@ -438,11 +438,7 @@ struct ProjectWindow: View {
             return
         }
 
-        // Cancel any prior inject still mid-sleep before its body enqueue.
-        // Without this, a quick second click would: drain the prior slash
-        // command from pendingInput (or find it already flushed), enqueue a
-        // new command, and then the prior task would wake from its 800ms
-        // sleep and tack its body onto whatever ran most recently.
+        // Cancel any prior inject still mid-sleep before its next enqueue.
         workflowTask?.cancel()
         isTerminalInspectorOpen = true
 
@@ -457,38 +453,65 @@ struct ProjectWindow: View {
         }
         let workflowTab = terminalTabs.addWorkflowTab(action: action, slug: folderName)
 
-        // CR (\r) is what the terminal sends on Enter. claude's TUI treats
-        // \n as a multi-line continuation (Shift+Enter style) and only \r as
-        // submit — sending \n appended to the slash command just inserts a
-        // blank line. Strip \r from the body so a stray Enter inside the
-        // user's text doesn't submit a partial block early.
-        let slashCommand = "/\(action.slug) \(folderName)\r"
-        let followUp: String? = {
-            // An empty prompt would inject a bare \r right after the slash
-            // command, submitting a blank turn in claude's TUI — guard
-            // against both nil and "" so the no-prompt case is a true no-op.
-            guard action == .plan, let prompt, !prompt.isEmpty else { return nil }
-            return prompt.replacingOccurrences(of: "\r", with: "") + "\r"
-        }()
+        // Resolve the template (default or per-project override) into the
+        // sequence of lines that need to be injected into claude's REPL.
+        let lines = WorkflowCommandResolver.resolve(
+            action: action,
+            slug: folderName,
+            specURL: IssueLayout.specURL(in: handle.url, folderName: folderName),
+            promptURL: IssueLayout.promptURL(in: handle.url, folderName: folderName),
+            override: currentConfig()?.workflows?[action]
+        )
+        guard !lines.isEmpty else { return }
+
         let session = workflowTab.session
         let slug = action.slug
 
         workflowTask = Task { @MainActor in
-            let result = await session.inject(
-                slashCommand: slashCommand, followUpBody: followUp)
-            switch result {
-            case .sessionExited:
-                Self.log.info(
-                    "runWorkflow: session exited before inject for \(slug, privacy: .public)."
-                )
-            case .timedOut:
-                Self.log.warning(
-                    "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
-                )
-            case .injected, .cancelled:
-                break
+            for (index, line) in lines.enumerated() {
+                // CR (\r) is what the terminal sends on Enter. claude's TUI
+                // treats \n as a multi-line continuation (Shift+Enter style)
+                // and only \r as submit — strip embedded \r first so a stray
+                // Enter in the line doesn't submit a partial block early.
+                let payload = line.replacingOccurrences(of: "\r", with: "") + "\r"
+                let isFirst = index == 0
+                let result =
+                    isFirst
+                    ? await session.inject(slashCommand: payload, followUpBody: nil)
+                    : await session.inject(
+                        slashCommand: payload, followUpBody: nil,
+                        timeout: .seconds(0)
+                    )
+                switch result {
+                case .sessionExited:
+                    Self.log.info(
+                        "runWorkflow: session exited mid-inject for \(slug, privacy: .public)."
+                    )
+                    return
+                case .timedOut where isFirst:
+                    Self.log.warning(
+                        "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
+                    )
+                    return
+                case .timedOut, .cancelled:
+                    return
+                case .injected:
+                    if index + 1 < lines.count {
+                        // Give claude's REPL a moment to receive + render the
+                        // prior line before pushing the next one. 800ms mirrors
+                        // the prior plan-prompt-bodyDelay so existing UX timing
+                        // stays unchanged for the default template path.
+                        try? await Task.sleep(for: .milliseconds(800))
+                        if Task.isCancelled { return }
+                    }
+                }
             }
         }
+    }
+
+    private func currentConfig() -> ProjectConfig? {
+        if case .loaded(let config) = model.state { return config }
+        return nil
     }
 
     private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")
