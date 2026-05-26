@@ -28,8 +28,11 @@ struct ProjectSettingsModelTests {
         await model.load()
 
         #expect(model.loadState == .loaded)
-        #expect(model.chatModel == .default)
-        #expect(model.planCommand.isEmpty)
+        // No override on disk → picker resolves to the spec'd slot default.
+        #expect(model.chatModel == ModelsConfig.chatDefault)
+        // Editor pre-fills with the default template so the user always
+        // sees the command that will actually be injected.
+        #expect(model.planCommand == ProjectSettingsModel.planDefault)
     }
 
     @Test("setModel triggers debounced write that lands on disk")
@@ -39,11 +42,30 @@ struct ProjectSettingsModelTests {
 
         let model = ProjectSettingsModel(projectURL: project)
         await model.load()
-        model.setModel(.opus, for: .chat)
+        // Pick a non-default value to actually persist; opus is already
+        // the chat slot's default and would be elided to nil on disk.
+        model.setModel(.sonnet, for: .chat)
         await model.saveNow()
 
         let reloaded = try ConfigLoader.load(at: project)
-        #expect(reloaded.models?.chat == .opus)
+        #expect(reloaded.models?.chat == .sonnet)
+    }
+
+    @Test("picker-at-slot-default elides override from disk")
+    func slotDefaultElidesOverride() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        // Move to a non-default first…
+        model.setModel(.sonnet, for: .chat)
+        await model.saveNow()
+        #expect(try ConfigLoader.load(at: project).models?.chat == .sonnet)
+        // …then back to the default. Disk should drop the override.
+        model.setModel(ModelsConfig.chatDefault, for: .chat)
+        await model.saveNow()
+        #expect(try ConfigLoader.load(at: project).models?.chat == nil)
     }
 
     @Test("setCommand persists override and trims-empty-falls-back-to-nil")

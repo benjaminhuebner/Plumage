@@ -130,8 +130,10 @@ struct ProjectWindow: View {
                 // per-project model overrides before attach(). The async
                 // model.reload below covers the @Observable view-state path.
                 let initialConfig = try? ConfigLoader.load(at: handle.url)
-                let chatModel = initialConfig?.models?.chat ?? .default
-                let terminalsModel = initialConfig?.models?.terminals ?? .default
+                let chatModel =
+                    initialConfig?.models?.chat ?? ModelsConfig.chatDefault
+                let terminalsModel =
+                    initialConfig?.models?.terminals ?? ModelsConfig.terminalsDefault
                 session = ClaudeSession.rebuilt(
                     for: handle.url, replacing: session, modelChoice: chatModel
                 )

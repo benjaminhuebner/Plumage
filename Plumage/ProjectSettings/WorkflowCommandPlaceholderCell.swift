@@ -88,7 +88,9 @@ enum WorkflowCommandSerialization {
     // `<xyz>` stay as literal text so a user-typed `<3` doesn't get eaten.
     // Static pattern is a compile-time-constant regex; force-unwrap is the
     // documented idiom for "this can never fail because the literal is valid".
-    nonisolated private static let pattern: NSRegularExpression = {
+    // Internal so the editor's typing-time auto-conversion path can reuse the
+    // same regex without re-allocating one per keystroke.
+    nonisolated static let placeholderPattern: NSRegularExpression = {
         let raw = "<(slug|prompt|spec)>"
         guard let regex = try? NSRegularExpression(pattern: raw, options: []) else {
             preconditionFailure("Invariant: placeholder regex must compile")
@@ -106,7 +108,8 @@ enum WorkflowCommandSerialization {
             .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
             .foregroundColor: NSColor.labelColor,
         ]
-        pattern.enumerateMatches(in: raw, options: [], range: fullRange) { match, _, _ in
+        placeholderPattern.enumerateMatches(in: raw, options: [], range: fullRange) {
+            match, _, _ in
             guard let match else { return }
             if match.range.location > cursor {
                 let pre = nsRaw.substring(

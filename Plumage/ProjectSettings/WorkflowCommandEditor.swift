@@ -76,14 +76,60 @@ struct WorkflowCommandEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard !suppressNextChange,
-                let textView = notification.object as? NSTextView
+                let textView = notification.object as? NSTextView,
+                let storage = textView.textStorage
             else { return }
+            autoConvertPlaceholders(in: storage, textView: textView)
             let serialized = WorkflowCommandSerialization.string(
                 from: textView.attributedString()
             )
             if serialized != text.wrappedValue {
                 text.wrappedValue = serialized
             }
+        }
+
+        // Scan the text storage for plain-text `<slug>`/`<prompt>`/`<spec>`
+        // matches and swap each one for an attachment chip in-place. Runs
+        // after every keystroke so the moment a user finishes typing `>`
+        // the token instantly becomes a pill. Attachments in the storage
+        // already serialize their character to U+FFFC, so the regex never
+        // re-matches existing chips.
+        private func autoConvertPlaceholders(
+            in storage: NSTextStorage, textView: NSTextView
+        ) {
+            let plain = storage.string
+            let fullRange = NSRange(location: 0, length: (plain as NSString).length)
+            let matches = WorkflowCommandSerialization.placeholderPattern
+                .matches(in: plain, options: [], range: fullRange)
+            guard !matches.isEmpty else { return }
+
+            let originalSelection = textView.selectedRange()
+            suppressNextChange = true
+            defer { suppressNextChange = false }
+
+            storage.beginEditing()
+            // Replace from the end so earlier ranges don't shift as we mutate.
+            for match in matches.reversed() {
+                let tokenRange = match.range(at: 1)
+                let token = (plain as NSString).substring(with: tokenRange)
+                guard let placeholder = WorkflowPlaceholder(rawValue: token) else {
+                    continue
+                }
+                let cell = WorkflowCommandPlaceholderCell(placeholder: placeholder)
+                let attachment = NSTextAttachment()
+                attachment.attachmentCell = cell
+                let replacement = NSAttributedString(attachment: attachment)
+                storage.replaceCharacters(in: match.range, with: replacement)
+            }
+            storage.endEditing()
+
+            // Place the caret immediately after the right-most inserted chip
+            // if the original caret sat at or past that boundary; otherwise
+            // clamp to the new total length. Without this, mass-replacement
+            // can drop the caret somewhere unintuitive (e.g. at start).
+            let newLength = textView.attributedString().length
+            let clamped = min(originalSelection.location, newLength)
+            textView.setSelectedRange(NSRange(location: clamped, length: 0))
         }
 
         // Plain-text copy: emit `<slug>` etc. so external paste shows tokens.

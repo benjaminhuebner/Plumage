@@ -17,15 +17,17 @@ final class ProjectSettingsModel {
     private(set) var saveStatus: SaveStatus = .idle
 
     // Plumage-owned mutable settings — every field round-trips through
-    // ConfigWriter on commit(). View binds via @Bindable.
-    var planCommand: String = ""
-    var implementCommand: String = ""
-    var reviewCommand: String = ""
-    var chatModel: ModelChoice = .default
-    var terminalsModel: ModelChoice = .default
-    var planModel: ModelChoice = .default
-    var implementModel: ModelChoice = .default
-    var reviewModel: ModelChoice = .default
+    // ConfigWriter on commit(). View binds via @Bindable. The editors start
+    // pre-filled with the spec'd default templates; per-slot models start at
+    // ModelsConfig.slotDefault so users see concrete model names, not "Default".
+    var planCommand: String = ProjectSettingsModel.planDefault
+    var implementCommand: String = ProjectSettingsModel.implementDefault
+    var reviewCommand: String = ProjectSettingsModel.reviewDefault
+    var chatModel: ModelChoice = ModelsConfig.chatDefault
+    var terminalsModel: ModelChoice = ModelsConfig.terminalsDefault
+    var planModel: ModelChoice = ModelsConfig.planDefault
+    var implementModel: ModelChoice = ModelsConfig.implementDefault
+    var reviewModel: ModelChoice = ModelsConfig.reviewDefault
 
     enum LoadState: Sendable, Equatable {
         case loading
@@ -80,14 +82,16 @@ final class ProjectSettingsModel {
 
     private func apply(config: ProjectConfig) {
         baseConfig = config
-        planCommand = config.workflows?.plan?.command ?? ""
-        implementCommand = config.workflows?.implement?.command ?? ""
-        reviewCommand = config.workflows?.review?.command ?? ""
-        chatModel = config.models?.chat ?? .default
-        terminalsModel = config.models?.terminals ?? .default
-        planModel = config.models?.plan ?? .default
-        implementModel = config.models?.implement ?? .default
-        reviewModel = config.models?.review ?? .default
+        // Override on disk → show that. No override → show the default template
+        // so the user always sees what'll actually be injected.
+        planCommand = config.workflows?.plan?.command ?? Self.planDefault
+        implementCommand = config.workflows?.implement?.command ?? Self.implementDefault
+        reviewCommand = config.workflows?.review?.command ?? Self.reviewDefault
+        chatModel = config.models?.chat ?? ModelsConfig.chatDefault
+        terminalsModel = config.models?.terminals ?? ModelsConfig.terminalsDefault
+        planModel = config.models?.plan ?? ModelsConfig.planDefault
+        implementModel = config.models?.implement ?? ModelsConfig.implementDefault
+        reviewModel = config.models?.review ?? ModelsConfig.reviewDefault
     }
 
     // Default templates from the spec — used by the per-editor reset button.
@@ -184,46 +188,33 @@ final class ProjectSettingsModel {
     private func mutated(from base: ProjectConfig) -> ProjectConfig {
         var copy = base
         copy.workflows = WorkflowsConfig(
-            plan: override(planCommand),
-            implement: override(implementCommand),
-            review: override(reviewCommand)
+            plan: override(planCommand, default: Self.planDefault),
+            implement: override(implementCommand, default: Self.implementDefault),
+            review: override(reviewCommand, default: Self.reviewDefault)
         )
         if copy.workflows == WorkflowsConfig() { copy.workflows = nil }
         copy.models = ModelsConfig(
-            chat: nilForDefault(chatModel),
-            terminals: nilForDefault(terminalsModel),
-            plan: nilForDefault(planModel),
-            implement: nilForDefault(implementModel),
-            review: nilForDefault(reviewModel)
+            chat: nilIfSlotDefault(chatModel, slot: .chat),
+            terminals: nilIfSlotDefault(terminalsModel, slot: .terminals),
+            plan: nilIfSlotDefault(planModel, slot: .planAction),
+            implement: nilIfSlotDefault(implementModel, slot: .implementAction),
+            review: nilIfSlotDefault(reviewModel, slot: .reviewAction)
         )
         if copy.models == ModelsConfig() { copy.models = nil }
         return copy
     }
 
-    private func override(_ raw: String) -> WorkflowOverride? {
+    // Save as nil when the editor content matches the spec default — keeps
+    // config.json clean and lets a future Plumage default-change apply
+    // automatically without per-project migration.
+    private func override(_ raw: String, default builtIn: String) -> WorkflowOverride? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : WorkflowOverride(command: raw)
+        if trimmed.isEmpty { return nil }
+        if raw == builtIn { return nil }
+        return WorkflowOverride(command: raw)
     }
 
-    private func nilForDefault(_ choice: ModelChoice) -> ModelChoice? {
-        choice == .default ? nil : choice
-    }
-}
-
-nonisolated enum ModelSlot: Sendable, Hashable, CaseIterable {
-    case chat
-    case terminals
-    case planAction
-    case implementAction
-    case reviewAction
-
-    var label: String {
-        switch self {
-        case .chat: "Chat"
-        case .terminals: "Terminals"
-        case .planAction: "Plan Button"
-        case .implementAction: "Implement Button"
-        case .reviewAction: "Review Button"
-        }
+    private func nilIfSlotDefault(_ choice: ModelChoice, slot: ModelSlot) -> ModelChoice? {
+        choice == ModelsConfig.slotDefault(for: slot) ? nil : choice
     }
 }

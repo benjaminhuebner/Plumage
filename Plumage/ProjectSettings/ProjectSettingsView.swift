@@ -103,6 +103,12 @@ struct ProjectSettingsView: View {
                 }
             )
             .frame(minHeight: 90)
+            .background(Color(nsColor: .textBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 6))
             HStack(spacing: 6) {
                 ForEach(WorkflowPlaceholder.allCases, id: \.self) { placeholder in
                     Button {

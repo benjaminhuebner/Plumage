@@ -364,14 +364,14 @@ struct TerminalTabsModelTests {
         #expect(rev.session.modelChoice == .haiku)
     }
 
-    @Test("missing modelsConfig falls back to .default")
+    @Test("missing modelsConfig falls back to slot defaults")
     func defaultModelFallback() {
         let model = makeModel()
         model.modelsConfig = nil
         model.addTab()
         let wf = model.addWorkflowTab(action: .implement, slug: "x")
-        #expect(model.tabs.last?.session.modelChoice == .default)
-        #expect(wf.session.modelChoice == .default)
+        #expect(model.tabs.last?.session.modelChoice == ModelsConfig.terminalsDefault)
+        #expect(wf.session.modelChoice == ModelsConfig.implementDefault)
     }
 
     // MARK: - Helpers

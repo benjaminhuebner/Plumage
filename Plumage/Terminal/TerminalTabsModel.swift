@@ -83,7 +83,7 @@ final class TerminalTabsModel {
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,
-            modelChoice: modelsConfig?.terminals ?? .default,
+            modelChoice: modelsConfig?.terminalsResolved ?? ModelsConfig.terminalsDefault,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false
         )
@@ -104,10 +104,15 @@ final class TerminalTabsModel {
 
     @discardableResult
     func addWorkflowTab(action: WorkflowAction, slug: String) -> TerminalTab {
+        let resolved =
+            modelsConfig?.workflowResolved(action)
+            ?? ModelsConfig.slotDefault(
+                for: action.modelSlot
+            )
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,
-            modelChoice: modelsConfig?.workflow(action) ?? .default,
+            modelChoice: resolved,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
             permissionMode: action.permissionMode

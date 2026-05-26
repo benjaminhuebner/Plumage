@@ -37,6 +37,14 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
         }
     }
 
+    var modelSlot: ModelSlot {
+        switch self {
+        case .plan: .planAction
+        case .implement: .implementAction
+        case .review: .reviewAction
+        }
+    }
+
     func tabTitle(slug: String) -> String {
         let action: String
         switch self {
