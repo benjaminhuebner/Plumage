@@ -4,17 +4,20 @@ struct ProjectStatusBar: View {
     let indicatorState: StatusIndicatorModel.IndicatorState
     let usageModel: ClaudeUsageModel?
     let statusModel: ClaudeStatusModel?
+    let repoState: RepoState
     var banner: String?
 
     init(
         indicatorState: StatusIndicatorModel.IndicatorState,
         usageModel: ClaudeUsageModel? = nil,
         statusModel: ClaudeStatusModel? = nil,
+        repoState: RepoState = .notARepo,
         banner: String? = nil
     ) {
         self.indicatorState = indicatorState
         self.usageModel = usageModel
         self.statusModel = statusModel
+        self.repoState = repoState
         self.banner = banner
     }
 
@@ -22,6 +25,9 @@ struct ProjectStatusBar: View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 8) {
+                ProjectBranchIndicator(state: repoState)
+                    .fixedSize()
+                    .layoutPriority(0)
                 if let statusModel {
                     StatusPageButton(model: statusModel)
                         .fixedSize()

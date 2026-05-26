@@ -15,6 +15,7 @@ struct ProjectWindow: View {
     @State private var indicator = StatusIndicatorModel()
     @State private var claudeUsage = ClaudeUsageModel()
     @State private var claudeStatus = ClaudeStatusModel()
+    @State private var gitModel = ProjectGitModel()
     @State private var usageClient = ClaudeUsageClient()
     @State private var statusClient = ClaudeStatusPageClient()
     @State private var session: ClaudeSession
@@ -186,6 +187,7 @@ struct ProjectWindow: View {
                 // EmbeddedTerminalView mounts, which is what survives
                 // scene-phase recovery without leaving non-active tabs
                 // stranded in .exited.
+                gitModel.start(repoURL: handle.url)
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
@@ -218,6 +220,7 @@ struct ProjectWindow: View {
                 terminalTabs.stopAll()
                 workflowTask?.cancel()
                 xcodeRunController.cancelRun()
+                gitModel.stop()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
@@ -379,6 +382,7 @@ struct ProjectWindow: View {
                     indicatorState: indicator.state,
                     usageModel: claudeUsage,
                     statusModel: claudeStatus,
+                    repoState: gitModel.repoState,
                     banner: navigator.dropRejectMessage
                 )
             }
