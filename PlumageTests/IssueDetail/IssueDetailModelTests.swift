@@ -288,7 +288,7 @@ struct IssueDetailModelTests {
 
         let calls = recorder.calls
         #expect(calls.count == 2)
-        if case .allocate(let slug, let title, let type, let labels, let now) = calls[0] {
+        if case .allocate(let slug, let title, let type, let labels, _, let now) = calls[0] {
             #expect(slug == "my-new-issue")
             #expect(title == "My New Issue")
             #expect(type == .chore)
@@ -697,7 +697,7 @@ private final class LayoutTestEnvironment {
 }
 
 private enum RecordedCall: Sendable {
-    case allocate(slug: String, title: String, type: IssueType, labels: [String], now: Date)
+    case allocate(slug: String, title: String, type: IssueType, labels: [String], prompt: String, now: Date)
     case mutate(specURL: URL, mutation: FrontmatterMutation, now: Date)
 }
 
@@ -721,10 +721,11 @@ private final class AllocatorMutatorRecorder: IssueAllocating, FrontmatterMutati
         title: String,
         type: IssueType,
         labels: [String],
+        prompt: String,
         now: Date
     ) throws -> URL {
         lock.withLock {
-            _calls.append(.allocate(slug: slug, title: title, type: type, labels: labels, now: now))
+            _calls.append(.allocate(slug: slug, title: title, type: type, labels: labels, prompt: prompt, now: now))
         }
         return allocatedSpecURL
     }

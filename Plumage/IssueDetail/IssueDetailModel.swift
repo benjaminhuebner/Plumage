@@ -338,7 +338,7 @@ final class IssueDetailModel {
         do {
             allocatedURL = try await Task.detached(priority: .userInitiated) {
                 try allocator.allocate(
-                    slug: slug, title: title, type: type, labels: labels, now: now
+                    slug: slug, title: title, type: type, labels: labels, prompt: "", now: now
                 )
             }.value
         } catch {
@@ -666,6 +666,7 @@ nonisolated protocol IssueAllocating: Sendable {
         title: String,
         type: IssueType,
         labels: [String],
+        prompt: String,
         now: Date
     ) throws -> URL
 }
@@ -678,6 +679,7 @@ nonisolated struct DefaultIssueAllocating: IssueAllocating {
         title: String,
         type: IssueType,
         labels: [String],
+        prompt: String,
         now: Date
     ) throws -> URL {
         try NextIssueAllocator(projectURL: projectURL).allocate(
@@ -685,6 +687,7 @@ nonisolated struct DefaultIssueAllocating: IssueAllocating {
             title: title,
             type: type,
             labels: labels,
+            prompt: prompt,
             now: now
         )
     }
