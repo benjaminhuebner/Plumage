@@ -67,8 +67,6 @@ struct NextIssueAllocatorPureTests {
             labels: []
             model: null
             ---
-
-            # Issue <<<ID_PADDED>>>: <<<TITLE>>>
             """
 
         let rendered = NextIssueAllocator.substituteTemplate(
@@ -88,7 +86,6 @@ struct NextIssueAllocatorPureTests {
         #expect(rendered.contains("labels: [chore, v0.1]\n"))
         #expect(rendered.contains("branch: issue/00002-bar\n"))
         #expect(rendered.contains("created: 2026-05-13T07:00:00Z\n"))
-        #expect(rendered.contains("# Issue 00002: Bar"))
         #expect(!rendered.contains("<<<"))
     }
 
@@ -160,7 +157,7 @@ struct NextIssueAllocatorAllocateTests {
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         let now = try #require(ISO8601DateFormatter().date(from: "2026-05-13T07:00:00Z"))
         let url = try allocator.allocate(
-            slug: "bar", title: "Bar", type: .chore, labels: ["chore", "v0.1"], now: now
+            slug: "bar", title: "Bar", type: .chore, labels: ["chore", "v0.1"], prompt: "", now: now
         )
 
         #expect(url.path.hasSuffix(".claude/issues/00002-bar/spec.md"))
@@ -183,7 +180,7 @@ struct NextIssueAllocatorAllocateTests {
 
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         #expect(throws: NextIssueAllocatorError.slugCollision(existingFolder: "00001-foo")) {
-            try allocator.allocate(slug: "foo", title: "X", type: .feature, labels: [])
+            try allocator.allocate(slug: "foo", title: "X", type: .feature, labels: [], prompt: "")
         }
         let issuesDir = fixture.root.appendingPathComponent(".claude/issues")
         let entries = try FileManager.default.contentsOfDirectory(atPath: issuesDir.path).sorted()
@@ -198,7 +195,7 @@ struct NextIssueAllocatorAllocateTests {
 
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         #expect(throws: NextIssueAllocatorError.slugCollision(existingFolder: "00001-foo")) {
-            try allocator.allocate(slug: "foo", title: "X", type: .feature, labels: [])
+            try allocator.allocate(slug: "foo", title: "X", type: .feature, labels: [], prompt: "")
         }
     }
 
@@ -209,7 +206,7 @@ struct NextIssueAllocatorAllocateTests {
 
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         let url = try allocator.allocate(
-            slug: "bar", title: "Bar", type: .feature, labels: [])
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
         #expect(url.path.hasSuffix(".claude/issues/00001-bar/spec.md"))
     }
 
@@ -219,7 +216,7 @@ struct NextIssueAllocatorAllocateTests {
         try fixture.writeTemplate()
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         #expect(throws: NextIssueAllocatorError.invalidSlug) {
-            try allocator.allocate(slug: "Foo Bar", title: "X", type: .feature, labels: [])
+            try allocator.allocate(slug: "Foo Bar", title: "X", type: .feature, labels: [], prompt: "")
         }
     }
 
@@ -232,7 +229,7 @@ struct NextIssueAllocatorAllocateTests {
 
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         let url = try allocator.allocate(
-            slug: "bar", title: "Bar", type: .feature, labels: [])
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
         #expect(url.path.hasSuffix(".claude/issues/1000-bar/spec.md"))
     }
 
@@ -242,7 +239,7 @@ struct NextIssueAllocatorAllocateTests {
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         do {
             _ = try allocator.allocate(
-                slug: "bar", title: "X", type: .feature, labels: [])
+                slug: "bar", title: "X", type: .feature, labels: [], prompt: "")
             Issue.record("expected throw")
         } catch let NextIssueAllocatorError.templateMissing(url) {
             #expect(url.lastPathComponent == "_TEMPLATE.md")
@@ -259,8 +256,38 @@ struct NextIssueAllocatorAllocateTests {
 
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         let url = try allocator.allocate(
-            slug: "bar", title: "Bar", type: .feature, labels: [])
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
         #expect(url.path.hasSuffix(".claude/issues/00006-bar/spec.md"))
+    }
+
+    @Test("allocate creates empty prompt.md alongside spec.md")
+    func allocateEmptyPromptFile() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
+
+        let promptURL = url.deletingLastPathComponent().appendingPathComponent("prompt.md")
+        #expect(FileManager.default.fileExists(atPath: promptURL.path))
+        let data = try Data(contentsOf: promptURL)
+        #expect(data.isEmpty)
+    }
+
+    @Test("allocate writes prompt content to prompt.md")
+    func allocateWritesPromptContent() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let promptText = "Free-form idea the user typed.\nMultiple lines.\n"
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: promptText)
+
+        let promptURL = url.deletingLastPathComponent().appendingPathComponent("prompt.md")
+        let content = try String(contentsOf: promptURL, encoding: .utf8)
+        #expect(content == promptText)
     }
 
     // Pins archive-aware highest-ID behavior across active/archive mixes. The
@@ -295,7 +322,7 @@ struct NextIssueAllocatorAllocateTests {
 
         let allocator = NextIssueAllocator(projectURL: fixture.root)
         let url = try allocator.allocate(
-            slug: "next", title: "Next", type: .feature, labels: [])
+            slug: "next", title: "Next", type: .feature, labels: [], prompt: "")
         let expectedPadded = String(format: "%05d", expectedNext)
         #expect(url.path.hasSuffix(".claude/issues/\(expectedPadded)-next/spec.md"))
     }
@@ -333,8 +360,6 @@ private struct Fixture {
             labels: []
             model: null
             ---
-
-            # Issue <<<ID_PADDED>>>: <<<TITLE>>>
             """
         try FileManager.default.createDirectory(
             at: target.deletingLastPathComponent(), withIntermediateDirectories: true
