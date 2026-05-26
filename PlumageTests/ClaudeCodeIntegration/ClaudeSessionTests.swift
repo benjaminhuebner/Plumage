@@ -265,6 +265,62 @@ struct ClaudeSessionTests {
         #expect(session.state == .idle)
     }
 
+    // MARK: - modelChoice
+
+    @Test("modelChoice defaults to .default")
+    func modelChoiceDefault() {
+        let session = makeSession()
+        #expect(session.modelChoice == .default)
+    }
+
+    @Test("explicit modelChoice survives init")
+    func modelChoiceExplicit() {
+        let session = ClaudeSession(
+            cwd: URL(filePath: "/tmp"),
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            modelChoice: .opus,
+            autoSpawn: false,
+            sessionIDStoreOverride: FileManager.default.temporaryDirectory
+                .appendingPathComponent("model-test-\(UUID().uuidString)")
+        )
+        #expect(session.modelChoice == .opus)
+    }
+
+    @Test("rebuilt preserves prior modelChoice when none supplied")
+    func rebuiltPreservesModel() {
+        let store = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rebuilt-\(UUID().uuidString)")
+        let prior = ClaudeSession(
+            cwd: URL(filePath: "/tmp/a"),
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            modelChoice: .sonnet,
+            autoSpawn: false,
+            sessionIDStoreOverride: store
+        )
+        let rebuilt = ClaudeSession.rebuilt(for: URL(filePath: "/tmp/b"), replacing: prior)
+        #expect(rebuilt.modelChoice == .sonnet)
+    }
+
+    @Test("rebuilt with explicit modelChoice swaps the session")
+    func rebuiltSwapsOnModelChange() {
+        let store = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rebuilt-\(UUID().uuidString)")
+        let prior = ClaudeSession(
+            cwd: URL(filePath: "/tmp/a"),
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            modelChoice: .opus,
+            autoSpawn: false,
+            sessionIDStoreOverride: store
+        )
+        let rebuilt = ClaudeSession.rebuilt(
+            for: URL(filePath: "/tmp/a"),
+            replacing: prior,
+            modelChoice: .haiku
+        )
+        #expect(rebuilt.modelChoice == .haiku)
+        #expect(rebuilt !== prior)
+    }
+
     // MARK: - resumeOrInitArgs
 
     @Test("resumeOrInitArgs returns --session-id when log absent")

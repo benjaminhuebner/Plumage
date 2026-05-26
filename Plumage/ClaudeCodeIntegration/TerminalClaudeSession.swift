@@ -13,6 +13,7 @@ final class TerminalClaudeSession {
 
     let cwd: URL
     let binaryURL: URL
+    let modelChoice: ModelChoice
     // nil disables disk persistence — additional tabs from TerminalTabsModel
     // pass persistConversationID: false so each new tab gets a fresh UUID
     // without writing/reading the on-disk pointer. The default tab keeps the
@@ -60,6 +61,7 @@ final class TerminalClaudeSession {
     init(
         cwd: URL,
         binaryURL: URL,
+        modelChoice: ModelChoice = .default,
         sessionIDStoreOverride: URL? = nil,
         sessionLogRoot: URL? = nil,
         excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] },
@@ -68,6 +70,7 @@ final class TerminalClaudeSession {
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
+        self.modelChoice = modelChoice
         self.permissionMode = permissionMode
         if persistConversationID {
             self.sessionIDStoreURL =
@@ -235,14 +238,15 @@ final class TerminalClaudeSession {
         return ["--resume", conversationID]
     }
 
-    // /bin/sh -c "cd '<cwd>' && exec '<claude>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>]"
+    // /bin/sh -c "cd '<cwd>' && exec '<claude>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
     func shellSpawnArgs() -> [String] {
         let quotedCwd = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
         let quotedBin = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        let sessionArgs = resumeOrInitArgs()
-        let args =
-            permissionMode.map { sessionArgs + ["--permission-mode", $0.rawCLIValue] }
-            ?? sessionArgs
+        var args = resumeOrInitArgs()
+        if let permissionMode {
+            args += ["--permission-mode", permissionMode.rawCLIValue]
+        }
+        args += modelChoice.cliArg
         let attach = Self.shellQuotedAttachArgs(args)
         return ["-c", "cd '\(quotedCwd)' && exec '\(quotedBin)' \(attach)"]
     }
