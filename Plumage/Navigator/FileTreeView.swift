@@ -195,11 +195,11 @@ struct FileTreeRow: View {
     @ViewBuilder
     private var folderMenu: some View {
         Button("New File") {
-            navigator.beginPendingCreate(.treeNode(parent: node.url, isFolder: false))
+            navigator.beginPendingCreate(parent: node.url, isFolder: false)
             expanded = true
         }
         Button("New Folder") {
-            navigator.beginPendingCreate(.treeNode(parent: node.url, isFolder: true))
+            navigator.beginPendingCreate(parent: node.url, isFolder: true)
             expanded = true
         }
         Divider()

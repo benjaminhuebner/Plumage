@@ -27,36 +27,6 @@ struct NavigatorDetail: View {
             case .image:
                 ImagePreviewView(fileURL: fileURL)
             }
-        case .managedFile(let type, let relativePath):
-            DocEditorView(
-                fileURL:
-                    projectURL
-                    .appendingPathComponent(type.relativePath, isDirectory: true)
-                    .appendingPathComponent(relativePath)
-            )
-        case .claudeMD:
-            DocEditorView(fileURL: ClaudeProjectFiles.claudeMDURL(projectURL: projectURL))
-        case .claudeLocalMD:
-            DocEditorView(fileURL: ClaudeProjectFiles.claudeLocalMDURL(projectURL: projectURL))
-        case .claudeMarkdown(let name):
-            DocEditorView(
-                fileURL:
-                    projectURL
-                    .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
-                    .appendingPathComponent(name)
-            )
-        case .mcpJSON:
-            DocEditorView(fileURL: ClaudeProjectFiles.mcpJSONURL(projectURL: projectURL))
-        case .skillFile(let skill, let relativePath):
-            DocEditorView(
-                fileURL:
-                    projectURL
-                    .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
-                    .appendingPathComponent(skill, isDirectory: true)
-                    .appendingPathComponent(relativePath)
-            )
-        case .settings(let file):
-            DocEditorView(fileURL: ClaudeProjectFiles.settingsURL(projectURL: projectURL, file: file))
         case .projectSettings:
             ProjectSettingsView(projectURL: projectURL)
         }

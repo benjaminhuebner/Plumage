@@ -6,90 +6,22 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case projectFile(relativePath: String)
     case projectSettings
 
-    // Legacy file-route cases — kept temporarily so existing call-sites
-    // compile while the rewrite proceeds. New code constructs
-    // `.projectFile(relativePath:)`. The `persistedString` decoder migrates
-    // any legacy shape to `.projectFile`, so SceneStorage data written by
-    // older builds is auto-upgraded on first launch.
-    case managedFile(type: ManagedFileType, relativePath: String)
-    case claudeMD
-    case claudeLocalMD
-    case claudeMarkdown(name: String)
-    case mcpJSON
-    case skillFile(skill: String, relativePath: String)
-    case settings(SettingsFile)
-
     func managedFileURL(in projectURL: URL) -> URL? {
         switch self {
         case .projectFile(let rel):
             return projectURL.appendingPathComponent(rel)
-        case .managedFile(let type, let rel):
-            return
-                projectURL
-                .appendingPathComponent(type.relativePath, isDirectory: true)
-                .appendingPathComponent(rel)
-        case .claudeMarkdown(let name):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
-                .appendingPathComponent(name)
-        case .skillFile(let skill, let path):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
-                .appendingPathComponent(skill, isDirectory: true)
-                .appendingPathComponent(path)
-        case .kanban, .issue, .claudeMD, .claudeLocalMD, .mcpJSON, .settings,
-            .projectSettings:
+        case .kanban, .issue, .projectSettings:
             return nil
         }
     }
-
-    // Maps a legacy file-route case to its `.projectFile` equivalent. Returns
-    // `nil` for routes that need no migration. The mapping mirrors
-    // `managedFileURL(in:)`'s on-disk path so persisted SceneStorage values
-    // and live runtime URLs stay consistent.
-    fileprivate func migratedToProjectFile() -> NavigatorRoute? {
-        switch self {
-        case .managedFile(let type, let rel):
-            return .projectFile(relativePath: "\(type.relativePath)/\(rel)")
-        case .claudeMD:
-            return .projectFile(relativePath: ClaudeProjectFiles.claudeMDRelativePath)
-        case .claudeLocalMD:
-            return .projectFile(relativePath: ClaudeProjectFiles.claudeLocalMDRelativePath)
-        case .claudeMarkdown(let name):
-            return .projectFile(
-                relativePath: "\(ClaudeProjectFiles.settingsRootRelativePath)/\(name)")
-        case .mcpJSON:
-            return .projectFile(relativePath: ClaudeProjectFiles.mcpJSONRelativePath)
-        case .skillFile(let skill, let rel):
-            return .projectFile(
-                relativePath: "\(ClaudeProjectFiles.skillsRelativePath)/\(skill)/\(rel)")
-        case .settings(let file):
-            return .projectFile(
-                relativePath: "\(ClaudeProjectFiles.settingsRootRelativePath)/\(file.rawValue)")
-        case .kanban, .issue, .projectFile, .projectSettings:
-            return nil
-        }
-    }
-}
-
-nonisolated enum SettingsFile: String, Hashable, Sendable, Codable, CaseIterable {
-    case main = "settings.json"
-    case local = "settings.local.json"
 }
 
 nonisolated extension NavigatorRoute {
     // JSONEncoder/Decoder are Sendable; caching saves a per-call allocation
-    // on the SceneStorage persist hot path (every selectedRoute change
-    // re-encodes).
+    // on the SceneStorage persist hot path.
     private static let encoder = JSONEncoder()
     private static let decoder = JSONDecoder()
 
-    // String form used by @SceneStorage to persist sidebar selection per
-    // window. JSON-encoded so all associated values survive round-trip
-    // without a hand-rolled tag/payload format. Decode failures fall
-    // through to nil; callers default to `.kanban`.
     var persistedString: String {
         guard
             let data = try? Self.encoder.encode(self),
@@ -100,19 +32,79 @@ nonisolated extension NavigatorRoute {
         return string
     }
 
-    // Migrates any legacy file-case shape to `.projectFile` so SceneStorage
-    // data written by builds that predate the route collapse is upgraded on
-    // decode. Anything that doesn't match a known shape (corrupt JSON, an
-    // enum case removed entirely in an even-earlier refactor) returns nil
-    // and the caller defaults to `.kanban`.
+    // Decodes a SceneStorage-persisted route. Tries to migrate legacy
+    // JSON shapes first (file-routes from pre-#00052 builds → `.projectFile`)
+    // so existing windows reopen without a fallback to `.kanban`. Anything
+    // unrecognised returns nil; callers default to `.kanban`.
     init?(persistedString: String) {
         guard
             !persistedString.isEmpty,
-            let data = persistedString.data(using: .utf8),
-            let decoded = try? Self.decoder.decode(NavigatorRoute.self, from: data)
+            let data = persistedString.data(using: .utf8)
         else {
             return nil
         }
-        self = decoded.migratedToProjectFile() ?? decoded
+        if let migrated = Self.migrateLegacyJSON(data: data) {
+            self = migrated
+            return
+        }
+        guard let decoded = try? Self.decoder.decode(NavigatorRoute.self, from: data) else {
+            return nil
+        }
+        self = decoded
+    }
+
+    // Maps pre-#00052 legacy route JSON tags to `.projectFile`. The shape
+    // of each tag mirrors what Swift's auto-Codable wrote for that case.
+    fileprivate static func migrateLegacyJSON(data: Data) -> NavigatorRoute? {
+        guard
+            let object =
+                (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else {
+            return nil
+        }
+        if let payload = object["managedFile"] as? [String: Any],
+            let typeRaw = payload["type"] as? String,
+            let rel = payload["relativePath"] as? String
+        {
+            return .projectFile(
+                relativePath: "\(managedFileBase(typeRaw))/\(rel)")
+        }
+        if object["claudeMD"] != nil {
+            return .projectFile(relativePath: ".claude/CLAUDE.md")
+        }
+        if object["claudeLocalMD"] != nil {
+            return .projectFile(relativePath: ".claude/CLAUDE.local.md")
+        }
+        if let payload = object["claudeMarkdown"] as? [String: Any],
+            let name = payload["name"] as? String
+        {
+            return .projectFile(relativePath: ".claude/\(name)")
+        }
+        if object["mcpJSON"] != nil {
+            return .projectFile(relativePath: ".mcp.json")
+        }
+        if let payload = object["skillFile"] as? [String: Any],
+            let skill = payload["skill"] as? String,
+            let rel = payload["relativePath"] as? String
+        {
+            return .projectFile(relativePath: ".claude/skills/\(skill)/\(rel)")
+        }
+        if let payload = object["settings"] as? [String: Any],
+            let raw = payload["_0"] as? String
+        {
+            return .projectFile(relativePath: ".claude/\(raw)")
+        }
+        return nil
+    }
+
+    private static func managedFileBase(_ typeRaw: String) -> String {
+        switch typeRaw {
+        case "docs": return ".claude/docs"
+        case "hooks": return ".claude/hooks"
+        case "agents": return ".claude/agents"
+        case "rules": return ".claude/rules"
+        case "outputStyles": return ".claude/output-styles"
+        default: return ".claude"
+        }
     }
 }

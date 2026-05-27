@@ -30,28 +30,6 @@ extension View {
     func clickableSidebarRow() -> some View {
         modifier(ClickableSidebarRowModifier())
     }
-
-    func trackSectionAnchor(
-        _ section: SidebarDropTarget.Section,
-        in anchors: Binding<[SidebarDropTarget.Section: CGFloat]>
-    ) -> some View {
-        self.onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.frame(in: .named("navigator.sidebar")).minY
-        } action: { minY in
-            // Tolerance equality (instead of floor-rounding the stored minY)
-            // breaks the multi-pass-layout FP oscillation without shifting
-            // the anchor: floor-rounding moved anchors down by up to 1pt and
-            // silently routed Finder drops into the row just above the next
-            // section's header. .rounded(.down) on a CGFloat also rounds
-            // toward -infinity for scrolled-above rows, which compounded the
-            // skew. Half a point is well above FP epsilon and well below the
-            // smallest visually distinguishable distance between rows.
-            if let existing = anchors.wrappedValue[section], abs(existing - minY) < 0.5 {
-                return
-            }
-            anchors.wrappedValue[section] = minY
-        }
-    }
 }
 
 extension DiscoveredIssue {

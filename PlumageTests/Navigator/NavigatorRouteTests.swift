@@ -35,43 +35,6 @@ struct NavigatorRouteTests {
         #expect(set.count == 2)
     }
 
-    @Test("Codable round-trip for issue")
-    func codableIssue() throws {
-        let route: NavigatorRoute = .issue(folderName: "00007-new-issue")
-        let data = try JSONEncoder().encode(route)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == route)
-    }
-
-    @Test("Codable round-trip for kanban")
-    func codableKanban() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.kanban)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .kanban)
-    }
-
-    @Test("Codable round-trip for projectFile")
-    func codableProjectFile() throws {
-        let route: NavigatorRoute = .projectFile(relativePath: ".claude/agents/team/lead.md")
-        let data = try JSONEncoder().encode(route)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == route)
-    }
-
-    @Test("Codable round-trip for projectSettings")
-    func codableProjectSettings() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.projectSettings)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .projectSettings)
-    }
-
-    @Test("SettingsFile cases cover both files")
-    func settingsCases() {
-        #expect(SettingsFile.allCases == [.main, .local])
-        #expect(SettingsFile.main.rawValue == "settings.json")
-        #expect(SettingsFile.local.rawValue == "settings.local.json")
-    }
-
     @Test(
         "persistedString round-trips structural cases",
         arguments: [
@@ -92,65 +55,73 @@ struct NavigatorRouteTests {
         #expect(decoded == route)
     }
 
-    @Test("persistedString migrates legacy .managedFile per type", arguments: ManagedFileType.allCases)
-    func persistedStringMigrationManagedFile(type: ManagedFileType) {
-        let legacy: NavigatorRoute = .managedFile(type: type, relativePath: "alpha.\(type.defaultExtension)")
-        let decoded = NavigatorRoute(persistedString: legacy.persistedString)
-        #expect(
-            decoded
-                == .projectFile(
-                    relativePath: "\(type.relativePath)/alpha.\(type.defaultExtension)"))
+    @Test(
+        "persistedString migrates pre-collapse .managedFile JSON shapes",
+        arguments: [
+            ("docs", ".claude/docs/PROJECT.md"),
+            ("hooks", ".claude/hooks/lint.sh"),
+            ("agents", ".claude/agents/team/lead.md"),
+            ("rules", ".claude/rules/style.md"),
+            ("outputStyles", ".claude/output-styles/yaml.md"),
+        ]
+    )
+    func migrateLegacyManagedFile(typeRaw: String, expected: String) {
+        let rel = String(expected.split(separator: "/").dropFirst(2).joined(separator: "/"))
+        let json = #"{"managedFile":{"type":"\#(typeRaw)","relativePath":"\#(rel)"}}"#
+        #expect(NavigatorRoute(persistedString: json) == .projectFile(relativePath: expected))
     }
 
     @Test("persistedString migrates legacy .claudeMD")
-    func persistedStringMigrationClaudeMD() {
-        let decoded = NavigatorRoute(persistedString: NavigatorRoute.claudeMD.persistedString)
-        #expect(decoded == .projectFile(relativePath: ".claude/CLAUDE.md"))
+    func migrateLegacyClaudeMD() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"claudeMD":{}}"#)
+                == .projectFile(relativePath: ".claude/CLAUDE.md"))
     }
 
     @Test("persistedString migrates legacy .claudeLocalMD")
-    func persistedStringMigrationClaudeLocalMD() {
-        let decoded = NavigatorRoute(
-            persistedString: NavigatorRoute.claudeLocalMD.persistedString)
-        #expect(decoded == .projectFile(relativePath: ".claude/CLAUDE.local.md"))
+    func migrateLegacyClaudeLocalMD() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"claudeLocalMD":{}}"#)
+                == .projectFile(relativePath: ".claude/CLAUDE.local.md"))
     }
 
     @Test("persistedString migrates legacy .claudeMarkdown")
-    func persistedStringMigrationClaudeMarkdown() {
-        let decoded = NavigatorRoute(
-            persistedString: NavigatorRoute.claudeMarkdown(name: "PROJECT.md").persistedString)
-        #expect(decoded == .projectFile(relativePath: ".claude/PROJECT.md"))
+    func migrateLegacyClaudeMarkdown() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"claudeMarkdown":{"name":"PROJECT.md"}}"#)
+                == .projectFile(relativePath: ".claude/PROJECT.md"))
     }
 
     @Test("persistedString migrates legacy .mcpJSON")
-    func persistedStringMigrationMCPJSON() {
-        let decoded = NavigatorRoute(persistedString: NavigatorRoute.mcpJSON.persistedString)
-        #expect(decoded == .projectFile(relativePath: ".mcp.json"))
+    func migrateLegacyMCPJSON() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"mcpJSON":{}}"#)
+                == .projectFile(relativePath: ".mcp.json"))
     }
 
     @Test("persistedString migrates legacy .skillFile")
-    func persistedStringMigrationSkillFile() {
-        let legacy: NavigatorRoute = .skillFile(
-            skill: "plumage-implement", relativePath: "scripts/precommit-gate.sh")
-        let decoded = NavigatorRoute(persistedString: legacy.persistedString)
+    func migrateLegacySkillFile() {
+        let json = #"{"skillFile":{"skill":"plumage-implement","relativePath":"scripts/precommit-gate.sh"}}"#
         #expect(
-            decoded
+            NavigatorRoute(persistedString: json)
                 == .projectFile(
                     relativePath: ".claude/skills/plumage-implement/scripts/precommit-gate.sh"))
     }
 
     @Test("persistedString migrates legacy .settings(.main)")
-    func persistedStringMigrationSettingsMain() {
-        let decoded = NavigatorRoute(
-            persistedString: NavigatorRoute.settings(.main).persistedString)
-        #expect(decoded == .projectFile(relativePath: ".claude/settings.json"))
+    func migrateLegacySettingsMain() {
+        let json = #"{"settings":{"_0":"settings.json"}}"#
+        #expect(
+            NavigatorRoute(persistedString: json)
+                == .projectFile(relativePath: ".claude/settings.json"))
     }
 
     @Test("persistedString migrates legacy .settings(.local)")
-    func persistedStringMigrationSettingsLocal() {
-        let decoded = NavigatorRoute(
-            persistedString: NavigatorRoute.settings(.local).persistedString)
-        #expect(decoded == .projectFile(relativePath: ".claude/settings.local.json"))
+    func migrateLegacySettingsLocal() {
+        let json = #"{"settings":{"_0":"settings.local.json"}}"#
+        #expect(
+            NavigatorRoute(persistedString: json)
+                == .projectFile(relativePath: ".claude/settings.local.json"))
     }
 
     @Test("persistedString returns nil for empty input")
@@ -165,8 +136,6 @@ struct NavigatorRouteTests {
 
     @Test("persistedString returns nil for an unknown enum tag")
     func persistedStringUnknownTag() {
-        // Simulates a SceneStorage value persisted under a case that no
-        // longer exists in any form (no migration mapping).
         let legacy = #"{"doc":{"_0":".claude/docs/old.md"}}"#
         #expect(NavigatorRoute(persistedString: legacy) == nil)
     }
