@@ -184,6 +184,26 @@ nonisolated enum ClaudeProjectFiles {
         return target
     }
 
+    // Moves a file or folder into a new parent directory. Rejects moves where
+    // `source` is an ancestor of `targetFolder` (would lose the source's own
+    // subtree). Suffix-walks on collision so the moved item never overwrites.
+    static func moveItem(at source: URL, to targetFolder: URL) throws -> URL {
+        let fm = FileManager.default
+        try fm.createDirectory(at: targetFolder, withIntermediateDirectories: true)
+        let sourcePath = source.standardizedFileURL.path
+        let targetPath = targetFolder.standardizedFileURL.path
+        if targetPath == sourcePath || targetPath.hasPrefix(sourcePath + "/") {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let target = try findFreeName(
+            in: targetFolder, base: source.lastPathComponent)
+        if target.standardizedFileURL.path == source.standardizedFileURL.path {
+            return target
+        }
+        try fm.moveItem(at: source, to: target)
+        return target
+    }
+
     static func trashFile(at url: URL) throws -> URL {
         var resulting: NSURL?
         try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)

@@ -84,8 +84,12 @@ struct FileTreeRow: View {
             .buttonStyle(.plain)
             .padding(.leading, CGFloat(depth * 16))
             .contextMenu { folderMenu }
+            .draggable(FileTreeDragPayload(url: node.url))
             .dropDestination(for: URL.self) { urls, _ in
                 handleFinderDrop(urls)
+            }
+            .dropDestination(for: FileTreeDragPayload.self) { payloads, _ in
+                handleInternalMove(payloads)
             }
         }
     }
@@ -117,10 +121,33 @@ struct FileTreeRow: View {
             .padding(.leading, CGFloat(depth * 16))
             .tag(NavigatorRoute.projectFile(relativePath: node.relativePath))
             .contextMenu { fileMenu }
+            .draggable(FileTreeDragPayload(url: node.url))
             .dropDestination(for: URL.self) { urls, _ in
                 handleFinderDrop(urls)
             }
+            .dropDestination(for: FileTreeDragPayload.self) { payloads, _ in
+                handleInternalMove(payloads)
+            }
         }
+    }
+
+    private func handleInternalMove(_ payloads: [FileTreeDragPayload]) -> Bool {
+        guard !payloads.isEmpty else { return false }
+        guard
+            let target = FileTreeDropResolver.resolveDropTarget(
+                for: node, projectURL: projectURL)
+        else {
+            Task { @MainActor in
+                navigator.showBanner("Drop target outside managed area")
+            }
+            return false
+        }
+        let sources = payloads.map(\.url)
+        Task { @MainActor in
+            await navigator.handleInternalMove(
+                sources: sources, targetFolder: target, projectURL: projectURL)
+        }
+        return true
     }
 
     private func handleFinderDrop(_ urls: [URL]) -> Bool {

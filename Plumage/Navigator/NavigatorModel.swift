@@ -145,13 +145,8 @@ final class NavigatorModel {
                 () -> [URL] in
                 var results: [URL] = []
                 for source in sources {
-                    let target = try ClaudeProjectFiles.findFreeName(
-                        in: targetFolder, base: source.lastPathComponent)
-                    if target.standardizedFileURL.path == source.standardizedFileURL.path {
-                        results.append(target)
-                        continue
-                    }
-                    try FileManager.default.moveItem(at: source, to: target)
+                    let target = try ClaudeProjectFiles.moveItem(
+                        at: source, to: targetFolder)
                     results.append(target)
                 }
                 return results
