@@ -44,6 +44,7 @@ struct IssueDetailView: View {
     @Environment(\.openSpec) private var openSpec
     @Environment(\.dismissToOrigin) private var dismissToOrigin
     @Environment(\.runWorkflow) private var runWorkflow
+    @Environment(\.onIssueCreated) private var onIssueCreated
     @Environment(ProjectKanbanModel.self) private var kanban
 
     init(projectURL: URL, folderName: String) {
@@ -184,10 +185,38 @@ struct IssueDetailView: View {
                     language: markdownLanguage,
                     layout: editorLayout
                 )
+                issueCreateFooter
             } else {
                 tabBody
             }
         }
+    }
+
+    @ViewBuilder
+    private var issueCreateFooter: some View {
+        HStack {
+            Spacer()
+            Button("Create Issue") {
+                Task {
+                    do {
+                        try await model.createIssueFromDraft()
+                        if let folderName = model.folderName {
+                            onIssueCreated(folderName)
+                            dismiss()
+                        }
+                    } catch IssueDetailModel.SaveError.emptyTitle {
+                        // Gated by canSaveInCreatingMode; no alert needed.
+                    } catch {
+                        presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                    }
+                }
+            }
+            .keyboardShortcut(.return, modifiers: [.command])
+            .buttonStyle(.borderedProminent)
+            .disabled(!model.canSaveInCreatingMode)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
@@ -205,6 +234,7 @@ struct IssueDetailView: View {
                 paddedID: paddedID,
                 branch: branch,
                 showsCopyID: !model.isCreating,
+                isCreating: model.isCreating,
                 saveDisabled: saveDisabled,
                 onCopyID: model.copyIDToPasteboard,
                 onSave: attemptSave
@@ -222,20 +252,20 @@ struct IssueDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 2)
             .padding(.bottom, 6)
+            IssueMetaRow(
+                status: currentStatus,
+                type: currentType,
+                labels: currentLabels,
+                dates: metaDates,
+                onSelectStatus: onSelectStatus,
+                onSelectType: onSelectType,
+                onAddLabel: onAddLabel,
+                onRemoveLabel: onRemoveLabel,
+                isDisabled: detailFieldsDisabled
+            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
             if !model.isCreating {
-                IssueMetaRow(
-                    status: currentStatus,
-                    type: currentType,
-                    labels: currentLabels,
-                    dates: metaDates,
-                    onSelectStatus: onSelectStatus,
-                    onSelectType: onSelectType,
-                    onAddLabel: onAddLabel,
-                    onRemoveLabel: onRemoveLabel,
-                    isDisabled: detailFieldsDisabled
-                )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 5)
                 BodyTabPicker(selectedTab: bodyTabBinding)
                     .padding(.horizontal, 12)
             }

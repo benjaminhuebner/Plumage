@@ -132,6 +132,13 @@ final class IssueDetailModel {
         self.mergeRunner = mergeRunner
         self.configLoader = configLoader
         self.clock = clock
+        // Pre-load synchronously so the view renders content immediately on
+        // first mount — avoids the ProgressView flash caused by idle→loaded
+        // transition after the async load() task fires. Local filesystem reads
+        // are fast enough that the main-thread cost is acceptable.
+        if let content = try? String(contentsOf: specURL, encoding: .utf8) {
+            applyLoaded(content: content)
+        }
     }
 
     // Safety net for abnormal teardown paths where .onDisappear is skipped.

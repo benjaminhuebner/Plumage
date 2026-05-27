@@ -87,6 +87,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         view.layer?.isOpaque = false
         view.layer?.backgroundColor = NSColor.clear.cgColor
         applyForeground(to: view)
+        applyPalette(to: view)
         context.coordinator.lastColorScheme = colorScheme
 
         view.caretViewTracksFocus = false
@@ -152,6 +153,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
             nsView.nativeBackgroundColor = .clear
             nsView.layer?.backgroundColor = NSColor.clear.cgColor
             applyForeground(to: nsView)
+            applyPalette(to: nsView)
         }
         flushPendingInput(into: nsView)
     }
@@ -193,6 +195,40 @@ private struct SwiftTermBridge: NSViewRepresentable {
             colorScheme == .dark
             ? NSColor(white: 0.92, alpha: 1)
             : NSColor(white: 0.15, alpha: 1)
+    }
+
+    private func applyPalette(to view: PersistentCursorTerminalView) {
+        // Build a 16-color ANSI palette based on SwiftTerm's default
+        // terminalAppColors. Index 8 (bright-black / SGR 90) is used by
+        // claude's plan-mode prompt text. The default RGB(129,131,131) is
+        // too faint on a light background; override to a mid-dark gray that
+        // provides adequate contrast. UInt16 color values are 0–65535
+        // (8-bit value × 257 = full-range equivalent).
+        func color(_ red: Int, _ green: Int, _ blue: Int) -> SwiftTerm.Color {
+            SwiftTerm.Color(
+                red: UInt16(red * 257), green: UInt16(green * 257), blue: UInt16(blue * 257)
+            )
+        }
+        let brightBlack = colorScheme == .light ? color(80, 80, 80) : color(129, 131, 131)
+        let palette: [SwiftTerm.Color] = [
+            color(0, 0, 0),         // 0  black
+            color(194, 54, 33),     // 1  red
+            color(37, 188, 36),     // 2  green
+            color(173, 173, 39),    // 3  yellow
+            color(73, 46, 225),     // 4  blue
+            color(211, 56, 211),    // 5  magenta
+            color(51, 187, 200),    // 6  cyan
+            color(203, 204, 205),   // 7  white
+            brightBlack,            // 8  bright black
+            color(252, 57, 31),     // 9  bright red
+            color(49, 231, 34),     // 10 bright green
+            color(234, 236, 35),    // 11 bright yellow
+            color(88, 51, 255),     // 12 bright blue
+            color(249, 53, 248),    // 13 bright magenta
+            color(20, 240, 240),    // 14 bright cyan
+            color(233, 235, 235),   // 15 bright white
+        ]
+        view.installColors(palette)
     }
 
     private static func environmentForClaude() -> [String] {

@@ -259,6 +259,10 @@ struct ProjectWindow: View {
                 // @Environment(ProjectKanbanModel.self) crashes without these.
                 .environment(kanban)
                 .environment(navigator)
+                .environment(\.onIssueCreated) { folderName in
+                    showCreateSheet = false
+                    selectedRoute = .issue(folderName: folderName)
+                }
                 .frame(minWidth: 720, minHeight: 600)
             }
             .sheet(isPresented: $showCommitSheet) {

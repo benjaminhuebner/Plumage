@@ -61,7 +61,6 @@ struct IssueMetaRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .fixedSize()
     }
 
@@ -85,7 +84,6 @@ struct IssueMetaRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .fixedSize()
     }
 
