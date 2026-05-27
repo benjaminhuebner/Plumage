@@ -105,7 +105,15 @@ final class GitCommitModel {
     }
 
     private func runRefreshFiles() async {
-        loadState = .loading
+        // Only show the spinner on the initial load (or when recovering from
+        // an error). FSEvent-triggered refreshes on an already-loaded view
+        // run silently — otherwise a clean working tree flickers between
+        // "Loading…" and "Nothing to commit" on every filesystem ping.
+        if case .loaded = loadState {
+            // keep current view, refresh in place
+        } else {
+            loadState = .loading
+        }
         do {
             let fresh = try await statusRunner.run(repoURL: repoURL)
             if Task.isCancelled { return }
