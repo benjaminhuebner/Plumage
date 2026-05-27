@@ -18,11 +18,15 @@ struct NavigatorDetail: View {
         case .issue(let folderName):
             IssueDetailView(projectURL: projectURL, folderName: folderName)
         case .projectFile(let relativePath):
-            // Temporary catch-all: every `.projectFile` opens in DocEditor
-            // for now. Task 7 replaces this with a suffix-driven switch
-            // (DocEditor for .md/json, FileInfoView for code, ImagePreview
-            // for images, FileInfoView for binaries).
-            DocEditorView(fileURL: projectURL.appendingPathComponent(relativePath))
+            let fileURL = projectURL.appendingPathComponent(relativePath)
+            switch NavigatorDetailDispatch.detailViewKind(for: relativePath) {
+            case .doc:
+                DocEditorView(fileURL: fileURL)
+            case .info:
+                FileInfoView(fileURL: fileURL)
+            case .image:
+                ImagePreviewView(fileURL: fileURL)
+            }
         case .managedFile(let type, let relativePath):
             DocEditorView(
                 fileURL:
