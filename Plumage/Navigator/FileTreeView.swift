@@ -84,6 +84,9 @@ struct FileTreeRow: View {
             .buttonStyle(.plain)
             .padding(.leading, CGFloat(depth * 16))
             .contextMenu { folderMenu }
+            .dropDestination(for: URL.self) { urls, _ in
+                handleFinderDrop(urls)
+            }
         }
     }
 
@@ -114,7 +117,28 @@ struct FileTreeRow: View {
             .padding(.leading, CGFloat(depth * 16))
             .tag(NavigatorRoute.projectFile(relativePath: node.relativePath))
             .contextMenu { fileMenu }
+            .dropDestination(for: URL.self) { urls, _ in
+                handleFinderDrop(urls)
+            }
         }
+    }
+
+    private func handleFinderDrop(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
+        guard
+            let target = FileTreeDropResolver.resolveDropTarget(
+                for: node, projectURL: projectURL)
+        else {
+            Task { @MainActor in
+                navigator.showBanner("Drop target outside managed area")
+            }
+            return false
+        }
+        Task { @MainActor in
+            await navigator.handleFinderDrop(
+                urls: urls, targetFolder: target, projectURL: projectURL)
+        }
+        return true
     }
 
     private var chevron: some View {
