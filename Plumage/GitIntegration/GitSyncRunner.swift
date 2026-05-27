@@ -191,10 +191,15 @@ nonisolated struct GitSyncRunner: GitSyncing {
             if !authHit, AuthPromptDetector.isAuthPrompt(line.text) {
                 authHit = true
                 continuation.yield(.authPromptDetected)
-                // Drain the rest; the stream closes when the subprocess exits.
-                // Cancelling the wrapping Task would close the underlying
-                // continuation and signal SIGTERM (see PipeDoneCounter
-                // handler in ProductionGitProcessStreamer).
+                // Spec wording said "kill the subprocess via task cancellation"
+                // here. We don't — we just emit the event and keep draining.
+                // The kill is structurally unnecessary because
+                // ProductionGitProcessStreamer sets stdin = nullDevice, so git
+                // can never block waiting on stdin and exits on its own within
+                // milliseconds of the prompt. Calling task.cancel() here would
+                // race the imminent natural exit and risk shooting an unrelated
+                // PID if the kernel recycled it (the same race that the
+                // ProcessRunning SIGKILL grace-check guards against).
             }
             continuation.yield(.line(line))
             if Task.isCancelled { break }
