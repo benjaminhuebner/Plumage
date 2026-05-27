@@ -169,7 +169,18 @@ final class ProjectSettingsModel {
         case .implement: implementPermissionMode = value
         case .review: reviewPermissionMode = value
         }
-        scheduleSave()
+        // Picker selection is a discrete user choice; flush immediately so a
+        // workflow click within the 500ms scheduleSave debounce can't spawn a
+        // session with the old mode.
+        Task { await saveNow() }
+    }
+
+    // The mode a workflow tab actually spawns with when the user leaves the
+    // picker on "Built-in" — depends on the currently-selected model for
+    // Plan (opusplan → .plan, anything else → .default), constant for the
+    // other actions. Used by the picker UI to show an honest preview.
+    func resolvedFallbackMode(for action: WorkflowAction) -> PermissionMode {
+        action.resolvedPermissionMode(model: model(for: action.modelSlot))
     }
 
     func model(for slot: ModelSlot) -> ModelChoice {

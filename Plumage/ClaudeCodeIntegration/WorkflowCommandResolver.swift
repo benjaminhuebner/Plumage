@@ -17,9 +17,12 @@ nonisolated enum WorkflowCommandResolver {
     // Matches each placeholder token in a single left-to-right scan so
     // substituted content can never re-enter the substitution chain
     // (prompt.md containing literal `<spec>` no longer expands recursively).
+    // Alternation is longest-first (prompt-suffix before prompt) so the match
+    // doesn't depend on ICU backtracking — a non-backtracking refactor stays
+    // correct.
     private static let tokenPattern: NSRegularExpression = {
         guard let regex = try? NSRegularExpression(
-            pattern: "<(slug|prompt|prompt-suffix|spec)>", options: []
+            pattern: "<(slug|prompt-suffix|prompt|spec)>", options: []
         ) else {
             preconditionFailure("Invariant: workflow token regex must compile")
         }

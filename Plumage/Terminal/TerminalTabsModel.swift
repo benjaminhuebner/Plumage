@@ -106,7 +106,7 @@ final class TerminalTabsModel {
     func addWorkflowTab(
         action: WorkflowAction,
         slug: String,
-        overridePermissionMode: PermissionMode? = nil
+        override: WorkflowOverride? = nil
     ) -> TerminalTab {
         let resolved =
             modelsConfig?.workflowResolved(action)
@@ -114,7 +114,7 @@ final class TerminalTabsModel {
                 for: action.modelSlot
             )
         let permMode =
-            overridePermissionMode ?? action.resolvedPermissionMode(model: resolved)
+            override?.permissionMode ?? action.resolvedPermissionMode(model: resolved)
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,

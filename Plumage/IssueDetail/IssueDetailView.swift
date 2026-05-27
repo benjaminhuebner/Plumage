@@ -196,27 +196,33 @@ struct IssueDetailView: View {
     private var issueCreateFooter: some View {
         HStack {
             Spacer()
-            Button("Create Issue") {
-                Task {
-                    do {
-                        try await model.createIssueFromDraft()
-                        if let folderName = model.folderName {
-                            onIssueCreated(folderName)
-                            dismiss()
-                        }
-                    } catch IssueDetailModel.SaveError.emptyTitle {
-                        // Gated by canSaveInCreatingMode; no alert needed.
-                    } catch {
-                        presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
-                    }
-                }
-            }
-            .keyboardShortcut(.return, modifiers: [.command])
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canSaveInCreatingMode)
+            Button("Create Issue") { createAndNavigate() }
+                .keyboardShortcut(.return, modifiers: [.command])
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canSaveInCreatingMode)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    // Single creation path: footer button (Cmd+Return) AND attemptSave (Cmd+S)
+    // funnel through here so the sheet always dismisses + navigates to the new
+    // issue on success. Splitting these two paths previously left Cmd+S in a
+    // half-created state (issue on disk, sheet still open in loaded-mode UI).
+    private func createAndNavigate() {
+        Task {
+            do {
+                try await model.createIssueFromDraft()
+                if let folderName = model.folderName {
+                    onIssueCreated(folderName)
+                    dismiss()
+                }
+            } catch IssueDetailModel.SaveError.emptyTitle {
+                // Gated by canSaveInCreatingMode; no alert needed.
+            } catch {
+                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+            }
+        }
     }
 
     @ViewBuilder
@@ -552,15 +558,7 @@ struct IssueDetailView: View {
         // queues a no-op (guard-by-dirty) after the in-flight write finishes.
         if model.isCreating {
             guard model.canSaveInCreatingMode else { return }
-            Task {
-                do {
-                    try await model.createIssueFromDraft()
-                } catch IssueDetailModel.SaveError.emptyTitle {
-                    // Save was gated by canSaveInCreatingMode; no alert needed.
-                } catch {
-                    presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
-                }
-            }
+            createAndNavigate()
             return
         }
         Task {

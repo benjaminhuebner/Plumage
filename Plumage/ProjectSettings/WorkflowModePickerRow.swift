@@ -20,6 +20,7 @@ struct WorkflowModePickerRow: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .frame(maxWidth: 220, alignment: .leading)
+            .accessibilityLabel("\(label) permission mode")
             Spacer(minLength: 0)
         }
     }

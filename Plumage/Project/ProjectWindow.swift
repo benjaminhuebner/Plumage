@@ -502,7 +502,7 @@ struct ProjectWindow: View {
         let workflowTab = terminalTabs.addWorkflowTab(
             action: action,
             slug: folderName,
-            overridePermissionMode: currentConfig()?.workflows?[action]?.permissionMode
+            override: currentConfig()?.workflows?[action]
         )
 
         // Resolve the template (default or per-project override) into the
