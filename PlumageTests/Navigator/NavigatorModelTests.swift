@@ -355,6 +355,86 @@ struct NavigatorModelTests {
         #expect(route == .managedFile(type: .outputStyles, relativePath: "yaml.md"))
         #expect(model.outputStyles.map(\.lastPathComponent) == ["yaml.md"])
     }
+
+    // MARK: - rootNodes / handleFinderDrop / handleInternalMove
+
+    @Test("reload populates rootNodes from FileTreeBuilder")
+    func reloadPopulatesRootNodes() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/PROJECT.md", content: "p")
+        try fixture.makeFile(at: ".plumage/config.json", content: "{}")
+        try fixture.makeFile(at: ".mcp.json", content: "{}")
+
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+
+        #expect(model.rootNodes.map(\.name) == [".claude", ".plumage", ".mcp.json"])
+    }
+
+    @Test("handleFinderDrop copies a file into a whitelisted folder")
+    func handleFinderDropCopies() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/.keep", content: "")
+        let source = try fixture.makeExternal(name: "extra.md", content: "x")
+        let model = NavigatorModel()
+
+        let target = fixture.root.appendingPathComponent(".claude/docs", isDirectory: true)
+        await model.handleFinderDrop(
+            urls: [source], targetFolder: target, projectURL: fixture.root)
+
+        let landed = target.appendingPathComponent("extra.md")
+        #expect(FileManager.default.fileExists(atPath: landed.path))
+        #expect(model.dropRejectMessage == nil)
+    }
+
+    @Test("handleFinderDrop rejects drops outside the whitelist")
+    func handleFinderDropRejectsNonWhitelisted() async throws {
+        let fixture = try NavigatorModelFixture()
+        let source = try fixture.makeExternal(name: "x.md", content: "x")
+        let model = NavigatorModel(bannerDisplayDuration: .milliseconds(50))
+        let outside = fixture.root.appendingPathComponent("Plumage", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+
+        await model.handleFinderDrop(
+            urls: [source], targetFolder: outside, projectURL: fixture.root)
+
+        #expect(!FileManager.default.fileExists(atPath: outside.appendingPathComponent("x.md").path))
+        #expect(model.dropRejectMessage == "Drop target outside managed area")
+    }
+
+    @Test("handleInternalMove moves files between whitelist folders")
+    func handleInternalMoveBetweenFolders() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        try fixture.makeFile(at: ".claude/agents/.keep", content: "")
+        let model = NavigatorModel()
+
+        let source = fixture.root.appendingPathComponent(".claude/docs/foo.md")
+        let target = fixture.root.appendingPathComponent(".claude/agents", isDirectory: true)
+        await model.handleInternalMove(
+            sources: [source], targetFolder: target, projectURL: fixture.root)
+
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: target.appendingPathComponent("foo.md").path))
+    }
+
+    @Test("handleInternalMove rejects moving a folder into its own subtree")
+    func handleInternalMoveRejectsSelfSubtree() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/agents/team/lead.md", content: "x")
+        let model = NavigatorModel(bannerDisplayDuration: .milliseconds(50))
+
+        let source = fixture.root.appendingPathComponent(".claude/agents", isDirectory: true)
+        let target = fixture.root.appendingPathComponent(".claude/agents/team", isDirectory: true)
+        await model.handleInternalMove(
+            sources: [source], targetFolder: target, projectURL: fixture.root)
+
+        // Source still exists; target unchanged.
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(model.dropRejectMessage == "Cannot move folder into its own subfolder")
+    }
 }
 
 private final class NavigatorModelFixture {
@@ -376,5 +456,16 @@ private final class NavigatorModelFixture {
         let parent = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    // Creates a file outside `root` so drop-from-Finder tests can use a
+    // distinct source URL not inside the project tree.
+    func makeExternal(name: String, content: String) throws -> URL {
+        let external = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PlumageNavigatorModelExternal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        let url = external.appendingPathComponent(name)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 }

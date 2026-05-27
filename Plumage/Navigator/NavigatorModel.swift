@@ -13,6 +13,12 @@ final class NavigatorModel {
     private(set) var mcpJSONExists: Bool = false
     private(set) var loadError: String?
 
+    // Unified file tree powering the upcoming "Files" sidebar section.
+    // Built off-Main from `FileTreeBuilder.build(...)` on every reload.
+    // Old per-type lists above stay populated in parallel until the sidebar
+    // rewrite consumes `rootNodes` directly.
+    private(set) var rootNodes: [FileNode] = []
+
     // Transient sidebar state for the "+ creates a new row with a focused
     // TextField" interaction. View binds the textfield to `pendingCreate?.name`
     // and calls commit/cancel based on Enter/Escape/blur.
@@ -78,9 +84,131 @@ final class NavigatorModel {
         self.claudeLocalMDExists = snapshot.claudeLocalMDExists
         self.mcpJSONExists = snapshot.mcpJSONExists
         self.loadError = snapshot.error
+        let nodes = await Task.detached(priority: .userInitiated) {
+            FileTreeBuilder.build(projectURL: projectURL)
+        }.value
+        self.rootNodes = nodes
         // `pendingCreate` is intentionally preserved across reloads — an
         // FSEvent triggered mid-inline-edit must not collapse the user's
         // open create row.
+    }
+
+    // Finder → tree drop. Copies each source URL into `targetFolder` with
+    // a suffix walk on collision. Rejects targets outside the whitelisted
+    // file-tree area (.claude/, .plumage/). One banner per drop with the
+    // accept/reject split rolled up.
+    func handleFinderDrop(
+        urls: [URL], targetFolder: URL, projectURL: URL
+    ) async {
+        guard !urls.isEmpty else { return }
+        guard Self.isInsideWhitelistedTree(targetFolder, projectURL: projectURL) else {
+            showBanner("Drop target outside managed area")
+            return
+        }
+        do {
+            let outcome = try await Task.detached(priority: .userInitiated) {
+                try Self.performFinderCopy(sources: urls, destination: targetFolder)
+            }.value
+            if !outcome.rejected.isEmpty {
+                showBanner(
+                    "\(outcome.rejected.count) of "
+                        + "\(outcome.accepted.count + outcome.rejected.count) "
+                        + "files skipped")
+            }
+            if !outcome.accepted.isEmpty {
+                await reload(projectURL: projectURL)
+            }
+        } catch {
+            showBanner("Couldn't copy: \(error.localizedDescription)")
+        }
+    }
+
+    // Tree-internal drag-move. Moves each source URL into `targetFolder`
+    // via `FileManager.moveItem` with a suffix walk on collision. Rejects
+    // self-into-subtree moves and targets outside the whitelist.
+    func handleInternalMove(
+        sources: [URL], targetFolder: URL, projectURL: URL
+    ) async {
+        guard !sources.isEmpty else { return }
+        guard Self.isInsideWhitelistedTree(targetFolder, projectURL: projectURL) else {
+            showBanner("Drop target outside managed area")
+            return
+        }
+        for source in sources {
+            if Self.isAncestor(source, of: targetFolder) {
+                showBanner("Cannot move folder into its own subfolder")
+                return
+            }
+        }
+        do {
+            let moved = try await Task.detached(priority: .userInitiated) {
+                () -> [URL] in
+                var results: [URL] = []
+                for source in sources {
+                    let target = try ClaudeProjectFiles.findFreeName(
+                        in: targetFolder, base: source.lastPathComponent)
+                    if target.standardizedFileURL.path == source.standardizedFileURL.path {
+                        results.append(target)
+                        continue
+                    }
+                    try FileManager.default.moveItem(at: source, to: target)
+                    results.append(target)
+                }
+                return results
+            }.value
+            if !moved.isEmpty {
+                await reload(projectURL: projectURL)
+            }
+        } catch {
+            showBanner("Couldn't move: \(error.localizedDescription)")
+        }
+    }
+
+    private nonisolated static func isInsideWhitelistedTree(_ url: URL, projectURL: URL) -> Bool {
+        let claude =
+            projectURL.appendingPathComponent(FileTreeBuilder.claudeRoot, isDirectory: true)
+            .standardizedFileURL.path
+        let plumage =
+            projectURL.appendingPathComponent(FileTreeBuilder.plumageRoot, isDirectory: true)
+            .standardizedFileURL.path
+        let target = url.standardizedFileURL.path
+        return target == claude || target.hasPrefix(claude + "/")
+            || target == plumage || target.hasPrefix(plumage + "/")
+    }
+
+    private nonisolated static func isAncestor(_ ancestor: URL, of descendant: URL) -> Bool {
+        let aPath = ancestor.standardizedFileURL.path
+        let dPath = descendant.standardizedFileURL.path
+        return aPath == dPath || dPath.hasPrefix(aPath + "/")
+    }
+
+    private nonisolated struct FinderCopyOutcome: Sendable {
+        var accepted: [URL] = []
+        var rejected: [URL] = []
+    }
+
+    private nonisolated static func performFinderCopy(
+        sources: [URL], destination: URL
+    ) throws -> FinderCopyOutcome {
+        var outcome = FinderCopyOutcome()
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: destination, withIntermediateDirectories: true)
+        for source in sources {
+            let target = try ClaudeProjectFiles.findFreeName(
+                in: destination, base: source.lastPathComponent)
+            if target.standardizedFileURL.path == source.standardizedFileURL.path {
+                outcome.accepted.append(target)
+                continue
+            }
+            do {
+                try fileManager.copyItem(at: source, to: target)
+                outcome.accepted.append(target)
+            } catch {
+                outcome.rejected.append(source)
+            }
+        }
+        return outcome
     }
 
     func beginPendingCreate(_ section: PendingCreate.Section) {
