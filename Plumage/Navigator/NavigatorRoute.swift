@@ -3,6 +3,14 @@ import Foundation
 nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case kanban
     case issue(folderName: String)
+    case projectFile(relativePath: String)
+    case projectSettings
+
+    // Legacy file-route cases — kept temporarily so existing call-sites
+    // compile while the rewrite proceeds. New code constructs
+    // `.projectFile(relativePath:)`. The `persistedString` decoder migrates
+    // any legacy shape to `.projectFile`, so SceneStorage data written by
+    // older builds is auto-upgraded on first launch.
     case managedFile(type: ManagedFileType, relativePath: String)
     case claudeMD
     case claudeLocalMD
@@ -10,16 +18,11 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case mcpJSON
     case skillFile(skill: String, relativePath: String)
     case settings(SettingsFile)
-    // Per-project Plumage settings (workflow command overrides, model picks
-    // for Chat / Terminals / Workflow tabs). Detail-view is a custom
-    // ProjectSettingsView, not a JSON file editor.
-    case projectSettings
 
-    // On-disk URL for routes that point at a user-managed file (rename, trash,
-    // open in DocEditor). Returns nil for routes that don't map to a single
-    // managed file (`.kanban`, `.issue`, bootstrap files / settings).
     func managedFileURL(in projectURL: URL) -> URL? {
         switch self {
+        case .projectFile(let rel):
+            return projectURL.appendingPathComponent(rel)
         case .managedFile(let type, let rel):
             return
                 projectURL
@@ -41,6 +44,34 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
             return nil
         }
     }
+
+    // Maps a legacy file-route case to its `.projectFile` equivalent. Returns
+    // `nil` for routes that need no migration. The mapping mirrors
+    // `managedFileURL(in:)`'s on-disk path so persisted SceneStorage values
+    // and live runtime URLs stay consistent.
+    fileprivate func migratedToProjectFile() -> NavigatorRoute? {
+        switch self {
+        case .managedFile(let type, let rel):
+            return .projectFile(relativePath: "\(type.relativePath)/\(rel)")
+        case .claudeMD:
+            return .projectFile(relativePath: ClaudeProjectFiles.claudeMDRelativePath)
+        case .claudeLocalMD:
+            return .projectFile(relativePath: ClaudeProjectFiles.claudeLocalMDRelativePath)
+        case .claudeMarkdown(let name):
+            return .projectFile(
+                relativePath: "\(ClaudeProjectFiles.settingsRootRelativePath)/\(name)")
+        case .mcpJSON:
+            return .projectFile(relativePath: ClaudeProjectFiles.mcpJSONRelativePath)
+        case .skillFile(let skill, let rel):
+            return .projectFile(
+                relativePath: "\(ClaudeProjectFiles.skillsRelativePath)/\(skill)/\(rel)")
+        case .settings(let file):
+            return .projectFile(
+                relativePath: "\(ClaudeProjectFiles.settingsRootRelativePath)/\(file.rawValue)")
+        case .kanban, .issue, .projectFile, .projectSettings:
+            return nil
+        }
+    }
 }
 
 nonisolated enum SettingsFile: String, Hashable, Sendable, Codable, CaseIterable {
@@ -57,9 +88,8 @@ nonisolated extension NavigatorRoute {
 
     // String form used by @SceneStorage to persist sidebar selection per
     // window. JSON-encoded so all associated values survive round-trip
-    // without a hand-rolled tag/payload format. Decode failures (e.g. an
-    // old window persisted `.doc(relativePath:)` before this issue removed
-    // the case) fall through to nil; callers default to `.kanban`.
+    // without a hand-rolled tag/payload format. Decode failures fall
+    // through to nil; callers default to `.kanban`.
     var persistedString: String {
         guard
             let data = try? Self.encoder.encode(self),
@@ -70,6 +100,11 @@ nonisolated extension NavigatorRoute {
         return string
     }
 
+    // Migrates any legacy file-case shape to `.projectFile` so SceneStorage
+    // data written by builds that predate the route collapse is upgraded on
+    // decode. Anything that doesn't match a known shape (corrupt JSON, an
+    // enum case removed entirely in an even-earlier refactor) returns nil
+    // and the caller defaults to `.kanban`.
     init?(persistedString: String) {
         guard
             !persistedString.isEmpty,
@@ -78,6 +113,6 @@ nonisolated extension NavigatorRoute {
         else {
             return nil
         }
-        self = decoded
+        self = decoded.migratedToProjectFile() ?? decoded
     }
 }
