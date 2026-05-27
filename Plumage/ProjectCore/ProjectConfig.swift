@@ -42,6 +42,35 @@ nonisolated struct WorkflowsConfig: Codable, Hashable, Sendable {
 
 nonisolated struct WorkflowOverride: Codable, Hashable, Sendable {
     var command: String
+    var permissionMode: PermissionMode?
+
+    init(command: String = "", permissionMode: PermissionMode? = nil) {
+        self.command = command
+        self.permissionMode = permissionMode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case command, permissionMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // command is optional in JSON — old configs only have a command string,
+        // new configs may have only permissionMode. Default to "" when absent.
+        command = try container.decodeIfPresent(String.self, forKey: .command) ?? ""
+        permissionMode = try container.decodeIfPresent(
+            PermissionMode.self, forKey: .permissionMode
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // Omit command key entirely when empty to keep config.json clean.
+        if !command.isEmpty {
+            try container.encode(command, forKey: .command)
+        }
+        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
+    }
 }
 
 nonisolated struct ModelsConfig: Codable, Hashable, Sendable {

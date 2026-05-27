@@ -495,7 +495,11 @@ struct ProjectWindow: View {
             terminalTabs.selectedTabID = existing.id
             return
         }
-        let workflowTab = terminalTabs.addWorkflowTab(action: action, slug: folderName)
+        let workflowTab = terminalTabs.addWorkflowTab(
+            action: action,
+            slug: folderName,
+            overridePermissionMode: currentConfig()?.workflows?[action]?.permissionMode
+        )
 
         // Resolve the template (default or per-project override) into the
         // sequence of lines that need to be injected into claude's REPL.

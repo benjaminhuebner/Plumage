@@ -22,6 +22,7 @@ struct ProjectSettingsView: View {
                     loadFailedBanner(message: message)
                 case .loaded:
                     workflowCommandsSection
+                    workflowModesSection
                     modelsSection
                 }
                 Spacer(minLength: 32)
@@ -166,6 +167,30 @@ struct ProjectSettingsView: View {
     }
 
     @ViewBuilder
+    private var workflowModesSection: some View {
+        sectionHeader(
+            title: "Workflow Modes",
+            description: "Permission mode passed to claude for each workflow button. \"Built-in\" uses the action's default."
+        )
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(WorkflowAction.allCases, id: \.self) { action in
+                WorkflowModePickerRow(
+                    label: action.settingsLabel,
+                    mode: permissionModeBinding(for: action),
+                    fallback: action.permissionMode
+                )
+            }
+            Label(
+                "Changes only apply to new sessions and tabs.",
+                systemImage: "info.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 6)
+        }
+    }
+
+    @ViewBuilder
     private var modelsSection: some View {
         sectionHeader(
             title: "Models",
@@ -228,6 +253,13 @@ struct ProjectSettingsView: View {
         Binding(
             get: { model.model(for: slot) },
             set: { model.setModel($0, for: slot) }
+        )
+    }
+
+    private func permissionModeBinding(for action: WorkflowAction) -> Binding<PermissionMode?> {
+        Binding(
+            get: { model.permissionMode(for: action) },
+            set: { model.setPermissionMode($0, for: action) }
         )
     }
 
