@@ -52,6 +52,12 @@ struct ProjectWindow: View {
     // so a quick second button-press doesn't leave the prior task's body
     // enqueue stranded — see #00034 race fix.
     @State private var workflowTask: Task<Void, Never>?
+    // SidebarFileWatcher signals on FSEvents for the project root; the
+    // consumer task below reloads `navigator.rootNodes` so external mutations
+    // (a `claude` subprocess creating a file under .claude/, the user dropping
+    // a doc via Finder, …) show up in the sidebar without a manual refresh.
+    @State private var sidebarFileWatcher: SidebarFileWatcher?
+    @State private var sidebarFileWatcherTask: Task<Void, Never>?
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -201,6 +207,7 @@ struct ProjectWindow: View {
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
+                mountSidebarWatcher(projectURL: handle.url)
                 async let xcodeDiscover: Void = xcodeRun.discover(projectURL: handle.url)
                 async let usagePoll: Void = pollClaudeUsage()
                 async let statusPoll: Void = pollClaudeStatus()
@@ -232,6 +239,9 @@ struct ProjectWindow: View {
                 workflowTask?.cancel()
                 xcodeRunController.cancelRun()
                 gitModel.stop()
+                sidebarFileWatcherTask?.cancel()
+                sidebarFileWatcherTask = nil
+                sidebarFileWatcher = nil
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
@@ -543,6 +553,20 @@ struct ProjectWindow: View {
                 )
             case .injected, .cancelled:
                 break
+            }
+        }
+    }
+
+    // Replaces an existing watcher when the window swaps to a different
+    // project. The consumer task ends when the AsyncStream is finished (via
+    // the watcher's teardown in deinit) or when we cancel it explicitly.
+    private func mountSidebarWatcher(projectURL: URL) {
+        sidebarFileWatcherTask?.cancel()
+        let watcher = SidebarFileWatcher(projectURL: projectURL)
+        sidebarFileWatcher = watcher
+        sidebarFileWatcherTask = Task { [events = watcher.events] in
+            for await _ in events {
+                await navigator.reload(projectURL: projectURL)
             }
         }
     }
