@@ -86,10 +86,10 @@ struct FileTreeRow: View {
             .contextMenu { folderMenu }
             .draggable(FileTreeDragPayload(url: node.url))
             .dropDestination(for: URL.self) { urls, _ in
-                handleFinderDrop(urls)
+                return handleFinderDrop(urls)
             }
             .dropDestination(for: FileTreeDragPayload.self) { payloads, _ in
-                handleInternalMove(payloads)
+                return handleInternalMove(payloads)
             }
         }
     }
@@ -123,10 +123,10 @@ struct FileTreeRow: View {
             .contextMenu { fileMenu }
             .draggable(FileTreeDragPayload(url: node.url))
             .dropDestination(for: URL.self) { urls, _ in
-                handleFinderDrop(urls)
+                return handleFinderDrop(urls)
             }
             .dropDestination(for: FileTreeDragPayload.self) { payloads, _ in
-                handleInternalMove(payloads)
+                return handleInternalMove(payloads)
             }
         }
     }

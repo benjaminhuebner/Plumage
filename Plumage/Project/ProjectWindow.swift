@@ -47,7 +47,6 @@ struct ProjectWindow: View {
     // it warns "FocusedValue update tried to update multiple times per
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
-    @State private var beginInlineCreateAction: InlineCreateInvoker?
     // Single in-flight workflow inject. Replacing it cancels the prior task
     // so a quick second button-press doesn't leave the prior task's body
     // enqueue stranded — see #00034 race fix.
@@ -113,7 +112,6 @@ struct ProjectWindow: View {
             .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
             .navigationTitle(displayTitle)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
-            .focusedSceneValue(\.beginInlineCreate, beginInlineCreateAction)
             .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
             .focusedSceneValue(\.chatDockToggle, $isDockOpen)
             .focusedSceneValue(\.gitCommitAction, commitAction)
@@ -613,14 +611,8 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
             }
-            if beginInlineCreateAction == nil {
-                beginInlineCreateAction = InlineCreateInvoker { section in
-                    navigator.beginPendingCreate(section)
-                }
-            }
         } else {
             if createIssueAction != nil { createIssueAction = nil }
-            if beginInlineCreateAction != nil { beginInlineCreateAction = nil }
         }
     }
 

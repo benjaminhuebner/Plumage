@@ -44,7 +44,6 @@ struct PlumageApp: App {
         .commands {
             OpenProjectMenuCommand(recentProjects: recentProjects)
             NewIssueCommand()
-            NewSidebarItemCommands()
             SpecEditorCommands()
             GitCommand()
             TerminalCommand()
