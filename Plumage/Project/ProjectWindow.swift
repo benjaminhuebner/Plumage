@@ -12,9 +12,16 @@ struct ProjectWindow: View {
     @State private var detailOriginRoute: NavigatorRoute?
     @State private var showCreateSheet = false
     @State private var createInitialStatus: IssueStatus = .draft
+    @State private var showCommitSheet = false
+    @State private var showSyncSheet = false
+    @State private var syncOperation: GitSyncOperation = .push
+    @State private var commitAction: EditorAction?
+    @State private var pushAction: EditorAction?
+    @State private var pullAction: EditorAction?
     @State private var indicator = StatusIndicatorModel()
     @State private var claudeUsage = ClaudeUsageModel()
     @State private var claudeStatus = ClaudeStatusModel()
+    @State private var gitModel = ProjectGitModel()
     @State private var usageClient = ClaudeUsageClient()
     @State private var statusClient = ClaudeStatusPageClient()
     @State private var session: ClaudeSession
@@ -103,6 +110,9 @@ struct ProjectWindow: View {
             .focusedSceneValue(\.beginInlineCreate, beginInlineCreateAction)
             .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
             .focusedSceneValue(\.chatDockToggle, $isDockOpen)
+            .focusedSceneValue(\.gitCommitAction, commitAction)
+            .focusedSceneValue(\.gitPushAction, pushAction)
+            .focusedSceneValue(\.gitPullAction, pullAction)
             .task(id: handle.url) {
                 if !hasMigratedLegacyPaneMode {
                     if legacyTerminalPaneMode == "terminal" {
@@ -186,6 +196,7 @@ struct ProjectWindow: View {
                 // EmbeddedTerminalView mounts, which is what survives
                 // scene-phase recovery without leaving non-active tabs
                 // stranded in .exited.
+                gitModel.start(repoURL: handle.url)
                 async let reload: Void = model.reload(at: handle.url)
                 async let run: Void = kanban.run(projectURL: handle.url)
                 async let detect: Void = indicator.detect(using: processRunner)
@@ -197,6 +208,8 @@ struct ProjectWindow: View {
                 refreshCreateIssueAction()
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
+            .onChange(of: isLoaded) { _, _ in refreshGitActions() }
+            .onChange(of: gitModel.repoState.isGitRepo) { _, _ in refreshGitActions() }
             .onChange(of: xcodeRun.discoveryState) { _, state in
                 if state == .ready {
                     Task {
@@ -218,6 +231,7 @@ struct ProjectWindow: View {
                 terminalTabs.stopAll()
                 workflowTask?.cancel()
                 xcodeRunController.cancelRun()
+                gitModel.stop()
             }
             .onChange(of: selectedRoute) { _, new in
                 persistedRouteData = new.persistedString
@@ -245,7 +259,30 @@ struct ProjectWindow: View {
                 // @Environment(ProjectKanbanModel.self) crashes without these.
                 .environment(kanban)
                 .environment(navigator)
+                .environment(\.onIssueCreated) { folderName in
+                    showCreateSheet = false
+                    selectedRoute = .issue(folderName: folderName)
+                }
                 .frame(minWidth: 720, minHeight: 600)
+            }
+            .sheet(isPresented: $showCommitSheet) {
+                GitCommitView(
+                    model: GitCommitModel(
+                        repoURL: handle.url,
+                        watcher: GitRepoWatcher(repoURL: handle.url)
+                    ),
+                    onDismiss: { showCommitSheet = false }
+                )
+            }
+            .sheet(isPresented: $showSyncSheet) {
+                GitSyncView(
+                    model: GitSyncModel(
+                        repoURL: handle.url,
+                        operation: syncOperation,
+                        currentBranch: gitModel.repoState.branchName
+                    ),
+                    onDismiss: { showSyncSheet = false }
+                )
             }
     }
 
@@ -379,6 +416,7 @@ struct ProjectWindow: View {
                     indicatorState: indicator.state,
                     usageModel: claudeUsage,
                     statusModel: claudeStatus,
+                    repoState: gitModel.repoState,
                     banner: navigator.dropRejectMessage
                 )
             }
@@ -461,7 +499,11 @@ struct ProjectWindow: View {
             terminalTabs.selectedTabID = existing.id
             return
         }
-        let workflowTab = terminalTabs.addWorkflowTab(action: action, slug: folderName)
+        let workflowTab = terminalTabs.addWorkflowTab(
+            action: action,
+            slug: folderName,
+            override: currentConfig()?.workflows?[action]
+        )
 
         // Resolve the template (default or per-project override) into the
         // sequence of lines that need to be injected into claude's REPL.
@@ -511,6 +553,33 @@ struct ProjectWindow: View {
     }
 
     private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")
+
+    private func refreshGitActions() {
+        let active = isLoaded && gitModel.repoState.isGitRepo
+        if active {
+            if commitAction == nil {
+                commitAction = EditorAction {
+                    showCommitSheet = true
+                }
+            }
+            if pushAction == nil {
+                pushAction = EditorAction {
+                    syncOperation = .push
+                    showSyncSheet = true
+                }
+            }
+            if pullAction == nil {
+                pullAction = EditorAction {
+                    syncOperation = .pull
+                    showSyncSheet = true
+                }
+            }
+        } else {
+            commitAction = nil
+            pushAction = nil
+            pullAction = nil
+        }
+    }
 
     private func refreshCreateIssueAction() {
         if isLoaded {

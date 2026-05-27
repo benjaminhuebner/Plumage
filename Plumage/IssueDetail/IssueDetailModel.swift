@@ -91,6 +91,8 @@ final class IssueDetailModel {
         observeTask = nil
     }
 
+    private static let preloadByteCap = 64 * 1024
+
     private nonisolated let allocator: IssueAllocating?
     private nonisolated let writer: SpecWriting
     private nonisolated let mutator: FrontmatterMutating
@@ -132,6 +134,18 @@ final class IssueDetailModel {
         self.mergeRunner = mergeRunner
         self.configLoader = configLoader
         self.clock = clock
+        // Pre-load synchronously so the view renders content immediately on
+        // first mount — avoids the ProgressView flash caused by idle→loaded
+        // transition after the async load() task fires. Capped at 64 KB so a
+        // pathological spec on a slow volume (network mount, encrypted disk)
+        // can't stall view construction; oversize specs fall back to the
+        // async load() path with the ProgressView placeholder.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: specURL.path),
+            let size = attrs[.size] as? Int, size <= Self.preloadByteCap,
+            let content = try? String(contentsOf: specURL, encoding: .utf8)
+        {
+            applyLoaded(content: content)
+        }
     }
 
     // Safety net for abnormal teardown paths where .onDisappear is skipped.

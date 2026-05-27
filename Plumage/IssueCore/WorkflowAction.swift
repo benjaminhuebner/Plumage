@@ -21,6 +21,14 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
         }
     }
 
+    var settingsLabel: String {
+        switch self {
+        case .plan: "Plan"
+        case .implement: "Implement"
+        case .review: "Review"
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .plan: "sparkles"

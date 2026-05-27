@@ -23,6 +23,9 @@ final class ProjectSettingsModel {
     var planCommand: String = ProjectSettingsModel.planDefault
     var implementCommand: String = ProjectSettingsModel.implementDefault
     var reviewCommand: String = ProjectSettingsModel.reviewDefault
+    var planPermissionMode: PermissionMode?
+    var implementPermissionMode: PermissionMode?
+    var reviewPermissionMode: PermissionMode?
     var chatModel: ModelChoice = ModelsConfig.chatDefault
     var terminalsModel: ModelChoice = ModelsConfig.terminalsDefault
     var planModel: ModelChoice = ModelsConfig.planDefault
@@ -96,9 +99,15 @@ final class ProjectSettingsModel {
         baseConfig = config
         // Override on disk → show that. No override → show the default template
         // so the user always sees what'll actually be injected.
-        planCommand = config.workflows?.plan?.command ?? Self.planDefault
-        implementCommand = config.workflows?.implement?.command ?? Self.implementDefault
-        reviewCommand = config.workflows?.review?.command ?? Self.reviewDefault
+        let planOverride = config.workflows?.plan
+        let implementOverride = config.workflows?.implement
+        let reviewOverride = config.workflows?.review
+        planCommand = planOverride?.command.nilIfEmpty ?? Self.planDefault
+        implementCommand = implementOverride?.command.nilIfEmpty ?? Self.implementDefault
+        reviewCommand = reviewOverride?.command.nilIfEmpty ?? Self.reviewDefault
+        planPermissionMode = planOverride?.permissionMode
+        implementPermissionMode = implementOverride?.permissionMode
+        reviewPermissionMode = reviewOverride?.permissionMode
         chatModel = config.models?.chat ?? ModelsConfig.chatDefault
         terminalsModel = config.models?.terminals ?? ModelsConfig.terminalsDefault
         planModel = config.models?.plan ?? ModelsConfig.planDefault
@@ -106,8 +115,9 @@ final class ProjectSettingsModel {
         reviewModel = config.models?.review ?? ModelsConfig.reviewDefault
     }
 
-    // Default templates from the spec — used by the per-editor reset button.
-    static let planDefault = "/plumage-plan <slug>\n<prompt>"
+    // Default templates — used by the per-editor reset button and to detect
+    // when a command override matches the built-in (so we skip writing to disk).
+    static let planDefault = "/plumage-plan <slug><prompt-suffix>"
     static let implementDefault = "/plumage-implement <slug>"
     static let reviewDefault = "/plumage-review <slug>"
 
@@ -142,6 +152,35 @@ final class ProjectSettingsModel {
         case .review: reviewCommand = value
         }
         scheduleSave()
+    }
+
+    func permissionMode(for action: WorkflowAction) -> PermissionMode? {
+        switch action {
+        case .plan: planPermissionMode
+        case .implement: implementPermissionMode
+        case .review: reviewPermissionMode
+        }
+    }
+
+    func setPermissionMode(_ value: PermissionMode?, for action: WorkflowAction) {
+        guard canEdit else { return }
+        switch action {
+        case .plan: planPermissionMode = value
+        case .implement: implementPermissionMode = value
+        case .review: reviewPermissionMode = value
+        }
+        // Picker selection is a discrete user choice; flush immediately so a
+        // workflow click within the 500ms scheduleSave debounce can't spawn a
+        // session with the old mode.
+        Task { await saveNow() }
+    }
+
+    // The mode a workflow tab actually spawns with when the user leaves the
+    // picker on "Built-in" — depends on the currently-selected model for
+    // Plan (opusplan → .plan, anything else → .default), constant for the
+    // other actions. Used by the picker UI to show an honest preview.
+    func resolvedFallbackMode(for action: WorkflowAction) -> PermissionMode {
+        action.resolvedPermissionMode(model: model(for: action.modelSlot))
     }
 
     func model(for slot: ModelSlot) -> ModelChoice {
@@ -227,9 +266,11 @@ final class ProjectSettingsModel {
     private func mutated(from base: ProjectConfig) -> ProjectConfig {
         var copy = base
         copy.workflows = WorkflowsConfig(
-            plan: override(planCommand, default: Self.planDefault),
-            implement: override(implementCommand, default: Self.implementDefault),
-            review: override(reviewCommand, default: Self.reviewDefault)
+            plan: workflowOverride(planCommand, default: Self.planDefault, mode: planPermissionMode),
+            implement: workflowOverride(
+                implementCommand, default: Self.implementDefault, mode: implementPermissionMode
+            ),
+            review: workflowOverride(reviewCommand, default: Self.reviewDefault, mode: reviewPermissionMode)
         )
         if copy.workflows == WorkflowsConfig() { copy.workflows = nil }
         copy.models = ModelsConfig(
@@ -243,17 +284,23 @@ final class ProjectSettingsModel {
         return copy
     }
 
-    // Save as nil when the editor content matches the spec default — keeps
-    // config.json clean and lets a future Plumage default-change apply
-    // automatically without per-project migration.
-    private func override(_ raw: String, default builtIn: String) -> WorkflowOverride? {
+    // Returns nil when both command and mode are at their defaults — keeps
+    // config.json clean and lets future Plumage default-changes apply without
+    // per-project migration.
+    private func workflowOverride(
+        _ raw: String, default builtIn: String, mode: PermissionMode?
+    ) -> WorkflowOverride? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return nil }
-        if raw == builtIn { return nil }
-        return WorkflowOverride(command: raw)
+        let commandOverride = (trimmed.isEmpty || raw == builtIn) ? nil : raw
+        if commandOverride == nil && mode == nil { return nil }
+        return WorkflowOverride(command: commandOverride ?? "", permissionMode: mode)
     }
 
     private func nilIfSlotDefault(_ choice: ModelChoice, slot: ModelSlot) -> ModelChoice? {
         choice == ModelsConfig.slotDefault(for: slot) ? nil : choice
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

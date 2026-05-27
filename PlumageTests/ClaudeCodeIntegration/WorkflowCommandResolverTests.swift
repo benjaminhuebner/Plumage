@@ -24,7 +24,7 @@ struct WorkflowCommandResolverTests {
         return (specURL, promptURL, cleanup)
     }
 
-    @Test("default plan template substitutes slug and inlines prompt")
+    @Test("default plan template substitutes slug and inlines prompt in one line")
     func planDefault() throws {
         let fx = try makeFixture(prompt: "hello world")
         defer { fx.cleanup() }
@@ -33,7 +33,7 @@ struct WorkflowCommandResolverTests {
             specURL: fx.specURL, promptURL: fx.promptURL,
             override: nil
         )
-        #expect(lines == ["/plumage-plan 00099-feature", "hello world"])
+        #expect(lines == ["/plumage-plan 00099-feature - hello world"])
     }
 
     @Test("default implement template only injects the slash command")
@@ -144,7 +144,8 @@ struct WorkflowCommandResolverTests {
         // prompt.md contains the literal token "<spec>". A naive sequential
         // substitution (slug → prompt → spec) would expand the user's
         // literal text into the actual spec content. Single-pass resolver
-        // must leave it alone.
+        // must leave it alone. The prompt-suffix token inlines the prompt
+        // after " - " so the whole thing is a single REPL line.
         let fx = try makeFixture(
             spec: "ACTUAL-SPEC-CONTENT",
             prompt: "Document the <spec> handling please."
@@ -155,10 +156,9 @@ struct WorkflowCommandResolverTests {
             specURL: fx.specURL, promptURL: fx.promptURL,
             override: nil
         )
-        #expect(lines.count == 2)
-        #expect(lines[0] == "/plumage-plan x")
-        #expect(lines[1] == "Document the <spec> handling please.")
-        #expect(!lines[1].contains("ACTUAL-SPEC-CONTENT"))
+        #expect(lines.count == 1)
+        #expect(lines[0] == "/plumage-plan x - Document the <spec> handling please.")
+        #expect(!lines[0].contains("ACTUAL-SPEC-CONTENT"))
     }
 
     @Test("substitution does not cascade — literal <prompt> in slug stays literal")

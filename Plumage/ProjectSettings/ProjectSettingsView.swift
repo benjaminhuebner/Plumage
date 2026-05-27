@@ -22,6 +22,7 @@ struct ProjectSettingsView: View {
                     loadFailedBanner(message: message)
                 case .loaded:
                     workflowCommandsSection
+                    workflowModesSection
                     modelsSection
                 }
                 Spacer(minLength: 32)
@@ -33,6 +34,12 @@ struct ProjectSettingsView: View {
         .task {
             model.onSaved = onProjectConfigSaved
             await model.load()
+        }
+        .onDisappear {
+            // Belt-and-braces: a typed-into command text within the 500ms
+            // debounce window survives navigating away from settings. Picker
+            // selections already saveNow synchronously in the model.
+            Task { [model] in await model.saveNow() }
         }
         .overlay(alignment: .bottom) {
             if case .failed(let message) = model.saveStatus {
@@ -112,7 +119,7 @@ struct ProjectSettingsView: View {
         sectionHeader(
             title: "Workflow Commands",
             description:
-                "Custom slash-commands for the three workflow buttons. The placeholders `<slug>`, `<prompt>`, `<spec>` are substituted at run time."
+                "Custom slash-commands for the three workflow buttons. The placeholders `<slug>`, `<prompt>`, `<prompt-suffix>`, `<spec>` are substituted at run time. `<prompt-suffix>` expands to ` - <prompt>` when prompt.md is non-empty, or to nothing otherwise."
         )
         VStack(alignment: .leading, spacing: 18) {
             workflowEditor(for: .plan, binding: bindings.planCommand)
@@ -131,9 +138,10 @@ struct ProjectSettingsView: View {
                 Text(action.label)
                     .font(.headline)
                 Spacer()
-                Button("Reset to default") {
+                Button("Reset command") {
                     model.resetCommand(for: action)
                 }
+                .help("Resets the command text only. Permission mode is in the Workflow Modes section below.")
                 .controlSize(.small)
             }
             WorkflowCommandEditor(
@@ -162,6 +170,31 @@ struct ProjectSettingsView: View {
                 }
                 Spacer()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var workflowModesSection: some View {
+        sectionHeader(
+            title: "Workflow Modes",
+            description:
+                "Permission mode passed to claude for each workflow button. \"Built-in\" uses the action's default."
+        )
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(WorkflowAction.allCases, id: \.self) { action in
+                WorkflowModePickerRow(
+                    label: action.settingsLabel,
+                    mode: permissionModeBinding(for: action),
+                    fallback: model.resolvedFallbackMode(for: action)
+                )
+            }
+            Label(
+                "Changes only apply to new sessions and tabs.",
+                systemImage: "info.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 6)
         }
     }
 
@@ -231,6 +264,13 @@ struct ProjectSettingsView: View {
         )
     }
 
+    private func permissionModeBinding(for action: WorkflowAction) -> Binding<PermissionMode?> {
+        Binding(
+            get: { model.permissionMode(for: action) },
+            set: { model.setPermissionMode($0, for: action) }
+        )
+    }
+
     private func insertPlaceholder(_ placeholder: WorkflowPlaceholder, into binding: Binding<String>) {
         let current = binding.wrappedValue
         let suffix = current.hasSuffix(" ") || current.isEmpty ? "" : " "
@@ -268,6 +308,7 @@ private struct ProjectSettingsBindings {
 nonisolated enum WorkflowPlaceholder: String, CaseIterable, Sendable, Hashable {
     case slug
     case prompt
+    case promptSuffix = "prompt-suffix"
     case spec
 
     var token: String { "<\(rawValue)>" }

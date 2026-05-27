@@ -103,19 +103,25 @@ final class TerminalTabsModel {
     }
 
     @discardableResult
-    func addWorkflowTab(action: WorkflowAction, slug: String) -> TerminalTab {
+    func addWorkflowTab(
+        action: WorkflowAction,
+        slug: String,
+        override: WorkflowOverride? = nil
+    ) -> TerminalTab {
         let resolved =
             modelsConfig?.workflowResolved(action)
             ?? ModelsConfig.slotDefault(
                 for: action.modelSlot
             )
+        let permMode =
+            override?.permissionMode ?? action.resolvedPermissionMode(model: resolved)
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,
             modelChoice: resolved,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
-            permissionMode: action.resolvedPermissionMode(model: resolved)
+            permissionMode: permMode
         )
         let tab = TerminalTab(
             session: session,
