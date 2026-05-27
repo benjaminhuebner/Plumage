@@ -259,6 +259,13 @@ final class NavigatorModel {
                     return try ClaudeProjectFiles.createSkillFile(
                         name: trimmed, underSkill: skill, relativePath: path,
                         projectURL: projectURL)
+                case .treeNode(let parent, let isFolder):
+                    guard isFolder else {
+                        return try ClaudeProjectFiles.createFileAt(
+                            parent: parent, name: trimmed)
+                    }
+                    return try ClaudeProjectFiles.createFolderAt(
+                        parent: parent, name: trimmed)
                 }
             }.value
 
@@ -383,6 +390,10 @@ final class NavigatorModel {
             let leaf = createdURL.lastPathComponent
             let rel = path.isEmpty ? leaf : "\(path)/\(leaf)"
             return .skillFile(skill: skill, relativePath: rel)
+        case .treeNode(_, let isFolder):
+            guard !isFolder else { return nil }
+            let rel = relativePath(from: projectURL, to: createdURL)
+            return .projectFile(relativePath: rel)
         }
     }
 
@@ -446,6 +457,11 @@ nonisolated struct PendingCreate: Identifiable, Equatable, Sendable {
         case skill
         case skillFolder(skillName: String, relativePath: String)
         case skillFile(skillName: String, relativePath: String)
+        // Generic at-path create used by the unified file tree. `parent` is
+        // the on-disk folder where the new entry lands. `isFolder` toggles
+        // between file and folder creation (different commit paths +
+        // default names).
+        case treeNode(parent: URL, isFolder: Bool)
 
         var defaultName: String {
             switch self {
@@ -455,6 +471,7 @@ nonisolated struct PendingCreate: Identifiable, Equatable, Sendable {
             case .skill: return "untitled-skill"
             case .skillFolder: return "untitled"
             case .skillFile: return "untitled.md"
+            case .treeNode(_, let isFolder): return isFolder ? "untitled" : "untitled.md"
             }
         }
     }

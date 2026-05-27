@@ -216,6 +216,36 @@ nonisolated enum ClaudeProjectFiles {
         return []
     }
 
+    // MARK: - Generic at-path create (used by the unified file tree)
+
+    // Creates an empty file under `parent`, suffix-walking on collision.
+    // Caller must pass a sanitized file name (the unified tree doesn't enforce
+    // extension whitelists — any extension lands in the tree as-is).
+    static func createFileAt(parent: URL, name: String) throws -> URL {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let fm = FileManager.default
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        let target = try findFreeName(in: parent, base: trimmed)
+        try Data().write(to: target)
+        return target
+    }
+
+    // Creates a folder under `parent`, suffix-walking on collision.
+    static func createFolderAt(parent: URL, name: String) throws -> URL {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let fm = FileManager.default
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        let target = try findFreeName(in: parent, base: trimmed)
+        try fm.createDirectory(at: target, withIntermediateDirectories: false)
+        return target
+    }
+
     // MARK: - Free-name helper
 
     // Returns the first URL whose lastPathComponent (with the same extension
