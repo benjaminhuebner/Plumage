@@ -4,8 +4,12 @@ nonisolated enum WorkflowCommandResolver {
     // Built-in templates, used when override is nil or the override command
     // is empty/whitespace. Each entry is a sequence of lines that the caller
     // injects into the workflow tab as separate REPL turns.
+    //
+    // <prompt-suffix> expands to " - <prompt>" when prompt.md is non-empty,
+    // or to "" when it is absent — so Plan stays a single REPL turn regardless,
+    // which lets the terminal submit it with one \r instead of two.
     static let defaultTemplates: [WorkflowAction: [String]] = [
-        .plan: ["/plumage-plan <slug>", "<prompt>"],
+        .plan: ["/plumage-plan <slug><prompt-suffix>"],
         .implement: ["/plumage-implement <slug>"],
         .review: ["/plumage-review <slug>"],
     ]
@@ -14,7 +18,9 @@ nonisolated enum WorkflowCommandResolver {
     // substituted content can never re-enter the substitution chain
     // (prompt.md containing literal `<spec>` no longer expands recursively).
     private static let tokenPattern: NSRegularExpression = {
-        guard let regex = try? NSRegularExpression(pattern: "<(slug|prompt|spec)>", options: []) else {
+        guard let regex = try? NSRegularExpression(
+            pattern: "<(slug|prompt|prompt-suffix|spec)>", options: []
+        ) else {
             preconditionFailure("Invariant: workflow token regex must compile")
         }
         return regex
@@ -87,6 +93,7 @@ nonisolated enum WorkflowCommandResolver {
             switch tokenName {
             case "slug": result.append(slug)
             case "prompt": result.append(prompt)
+            case "prompt-suffix": result.append(prompt.isEmpty ? "" : " - \(prompt)")
             case "spec": result.append(spec)
             default: result.append(nsLine.substring(with: match.range))
             }
