@@ -2,17 +2,16 @@ import Foundation
 
 nonisolated enum FileTreeBuilder {
     static let claudeRoot = ".claude"
-    static let plumageRoot = ".plumage"
     static let rootFileWhitelist: [String] = [".mcp.json", "CLAUDE.md", "CLAUDE.local.md"]
 
     static func build(projectURL: URL) -> [FileNode] {
         var nodes: [FileNode] = []
 
-        for folder in [claudeRoot, plumageRoot] {
-            let url = projectURL.appendingPathComponent(folder, isDirectory: true)
-            if let node = makeNode(at: url, projectURL: projectURL) {
-                nodes.append(node)
-            }
+        // `.plumage/` is intentionally NOT shown — it holds Plumage's own
+        // machinery (config.json, runs/), not user-editable workflow config.
+        let claudeURL = projectURL.appendingPathComponent(claudeRoot, isDirectory: true)
+        if let node = makeNode(at: claudeURL, projectURL: projectURL) {
+            nodes.append(node)
         }
 
         let fm = FileManager.default

@@ -10,13 +10,14 @@ struct NavigatorModelTests {
     func reloadPopulatesRootNodes() async throws {
         let fixture = try NavigatorModelFixture()
         try fixture.makeFile(at: ".claude/docs/PROJECT.md", content: "p")
+        // .plumage exists on disk but is intentionally hidden from the tree.
         try fixture.makeFile(at: ".plumage/config.json", content: "{}")
         try fixture.makeFile(at: ".mcp.json", content: "{}")
 
         let model = NavigatorModel()
         await model.reload(projectURL: fixture.root)
 
-        #expect(model.rootNodes.map(\.name) == [".claude", ".plumage", ".mcp.json"])
+        #expect(model.rootNodes.map(\.name) == [".claude", ".mcp.json"])
     }
 
     @Test("beginPendingCreate seeds the default name for files and folders")

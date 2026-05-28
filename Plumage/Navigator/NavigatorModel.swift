@@ -210,12 +210,8 @@ final class NavigatorModel {
         let claude =
             projectURL.appendingPathComponent(FileTreeBuilder.claudeRoot, isDirectory: true)
             .standardizedFileURL.path
-        let plumage =
-            projectURL.appendingPathComponent(FileTreeBuilder.plumageRoot, isDirectory: true)
-            .standardizedFileURL.path
         let target = url.standardizedFileURL.path
         return target == claude || target.hasPrefix(claude + "/")
-            || target == plumage || target.hasPrefix(plumage + "/")
     }
 
     private nonisolated static func isAncestor(_ ancestor: URL, of descendant: URL) -> Bool {

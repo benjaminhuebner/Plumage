@@ -22,12 +22,7 @@ nonisolated enum FileTreeDropResolver {
             projectURL
             .appendingPathComponent(FileTreeBuilder.claudeRoot, isDirectory: true)
             .standardizedFileURL.path
-        let plumage =
-            projectURL
-            .appendingPathComponent(FileTreeBuilder.plumageRoot, isDirectory: true)
-            .standardizedFileURL.path
         let target = url.standardizedFileURL.path
         return target == claude || target.hasPrefix(claude + "/")
-            || target == plumage || target.hasPrefix(plumage + "/")
     }
 }

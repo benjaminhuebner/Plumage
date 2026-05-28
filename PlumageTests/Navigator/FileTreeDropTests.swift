@@ -46,8 +46,23 @@ struct FileTreeDropTests {
         #expect(FileTreeDropResolver.resolveDropTarget(for: rootFile, projectURL: project) == nil)
     }
 
-    @Test("drop on the .plumage root folder is accepted")
-    func dropOnPlumageRoot() {
+    @Test("drop on a nested .claude folder is accepted")
+    func dropOnNestedClaudeFolder() {
+        let project = URL(filePath: "/tmp/proj")
+        let agents = FileNode(
+            url: URL(filePath: "/tmp/proj/.claude/agents"),
+            relativePath: ".claude/agents",
+            name: "agents",
+            isDirectory: true,
+            children: []
+        )
+        #expect(
+            FileTreeDropResolver.resolveDropTarget(for: agents, projectURL: project)?.path
+                == "/tmp/proj/.claude/agents")
+    }
+
+    @Test("drop on a .plumage folder rejects (not in the whitelist)")
+    func dropOnPlumageRejects() {
         let project = URL(filePath: "/tmp/proj")
         let plumage = FileNode(
             url: URL(filePath: "/tmp/proj/.plumage"),
@@ -56,8 +71,6 @@ struct FileTreeDropTests {
             isDirectory: true,
             children: []
         )
-        #expect(
-            FileTreeDropResolver.resolveDropTarget(for: plumage, projectURL: project)?.path
-                == "/tmp/proj/.plumage")
+        #expect(FileTreeDropResolver.resolveDropTarget(for: plumage, projectURL: project) == nil)
     }
 }

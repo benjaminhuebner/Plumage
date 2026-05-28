@@ -31,15 +31,16 @@ struct FileTreeBuilderTests {
         try "lead".write(
             to: project.appendingPathComponent(".claude/agents/team/lead.md"),
             atomically: true, encoding: .utf8)
+        // .plumage exists but must NOT appear in the tree.
         try fm.createDirectory(
             at: project.appendingPathComponent(".plumage"),
             withIntermediateDirectories: true)
 
         let nodes = FileTreeBuilder.build(projectURL: project)
 
-        #expect(nodes.count == 2)
+        #expect(nodes.count == 1)
         let names = nodes.map(\.name)
-        #expect(names == [".claude", ".plumage"])
+        #expect(names == [".claude"])
 
         let claude = try #require(nodes.first { $0.name == ".claude" })
         #expect(claude.isDirectory)
