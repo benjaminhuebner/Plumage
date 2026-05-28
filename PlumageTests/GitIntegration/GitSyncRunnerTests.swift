@@ -17,14 +17,15 @@ struct GitSyncRunnerPushTests {
                 GitStreamLine(source: .stderr, text: "Enumerating objects: 5"),
                 GitStreamLine(source: .stderr, text: "Writing objects: 100%"),
                 GitStreamLine(source: .stdout, text: "To github.com:foo/bar.git"),
-                GitStreamLine(source: .stdout, text: "   abc..def  main -> main")
+                GitStreamLine(source: .stdout, text: "   abc..def  main -> main"),
             ],
             exitCode: 0
         )
         let runner = GitSyncRunner(streamer: mock, resolveBinary: { self.binaryURL })
 
-        let events = await collect(runner.run(
-            operation: .push, repoURL: repoURL, currentBranch: "main"))
+        let events = await collect(
+            runner.run(
+                operation: .push, repoURL: repoURL, currentBranch: "main"))
 
         let lines = events.compactMap { event -> String? in
             if case .line(let line) = event { return line.text }
@@ -49,7 +50,7 @@ struct GitSyncRunnerPushTests {
             lines: [
                 GitStreamLine(source: .stderr, text: "fatal: The current branch feature/x has no upstream branch."),
                 GitStreamLine(source: .stderr, text: "To push the current branch and set the remote as upstream, use"),
-                GitStreamLine(source: .stderr, text: "    git push --set-upstream origin feature/x")
+                GitStreamLine(source: .stderr, text: "    git push --set-upstream origin feature/x"),
             ],
             exitCode: 128
         )
@@ -63,8 +64,9 @@ struct GitSyncRunnerPushTests {
         )
         let runner = GitSyncRunner(streamer: mock, resolveBinary: { self.binaryURL })
 
-        let events = await collect(runner.run(
-            operation: .push, repoURL: repoURL, currentBranch: "feature/x"))
+        let events = await collect(
+            runner.run(
+                operation: .push, repoURL: repoURL, currentBranch: "feature/x"))
 
         let retryHit = events.contains { event in
             if case .retryingWithUpstream(let branch) = event { return branch == "feature/x" }
@@ -96,8 +98,9 @@ struct GitSyncRunnerPushTests {
         )
         let runner = GitSyncRunner(streamer: mock, resolveBinary: { self.binaryURL })
 
-        let events = await collect(runner.run(
-            operation: .push, repoURL: repoURL, currentBranch: "main"))
+        let events = await collect(
+            runner.run(
+                operation: .push, repoURL: repoURL, currentBranch: "main"))
         guard case .finished(let exit) = events.last else {
             Issue.record("expected last event to be .finished")
             return
@@ -119,14 +122,16 @@ struct GitSyncRunnerPullTests {
             args: ["-C", repoURL.path, "pull"],
             lines: [
                 GitStreamLine(source: .stderr, text: "CONFLICT (content): Merge conflict in foo.swift"),
-                GitStreamLine(source: .stderr, text: "Automatic merge failed; fix conflicts and then commit the result.")
+                GitStreamLine(
+                    source: .stderr, text: "Automatic merge failed; fix conflicts and then commit the result."),
             ],
             exitCode: 1
         )
         let runner = GitSyncRunner(streamer: mock, resolveBinary: { self.binaryURL })
 
-        let events = await collect(runner.run(
-            operation: .pull, repoURL: repoURL, currentBranch: "main"))
+        let events = await collect(
+            runner.run(
+                operation: .pull, repoURL: repoURL, currentBranch: "main"))
         guard case .finished(let exit) = events.last else {
             Issue.record("expected last event to be .finished")
             return
@@ -146,8 +151,9 @@ struct GitSyncRunnerAuthTests {
         #expect(AuthPromptDetector.isAuthPrompt("Username for 'https://github.com':"))
         #expect(AuthPromptDetector.isAuthPrompt("Password for 'https://user@github.com':"))
         #expect(AuthPromptDetector.isAuthPrompt("fatal: could not read Username for"))
-        #expect(AuthPromptDetector.isAuthPrompt(
-            "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled"))
+        #expect(
+            AuthPromptDetector.isAuthPrompt(
+                "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled"))
         #expect(!AuthPromptDetector.isAuthPrompt("Normal output line"))
     }
 
@@ -159,23 +165,28 @@ struct GitSyncRunnerAuthTests {
             lines: [
                 GitStreamLine(source: .stderr, text: "Cloning into '...'"),
                 GitStreamLine(source: .stderr, text: "Username for 'https://github.com': "),
-                GitStreamLine(source: .stderr, text: "fatal: could not read Username for 'https://github.com': terminal prompts disabled")
+                GitStreamLine(
+                    source: .stderr,
+                    text: "fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
             ],
             exitCode: 128
         )
         let runner = GitSyncRunner(streamer: mock, resolveBinary: { self.binaryURL })
 
-        let events = await collect(runner.run(
-            operation: .push, repoURL: repoURL, currentBranch: "main"))
+        let events = await collect(
+            runner.run(
+                operation: .push, repoURL: repoURL, currentBranch: "main"))
 
-        let promptIdx = try #require(events.firstIndex {
-            if case .authPromptDetected = $0 { return true }
-            return false
-        })
-        let finishedIdx = try #require(events.firstIndex {
-            if case .finished = $0 { return true }
-            return false
-        })
+        let promptIdx = try #require(
+            events.firstIndex {
+                if case .authPromptDetected = $0 { return true }
+                return false
+            })
+        let finishedIdx = try #require(
+            events.firstIndex {
+                if case .finished = $0 { return true }
+                return false
+            })
         #expect(promptIdx < finishedIdx)
 
         // Auth-prompt path must NOT trigger the no-upstream retry, even if
@@ -191,8 +202,9 @@ struct GitSyncRunnerEdgeTests {
     @Test("gitNotFound is surfaced as a stderr line + non-zero exit, not a thrown error")
     func gitNotFoundPath() async {
         let runner = GitSyncRunner(streamer: MockGitProcessStreamer(), resolveBinary: { nil })
-        let events = await collect(runner.run(
-            operation: .push, repoURL: repoURL, currentBranch: "main"))
+        let events = await collect(
+            runner.run(
+                operation: .push, repoURL: repoURL, currentBranch: "main"))
         let last = events.last
         guard case .finished(let exit) = last else {
             Issue.record("expected .finished")

@@ -21,9 +21,11 @@ nonisolated enum WorkflowCommandResolver {
     // doesn't depend on ICU backtracking — a non-backtracking refactor stays
     // correct.
     private static let tokenPattern: NSRegularExpression = {
-        guard let regex = try? NSRegularExpression(
-            pattern: "<(slug|prompt-suffix|prompt|spec)>", options: []
-        ) else {
+        guard
+            let regex = try? NSRegularExpression(
+                pattern: "<(slug|prompt-suffix|prompt|spec)>", options: []
+            )
+        else {
             preconditionFailure("Invariant: workflow token regex must compile")
         }
         return regex

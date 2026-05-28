@@ -78,8 +78,8 @@ struct GitSyncView: View {
                 Text("Credential prompt detected").font(.body.weight(.semibold))
                 Text(
                     "Plumage cannot handle credential prompts. "
-                    + "Configure your credential helper (osxkeychain, SSH key) "
-                    + "and retry from the terminal."
+                        + "Configure your credential helper (osxkeychain, SSH key) "
+                        + "and retry from the terminal."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)

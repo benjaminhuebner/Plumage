@@ -48,7 +48,7 @@ nonisolated enum AuthPromptDetector {
         "Password for https://",
         "could not read Username",
         "could not read Password",
-        "terminal prompts disabled"
+        "terminal prompts disabled",
     ]
 
     static func isAuthPrompt(_ line: String) -> Bool {
@@ -64,7 +64,7 @@ nonisolated enum NoUpstreamDetector {
     // current branch has no upstream tracking. Matched on stderr only.
     static let patterns: [String] = [
         "has no upstream branch",
-        "set-upstream"
+        "set-upstream",
     ]
 
     static func looksLikeMissingUpstream(_ lines: [String]) -> Bool {
@@ -123,14 +123,17 @@ nonisolated struct GitSyncRunner: GitSyncing {
         continuation: AsyncStream<GitSyncEvent>.Continuation
     ) async {
         guard let binary = resolveBinary() else {
-            continuation.yield(.line(GitStreamLine(
-                source: .stderr,
-                text: GitSyncError.gitNotFound.displayMessage)))
+            continuation.yield(
+                .line(
+                    GitStreamLine(
+                        source: .stderr,
+                        text: GitSyncError.gitNotFound.displayMessage)))
             continuation.yield(.finished(exitCode: 127))
             return
         }
 
-        let firstAttempt = operation == .push
+        let firstAttempt =
+            operation == .push
             ? ["-C", repoURL.path, "push"]
             : ["-C", repoURL.path, "pull"]
 
@@ -175,12 +178,16 @@ nonisolated struct GitSyncRunner: GitSyncing {
             (stream, outcome) = try await streamer.stream(
                 binaryURL: binary, args: args, cwd: nil)
         } catch let error as GitProcessRunnerError {
-            continuation.yield(.line(GitStreamLine(
-                source: .stderr, text: error.displayMessage)))
+            continuation.yield(
+                .line(
+                    GitStreamLine(
+                        source: .stderr, text: error.displayMessage)))
             return RunOutcome(exitCode: 127, stderrLines: [], authPromptHit: false)
         } catch {
-            continuation.yield(.line(GitStreamLine(
-                source: .stderr, text: "Failed to launch git: \(error.localizedDescription)")))
+            continuation.yield(
+                .line(
+                    GitStreamLine(
+                        source: .stderr, text: "Failed to launch git: \(error.localizedDescription)")))
             return RunOutcome(exitCode: 127, stderrLines: [], authPromptHit: false)
         }
 

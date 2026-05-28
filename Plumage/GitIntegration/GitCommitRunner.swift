@@ -69,7 +69,8 @@ nonisolated struct GitCommitRunner: GitCommitting {
         // staged; surface that as a typed error so the UI shows a friendly
         // message instead of dumping git's stderr verbatim.
         if combined.localizedCaseInsensitiveContains("nothing to commit")
-            || combined.localizedCaseInsensitiveContains("no changes added to commit") {
+            || combined.localizedCaseInsensitiveContains("no changes added to commit")
+        {
             throw GitCommitError.nothingToCommit(stderr: stderr)
         }
         throw GitCommitError.nonZeroExit(code: result.exitCode, stderr: stderr)
