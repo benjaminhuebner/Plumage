@@ -30,3 +30,25 @@ nonisolated extension FileTreeDragPayload: Transferable {
         CodableRepresentation(contentType: .plumageFileTreeDrag)
     }
 }
+
+// A folder row accepts BOTH Finder URL drops and tree-internal node drags.
+// Stacking two `.dropDestination` modifiers on one view fires only the
+// outermost (CoreTransferable ref: "stacking may cause only the outermost
+// handler to fire") — so a single drop type wraps both and the handler
+// switches on the case. Order matters: the richest representation
+// (`FileTreeDragPayload`) is listed first so an internal drag resolves to
+// `.internalNode`; a Finder drag carries only a file URL and falls through
+// to `.finderURL`.
+nonisolated enum DroppableTreeItem: Transferable {
+    case internalNode(FileTreeDragPayload)
+    case finderURL(URL)
+
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation { (payload: FileTreeDragPayload) in
+            DroppableTreeItem.internalNode(payload)
+        }
+        ProxyRepresentation { (url: URL) in
+            DroppableTreeItem.finderURL(url)
+        }
+    }
+}

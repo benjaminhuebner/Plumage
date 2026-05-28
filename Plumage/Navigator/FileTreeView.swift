@@ -28,6 +28,7 @@ struct FileTreeRow: View {
 
     @Environment(NavigatorModel.self) private var navigator
     @State private var expanded: Bool = false
+    @State private var isDropTargeted: Bool = false
 
     var body: some View {
         Group {
@@ -80,16 +81,17 @@ struct FileTreeRow: View {
                         .truncationMode(.middle)
                     Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.leading, CGFloat(depth * 16))
+            .dropHighlight(isDropTargeted)
             .contextMenu { folderMenu }
             .draggable(FileTreeDragPayload(url: node.url))
-            .dropDestination(for: URL.self) { urls, _ in
-                return handleFinderDrop(urls)
-            }
-            .dropDestination(for: FileTreeDragPayload.self) { payloads, _ in
-                return handleInternalMove(payloads)
+            .dropDestination(for: DroppableTreeItem.self) { items, _ in
+                return handleDrop(items)
+            } isTargeted: { targeted in
+                isDropTargeted = targeted
             }
         }
     }
@@ -118,21 +120,25 @@ struct FileTreeRow: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
             }
+            .contentShape(Rectangle())
             .padding(.leading, CGFloat(depth * 16))
+            .dropHighlight(isDropTargeted)
             .tag(NavigatorRoute.projectFile(relativePath: node.relativePath))
             .contextMenu { fileMenu }
             .draggable(FileTreeDragPayload(url: node.url))
-            .dropDestination(for: URL.self) { urls, _ in
-                return handleFinderDrop(urls)
-            }
-            .dropDestination(for: FileTreeDragPayload.self) { payloads, _ in
-                return handleInternalMove(payloads)
+            .dropDestination(for: DroppableTreeItem.self) { items, _ in
+                return handleDrop(items)
+            } isTargeted: { targeted in
+                isDropTargeted = targeted
             }
         }
     }
 
-    private func handleInternalMove(_ payloads: [FileTreeDragPayload]) -> Bool {
-        guard !payloads.isEmpty else { return false }
+    // Resolves the drop folder (folder row → itself, file row → parent;
+    // rejects outside the whitelist), then dispatches by item kind: Finder
+    // URLs copy, internal nodes move. Mixed payloads are split.
+    private func handleDrop(_ items: [DroppableTreeItem]) -> Bool {
+        guard !items.isEmpty else { return false }
         guard
             let target = FileTreeDropResolver.resolveDropTarget(
                 for: node, projectURL: projectURL)
@@ -142,28 +148,23 @@ struct FileTreeRow: View {
             }
             return false
         }
-        let sources = payloads.map(\.url)
-        Task { @MainActor in
-            await navigator.handleInternalMove(
-                sources: sources, targetFolder: target, projectURL: projectURL)
-        }
-        return true
-    }
-
-    private func handleFinderDrop(_ urls: [URL]) -> Bool {
-        guard !urls.isEmpty else { return false }
-        guard
-            let target = FileTreeDropResolver.resolveDropTarget(
-                for: node, projectURL: projectURL)
-        else {
-            Task { @MainActor in
-                navigator.showBanner("Drop target outside managed area")
+        var finderURLs: [URL] = []
+        var moveSources: [URL] = []
+        for item in items {
+            switch item {
+            case .finderURL(let url): finderURLs.append(url)
+            case .internalNode(let payload): moveSources.append(payload.url)
             }
-            return false
         }
         Task { @MainActor in
-            await navigator.handleFinderDrop(
-                urls: urls, targetFolder: target, projectURL: projectURL)
+            if !moveSources.isEmpty {
+                await navigator.handleInternalMove(
+                    sources: moveSources, targetFolder: target, projectURL: projectURL)
+            }
+            if !finderURLs.isEmpty {
+                await navigator.handleFinderDrop(
+                    urls: finderURLs, targetFolder: target, projectURL: projectURL)
+            }
         }
         return true
     }
@@ -177,10 +178,9 @@ struct FileTreeRow: View {
     }
 
     private var folderIcon: some View {
-        // For folders we use the system folder icon — NSWorkspace's
-        // generic-folder icon — keeping the row visually consistent across
-        // .claude/, .plumage/, and any nested folder. Real files get the
-        // type-specific icon via NSWorkspace.shared.icon(forFile:).
+        // NSWorkspace's icon for the folder — generic folder glyph, consistent
+        // across `.claude/` and any nested folder. Files get the type-specific
+        // icon via the same call.
         Image(nsImage: NSWorkspace.shared.icon(forFile: node.url.path))
             .resizable()
             .frame(width: 16, height: 16)
@@ -240,6 +240,18 @@ struct FileTreeRow: View {
     private func commitRename() {
         Task { @MainActor in
             _ = await navigator.commitRename(projectURL: projectURL)
+        }
+    }
+}
+
+extension View {
+    // Accent-tinted rounded background drawn while a drag hovers over a drop
+    // target, so the user sees exactly which folder will receive the drop.
+    @ViewBuilder
+    fileprivate func dropHighlight(_ active: Bool) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.accentColor.opacity(active ? 0.20 : 0))
         }
     }
 }
