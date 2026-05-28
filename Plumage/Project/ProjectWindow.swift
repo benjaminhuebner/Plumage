@@ -7,6 +7,7 @@ struct ProjectWindow: View {
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
     @State private var navigator = NavigatorModel()
+    @State private var pinnedFiles = PinnedFilesModel()
     @State private var selectedRoute: NavigatorRoute = .kanban
     @SceneStorage("nav.selection") private var persistedRouteData: String = ""
     @State private var detailOriginRoute: NavigatorRoute?
@@ -100,6 +101,7 @@ struct ProjectWindow: View {
         baseStack
             .environment(kanban)
             .environment(navigator)
+            .environment(pinnedFiles)
             .environment(\.openCreateIssue) { status in
                 createInitialStatus = status
                 showCreateSheet = true
@@ -210,6 +212,9 @@ struct ProjectWindow: View {
                 async let usagePoll: Void = pollClaudeUsage()
                 async let statusPoll: Void = pollClaudeStatus()
                 _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
+                // After the tree is loaded: load the persisted pin set, or seed
+                // defaults on a project that has never been pinned.
+                await pinnedFiles.loadOrSeed(projectURL: handle.url)
                 refreshCreateIssueAction()
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
@@ -250,11 +255,19 @@ struct ProjectWindow: View {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
-                    Task { await navigator.reload(projectURL: handle.url) }
+                    Task {
+                        await navigator.reload(projectURL: handle.url)
+                        await pinnedFiles.pruneMissing(projectURL: handle.url)
+                    }
                 }
             }
             .onChange(of: navigator.routeRewrites) { _, rewrites in
                 applyRouteRewrites(rewrites)
+                // Pins follow the same rename/move/trash the sidebar emitted.
+                // Applied unconditionally — applyRouteRewrites early-returns
+                // when the selection isn't a file, but pins must update either
+                // way.
+                pinnedFiles.apply(rewrites: rewrites)
             }
             .sheet(isPresented: $showCreateSheet) {
                 NavigationStack {
@@ -594,6 +607,9 @@ struct ProjectWindow: View {
         sidebarFileWatcherTask = Task { [events = watcher.events] in
             for await _ in events {
                 await navigator.reload(projectURL: projectURL)
+                // External delete/rename of a pinned file is picked up here;
+                // drop pins whose backing file no longer exists.
+                await pinnedFiles.pruneMissing(projectURL: projectURL)
             }
         }
     }
