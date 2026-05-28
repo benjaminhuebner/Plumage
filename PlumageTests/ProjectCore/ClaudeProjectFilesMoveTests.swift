@@ -83,6 +83,25 @@ struct ClaudeProjectFilesMoveTests {
         #expect(collidingContent == "already-there")
     }
 
+    @Test("moveItem into the same parent folder is a no-op, no rename")
+    func moveIntoSameParentIsNoop() throws {
+        let root = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let docs = root.appendingPathComponent(".claude/docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        let source = docs.appendingPathComponent("foo.md")
+        try "x".write(to: source, atomically: true, encoding: .utf8)
+
+        let result = try ClaudeProjectFiles.moveItem(at: source, to: docs)
+
+        #expect(result.path == source.path)
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: docs.appendingPathComponent("foo-1.md").path))
+    }
+
     private func makeTempRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("PlumageMoveItem-\(UUID().uuidString)", isDirectory: true)

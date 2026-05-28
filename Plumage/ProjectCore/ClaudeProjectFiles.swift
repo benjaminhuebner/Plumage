@@ -91,17 +91,21 @@ nonisolated enum ClaudeProjectFiles {
     // `source` is an ancestor of `targetFolder`. Suffix-walks on collision.
     static func moveItem(at source: URL, to targetFolder: URL) throws -> URL {
         let fm = FileManager.default
-        try fm.createDirectory(at: targetFolder, withIntermediateDirectories: true)
         let sourcePath = source.standardizedFileURL.path
         let targetPath = targetFolder.standardizedFileURL.path
+        // No-op: item dropped back into the folder it already lives in.
+        // Return it unchanged — no suffix-walk, no rename. (Must come before
+        // findFreeName, which would otherwise collide with the source itself
+        // and walk to `name-1`.)
+        if source.deletingLastPathComponent().standardizedFileURL.path == targetPath {
+            return source
+        }
+        try fm.createDirectory(at: targetFolder, withIntermediateDirectories: true)
         if targetPath == sourcePath || targetPath.hasPrefix(sourcePath + "/") {
             throw CocoaError(.fileWriteInvalidFileName)
         }
         let target = try findFreeName(
             in: targetFolder, base: source.lastPathComponent)
-        if target.standardizedFileURL.path == source.standardizedFileURL.path {
-            return target
-        }
         try fm.moveItem(at: source, to: target)
         return target
     }
