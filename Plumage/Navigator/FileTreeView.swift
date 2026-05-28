@@ -27,8 +27,10 @@ struct FileTreeRow: View {
     let depth: Int
 
     @Environment(NavigatorModel.self) private var navigator
+    @Environment(PinnedFilesModel.self) private var pinModel
     @State private var expanded: Bool = false
     @State private var isDropTargeted: Bool = false
+    @State private var hovering: Bool = false
 
     var body: some View {
         Group {
@@ -119,10 +121,12 @@ struct FileTreeRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
+                pinButton
             }
             .contentShape(Rectangle())
             .padding(.leading, CGFloat(depth * 16))
             .dropHighlight(isDropTargeted)
+            .onHover { hovering = $0 }
             .tag(NavigatorRoute.projectFile(relativePath: node.relativePath))
             .contextMenu { fileMenu }
             .draggable(FileTreeDragPayload(url: node.url))
@@ -190,6 +194,27 @@ struct FileTreeRow: View {
         Image(nsImage: NSWorkspace.shared.icon(forFile: node.url.path))
             .resizable()
             .frame(width: 16, height: 16)
+    }
+
+    // Hover-revealed pin toggle, files only. Filled glyph + "Unpin" when the
+    // file is already pinned. Plain button so the tap toggles the pin instead
+    // of selecting the row.
+    @ViewBuilder
+    private var pinButton: some View {
+        if hovering {
+            let isPinned = pinModel.contains(node.relativePath)
+            Button {
+                pinModel.toggle(relativePath: node.relativePath, projectURL: projectURL)
+            } label: {
+                Image(systemName: isPinned ? "pin.fill" : "pin")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isPinned ? "Unpin" : "Pin")
+        }
     }
 
     @ViewBuilder
