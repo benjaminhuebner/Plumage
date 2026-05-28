@@ -156,6 +156,74 @@ struct NavigatorModelTests {
         #expect(FileManager.default.fileExists(atPath: source.path))
         #expect(model.dropRejectMessage == "Cannot move folder into its own subfolder")
     }
+
+    @Test("handleFinderDrop into the source's own folder is a no-op, no duplicate")
+    func handleFinderDropSameFolderIsNoop() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/note.md", content: "x")
+        let model = NavigatorModel()
+
+        let folder = fixture.root.appendingPathComponent(".claude/docs", isDirectory: true)
+        let source = folder.appendingPathComponent("note.md")
+        await model.handleFinderDrop(
+            urls: [source], targetFolder: folder, projectURL: fixture.root)
+
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: folder.appendingPathComponent("note-1.md").path))
+    }
+
+    @Test("commitRename emits a .moved route rewrite")
+    func commitRenameEmitsMovedRewrite() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+
+        model.beginRename(url: fixture.root.appendingPathComponent(".claude/docs/foo.md"))
+        model.renaming?.name = "bar.md"
+        _ = await model.commitRename(projectURL: fixture.root)
+
+        #expect(
+            model.routeRewrites == [
+                .moved(
+                    oldRelativePath: ".claude/docs/foo.md",
+                    newRelativePath: ".claude/docs/bar.md")
+            ])
+    }
+
+    @Test("trash emits a .removed route rewrite")
+    func trashEmitsRemovedRewrite() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/gone.md", content: "x")
+        let model = NavigatorModel()
+
+        await model.trash(
+            url: fixture.root.appendingPathComponent(".claude/docs/gone.md"),
+            projectURL: fixture.root)
+
+        #expect(model.routeRewrites == [.removed(oldRelativePath: ".claude/docs/gone.md")])
+    }
+
+    @Test("handleInternalMove emits a .moved rewrite per source")
+    func handleInternalMoveEmitsMovedRewrites() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        try fixture.makeFile(at: ".claude/agents/.keep", content: "")
+        let model = NavigatorModel()
+
+        let source = fixture.root.appendingPathComponent(".claude/docs/foo.md")
+        let target = fixture.root.appendingPathComponent(".claude/agents", isDirectory: true)
+        await model.handleInternalMove(
+            sources: [source], targetFolder: target, projectURL: fixture.root)
+
+        #expect(
+            model.routeRewrites == [
+                .moved(
+                    oldRelativePath: ".claude/docs/foo.md",
+                    newRelativePath: ".claude/agents/foo.md")
+            ])
+    }
 }
 
 private final class NavigatorModelFixture {

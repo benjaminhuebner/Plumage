@@ -253,6 +253,9 @@ struct ProjectWindow: View {
                     Task { await navigator.reload(projectURL: handle.url) }
                 }
             }
+            .onChange(of: navigator.routeRewrites) { _, rewrites in
+                applyRouteRewrites(rewrites)
+            }
             .sheet(isPresented: $showCreateSheet) {
                 NavigationStack {
                     IssueDetailView(projectURL: handle.url, initialStatus: createInitialStatus)
@@ -448,6 +451,32 @@ struct ProjectWindow: View {
     private var backToOriginAction: (() -> Void)? {
         guard let origin = detailOriginRoute, origin == .kanban else { return nil }
         return { selectedRoute = .kanban }
+    }
+
+    // Keeps the open detail pane in sync when the sidebar renames/moves/trashes
+    // the file (or an ancestor folder of the file) currently shown. Moves
+    // re-point the selection to the new path; removals fall back to the board.
+    private func applyRouteRewrites(_ rewrites: [RouteRewrite]) {
+        guard case .projectFile(let current) = selectedRoute else { return }
+        for rewrite in rewrites {
+            switch rewrite {
+            case .moved(let old, let new):
+                if current == old {
+                    selectedRoute = .projectFile(relativePath: new)
+                    return
+                }
+                if current.hasPrefix(old + "/") {
+                    selectedRoute = .projectFile(
+                        relativePath: new + String(current.dropFirst(old.count)))
+                    return
+                }
+            case .removed(let old):
+                if current == old || current.hasPrefix(old + "/") {
+                    selectedRoute = .kanban
+                    return
+                }
+            }
+        }
     }
 
     private var isLoaded: Bool {

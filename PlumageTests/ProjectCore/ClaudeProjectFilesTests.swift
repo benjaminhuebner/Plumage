@@ -65,6 +65,26 @@ struct ClaudeProjectFilesTests {
         #expect(isDir.boolValue)
     }
 
+    @Test("createFileAt creates intermediate folders for a separator-bearing name")
+    func createFileAtNestedName() throws {
+        let fixture = try ClaudeFilesFixture()
+        let target = fixture.root.appendingPathComponent(".claude/agents", isDirectory: true)
+        let url = try ClaudeProjectFiles.createFileAt(parent: target, name: "team/lead.md")
+        #expect(url.path.hasSuffix(".claude/agents/team/lead.md"))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test("createFolderAt creates intermediate folders for a separator-bearing name")
+    func createFolderAtNestedName() throws {
+        let fixture = try ClaudeFilesFixture()
+        let target = fixture.root.appendingPathComponent(".claude/agents", isDirectory: true)
+        let url = try ClaudeProjectFiles.createFolderAt(parent: target, name: "team/reviewers")
+        var isDir: ObjCBool = false
+        _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        #expect(isDir.boolValue)
+        #expect(url.path.hasSuffix(".claude/agents/team/reviewers"))
+    }
+
     @Test("renameFile preserves the original extension when the new name has no extension")
     func renameFilePreservesExtension() throws {
         let fixture = try ClaudeFilesFixture()

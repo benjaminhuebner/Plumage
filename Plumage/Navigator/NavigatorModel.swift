@@ -20,21 +20,30 @@ final class NavigatorModel {
     // ~3 s transient banner that surfaces drop/inline rejections in the
     // status bar. Mutators always set + auto-reset via `bannerResetTask`.
     private(set) var dropRejectMessage: String?
-    // Most recently created route — sidebar highlights it briefly so the
-    // user spots the new row.
-    private(set) var lastCreatedRoute: NavigatorRoute?
+    // Path remappings emitted by the most recent rename/move/trash so the
+    // window can keep the selected detail in sync (spec: "Detail-Pane folgt"
+    // on move, falls back to .kanban on trash). Observed via onChange.
+    private(set) var routeRewrites: [RouteRewrite] = []
 
     private var bannerResetTask: Task<Void, Never>?
     private let bannerDisplayDuration: Duration
+    // Monotonic token so a slow `FileTreeBuilder.build` from an earlier
+    // reload can't overwrite the tree a newer reload already published.
+    private var reloadGeneration = 0
 
     init(bannerDisplayDuration: Duration = .seconds(3)) {
         self.bannerDisplayDuration = bannerDisplayDuration
     }
 
     func reload(projectURL: URL) async {
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
         let nodes = await Task.detached(priority: .userInitiated) {
             FileTreeBuilder.build(projectURL: projectURL)
         }.value
+        // A newer reload started while this build ran — its result is fresher,
+        // so drop ours instead of clobbering it with stale nodes.
+        guard generation == reloadGeneration else { return }
         self.rootNodes = nodes
         // `pendingCreate` is intentionally preserved across reloads — an
         // FSEvent triggered mid-inline-edit must not collapse the user's
@@ -78,7 +87,6 @@ final class NavigatorModel {
             }.value
             pendingCreate = nil
             let route = Self.route(for: pending.section, createdURL: url, projectURL: projectURL)
-            lastCreatedRoute = route
             await reload(projectURL: projectURL)
             return route
         } catch {
@@ -108,6 +116,11 @@ final class NavigatorModel {
                 try ClaudeProjectFiles.renameFile(at: url, to: trimmed)
             }.value
             renaming = nil
+            routeRewrites = [
+                .moved(
+                    oldRelativePath: Self.relativePath(from: projectURL, to: url),
+                    newRelativePath: Self.relativePath(from: projectURL, to: target))
+            ]
             await reload(projectURL: projectURL)
             return Self.routeAfterRename(newURL: target, projectURL: projectURL)
         } catch {
@@ -118,12 +131,13 @@ final class NavigatorModel {
 
     // Finder → tree drop. Copies each source URL into `targetFolder` with
     // a suffix walk on collision. Rejects targets outside the whitelisted
-    // file-tree area (.claude/, .plumage/).
+    // file-tree area (.claude/ subtree only).
     func handleFinderDrop(
         urls: [URL], targetFolder: URL, projectURL: URL
     ) async {
         guard !urls.isEmpty else { return }
-        guard Self.isInsideWhitelistedTree(targetFolder, projectURL: projectURL) else {
+        guard FileTreeDropResolver.isInsideWhitelistedTree(targetFolder, projectURL: projectURL)
+        else {
             showBanner("Drop target outside managed area")
             return
         }
@@ -152,7 +166,8 @@ final class NavigatorModel {
         sources: [URL], targetFolder: URL, projectURL: URL
     ) async {
         guard !sources.isEmpty else { return }
-        guard Self.isInsideWhitelistedTree(targetFolder, projectURL: projectURL) else {
+        guard FileTreeDropResolver.isInsideWhitelistedTree(targetFolder, projectURL: projectURL)
+        else {
             showBanner("Drop target outside managed area")
             return
         }
@@ -162,16 +177,21 @@ final class NavigatorModel {
         }
         do {
             let moved = try await Task.detached(priority: .userInitiated) {
-                () -> [URL] in
-                var results: [URL] = []
+                () -> [(source: URL, target: URL)] in
+                var results: [(source: URL, target: URL)] = []
                 for source in sources {
                     let target = try ClaudeProjectFiles.moveItem(
                         at: source, to: targetFolder)
-                    results.append(target)
+                    results.append((source, target))
                 }
                 return results
             }.value
             if !moved.isEmpty {
+                routeRewrites = moved.map {
+                    .moved(
+                        oldRelativePath: Self.relativePath(from: projectURL, to: $0.source),
+                        newRelativePath: Self.relativePath(from: projectURL, to: $0.target))
+                }
                 await reload(projectURL: projectURL)
             }
         } catch {
@@ -184,6 +204,9 @@ final class NavigatorModel {
             try await Task.detached(priority: .userInitiated) {
                 _ = try ClaudeProjectFiles.trashFile(at: url)
             }.value
+            routeRewrites = [
+                .removed(oldRelativePath: Self.relativePath(from: projectURL, to: url))
+            ]
             await reload(projectURL: projectURL)
         } catch {
             showBanner("Couldn't move to Trash: \(error.localizedDescription)")
@@ -206,14 +229,6 @@ final class NavigatorModel {
         dropRejectMessage = nil
     }
 
-    private nonisolated static func isInsideWhitelistedTree(_ url: URL, projectURL: URL) -> Bool {
-        let claude =
-            projectURL.appendingPathComponent(FileTreeBuilder.claudeRoot, isDirectory: true)
-            .standardizedFileURL.path
-        let target = url.standardizedFileURL.path
-        return target == claude || target.hasPrefix(claude + "/")
-    }
-
     private nonisolated static func isAncestor(_ ancestor: URL, of descendant: URL) -> Bool {
         let aPath = ancestor.standardizedFileURL.path
         let dPath = descendant.standardizedFileURL.path
@@ -233,12 +248,17 @@ final class NavigatorModel {
         try fileManager.createDirectory(
             at: destination, withIntermediateDirectories: true)
         for source in sources {
-            let target = try ClaudeProjectFiles.findFreeName(
-                in: destination, base: source.lastPathComponent)
-            if target.standardizedFileURL.path == source.standardizedFileURL.path {
-                outcome.accepted.append(target)
+            // Source already lives in the destination folder — treat as a
+            // no-op. Otherwise findFreeName (which never returns a taken name)
+            // walks to `name-1` and copyItem duplicates the file.
+            if source.deletingLastPathComponent().standardizedFileURL.path
+                == destination.standardizedFileURL.path
+            {
+                outcome.accepted.append(source)
                 continue
             }
+            let target = try ClaudeProjectFiles.findFreeName(
+                in: destination, base: source.lastPathComponent)
             do {
                 try fileManager.copyItem(at: source, to: target)
                 outcome.accepted.append(target)
@@ -312,4 +332,13 @@ nonisolated struct RenameSession: Identifiable, Equatable, Sendable {
         self.url = url
         self.name = name
     }
+}
+
+// A project-relative path change the sidebar emitted via rename/move/trash.
+// `ProjectWindow` matches these against the live selection (exact path or
+// any descendant) to re-point or clear the detail pane. Paths are compared,
+// not URLs, since the selection lives as `.projectFile(relativePath:)`.
+nonisolated enum RouteRewrite: Equatable, Sendable {
+    case moved(oldRelativePath: String, newRelativePath: String)
+    case removed(oldRelativePath: String)
 }

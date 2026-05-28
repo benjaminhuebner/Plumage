@@ -23,6 +23,7 @@ struct NavigatorDetailDispatchTests {
         arguments: [
             ".claude/settings.json",
             ".claude/settings.local.json",
+            ".mcp.json",
         ]
     )
     func editableJSONRoutesToDoc(path: String) {
@@ -31,8 +32,8 @@ struct NavigatorDetailDispatchTests {
 
     @Test("Generic JSON files route to FileInfo (not DocEditor)")
     func genericJSONRoutesToInfo() {
-        #expect(NavigatorDetailDispatch.detailViewKind(for: ".mcp.json") == .info)
         #expect(NavigatorDetailDispatch.detailViewKind(for: ".plumage/config.json") == .info)
+        #expect(NavigatorDetailDispatch.detailViewKind(for: ".claude/data.json") == .info)
     }
 
     @Test(

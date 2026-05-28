@@ -17,17 +17,10 @@ nonisolated enum NavigatorDetailDispatch {
         "png", "jpg", "jpeg", "heic", "gif", "webp", "tiff", "bmp",
     ]
 
-    // Extensions that should render as `FileInfoView` with the
-    // "Open in Xcode" button surfaced. Anything outside this set still gets
-    // FileInfoView, just without the Xcode button.
-    static let codeExtensions: Set<String> = [
-        "swift", "xcodeproj", "xcworkspace",
-    ]
-
     // Basenames that route to DocEditorView even when their extension is not
-    // `.md` — the in-app JSON settings editors we keep.
+    // `.md` — the in-app JSON config editors we keep.
     static let editableBasenames: Set<String> = [
-        "settings.json", "settings.local.json",
+        "settings.json", "settings.local.json", ".mcp.json",
     ]
 
     static func detailViewKind(for relativePath: String) -> FileDetailViewKind {

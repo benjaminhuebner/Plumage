@@ -37,6 +37,10 @@ nonisolated enum ClaudeProjectFiles {
         let fm = FileManager.default
         try fm.createDirectory(at: parent, withIntermediateDirectories: true)
         let target = try findFreeName(in: parent, base: trimmed)
+        // `trimmed` may carry path separators ("team/lead.md"); create the
+        // intervening folders so the leaf write doesn't fail on a missing dir.
+        try fm.createDirectory(
+            at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: target)
         return target
     }
@@ -50,7 +54,10 @@ nonisolated enum ClaudeProjectFiles {
         let fm = FileManager.default
         try fm.createDirectory(at: parent, withIntermediateDirectories: true)
         let target = try findFreeName(in: parent, base: trimmed)
-        try fm.createDirectory(at: target, withIntermediateDirectories: false)
+        // `withIntermediateDirectories: true` so a separator-bearing name
+        // ("team/reviewers") creates the whole chain; `findFreeName` already
+        // guarantees `target` itself is free.
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
         return target
     }
 
