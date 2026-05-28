@@ -9,29 +9,12 @@ struct NavigatorSidebar: View {
     @Environment(NavigatorModel.self) private var navigator
     @Environment(\.openCreateIssue) private var openCreateIssue
 
-    @State private var sectionAnchors: [SidebarDropTarget.Section: CGFloat] = [:]
-
-    @SceneStorage("nav.expansion.hooks") private var hooksExpanded = false
-    @SceneStorage("nav.expansion.agents") private var agentsExpanded = false
-    @SceneStorage("nav.expansion.rules") private var rulesExpanded = false
-    @SceneStorage("nav.expansion.outputStyles") private var outputStylesExpanded = false
-    @SceneStorage("nav.expansion.skills") private var skillsExpanded = false
-    @SceneStorage("nav.expansion.settings") private var settingsExpanded = false
     @SceneStorage("nav.expansion.col.todo") private var todoExpanded = false
     @SceneStorage("nav.expansion.col.inProgress") private var inProgressExpanded = false
     @SceneStorage("nav.expansion.col.waitingForReview") private var waitingExpanded = false
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            mainList
-            Divider()
-            projectSettingsFooter
-        }
-    }
-
-    @ViewBuilder
-    private var mainList: some View {
         List(selection: selectionBinding) {
             SidebarSectionHeader(title: "Issues", help: "New Issue") {
                 openCreateIssue(.draft)
@@ -43,51 +26,10 @@ struct NavigatorSidebar: View {
                 columnRow(column)
             }
 
-            SidebarSectionHeader(title: "Docs", help: "New Doc") {
-                navigator.beginPendingCreate(.managedFile(type: .docs))
-            }
-            .trackSectionAnchor(.docs, in: $sectionAnchors)
-            if navigator.docs.isEmpty && !isPending(.managedFile(type: .docs)) {
-                emptyPlaceholder("No docs yet")
-            } else {
-                ForEach(navigator.docs, id: \.absoluteString) { url in
-                    docRow(url)
-                }
-                if isPending(.managedFile(type: .docs)) {
-                    InlineCreateRow(projectURL: projectURL, icon: "doc.text")
-                }
-            }
-
-            SidebarSectionHeader(title: "Claude", help: "New Markdown") {
-                navigator.beginPendingCreate(.claudeMarkdown)
-            }
-            .trackSectionAnchor(.claudeMarkdown, in: $sectionAnchors)
-            Label("CLAUDE.md", systemImage: "doc.badge.gearshape")
-                .tag(NavigatorRoute.claudeMD)
-                .clickableSidebarRow()
-            if navigator.claudeLocalMDExists {
-                Label("CLAUDE.local.md", systemImage: "doc.badge.gearshape")
-                    .tag(NavigatorRoute.claudeLocalMD)
-                    .clickableSidebarRow()
-            }
-            ForEach(navigator.claudeMarkdown, id: \.absoluteString) { url in
-                claudeMarkdownRow(url)
-            }
-            if isPending(.claudeMarkdown) {
-                InlineCreateRow(projectURL: projectURL, icon: "doc.text")
-            }
-            hooksGroup
-            flatGroup(for: .agents, expanded: $agentsExpanded)
-            flatGroup(for: .rules, expanded: $rulesExpanded)
-            flatGroup(for: .outputStyles, expanded: $outputStylesExpanded)
-            skillsGroup
-            settingsGroup
+            filesSectionHeader
+            FileTreeView(nodes: navigator.rootNodes, projectURL: projectURL)
         }
         .listStyle(.sidebar)
-        .coordinateSpace(.named("navigator.sidebar"))
-        .dropDestination(for: URL.self) { urls, location in
-            handleListDrop(urls: urls, location: location)
-        }
         .onKeyPress(.return) {
             handleReturnKey()
         }
@@ -96,8 +38,31 @@ struct NavigatorSidebar: View {
         }
     }
 
-    private func isPending(_ section: PendingCreate.Section) -> Bool {
-        navigator.isPendingCreate(at: section)
+    @ViewBuilder
+    private var filesSectionHeader: some View {
+        HStack(spacing: 4) {
+            Text("FILES")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .tracking(0.3)
+            Spacer()
+            Button {
+                selection = .projectSettings
+            } label: {
+                Image(systemName: "gearshape")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Project Settings")
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .contentShape(Rectangle())
+        .listRowSeparator(.hidden)
+        .selectionDisabled()
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {
@@ -136,21 +101,6 @@ struct NavigatorSidebar: View {
         guard let payload = payloads.first else { return false }
         kanban.applyOptimisticDrop(
             payload, to: .column(column), projectURL: projectURL)
-        return true
-    }
-
-    private func handleListDrop(urls: [URL], location: CGPoint) -> Bool {
-        guard !urls.isEmpty else { return false }
-        guard
-            let section = SidebarDropTarget.resolveSection(
-                at: location.y, anchors: sectionAnchors)
-        else {
-            return false
-        }
-        Task { @MainActor in
-            await navigator.handleFinderDrop(
-                urls: urls, section: section, projectURL: projectURL)
-        }
         return true
     }
 
@@ -200,205 +150,6 @@ struct NavigatorSidebar: View {
         case .invalid(let folder, _):
             return folder
         }
-    }
-
-    @ViewBuilder
-    private func claudeMarkdownRow(_ url: URL) -> some View {
-        managedFileRow(
-            url: url,
-            tag: .claudeMarkdown(name: url.lastPathComponent),
-            icon: "doc.text"
-        )
-    }
-
-    @ViewBuilder
-    private func docRow(_ url: URL) -> some View {
-        let relative = url.lastPathComponent
-        managedFileRow(
-            url: url,
-            tag: .managedFile(type: .docs, relativePath: relative),
-            icon: "doc.text"
-        )
-    }
-
-    @ViewBuilder
-    private func managedFileRow(
-        url: URL, tag: NavigatorRoute, icon: String
-    ) -> some View {
-        if navigator.renaming?.url == url {
-            InlineRenameRow(projectURL: projectURL, icon: icon)
-                .tag(tag)
-        } else {
-            Label(url.lastPathComponent, systemImage: icon)
-                .tag(tag)
-                .clickableSidebarRow()
-                .contextMenu {
-                    Button("Rename") { navigator.beginRename(url: url) }
-                    Divider()
-                    Button("Move to Trash", role: .destructive) {
-                        Task { @MainActor in
-                            await navigator.trash(url: url, projectURL: projectURL)
-                        }
-                    }
-                }
-        }
-    }
-
-    // Generic flat-list section. Used for agents/rules/output-styles. Hooks
-    // uses its own variant because it also offers a "New Folder" affordance
-    // for nested sub-directories (not supported by the other types).
-    @ViewBuilder
-    private func flatGroup(
-        for type: ManagedFileType,
-        expanded: Binding<Bool>
-    ) -> some View {
-        DisclosureGroup(isExpanded: expanded) {
-            let urls = navigator.items(for: type)
-            if urls.isEmpty && !isPending(.managedFile(type: type)) {
-                emptyPlaceholder("No \(type.sectionTitle.lowercased())")
-            } else {
-                ForEach(urls, id: \.absoluteString) { url in
-                    managedFileRow(
-                        url: url,
-                        tag: .managedFile(type: type, relativePath: relativePath(of: url, type: type)),
-                        icon: type.fileRowSystemImage
-                    )
-                }
-                if isPending(.managedFile(type: type)) {
-                    InlineCreateRow(projectURL: projectURL, icon: type.fileRowSystemImage)
-                }
-            }
-        } label: {
-            Label(type.sectionTitle, systemImage: type.systemImage)
-                .clickableSidebarRow()
-                .trackSectionAnchor(.managed(type: type), in: $sectionAnchors)
-                .contextMenu {
-                    Button("New \(type.singularName)") {
-                        navigator.beginPendingCreate(.managedFile(type: type))
-                    }
-                }
-        }
-    }
-
-    private func relativePath(of url: URL, type: ManagedFileType) -> String {
-        let base =
-            projectURL
-            .appendingPathComponent(type.relativePath, isDirectory: true)
-            .standardizedFileURL.path
-        let full = url.standardizedFileURL.path
-        if full.hasPrefix(base + "/") {
-            return String(full.dropFirst(base.count + 1))
-        }
-        return url.lastPathComponent
-    }
-
-    @ViewBuilder
-    private var hooksGroup: some View {
-        DisclosureGroup(isExpanded: $hooksExpanded) {
-            if navigator.hooks.isEmpty && !isPending(.managedFile(type: .hooks)) && !isPending(.hookFolder) {
-                emptyPlaceholder("No hooks")
-            } else {
-                ForEach(navigator.hooks, id: \.absoluteString) { url in
-                    managedFileRow(
-                        url: url,
-                        tag: .managedFile(type: .hooks, relativePath: url.lastPathComponent),
-                        icon: "scroll"
-                    )
-                }
-                if isPending(.managedFile(type: .hooks)) {
-                    InlineCreateRow(projectURL: projectURL, icon: "scroll")
-                } else if isPending(.hookFolder) {
-                    InlineCreateRow(projectURL: projectURL, icon: "folder")
-                }
-            }
-        } label: {
-            Label("Hooks", systemImage: "terminal")
-                .clickableSidebarRow()
-                .trackSectionAnchor(.hooks, in: $sectionAnchors)
-                .contextMenu {
-                    Button("New Hook") { navigator.beginPendingCreate(.managedFile(type: .hooks)) }
-                    Button("New Folder") { navigator.beginPendingCreate(.hookFolder) }
-                }
-        }
-    }
-
-    @ViewBuilder
-    private var skillsGroup: some View {
-        DisclosureGroup(isExpanded: $skillsExpanded) {
-            if navigator.skills.isEmpty && !isPending(.skill) {
-                emptyPlaceholder("No skills")
-            } else {
-                ForEach(navigator.skills, id: \.self) { node in
-                    if case .folder(let name, let children) = node {
-                        SkillTreeView(skillName: name, children: children, projectURL: projectURL)
-                    }
-                }
-                if isPending(.skill) {
-                    InlineCreateRow(projectURL: projectURL, icon: "puzzlepiece")
-                }
-            }
-        } label: {
-            Label("Skills", systemImage: "puzzlepiece.extension")
-                .clickableSidebarRow()
-                .trackSectionAnchor(.skillsTopLevel, in: $sectionAnchors)
-                .contextMenu {
-                    Button("New Skill") { navigator.beginPendingCreate(.skill) }
-                }
-        }
-    }
-
-    @ViewBuilder
-    private var projectSettingsFooter: some View {
-        let isActive = selection == NavigatorRoute.projectSettings
-        Button {
-            selection = .projectSettings
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "slider.horizontal.3")
-                    .frame(width: 18)
-                Text("Project Settings")
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                if isActive {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.accentColor.opacity(0.18))
-                }
-            }
-            .foregroundStyle(isActive ? Color.accentColor : Color.primary)
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-    }
-
-    @ViewBuilder
-    private var settingsGroup: some View {
-        DisclosureGroup(isExpanded: $settingsExpanded) {
-            ForEach(SettingsFile.allCases, id: \.self) { file in
-                Label(file.rawValue, systemImage: "gearshape")
-                    .tag(NavigatorRoute.settings(file))
-                    .clickableSidebarRow()
-            }
-            Label(".mcp.json", systemImage: "gearshape")
-                .tag(NavigatorRoute.mcpJSON)
-                .clickableSidebarRow()
-        } label: {
-            Label("Settings", systemImage: "gearshape.2")
-                .clickableSidebarRow()
-        }
-    }
-
-    @ViewBuilder
-    private func emptyPlaceholder(_ text: String) -> some View {
-        Text(text)
-            .foregroundStyle(.tertiary)
-            .font(.callout)
-            .disabled(true)
-            .selectionDisabled()
     }
 
     private func handleReturnKey() -> KeyPress.Result {

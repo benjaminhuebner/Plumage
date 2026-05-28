@@ -18,50 +18,15 @@ struct NavigatorRouteTests {
         #expect(NavigatorRoute.issue(folderName: "00001") != NavigatorRoute.issue(folderName: "00002"))
     }
 
-    @Test("managedFile equality is type + path based")
-    func managedFileEquality() {
-        let docs1: NavigatorRoute = .managedFile(type: .docs, relativePath: "intro.md")
-        let docs2: NavigatorRoute = .managedFile(type: .docs, relativePath: "intro.md")
-        let docsOther: NavigatorRoute = .managedFile(type: .docs, relativePath: "other.md")
-        let hooks: NavigatorRoute = .managedFile(type: .hooks, relativePath: "intro.md")
-        #expect(docs1 == docs2)
-        #expect(docs1 != docsOther)
-        #expect(docs1 != hooks)
-    }
-
-    @Test("claudeMD compares equal to itself only")
-    func claudeMDIdentity() {
-        #expect(NavigatorRoute.claudeMD == NavigatorRoute.claudeMD)
-        #expect(NavigatorRoute.claudeMD != NavigatorRoute.claudeLocalMD)
-    }
-
-    @Test("claudeLocalMD is distinct from claudeMD and claudeMarkdown")
-    func claudeLocalMDDistinct() {
-        #expect(NavigatorRoute.claudeLocalMD == NavigatorRoute.claudeLocalMD)
-        #expect(NavigatorRoute.claudeLocalMD != NavigatorRoute.claudeMD)
-        #expect(NavigatorRoute.claudeLocalMD != NavigatorRoute.claudeMarkdown(name: "CLAUDE.local.md"))
-    }
-
-    @Test("mcpJSON compares equal to itself only")
-    func mcpJSONIdentity() {
-        #expect(NavigatorRoute.mcpJSON == NavigatorRoute.mcpJSON)
-        #expect(NavigatorRoute.mcpJSON != NavigatorRoute.settings(.main))
-    }
-
-    @Test("skillFile equality requires both skill and relativePath")
-    func skillFileEquality() {
-        let first: NavigatorRoute = .skillFile(skill: "axiom-build", relativePath: "skills/build.md")
-        let same: NavigatorRoute = .skillFile(skill: "axiom-build", relativePath: "skills/build.md")
-        let otherSkill: NavigatorRoute = .skillFile(skill: "axiom-swiftui", relativePath: "skills/build.md")
-        let otherPath: NavigatorRoute = .skillFile(skill: "axiom-build", relativePath: "skills/other.md")
+    @Test("projectFile equality is path based")
+    func projectFileEquality() {
+        let first: NavigatorRoute = .projectFile(relativePath: ".claude/docs/intro.md")
+        let same: NavigatorRoute = .projectFile(relativePath: ".claude/docs/intro.md")
+        let other: NavigatorRoute = .projectFile(relativePath: ".claude/docs/other.md")
         #expect(first == same)
-        #expect(first != otherSkill)
-        #expect(first != otherPath)
-    }
-
-    @Test("settings(.main) and settings(.local) are distinct")
-    func settingsDistinct() {
-        #expect(NavigatorRoute.settings(.main) != NavigatorRoute.settings(.local))
+        #expect(first != other)
+        #expect(first != .kanban)
+        #expect(first != .projectSettings)
     }
 
     @Test("kanban Hashable round-trip preserves equality")
@@ -70,117 +35,18 @@ struct NavigatorRouteTests {
         #expect(set.count == 2)
     }
 
-    @Test("Codable round-trip for issue")
-    func codableIssue() throws {
-        let route: NavigatorRoute = .issue(folderName: "00007-new-issue")
-        let data = try JSONEncoder().encode(route)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == route)
-    }
-
-    @Test("Codable round-trip for kanban")
-    func codableKanban() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.kanban)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .kanban)
-    }
-
     @Test(
-        "Codable round-trip for managedFile per type",
-        arguments: ManagedFileType.allCases
-    )
-    func codableManagedFile(type: ManagedFileType) throws {
-        let route: NavigatorRoute = .managedFile(type: type, relativePath: "alpha.\(type.defaultExtension)")
-        let data = try JSONEncoder().encode(route)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == route)
-    }
-
-    @Test("Codable round-trip for claudeMD")
-    func codableClaudeMD() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.claudeMD)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .claudeMD)
-    }
-
-    @Test("Codable round-trip for claudeLocalMD")
-    func codableClaudeLocalMD() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.claudeLocalMD)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .claudeLocalMD)
-    }
-
-    @Test("Codable round-trip for mcpJSON")
-    func codableMCPJSON() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.mcpJSON)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .mcpJSON)
-    }
-
-    @Test("Codable round-trip for skillFile")
-    func codableSkillFile() throws {
-        let route: NavigatorRoute = .skillFile(skill: "axiom-build", relativePath: "references/build.md")
-        let data = try JSONEncoder().encode(route)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == route)
-    }
-
-    @Test("Codable round-trip for claudeMarkdown")
-    func codableClaudeMarkdown() throws {
-        let route: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
-        let data = try JSONEncoder().encode(route)
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == route)
-    }
-
-    @Test("claudeMarkdown equality is name based and distinct from claudeMD")
-    func claudeMarkdownEquality() {
-        let first: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
-        let same: NavigatorRoute = .claudeMarkdown(name: "PROJECT.md")
-        let other: NavigatorRoute = .claudeMarkdown(name: "notes.md")
-        #expect(first == same)
-        #expect(first != other)
-        #expect(first != .claudeMD)
-    }
-
-    @Test("Codable round-trip for settings(.main)")
-    func codableSettingsMain() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.settings(.main))
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .settings(.main))
-    }
-
-    @Test("Codable round-trip for settings(.local)")
-    func codableSettingsLocal() throws {
-        let data = try JSONEncoder().encode(NavigatorRoute.settings(.local))
-        let decoded = try JSONDecoder().decode(NavigatorRoute.self, from: data)
-        #expect(decoded == .settings(.local))
-    }
-
-    @Test("SettingsFile cases cover both files")
-    func settingsCases() {
-        #expect(SettingsFile.allCases == [.main, .local])
-        #expect(SettingsFile.main.rawValue == "settings.json")
-        #expect(SettingsFile.local.rawValue == "settings.local.json")
-    }
-
-    @Test(
-        "persistedString round-trips every case shape",
+        "persistedString round-trips structural cases",
         arguments: [
             NavigatorRoute.kanban,
             .issue(folderName: "00024-project-navigator"),
-            .managedFile(type: .docs, relativePath: "PROJECT.md"),
-            .managedFile(type: .hooks, relativePath: "lint-swift.sh"),
-            .managedFile(type: .agents, relativePath: "team/reviewer.md"),
-            .managedFile(type: .rules, relativePath: "api/sla.md"),
-            .managedFile(type: .outputStyles, relativePath: "yaml.md"),
-            .claudeMD,
-            .claudeLocalMD,
-            .claudeMarkdown(name: "notes.md"),
-            .mcpJSON,
-            .skillFile(skill: "plumage-implement", relativePath: "scripts/precommit-gate.sh"),
-            .settings(.main),
-            .settings(.local),
+            .projectSettings,
+            .projectFile(relativePath: ".claude/docs/PROJECT.md"),
+            .projectFile(relativePath: ".claude/hooks/lint-swift.sh"),
+            .projectFile(relativePath: ".claude/agents/team/reviewer.md"),
+            .projectFile(relativePath: ".mcp.json"),
+            .projectFile(relativePath: ".claude/CLAUDE.md"),
+            .projectFile(relativePath: ".claude/skills/plumage-implement/scripts/precommit-gate.sh"),
         ]
     )
     func persistedStringRoundTrip(route: NavigatorRoute) {
@@ -189,66 +55,109 @@ struct NavigatorRouteTests {
         #expect(decoded == route)
     }
 
-    @Test("persistedString init returns nil for empty input")
+    @Test(
+        "persistedString migrates pre-collapse .managedFile JSON shapes",
+        arguments: [
+            ("docs", ".claude/docs/PROJECT.md"),
+            ("hooks", ".claude/hooks/lint.sh"),
+            ("agents", ".claude/agents/team/lead.md"),
+            ("rules", ".claude/rules/style.md"),
+            ("outputStyles", ".claude/output-styles/yaml.md"),
+        ]
+    )
+    func migrateLegacyManagedFile(typeRaw: String, expected: String) {
+        let rel = String(expected.split(separator: "/").dropFirst(2).joined(separator: "/"))
+        let json = #"{"managedFile":{"type":"\#(typeRaw)","relativePath":"\#(rel)"}}"#
+        #expect(NavigatorRoute(persistedString: json) == .projectFile(relativePath: expected))
+    }
+
+    @Test("persistedString migrates legacy .claudeMD")
+    func migrateLegacyClaudeMD() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"claudeMD":{}}"#)
+                == .projectFile(relativePath: ".claude/CLAUDE.md"))
+    }
+
+    @Test("persistedString migrates legacy .claudeLocalMD")
+    func migrateLegacyClaudeLocalMD() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"claudeLocalMD":{}}"#)
+                == .projectFile(relativePath: ".claude/CLAUDE.local.md"))
+    }
+
+    @Test("persistedString migrates legacy .claudeMarkdown")
+    func migrateLegacyClaudeMarkdown() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"claudeMarkdown":{"name":"PROJECT.md"}}"#)
+                == .projectFile(relativePath: ".claude/PROJECT.md"))
+    }
+
+    @Test("persistedString migrates legacy .mcpJSON")
+    func migrateLegacyMCPJSON() {
+        #expect(
+            NavigatorRoute(persistedString: #"{"mcpJSON":{}}"#)
+                == .projectFile(relativePath: ".mcp.json"))
+    }
+
+    @Test("persistedString migrates legacy .skillFile")
+    func migrateLegacySkillFile() {
+        let json = #"{"skillFile":{"skill":"plumage-implement","relativePath":"scripts/precommit-gate.sh"}}"#
+        #expect(
+            NavigatorRoute(persistedString: json)
+                == .projectFile(
+                    relativePath: ".claude/skills/plumage-implement/scripts/precommit-gate.sh"))
+    }
+
+    @Test("persistedString migrates legacy .settings(.main)")
+    func migrateLegacySettingsMain() {
+        let json = #"{"settings":{"_0":"settings.json"}}"#
+        #expect(
+            NavigatorRoute(persistedString: json)
+                == .projectFile(relativePath: ".claude/settings.json"))
+    }
+
+    @Test("persistedString migrates legacy .settings(.local)")
+    func migrateLegacySettingsLocal() {
+        let json = #"{"settings":{"_0":"settings.local.json"}}"#
+        #expect(
+            NavigatorRoute(persistedString: json)
+                == .projectFile(relativePath: ".claude/settings.local.json"))
+    }
+
+    @Test("persistedString returns nil for empty input")
     func persistedStringEmpty() {
         #expect(NavigatorRoute(persistedString: "") == nil)
     }
 
-    @Test("persistedString init returns nil for invalid JSON")
+    @Test("persistedString returns nil for invalid JSON")
     func persistedStringInvalid() {
         #expect(NavigatorRoute(persistedString: "not json") == nil)
     }
 
-    @Test("persistedString init returns nil for an old shape we no longer model")
-    func persistedStringLegacyShapeFallsThrough() {
-        // Simulates a SceneStorage value persisted before the removal of
-        // the `.doc(relativePath:)` case; decoder rejects it and callers
-        // fall back to `.kanban`.
+    @Test("persistedString returns nil for an unknown enum tag")
+    func persistedStringUnknownTag() {
         let legacy = #"{"doc":{"_0":".claude/docs/old.md"}}"#
         #expect(NavigatorRoute(persistedString: legacy) == nil)
     }
 
-    @Test("managedFileURL returns nil for routes that aren't a single managed file")
+    @Test("managedFileURL returns nil for routes that aren't a single file")
     func managedFileURLNonFileRoutes() {
         let project = URL(filePath: "/tmp/proj")
         #expect(NavigatorRoute.kanban.managedFileURL(in: project) == nil)
         #expect(NavigatorRoute.issue(folderName: "00001-x").managedFileURL(in: project) == nil)
-        #expect(NavigatorRoute.claudeMD.managedFileURL(in: project) == nil)
-        #expect(NavigatorRoute.claudeLocalMD.managedFileURL(in: project) == nil)
-        #expect(NavigatorRoute.mcpJSON.managedFileURL(in: project) == nil)
-        #expect(NavigatorRoute.settings(.main).managedFileURL(in: project) == nil)
+        #expect(NavigatorRoute.projectSettings.managedFileURL(in: project) == nil)
     }
 
-    @Test("managedFileURL builds the correct on-disk URL for managed files")
-    func managedFileURLForManagedFiles() {
+    @Test("managedFileURL builds the on-disk URL for .projectFile")
+    func managedFileURLForProjectFile() {
         let project = URL(filePath: "/tmp/proj")
         #expect(
-            NavigatorRoute.managedFile(type: .docs, relativePath: "intro.md")
+            NavigatorRoute.projectFile(relativePath: ".claude/docs/intro.md")
                 .managedFileURL(in: project)?.path
                 == "/tmp/proj/.claude/docs/intro.md")
         #expect(
-            NavigatorRoute.managedFile(type: .hooks, relativePath: "lint.sh")
+            NavigatorRoute.projectFile(relativePath: ".mcp.json")
                 .managedFileURL(in: project)?.path
-                == "/tmp/proj/.claude/hooks/lint.sh")
-        #expect(
-            NavigatorRoute.managedFile(type: .agents, relativePath: "team/lead.md")
-                .managedFileURL(in: project)?.path
-                == "/tmp/proj/.claude/agents/team/lead.md")
-        #expect(
-            NavigatorRoute.managedFile(type: .rules, relativePath: "style.md")
-                .managedFileURL(in: project)?.path
-                == "/tmp/proj/.claude/rules/style.md")
-        #expect(
-            NavigatorRoute.managedFile(type: .outputStyles, relativePath: "yaml.md")
-                .managedFileURL(in: project)?.path
-                == "/tmp/proj/.claude/output-styles/yaml.md")
-        #expect(
-            NavigatorRoute.claudeMarkdown(name: "PROJECT.md")
-                .managedFileURL(in: project)?.path
-                == "/tmp/proj/.claude/PROJECT.md")
-        #expect(
-            NavigatorRoute.skillFile(skill: "alpha", relativePath: "refs/notes.md")
-                .managedFileURL(in: project)?.path
-                == "/tmp/proj/.claude/skills/alpha/refs/notes.md")
+                == "/tmp/proj/.mcp.json")
     }
 }

@@ -3,63 +3,25 @@ import Foundation
 nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case kanban
     case issue(folderName: String)
-    case managedFile(type: ManagedFileType, relativePath: String)
-    case claudeMD
-    case claudeLocalMD
-    case claudeMarkdown(name: String)
-    case mcpJSON
-    case skillFile(skill: String, relativePath: String)
-    case settings(SettingsFile)
-    // Per-project Plumage settings (workflow command overrides, model picks
-    // for Chat / Terminals / Workflow tabs). Detail-view is a custom
-    // ProjectSettingsView, not a JSON file editor.
+    case projectFile(relativePath: String)
     case projectSettings
 
-    // On-disk URL for routes that point at a user-managed file (rename, trash,
-    // open in DocEditor). Returns nil for routes that don't map to a single
-    // managed file (`.kanban`, `.issue`, bootstrap files / settings).
     func managedFileURL(in projectURL: URL) -> URL? {
         switch self {
-        case .managedFile(let type, let rel):
-            return
-                projectURL
-                .appendingPathComponent(type.relativePath, isDirectory: true)
-                .appendingPathComponent(rel)
-        case .claudeMarkdown(let name):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.settingsRootRelativePath, isDirectory: true)
-                .appendingPathComponent(name)
-        case .skillFile(let skill, let path):
-            return
-                projectURL
-                .appendingPathComponent(ClaudeProjectFiles.skillsRelativePath, isDirectory: true)
-                .appendingPathComponent(skill, isDirectory: true)
-                .appendingPathComponent(path)
-        case .kanban, .issue, .claudeMD, .claudeLocalMD, .mcpJSON, .settings,
-            .projectSettings:
+        case .projectFile(let rel):
+            return projectURL.appendingPathComponent(rel)
+        case .kanban, .issue, .projectSettings:
             return nil
         }
     }
 }
 
-nonisolated enum SettingsFile: String, Hashable, Sendable, Codable, CaseIterable {
-    case main = "settings.json"
-    case local = "settings.local.json"
-}
-
 nonisolated extension NavigatorRoute {
     // JSONEncoder/Decoder are Sendable; caching saves a per-call allocation
-    // on the SceneStorage persist hot path (every selectedRoute change
-    // re-encodes).
+    // on the SceneStorage persist hot path.
     private static let encoder = JSONEncoder()
     private static let decoder = JSONDecoder()
 
-    // String form used by @SceneStorage to persist sidebar selection per
-    // window. JSON-encoded so all associated values survive round-trip
-    // without a hand-rolled tag/payload format. Decode failures (e.g. an
-    // old window persisted `.doc(relativePath:)` before this issue removed
-    // the case) fall through to nil; callers default to `.kanban`.
     var persistedString: String {
         guard
             let data = try? Self.encoder.encode(self),
@@ -70,14 +32,79 @@ nonisolated extension NavigatorRoute {
         return string
     }
 
+    // Decodes a SceneStorage-persisted route. Tries to migrate legacy
+    // JSON shapes first (file-routes from pre-#00052 builds → `.projectFile`)
+    // so existing windows reopen without a fallback to `.kanban`. Anything
+    // unrecognised returns nil; callers default to `.kanban`.
     init?(persistedString: String) {
         guard
             !persistedString.isEmpty,
-            let data = persistedString.data(using: .utf8),
-            let decoded = try? Self.decoder.decode(NavigatorRoute.self, from: data)
+            let data = persistedString.data(using: .utf8)
         else {
             return nil
         }
+        if let migrated = Self.migrateLegacyJSON(data: data) {
+            self = migrated
+            return
+        }
+        guard let decoded = try? Self.decoder.decode(NavigatorRoute.self, from: data) else {
+            return nil
+        }
         self = decoded
+    }
+
+    // Maps pre-#00052 legacy route JSON tags to `.projectFile`. The shape
+    // of each tag mirrors what Swift's auto-Codable wrote for that case.
+    fileprivate static func migrateLegacyJSON(data: Data) -> NavigatorRoute? {
+        guard
+            let object =
+                (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else {
+            return nil
+        }
+        if let payload = object["managedFile"] as? [String: Any],
+            let typeRaw = payload["type"] as? String,
+            let rel = payload["relativePath"] as? String
+        {
+            return .projectFile(
+                relativePath: "\(managedFileBase(typeRaw))/\(rel)")
+        }
+        if object["claudeMD"] != nil {
+            return .projectFile(relativePath: ".claude/CLAUDE.md")
+        }
+        if object["claudeLocalMD"] != nil {
+            return .projectFile(relativePath: ".claude/CLAUDE.local.md")
+        }
+        if let payload = object["claudeMarkdown"] as? [String: Any],
+            let name = payload["name"] as? String
+        {
+            return .projectFile(relativePath: ".claude/\(name)")
+        }
+        if object["mcpJSON"] != nil {
+            return .projectFile(relativePath: ".mcp.json")
+        }
+        if let payload = object["skillFile"] as? [String: Any],
+            let skill = payload["skill"] as? String,
+            let rel = payload["relativePath"] as? String
+        {
+            return .projectFile(relativePath: ".claude/skills/\(skill)/\(rel)")
+        }
+        if let payload = object["settings"] as? [String: Any],
+            let raw = payload["_0"] as? String
+        {
+            return .projectFile(relativePath: ".claude/\(raw)")
+        }
+        return nil
+    }
+
+    private static func managedFileBase(_ typeRaw: String) -> String {
+        switch typeRaw {
+        case "docs": return ".claude/docs"
+        case "hooks": return ".claude/hooks"
+        case "agents": return ".claude/agents"
+        case "rules": return ".claude/rules"
+        case "outputStyles": return ".claude/output-styles"
+        default: return ".claude"
+        }
     }
 }
