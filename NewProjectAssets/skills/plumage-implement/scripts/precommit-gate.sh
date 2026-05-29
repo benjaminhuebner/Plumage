@@ -7,7 +7,17 @@
 #
 # Usage:
 #   scripts/precommit-gate.sh [--first-commit] [--skip-build] [--skip-tests]
-#                             [--skip-uitests] [--close-instances]
+#                             [--with-uitests] [--close-instances]
+#
+# Default behavior:
+#   - Step 1 uses `xcodebuild build-for-testing` so test bundles compile too
+#     (catches both source and test compile errors in one pass).
+#   - Step 2 uses `xcodebuild test-without-building` so it reuses step 1's
+#     artifacts instead of recompiling.
+#   - *UITests targets are EXCLUDED from step 2. UI tests launch the app
+#     and routinely take 30-60s each (plus periodic test-host wedges that
+#     leave xcodebuild stuck for minutes). Pre-commit must stay fast and
+#     deterministic — UI tests are an explicit, less frequent check.
 #
 # Flags:
 #   --first-commit   Also run the .gitignore sanity check (step 7).
@@ -15,16 +25,18 @@
 #                    is "the issue's first commit on the branch" on its own.
 #   --skip-build     Skip step 1 (e.g., when the caller has already verified
 #                    the build via a higher-fidelity tool like XcodeBuildMCP).
-#   --skip-tests     Skip step 2.
-#   --skip-uitests   Exclude *UITests targets from the test run (step 2). A
-#                    running app instance wedges the UI-test launch; this avoids
-#                    the hang without touching the instance.
-#   --close-instances  If the app under test is already running, close it (and
-#                    any debugserver holding it) before testing, then run the
-#                    full suite. Without this flag, a running instance is handled
-#                    interactively (prompt on a TTY) or by skipping UI tests
-#                    (non-interactive — never auto-kills, since this script also
-#                    runs from the app's own toolbar and would self-kill).
+#                    Also forces step 2 to use `test` instead of
+#                    `test-without-building` (no `.xctestrun` is guaranteed).
+#   --skip-tests     Skip step 2 entirely.
+#   --with-uitests   Include *UITests targets in step 2. Opt-in: expect a
+#                    significantly longer run and the running-instance
+#                    interaction below.
+#   --close-instances  Only relevant with --with-uitests: if the app under
+#                    test is already running, close it (and any debugserver
+#                    holding it) before testing. Without this flag, a running
+#                    instance is handled interactively on a TTY or skipped
+#                    (non-interactive — never auto-kills, since this script
+#                    also runs from the app's own toolbar and would self-kill).
 #
 # Output:
 #   One header line per step:  [N/7] <name>... <PASS|FAIL|SKIP>
@@ -44,7 +56,7 @@ first_commit=0
 skip_build=0
 skip_tests=0
 skip_tests_reason="--skip-tests"
-skip_uitests=0
+skip_uitests=1
 close_instances=0
 
 for arg in "$@"; do
@@ -52,7 +64,7 @@ for arg in "$@"; do
         --first-commit)    first_commit=1    ;;
         --skip-build)      skip_build=1      ;;
         --skip-tests)      skip_tests=1      ;;
-        --skip-uitests)    skip_uitests=1    ;;
+        --with-uitests)    skip_uitests=0    ;;
         --close-instances) close_instances=1 ;;
         -h|--help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -230,11 +242,17 @@ else
             # (picks the first one alphabetically). Most projects have a single
             # primary scheme; complex cases should use --skip-build and drive
             # xcodebuild directly.
+            #
+            # We run `build-for-testing` instead of `build`: it compiles the
+            # main scheme PLUS all test bundles AND emits an .xctestrun file
+            # that step 2 consumes via `test-without-building`. That makes
+            # step 1 also a test-target compile check, and saves a full
+            # recompile in step 2.
             if [ -z "$scheme" ]; then
                 print_result fail
                 echo "    couldn't determine scheme; pass --skip-build and drive xcodebuild yourself"
             else
-                if xcodebuild -scheme "$scheme" build > "$tmplog" 2>&1; then
+                if xcodebuild -scheme "$scheme" build-for-testing > "$tmplog" 2>&1; then
                     if grep -q ': warning:' "$tmplog"; then
                         print_result fail
                         grep ': warning:' "$tmplog" | head -10 | sed 's/^/    /'
@@ -277,16 +295,23 @@ else
             ;;
         xcworkspace|xcodeproj)
             if [ -n "$scheme" ]; then
-                # Exclude *UITests targets when --skip-uitests is passed
-                # explicitly. Space-joined, no spaces in target names, so
-                # unquoted expansion is safe on bash 3.2.
+                # Exclude *UITests targets unless --with-uitests was passed.
+                # Space-joined, no spaces in target names, so unquoted
+                # expansion is safe on bash 3.2.
                 skip_flags=""
                 if [ $skip_uitests -eq 1 ] && [ ${#uitest_targets[@]} -gt 0 ]; then
                     for uit in "${uitest_targets[@]}"; do
                         skip_flags="$skip_flags -skip-testing:$uit"
                     done
                 fi
-                if xcodebuild -scheme "$scheme" test $skip_flags > "$tmplog" 2>&1; then
+                # Use `test-without-building` to reuse step 1's artifacts.
+                # If --skip-build was passed, step 1 was skipped and we can't
+                # guarantee a fresh .xctestrun; fall back to plain `test`.
+                test_verb="test-without-building"
+                if [ $skip_build -eq 1 ]; then
+                    test_verb="test"
+                fi
+                if xcodebuild -scheme "$scheme" "$test_verb" $skip_flags > "$tmplog" 2>&1; then
                     if [ -n "$skip_flags" ]; then
                         print_result pass
                         printf '    (skipped:%s)\n' "$skip_flags"
