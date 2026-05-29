@@ -211,10 +211,13 @@ struct ProjectWindow: View {
                 async let xcodeDiscover: Void = xcodeRun.discover(projectURL: handle.url)
                 async let usagePoll: Void = pollClaudeUsage()
                 async let statusPoll: Void = pollClaudeStatus()
-                _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
-                // After the tree is loaded: load the persisted pin set, or seed
-                // defaults on a project that has never been pinned.
+                // Load the persisted pin set (or seed defaults) BEFORE the
+                // await-group below: that group includes the never-returning
+                // poll loops (usagePoll/statusPoll), so anything sequenced
+                // after it never runs. loadOrSeed reads the disk directly and
+                // doesn't depend on navLoad, so running it here is fine.
                 await pinnedFiles.loadOrSeed(projectURL: handle.url)
+                _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
                 refreshCreateIssueAction()
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
