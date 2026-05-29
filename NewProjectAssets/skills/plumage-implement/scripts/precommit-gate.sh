@@ -84,6 +84,22 @@ elif find . -maxdepth 3 -name "*.xcodeproj" -not -path "*/.*" 2>/dev/null | grep
     project_type="xcodeproj"
 fi
 
+# Resolve scheme + UI-test targets from a single `xcodebuild -list` call.
+# Reused by the running-instance check, the build step, and the test step
+# (each previously re-ran `-list`).
+scheme=""
+uitest_targets=()
+if [ "$project_type" = "xcodeproj" ] || [ "$project_type" = "xcworkspace" ]; then
+    xclist=$(xcodebuild -list 2>/dev/null || true)
+    scheme=$(printf '%s\n' "$xclist" \
+        | awk '/Schemes:/{flag=1; next} flag && NF{print $1; exit}')
+    while IFS= read -r uit; do
+        [ -n "$uit" ] && uitest_targets+=("$uit")
+    done < <(printf '%s\n' "$xclist" \
+        | awk '/Targets:/{f=1; next} /Build Configurations:|Schemes:/{f=0} f && NF{print $1}' \
+        | grep -iE 'UITests$' || true)
+fi
+
 # ---- Running-instance handling (GUI app) ------------------------------------
 #
 # A *running* instance of the app under test wedges xcodebuild's test launch.
@@ -97,30 +113,22 @@ fi
 #   - interactive TTY         -> ask whether to close
 #   - non-interactive/no flag -> SKIP the whole test step (NEVER auto-kill: this
 #     script also runs from the app's own toolbar and would otherwise self-kill)
+#
+# pgrep pattern matches `<scheme>.app/Contents/MacOS/` (any executable inside),
+# not `<scheme>.app/Contents/MacOS/<scheme>`, so projects whose EXECUTABLE_NAME
+# differs from the scheme name are still caught. No-ops for non-.app products.
 
-uitest_targets=()
-app_name=""
-if [ "$project_type" = "xcodeproj" ] || [ "$project_type" = "xcworkspace" ]; then
-    xclist=$(xcodebuild -list 2>/dev/null || true)
-    app_name=$(printf '%s\n' "$xclist" \
-        | awk '/Schemes:/{flag=1; next} flag && NF{print $1; exit}')
-    while IFS= read -r uit; do
-        [ -n "$uit" ] && uitest_targets+=("$uit")
-    done < <(printf '%s\n' "$xclist" \
-        | awk '/Targets:/{f=1; next} /Build Configurations:|Schemes:/{f=0} f && NF{print $1}' \
-        | grep -iE 'UITests$' || true)
-fi
+tests_skipped_due_to_instance=0
 
-if [ $skip_tests -eq 0 ] && [ -n "$app_name" ]; then
-    # pgrep naturally no-ops for non-.app products (e.g. a CLI tool).
-    running_pids=$(pgrep -f "${app_name}.app/Contents/MacOS/${app_name}" 2>/dev/null || true)
+if [ $skip_tests -eq 0 ] && [ -n "$scheme" ]; then
+    running_pids=$(pgrep -f "${scheme}.app/Contents/MacOS/" 2>/dev/null || true)
     if [ -n "$running_pids" ]; then
         pid_list=$(printf '%s' "$running_pids" | tr '\n' ' ')
         decision=""
         if [ $close_instances -eq 1 ]; then
             decision="close"
         elif [ -t 0 ] && [ -t 1 ]; then
-            printf '%s is running (pids: %s) and will wedge the test run.\n' "$app_name" "$pid_list" >&2
+            printf '%s is running (pids: %s) and will wedge the test run.\n' "$scheme" "$pid_list" >&2
             printf 'Close it and run the full test suite? [y/N] ' >&2
             read -r answer
             case "$answer" in
@@ -143,13 +151,15 @@ if [ $skip_tests -eq 0 ] && [ -n "$app_name" ]; then
             sleep 2
             for pid in $running_pids; do kill -9 "$pid" 2>/dev/null || true; done
             sleep 1
-            if pgrep -f "${app_name}.app/Contents/MacOS/${app_name}" >/dev/null 2>&1; then
+            if pgrep -f "${scheme}.app/Contents/MacOS/" >/dev/null 2>&1; then
                 skip_tests=1
-                skip_tests_reason="$app_name still running after close (orphaned/stuck — reboot may be needed)"
+                skip_tests_reason="$scheme still running after close (orphaned/stuck — reboot may be needed)"
+                tests_skipped_due_to_instance=1
             fi
         else
             skip_tests=1
-            skip_tests_reason="$app_name is running; close it or pass --close-instances"
+            skip_tests_reason="$scheme is running; close it or pass --close-instances"
+            tests_skipped_due_to_instance=1
         fi
     fi
 fi
@@ -216,11 +226,10 @@ else
             fi
             ;;
         xcworkspace|xcodeproj)
-            # Find scheme via xcodebuild -list. Picks the first scheme alphabetically.
-            # Most projects have a single primary scheme; complex cases should use
-            # --skip-build and let the caller drive xcodebuild directly.
-            scheme=$(xcodebuild -list 2>/dev/null \
-                | awk '/Schemes:/{flag=1; next} flag && NF{print $1; exit}')
+            # Scheme already resolved at the top from a single `xcodebuild -list`
+            # (picks the first one alphabetically). Most projects have a single
+            # primary scheme; complex cases should use --skip-build and drive
+            # xcodebuild directly.
             if [ -z "$scheme" ]; then
                 print_result fail
                 echo "    couldn't determine scheme; pass --skip-build and drive xcodebuild yourself"
@@ -267,8 +276,6 @@ else
             fi
             ;;
         xcworkspace|xcodeproj)
-            scheme=$(xcodebuild -list 2>/dev/null \
-                | awk '/Schemes:/{flag=1; next} flag && NF{print $1; exit}')
             if [ -n "$scheme" ]; then
                 # Exclude *UITests targets when --skip-uitests is passed
                 # explicitly. Space-joined, no spaces in target names, so
@@ -424,7 +431,14 @@ fi
 
 echo
 if [ $failures -eq 0 ]; then
-    echo "GATE PASSED"
+    if [ $tests_skipped_due_to_instance -eq 1 ]; then
+        # Loud about the skip so a green PASS line isn't read as "tests passed":
+        # the toolbar invocation (script runs from within the running app) always
+        # lands here, and `/plumage-implement` without --close-instances would too.
+        echo "GATE PASSED — but tests were SKIPPED ($skip_tests_reason)"
+    else
+        echo "GATE PASSED"
+    fi
     exit 0
 else
     echo "GATE FAILED ($failures failure$([ $failures -ne 1 ] && echo s))"
