@@ -60,7 +60,7 @@ nonisolated struct MCPServerSpec: Hashable, Sendable {
     static let safari = MCPServerSpec(name: "safari", command: "npx", args: ["-y", "safari-mcp"])
 }
 
-extension ProjectKindProfile {
+nonisolated extension ProjectKindProfile {
     // Hook base names (without `.sh`). The `/plumage-*` workflow infrastructure
     // hooks ship with every kind; Swift tooling hooks only with Swift kinds;
     // `guard-xcodebuild` only where Xcode is the build system.
@@ -76,7 +76,7 @@ extension ProjectKindProfile {
     static let appleHooks = swiftHooks + ["guard-xcodebuild"]
 }
 
-extension ProjectKind {
+nonisolated extension ProjectKind {
     var profile: ProjectKindProfile {
         switch self {
         case .appleMultiplatform:
