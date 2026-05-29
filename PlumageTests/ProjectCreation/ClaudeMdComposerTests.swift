@@ -1,0 +1,70 @@
+import Foundation
+import Testing
+
+@testable import Plumage
+
+@Suite("ClaudeMdComposer")
+struct ClaudeMdComposerTests {
+    private let composer = ClaudeMdComposer(templatesDir: RepoAssets.templatesDir)
+
+    private func compose(
+        _ kind: ProjectKind, name: String = "Acme", tagline: String = "A tiny thing"
+    ) throws -> ClaudeMdComposer.Output {
+        try composer.compose(
+            spec: NewProjectSpec(
+                kind: kind, name: name, tagline: tagline,
+                projectDirectory: URL(filePath: "/tmp/x")))
+    }
+
+    @Test("macOS composes Apple + Swift sections with nested tokens resolved")
+    func macOS() throws {
+        let out = try compose(.macOS, name: "Acme", tagline: "A native thing")
+        let md = out.claudeMd
+        #expect(md.contains("# Acme"))
+        #expect(md.contains("A native thing"))
+        #expect(md.contains("Strict concurrency is on"))  // swift-shared CONVENTIONS
+        #expect(md.contains("@Observable"))  // apple-shared CONVENTIONS
+        #expect(md.contains("custom NSWindow chrome"))  // macos CONVENTIONS (AppKit)
+        #expect(md.contains("Liquid Glass"))  // apple-shared PITFALLS
+        #expect(md.contains("Swift Testing"))  // swift-shared BUILD AND TEST
+        #expect(md.contains("xcrun mcpbridge"))  // nested <<<XCODE_MCP_LINE>>> resolved
+        #expect(!md.contains("<<<"))  // no unresolved tokens
+        #expect(out.skillKeywords.contains("Sendable"))
+        #expect(out.skillKeywords.contains("Liquid Glass"))
+    }
+
+    @Test("Vapor composes server sections, no Apple content")
+    func vapor() throws {
+        let out = try compose(.vapor)
+        let md = out.claudeMd
+        #expect(md.contains("Sources/App"))  // vapor LAYOUT
+        #expect(md.contains("Fluent"))  // vapor CONVENTIONS
+        #expect(!md.contains("Liquid Glass"))
+        #expect(!md.contains("<<<"))
+        #expect(out.skillKeywords.contains("Vapor"))
+    }
+
+    @Test(".other has no layers: no Swift/Apple content, empty section headings dropped")
+    func other() throws {
+        let out = try compose(.other)
+        let md = out.claudeMd
+        #expect(!md.contains("Liquid Glass"))
+        #expect(!md.contains("Sendable"))
+        #expect(!md.contains("@Observable"))
+        #expect(!md.contains("<<<"))
+        #expect(md.contains("Describe your stack"))  // stack summary placeholder present
+        #expect(out.skillKeywords.isEmpty)
+        #expect(!md.contains("## Conventions"))  // empty section heading dropped
+        #expect(!md.contains("## Common pitfalls"))
+        #expect(md.contains("## Coding defaults"))  // static section survives
+    }
+
+    @Test("Every kind renders without leftover tokens or section markers")
+    func allKindsClean() throws {
+        for kind in ProjectKind.allCases {
+            let out = try compose(kind)
+            #expect(!out.claudeMd.contains("<<<"), "unresolved token in \(kind)")
+            #expect(!out.claudeMd.contains("%%"), "leftover section marker in \(kind)")
+        }
+    }
+}

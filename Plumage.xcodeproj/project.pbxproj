@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		44E3B82D1742D54552C8802A /* NewProjectAssets in Resources */ = {isa = PBXBuildFile; fileRef = 8FD755147E90DA2E1CBA72E3 /* NewProjectAssets */; };
 		CA46020320030001000000C3 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020220030001000000C3 /* Yams */; };
 		CA46020520030001000000C3 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020720030001000000C3 /* CodeEditorView */; };
 		CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020C20030001000000C3 /* SwiftTerm */; };
@@ -30,6 +31,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		8FD755147E90DA2E1CBA72E3 /* NewProjectAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = NewProjectAssets; sourceTree = "<group>"; };
 		CA46013D2FB2F26800CAD6C3 /* Plumage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Plumage.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CA46014C2FB2F26900CAD6C3 /* PlumageTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlumageTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CA4601562FB2F26900CAD6C3 /* PlumageUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlumageUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -87,6 +89,7 @@
 				A7843CAE865FBF88DA94DFF0 /* Plumage */,
 				CA46014F2FB2F26900CAD6C3 /* PlumageTests */,
 				CA4601592FB2F26900CAD6C3 /* PlumageUITests */,
+				8FD755147E90DA2E1CBA72E3 /* NewProjectAssets */,
 				CA46013E2FB2F26800CAD6C3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -229,6 +232,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				44E3B82D1742D54552C8802A /* NewProjectAssets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
