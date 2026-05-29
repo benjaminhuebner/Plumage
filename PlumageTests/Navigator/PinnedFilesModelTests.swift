@@ -160,20 +160,4 @@ struct PinnedFilesModelTests {
 
         #expect(model.pinned.isEmpty)
     }
-
-    @Test("pruneMissing drops pins whose file no longer exists")
-    func pruneMissingDropsGoneFiles() async throws {
-        let fixture = try Fixture()
-        try fixture.makeFile(at: ".claude/docs/here.md")
-        try fixture.makeFile(at: ".claude/docs/gone.md")
-        let model = PinnedFilesModel()
-        model.pin(relativePath: ".claude/docs/here.md", projectURL: fixture.root)
-        model.pin(relativePath: ".claude/docs/gone.md", projectURL: fixture.root)
-
-        try FileManager.default.removeItem(
-            at: fixture.root.appendingPathComponent(".claude/docs/gone.md"))
-        await model.pruneMissing(projectURL: fixture.root)
-
-        #expect(model.pinned == [".claude/docs/here.md"])
-    }
 }

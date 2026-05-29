@@ -217,8 +217,11 @@ struct ProjectWindow: View {
                 // after it never runs. loadOrSeed reads the disk directly and
                 // doesn't depend on navLoad, so running it here is fine.
                 await pinnedFiles.loadOrSeed(projectURL: handle.url)
-                _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
+                // Must run before the tuple await below: the poll loops in it
+                // never return, so anything sequenced after is dead code. The
+                // `.onChange(of: isLoaded)` below re-runs it once load settles.
                 refreshCreateIssueAction()
+                _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
             .onChange(of: isLoaded) { _, _ in refreshGitActions() }
@@ -260,7 +263,9 @@ struct ProjectWindow: View {
                 if phase == .active {
                     Task {
                         await navigator.reload(projectURL: handle.url)
-                        await pinnedFiles.pruneMissing(projectURL: handle.url)
+                        // External changes while backgrounded surface as the
+                        // reload's inode diff — re-point moved pins, drop gone.
+                        pinnedFiles.apply(rewrites: navigator.externalRewrites)
                     }
                 }
             }
@@ -610,9 +615,12 @@ struct ProjectWindow: View {
         sidebarFileWatcherTask = Task { [events = watcher.events] in
             for await _ in events {
                 await navigator.reload(projectURL: projectURL)
-                // External delete/rename of a pinned file is picked up here;
-                // drop pins whose backing file no longer exists.
-                await pinnedFiles.pruneMissing(projectURL: projectURL)
+                // External rename/move/delete of a pinned file surfaces as the
+                // reload's inode diff (`externalRewrites`): a moved file is
+                // re-pointed, a deleted one dropped. Reading the property right
+                // after the awaited reload is race-free — both run on the
+                // MainActor and this loop body is sequential.
+                pinnedFiles.apply(rewrites: navigator.externalRewrites)
             }
         }
     }

@@ -97,22 +97,6 @@ final class PinnedFilesModel {
         }
     }
 
-    // Drops pins whose backing file no longer exists (external delete/rename
-    // picked up via a reload). File-existence checks run off-Main.
-    func pruneMissing(projectURL: URL) async {
-        let current = pinned
-        guard !current.isEmpty else { return }
-        let survivors = await Task.detached(priority: .userInitiated) { () -> [String] in
-            let fm = FileManager.default
-            return current.filter {
-                fm.fileExists(atPath: projectURL.appendingPathComponent($0).path)
-            }
-        }.value
-        guard survivors != pinned else { return }
-        pinned = survivors
-        persist(survivors, projectURL: projectURL)
-    }
-
     private func persist(_ paths: [String], projectURL: URL) {
         Task.detached(priority: .utility) {
             guard let bundle = try? BundleResolver.resolve(from: projectURL).bundle else {

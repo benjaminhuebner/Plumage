@@ -13,8 +13,8 @@ nonisolated enum PinnedFilesStore {
     }
 
     // nil  → pins.json absent (never seeded) → caller may seed defaults.
-    // []   → present but empty, OR present-but-corrupt: a deliberate/!-recoverable
-    //        empty set the caller must NOT reseed over.
+    // []   → present but empty, OR present-but-corrupt: a deliberate-or-
+    //        unrecoverable empty set the caller must NOT reseed over.
     static func load(bundle: URL) -> [String]? {
         let url = bundle.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
