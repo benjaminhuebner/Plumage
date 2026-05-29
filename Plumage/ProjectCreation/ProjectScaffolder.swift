@@ -133,12 +133,10 @@ nonisolated struct ProjectScaffolder {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
         for hook in spec.kind.profile.hookNames {
-            let source = assetsRoot.appending(path: "hooks/\(hook).sh")
-            let body = try String(contentsOf: source, encoding: .utf8)
-                .replacingOccurrences(of: "<<<PROJECT_NAME>>>", with: spec.name)
-            let dest = hooksDir.appending(path: "\(hook).sh")
-            try body.write(to: dest, atomically: true, encoding: .utf8)
-            try setExecutable(dest)
+            try copy(
+                from: assetsRoot.appending(path: "hooks/\(hook).sh"),
+                to: hooksDir.appending(path: "\(hook).sh"),
+                executable: true)
         }
     }
 
