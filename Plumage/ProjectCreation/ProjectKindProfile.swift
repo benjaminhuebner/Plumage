@@ -62,8 +62,7 @@ nonisolated struct MCPServerSpec: Hashable, Sendable {
 
 nonisolated extension ProjectKindProfile {
     // Hook base names (without `.sh`). The `/plumage-*` workflow infrastructure
-    // hooks ship with every kind; Swift tooling hooks only with Swift kinds;
-    // `guard-xcodebuild` only where Xcode is the build system.
+    // hooks ship with every kind; Swift tooling hooks only with Swift kinds.
     static let workflowHooks = [
         "block-dangerous-bash",
         "block-git-commit",
@@ -73,7 +72,6 @@ nonisolated extension ProjectKindProfile {
         "stop-after-spec-approved",
     ]
     static let swiftHooks = workflowHooks + ["format-swift", "lint-swift", "no-doc-comments"]
-    static let appleHooks = swiftHooks + ["guard-xcodebuild"]
 }
 
 nonisolated extension ProjectKind {
@@ -84,7 +82,7 @@ nonisolated extension ProjectKind {
                 templateLayers: ["swift-shared", "apple-shared", "multiplatform"],
                 gitignoreTags: ["swift", "xcode"],
                 mcpServers: [.xcodeBuildMCP, .xcode, .applescript],
-                hookNames: ProjectKindProfile.appleHooks,
+                hookNames: ProjectKindProfile.swiftHooks,
                 gateCommands: .xcode,
                 stackSummary: Self.appleStackSummary(buildSystem: "Xcode (single multiplatform target)", ui: "SwiftUI"),
                 xcodeMcpLine: Self.xcodeMcpLine
@@ -94,7 +92,7 @@ nonisolated extension ProjectKind {
                 templateLayers: ["swift-shared", "apple-shared", "macos"],
                 gitignoreTags: ["swift", "xcode"],
                 mcpServers: [.xcodeBuildMCP, .xcode],
-                hookNames: ProjectKindProfile.appleHooks,
+                hookNames: ProjectKindProfile.swiftHooks,
                 gateCommands: .xcode,
                 stackSummary: Self.appleStackSummary(buildSystem: "Xcode", ui: "SwiftUI (AppKit where needed)"),
                 xcodeMcpLine: Self.xcodeMcpLine
@@ -104,7 +102,7 @@ nonisolated extension ProjectKind {
                 templateLayers: ["swift-shared", "apple-shared", "ios"],
                 gitignoreTags: ["swift", "xcode"],
                 mcpServers: [.xcodeBuildMCP, .xcode],
-                hookNames: ProjectKindProfile.appleHooks,
+                hookNames: ProjectKindProfile.swiftHooks,
                 gateCommands: .xcode,
                 stackSummary: Self.appleStackSummary(buildSystem: "Xcode", ui: "SwiftUI (UIKit where needed)"),
                 xcodeMcpLine: Self.xcodeMcpLine

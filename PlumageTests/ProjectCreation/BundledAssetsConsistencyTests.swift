@@ -51,12 +51,4 @@ struct BundledAssetsConsistencyTests {
             #expect(body.contains("<<<SKILL_KEYWORDS>>>"), "no SKILL_KEYWORDS token in \(skill)")
         }
     }
-
-    @Test("guard-xcodebuild is project-name agnostic")
-    func guardXcodebuildGeneralized() throws {
-        let body = try String(
-            contentsOf: root.appending(path: "hooks/guard-xcodebuild.sh"), encoding: .utf8)
-        #expect(body.contains("<<<PROJECT_NAME>>>"))
-        #expect(!body.contains("Plumage"))
-    }
 }

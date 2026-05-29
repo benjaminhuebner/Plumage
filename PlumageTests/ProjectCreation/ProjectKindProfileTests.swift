@@ -53,18 +53,18 @@ struct ProjectKindProfileTests {
         #expect(xcodeBuild.env == ["XCODEBUILDMCP_SENTRY_DISABLED": "true"])
     }
 
-    @Test("Hook sets: workflow ⊂ swift ⊂ apple; .other gets only workflow hooks")
+    @Test("Hook sets: workflow ⊂ swift; apple kinds use the swift set; .other gets only workflow hooks")
     func hookNames() {
-        #expect(ProjectKind.macOS.profile.hookNames == ProjectKindProfile.appleHooks)
-        #expect(ProjectKind.iOS.profile.hookNames == ProjectKindProfile.appleHooks)
-        #expect(ProjectKind.appleMultiplatform.profile.hookNames == ProjectKindProfile.appleHooks)
+        #expect(ProjectKind.macOS.profile.hookNames == ProjectKindProfile.swiftHooks)
+        #expect(ProjectKind.iOS.profile.hookNames == ProjectKindProfile.swiftHooks)
+        #expect(ProjectKind.appleMultiplatform.profile.hookNames == ProjectKindProfile.swiftHooks)
         #expect(ProjectKind.vapor.profile.hookNames == ProjectKindProfile.swiftHooks)
         #expect(ProjectKind.hummingbird.profile.hookNames == ProjectKindProfile.swiftHooks)
         #expect(ProjectKind.swiftCLI.profile.hookNames == ProjectKindProfile.swiftHooks)
         #expect(ProjectKind.other.profile.hookNames == ProjectKindProfile.workflowHooks)
 
-        #expect(ProjectKind.macOS.profile.hookNames.contains("guard-xcodebuild"))
-        #expect(!ProjectKind.vapor.profile.hookNames.contains("guard-xcodebuild"))
+        // guard-xcodebuild was removed — no kind ships it anymore.
+        #expect(!ProjectKind.macOS.profile.hookNames.contains("guard-xcodebuild"))
         #expect(ProjectKind.vapor.profile.hookNames.contains("format-swift"))
         #expect(!ProjectKind.other.profile.hookNames.contains("format-swift"))
         #expect(ProjectKind.other.profile.hookNames.contains("force-plumage-skill"))

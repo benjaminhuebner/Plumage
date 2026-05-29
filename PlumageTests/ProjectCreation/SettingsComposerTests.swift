@@ -42,11 +42,11 @@ struct SettingsComposerTests {
         }
     }
 
-    @Test("macOS: guard-xcodebuild + swift hooks + xcodebuild permission")
+    @Test("macOS: swift hooks, no guard-xcodebuild, xcodebuild permission from gate")
     func macOS() throws {
         let obj = try settings(.macOS)
         let names = try hookNames(obj)
-        #expect(names.contains("guard-xcodebuild"))
+        #expect(!names.contains("guard-xcodebuild"))
         #expect(names.contains("format-swift"))
         #expect(try permissions(obj).contains("Bash(xcodebuild:*)"))
     }

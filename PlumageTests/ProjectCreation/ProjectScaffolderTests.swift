@@ -35,7 +35,7 @@ struct ProjectScaffolderTests {
         #expect(fm.fileExists(atPath: dir.appending(path: ".mcp.json").path))
         #expect(fm.fileExists(atPath: dir.appending(path: ".swift-format").path))
 
-        let hook = dir.appending(path: ".claude/hooks/guard-xcodebuild.sh").path
+        let hook = dir.appending(path: ".claude/hooks/format-swift.sh").path
         let perms = try fm.attributesOfItem(atPath: hook)[.posixPermissions] as? Int
         #expect(((perms ?? 0) & 0o111) != 0)
     }
