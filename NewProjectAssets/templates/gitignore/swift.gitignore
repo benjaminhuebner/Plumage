@@ -1,0 +1,10 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+!*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Code coverage
+*.profraw
+*.profdata
