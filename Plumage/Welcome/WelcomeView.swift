@@ -27,6 +27,9 @@ struct WelcomeView: View {
             NewProjectSheet()
                 .environment(recentProjects)
         }
+        // Lets the "New Project… ⌘N" menu command open the wizard while Welcome
+        // is the focused scene.
+        .focusedSceneValue(\.newProjectPresented, $showNewProject)
         // min/ideal pair instead of a hard width/height: a hard `.frame(width:height:)`
         // on a Window scene root historically wedged XCUITest auto-terminate
         // (notes.md 00002-open-project), and a non-resizable window also

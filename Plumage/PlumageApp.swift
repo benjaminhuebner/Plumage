@@ -25,6 +25,9 @@ struct PlumageApp: App {
         .defaultPosition(.center)
         .defaultLaunchBehavior(.presented)
         .keyboardShortcut("0", modifiers: [.command, .shift])
+        .commands {
+            NewProjectCommand()
+        }
         .environment(recentProjects)
 
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
