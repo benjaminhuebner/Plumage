@@ -7,6 +7,7 @@
 #
 # Usage:
 #   scripts/precommit-gate.sh [--first-commit] [--skip-build] [--skip-tests]
+#                             [--skip-uitests] [--close-instances]
 #
 # Flags:
 #   --first-commit   Also run the .gitignore sanity check (step 7).
@@ -15,6 +16,15 @@
 #   --skip-build     Skip step 1 (e.g., when the caller has already verified
 #                    the build via a higher-fidelity tool like XcodeBuildMCP).
 #   --skip-tests     Skip step 2.
+#   --skip-uitests   Exclude *UITests targets from the test run (step 2). A
+#                    running app instance wedges the UI-test launch; this avoids
+#                    the hang without touching the instance.
+#   --close-instances  If the app under test is already running, close it (and
+#                    any debugserver holding it) before testing, then run the
+#                    full suite. Without this flag, a running instance is handled
+#                    interactively (prompt on a TTY) or by skipping UI tests
+#                    (non-interactive — never auto-kills, since this script also
+#                    runs from the app's own toolbar and would self-kill).
 #
 # Output:
 #   One header line per step:  [N/7] <name>... <PASS|FAIL|SKIP>
@@ -33,12 +43,17 @@ set -uo pipefail
 first_commit=0
 skip_build=0
 skip_tests=0
+skip_tests_reason="--skip-tests"
+skip_uitests=0
+close_instances=0
 
 for arg in "$@"; do
     case "$arg" in
-        --first-commit) first_commit=1 ;;
-        --skip-build)   skip_build=1   ;;
-        --skip-tests)   skip_tests=1   ;;
+        --first-commit)    first_commit=1    ;;
+        --skip-build)      skip_build=1      ;;
+        --skip-tests)      skip_tests=1      ;;
+        --skip-uitests)    skip_uitests=1    ;;
+        --close-instances) close_instances=1 ;;
         -h|--help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -67,6 +82,76 @@ elif find . -maxdepth 3 -name "*.xcworkspace" -not -path "*/.*" 2>/dev/null | gr
     project_type="xcworkspace"
 elif find . -maxdepth 3 -name "*.xcodeproj" -not -path "*/.*" 2>/dev/null | grep -q .; then
     project_type="xcodeproj"
+fi
+
+# ---- Running-instance handling (GUI app) ------------------------------------
+#
+# A *running* instance of the app under test wedges xcodebuild's test launch.
+# Both the UI-test target AND the hosted unit-test runner go through the same
+# launch / testmanagerd coordination, so skipping only the UI tests is NOT
+# enough — the hosted unit-test run hangs too. The usual culprit is a leftover
+# Xcode Run/debug session: the app held under `debugserver`, stuck in state SX
+# and ignoring SIGKILL until the debugger is detached. Decide before the test
+# step:
+#   - --close-instances       -> close them (incl. a holding debugserver), full run
+#   - interactive TTY         -> ask whether to close
+#   - non-interactive/no flag -> SKIP the whole test step (NEVER auto-kill: this
+#     script also runs from the app's own toolbar and would otherwise self-kill)
+
+uitest_targets=()
+app_name=""
+if [ "$project_type" = "xcodeproj" ] || [ "$project_type" = "xcworkspace" ]; then
+    xclist=$(xcodebuild -list 2>/dev/null || true)
+    app_name=$(printf '%s\n' "$xclist" \
+        | awk '/Schemes:/{flag=1; next} flag && NF{print $1; exit}')
+    while IFS= read -r uit; do
+        [ -n "$uit" ] && uitest_targets+=("$uit")
+    done < <(printf '%s\n' "$xclist" \
+        | awk '/Targets:/{f=1; next} /Build Configurations:|Schemes:/{f=0} f && NF{print $1}' \
+        | grep -iE 'UITests$' || true)
+fi
+
+if [ $skip_tests -eq 0 ] && [ -n "$app_name" ]; then
+    # pgrep naturally no-ops for non-.app products (e.g. a CLI tool).
+    running_pids=$(pgrep -f "${app_name}.app/Contents/MacOS/${app_name}" 2>/dev/null || true)
+    if [ -n "$running_pids" ]; then
+        pid_list=$(printf '%s' "$running_pids" | tr '\n' ' ')
+        decision=""
+        if [ $close_instances -eq 1 ]; then
+            decision="close"
+        elif [ -t 0 ] && [ -t 1 ]; then
+            printf '%s is running (pids: %s) and will wedge the test run.\n' "$app_name" "$pid_list" >&2
+            printf 'Close it and run the full test suite? [y/N] ' >&2
+            read -r answer
+            case "$answer" in
+                [yY]|[yY][eE][sS]) decision="close" ;;
+                *)                 decision="skip"  ;;
+            esac
+        else
+            decision="skip"
+        fi
+
+        if [ "$decision" = "close" ]; then
+            for pid in $running_pids; do
+                ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+                if [ -n "$ppid" ]; then
+                    pcmd=$(ps -o comm= -p "$ppid" 2>/dev/null || true)
+                    case "$pcmd" in *debugserver*) kill "$ppid" 2>/dev/null || true ;; esac
+                fi
+                kill "$pid" 2>/dev/null || true
+            done
+            sleep 2
+            for pid in $running_pids; do kill -9 "$pid" 2>/dev/null || true; done
+            sleep 1
+            if pgrep -f "${app_name}.app/Contents/MacOS/${app_name}" >/dev/null 2>&1; then
+                skip_tests=1
+                skip_tests_reason="$app_name still running after close (orphaned/stuck — reboot may be needed)"
+            fi
+        else
+            skip_tests=1
+            skip_tests_reason="$app_name is running; close it or pass --close-instances"
+        fi
+    fi
 fi
 
 failures=0
@@ -164,7 +249,7 @@ fi
 start_step "Tests"
 
 if [ $skip_tests -eq 1 ]; then
-    print_result skip "--skip-tests"
+    print_result skip "$skip_tests_reason"
 else
     case "$project_type" in
         swiftpm)
@@ -185,8 +270,22 @@ else
             scheme=$(xcodebuild -list 2>/dev/null \
                 | awk '/Schemes:/{flag=1; next} flag && NF{print $1; exit}')
             if [ -n "$scheme" ]; then
-                if xcodebuild -scheme "$scheme" test > "$tmplog" 2>&1; then
-                    print_result pass
+                # Exclude *UITests targets when --skip-uitests is passed
+                # explicitly. Space-joined, no spaces in target names, so
+                # unquoted expansion is safe on bash 3.2.
+                skip_flags=""
+                if [ $skip_uitests -eq 1 ] && [ ${#uitest_targets[@]} -gt 0 ]; then
+                    for uit in "${uitest_targets[@]}"; do
+                        skip_flags="$skip_flags -skip-testing:$uit"
+                    done
+                fi
+                if xcodebuild -scheme "$scheme" test $skip_flags > "$tmplog" 2>&1; then
+                    if [ -n "$skip_flags" ]; then
+                        print_result pass
+                        printf '    (skipped:%s)\n' "$skip_flags"
+                    else
+                        print_result pass
+                    fi
                 else
                     print_result fail
                     print_excerpt "$tmplog"

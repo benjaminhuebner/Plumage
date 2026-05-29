@@ -25,6 +25,8 @@ Silencing a single warning with `// swiftlint:disable <rule>` or `@available(*, 
 
 The full test suite must pass. New tests added in this run must be green. Existing tests must not regress. If the project has no tests at all, this step is skipped silently (no failure, no warning).
 
+**Running-instance handling:** a *live* instance of the app under test (a leftover `<app>.app`, or an Xcode Run/debug session held under `debugserver`, stuck in state `SX` and ignoring SIGKILL) wedges xcodebuild's test launch — both the UI-test target and the hosted unit-test runner go through the same launch/testmanagerd coordination — into a multi-minute hang. Before the test step the gate detects a running instance and: with `--close-instances` closes it (incl. the holding debugserver) and runs the full suite; on an interactive TTY it prompts whether to close; non-interactively without the flag it skips the whole test step with a clear message. It never auto-kills non-interactively, because the gate also runs from the app's own "Run Quality Gate" toolbar button and would otherwise self-kill. `/plumage-implement` invokes the gate with `--close-instances`.
+
 A common trap: a test that was already failing before this run will fail the gate now. Don't fix it as a side-effect of this issue — flag it, ask the user, and either add a task for the fix or carry it as a known-broken test with a `notes.md` entry.
 
 ### 3. SwiftLint — zero violations across the codebase

@@ -89,11 +89,13 @@ For each unchecked task in the spec, in order:
 After the last task. Update run-state phase → `"pre-commit-gate"`.
 
 ```bash
-scripts/precommit-gate.sh --first-commit  # only on the first commit of this run
-scripts/precommit-gate.sh                  # subsequent runs (no --first-commit)
+scripts/precommit-gate.sh --first-commit --close-instances  # first commit of this run
+scripts/precommit-gate.sh --close-instances                 # subsequent runs
 ```
 
 The script runs seven checks: build, tests, SwiftLint, swift-format, untracked-secret-files, hardcoded-secret-in-diff, and (first commit only) `.gitignore` sanity. See `references/precommit-gate.md` for the rationale per check and what failures mean.
+
+`--close-instances` matters: a running instance of the app under test (a leftover `<app>.app`, or an Xcode Run/debug session held under `debugserver`) wedges xcodebuild's test launch into a multi-minute hang. With the flag the gate closes it (and a holding debugserver) before testing; without it, a running instance makes the gate skip the whole test step — on a TTY it prompts to close instead.
 
 Any failure stops the run; nothing is rolled back, the user decides. For `spike` issues the gate is optional — skip if the spec sets `skipPreCommitGate: true` in frontmatter.
 
