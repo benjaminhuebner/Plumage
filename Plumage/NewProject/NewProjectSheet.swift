@@ -7,6 +7,9 @@ import SwiftUI
 struct NewProjectSheet: View {
     @State private var model = NewProjectModel()
     @Environment(\.dismiss) private var dismiss
+    @Environment(RecentProjects.self) private var recentProjects
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -106,8 +109,21 @@ struct NewProjectSheet: View {
     }
 
     private func performCreate() {
-        // Success → open the project is wired in the next task; for now this runs
-        // the scaffolder and surfaces progress/errors through the model.
-        Task { _ = await model.create() }
+        Task {
+            let result = await model.create()
+            // On success the engine returns the project root; reuse the existing
+            // open path (records the recent, opens the window, dismisses Welcome —
+            // which tears down this sheet). On failure the model's errorMessage
+            // drives the banner and the wizard stays open. Directory cleanup on
+            // failure is the engine's responsibility.
+            if case .success(let created) = result {
+                OpenProjectCommand.openConfirmed(
+                    url: created.root,
+                    recentProjects: recentProjects,
+                    openWindow: openWindow,
+                    dismissWindow: dismissWindow
+                )
+            }
+        }
     }
 }
