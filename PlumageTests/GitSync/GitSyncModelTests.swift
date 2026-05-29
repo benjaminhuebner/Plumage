@@ -13,7 +13,7 @@ struct GitSyncModelTests {
         let runner = ScriptedSyncRunner(script: [
             .line(GitStreamLine(source: .stderr, text: "Enumerating objects: 5")),
             .line(GitStreamLine(source: .stdout, text: "To github.com:foo/bar.git")),
-            .finished(exitCode: 0)
+            .finished(exitCode: 0),
         ])
         let model = GitSyncModel(
             repoURL: repoURL,
@@ -35,7 +35,7 @@ struct GitSyncModelTests {
     func failureKeepsOpen() async throws {
         let runner = ScriptedSyncRunner(script: [
             .line(GitStreamLine(source: .stderr, text: "error: failed to push some refs")),
-            .finished(exitCode: 1)
+            .finished(exitCode: 1),
         ])
         let model = GitSyncModel(
             repoURL: repoURL,
@@ -56,7 +56,7 @@ struct GitSyncModelTests {
         let runner = ScriptedSyncRunner(script: [
             .line(GitStreamLine(source: .stderr, text: "Username for 'https://github.com':")),
             .authPromptDetected,
-            .finished(exitCode: 128)
+            .finished(exitCode: 128),
         ])
         let model = GitSyncModel(
             repoURL: repoURL,
@@ -77,7 +77,7 @@ struct GitSyncModelTests {
             .line(GitStreamLine(source: .stderr, text: "no upstream")),
             .retryingWithUpstream(branch: "feature/x"),
             .line(GitStreamLine(source: .stdout, text: "Branch 'feature/x' set up to track 'origin/feature/x'.")),
-            .finished(exitCode: 0)
+            .finished(exitCode: 0),
         ])
         let model = GitSyncModel(
             repoURL: repoURL,

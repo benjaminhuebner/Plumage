@@ -224,6 +224,156 @@ struct NavigatorModelTests {
                     newRelativePath: ".claude/agents/foo.md")
             ])
     }
+
+    // MARK: External-change detection (inode diff)
+
+    @Test("first reload sets a baseline and emits no externalRewrites")
+    func reloadFirstSetsBaseline() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+
+        await model.reload(projectURL: fixture.root)
+
+        #expect(model.externalRewrites.isEmpty)
+    }
+
+    @Test("reload follows an external rename via inode → externalRewrites .moved")
+    func reloadDetectsExternalRename() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+
+        // Rename outside the model — the OS preserves the inode.
+        try FileManager.default.moveItem(
+            at: fixture.root.appendingPathComponent(".claude/docs/foo.md"),
+            to: fixture.root.appendingPathComponent(".claude/docs/bar.md"))
+        await model.reload(projectURL: fixture.root)
+
+        #expect(
+            model.externalRewrites == [
+                .moved(
+                    oldRelativePath: ".claude/docs/foo.md",
+                    newRelativePath: ".claude/docs/bar.md")
+            ])
+    }
+
+    @Test("reload follows an external move across folders")
+    func reloadDetectsExternalMove() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        try fixture.makeFile(at: ".claude/agents/.keep", content: "")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+
+        try FileManager.default.moveItem(
+            at: fixture.root.appendingPathComponent(".claude/docs/foo.md"),
+            to: fixture.root.appendingPathComponent(".claude/agents/foo.md"))
+        await model.reload(projectURL: fixture.root)
+
+        #expect(
+            model.externalRewrites == [
+                .moved(
+                    oldRelativePath: ".claude/docs/foo.md",
+                    newRelativePath: ".claude/agents/foo.md")
+            ])
+    }
+
+    @Test("reload detects an external delete → externalRewrites .removed")
+    func reloadDetectsExternalDelete() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+
+        try FileManager.default.removeItem(
+            at: fixture.root.appendingPathComponent(".claude/docs/foo.md"))
+        await model.reload(projectURL: fixture.root)
+
+        #expect(model.externalRewrites == [.removed(oldRelativePath: ".claude/docs/foo.md")])
+    }
+
+    @Test("reload with no change emits no externalRewrites")
+    func reloadNoChangeNoRewrites() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        await model.reload(projectURL: fixture.root)
+        #expect(model.externalRewrites.isEmpty)
+    }
+
+    @Test("reload ignores a newly added file (no rewrite)")
+    func reloadNewFileNoRewrite() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+        try fixture.makeFile(at: ".claude/docs/bar.md", content: "y")
+        await model.reload(projectURL: fixture.root)
+        #expect(model.externalRewrites.isEmpty)
+    }
+
+    @Test("switching to a different project resets the baseline (no spurious removals)")
+    func reloadProjectSwitchResetsBaseline() async throws {
+        let fixtureA = try NavigatorModelFixture()
+        try fixtureA.makeFile(at: ".claude/docs/a.md", content: "x")
+        let fixtureB = try NavigatorModelFixture()
+        try fixtureB.makeFile(at: ".claude/docs/b.md", content: "y")
+        let model = NavigatorModel()
+
+        await model.reload(projectURL: fixtureA.root)
+        await model.reload(projectURL: fixtureB.root)
+
+        // A's files are absent from B, but that's a project switch, not a delete.
+        #expect(model.externalRewrites.isEmpty)
+    }
+
+    // MARK: deriveExternalRewrites (pure)
+
+    @Test("deriveExternalRewrites: empty baseline yields nothing")
+    func deriveFirstLoad() {
+        #expect(
+            NavigatorModel.deriveExternalRewrites(
+                previousInodes: [:], currentInodes: ["a.md": 1], currentPaths: ["a.md"]
+            ).isEmpty)
+    }
+
+    @Test("deriveExternalRewrites: folder rename emits one sorted .moved per file")
+    func deriveFolderRename() {
+        let rewrites = NavigatorModel.deriveExternalRewrites(
+            previousInodes: ["d/a.md": 1, "d/b.md": 2],
+            currentInodes: ["e/a.md": 1, "e/b.md": 2],
+            currentPaths: ["e/a.md", "e/b.md"])
+        #expect(
+            rewrites == [
+                .moved(oldRelativePath: "d/a.md", newRelativePath: "e/a.md"),
+                .moved(oldRelativePath: "d/b.md", newRelativePath: "e/b.md"),
+            ])
+    }
+
+    @Test("deriveExternalRewrites: a gone path with no inode match is .removed")
+    func deriveRemoved() {
+        let rewrites = NavigatorModel.deriveExternalRewrites(
+            previousInodes: ["a.md": 1], currentInodes: [:], currentPaths: [])
+        #expect(rewrites == [.removed(oldRelativePath: "a.md")])
+    }
+
+    @Test("deriveExternalRewrites: an in-place edit (same path) is not a rewrite")
+    func deriveInPlaceEdit() {
+        // Atomic save can swap the inode while keeping the path — must not drop.
+        let rewrites = NavigatorModel.deriveExternalRewrites(
+            previousInodes: ["a.md": 1], currentInodes: ["a.md": 9], currentPaths: ["a.md"])
+        #expect(rewrites.isEmpty)
+    }
+
+    @Test("deriveExternalRewrites: inode reuse pairs delete+create as a move (known trade-off)")
+    func deriveInodeReuse() {
+        let rewrites = NavigatorModel.deriveExternalRewrites(
+            previousInodes: ["a.md": 1], currentInodes: ["c.md": 1], currentPaths: ["c.md"])
+        #expect(rewrites == [.moved(oldRelativePath: "a.md", newRelativePath: "c.md")])
+    }
 }
 
 private final class NavigatorModelFixture {

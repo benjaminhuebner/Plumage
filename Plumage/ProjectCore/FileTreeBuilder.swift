@@ -102,4 +102,38 @@ nonisolated enum FileTreeBuilder {
         }
         return url.lastPathComponent
     }
+
+    // Flat snapshot of every file (not folder) in a built tree: the set of
+    // relative paths (authoritative existence) plus a path→inode map. The
+    // inode is stable across a same-volume rename/move, so diffing two indexes
+    // distinguishes "file moved to a new path" from "file vanished" — the basis
+    // for following external renames of pinned files.
+    nonisolated struct FileIndex: Sendable {
+        let paths: Set<String>
+        let inodes: [String: Int]
+    }
+
+    static func fileIndex(in nodes: [FileNode]) -> FileIndex {
+        var paths: Set<String> = []
+        var inodes: [String: Int] = [:]
+        func walk(_ node: FileNode) {
+            if node.isDirectory {
+                node.children?.forEach(walk)
+            } else {
+                paths.insert(node.relativePath)
+                if let ino = inode(of: node.url) {
+                    inodes[node.relativePath] = ino
+                }
+            }
+        }
+        nodes.forEach(walk)
+        return FileIndex(paths: paths, inodes: inodes)
+    }
+
+    private static func inode(of url: URL) -> Int? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+            return nil
+        }
+        return attrs[.systemFileNumber] as? Int
+    }
 }

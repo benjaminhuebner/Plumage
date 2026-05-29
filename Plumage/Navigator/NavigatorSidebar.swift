@@ -7,6 +7,7 @@ struct NavigatorSidebar: View {
 
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(NavigatorModel.self) private var navigator
+    @Environment(PinnedFilesModel.self) private var pinnedFiles
     @Environment(\.openCreateIssue) private var openCreateIssue
 
     @SceneStorage("nav.expansion.col.todo") private var todoExpanded = false
@@ -25,6 +26,8 @@ struct NavigatorSidebar: View {
             ForEach(IssueColumn.allCases) { column in
                 columnRow(column)
             }
+
+            PinnedSectionView(model: pinnedFiles, projectURL: projectURL)
 
             filesSectionHeader
             FileTreeView(nodes: navigator.rootNodes, projectURL: projectURL)

@@ -7,6 +7,7 @@ struct ProjectWindow: View {
     @State private var model = ProjectModel()
     @State private var kanban = ProjectKanbanModel()
     @State private var navigator = NavigatorModel()
+    @State private var pinnedFiles = PinnedFilesModel()
     @State private var selectedRoute: NavigatorRoute = .kanban
     @SceneStorage("nav.selection") private var persistedRouteData: String = ""
     @State private var detailOriginRoute: NavigatorRoute?
@@ -100,6 +101,7 @@ struct ProjectWindow: View {
         baseStack
             .environment(kanban)
             .environment(navigator)
+            .environment(pinnedFiles)
             .environment(\.openCreateIssue) { status in
                 createInitialStatus = status
                 showCreateSheet = true
@@ -209,8 +211,17 @@ struct ProjectWindow: View {
                 async let xcodeDiscover: Void = xcodeRun.discover(projectURL: handle.url)
                 async let usagePoll: Void = pollClaudeUsage()
                 async let statusPoll: Void = pollClaudeStatus()
-                _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
+                // Load the persisted pin set (or seed defaults) BEFORE the
+                // await-group below: that group includes the never-returning
+                // poll loops (usagePoll/statusPoll), so anything sequenced
+                // after it never runs. loadOrSeed reads the disk directly and
+                // doesn't depend on navLoad, so running it here is fine.
+                await pinnedFiles.loadOrSeed(projectURL: handle.url)
+                // Must run before the tuple await below: the poll loops in it
+                // never return, so anything sequenced after is dead code. The
+                // `.onChange(of: isLoaded)` below re-runs it once load settles.
                 refreshCreateIssueAction()
+                _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
             .onChange(of: isLoaded) { _, _ in refreshGitActions() }
@@ -250,11 +261,21 @@ struct ProjectWindow: View {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
-                    Task { await navigator.reload(projectURL: handle.url) }
+                    Task {
+                        await navigator.reload(projectURL: handle.url)
+                        // External changes while backgrounded surface as the
+                        // reload's inode diff — re-point moved pins, drop gone.
+                        pinnedFiles.apply(rewrites: navigator.externalRewrites)
+                    }
                 }
             }
             .onChange(of: navigator.routeRewrites) { _, rewrites in
                 applyRouteRewrites(rewrites)
+                // Pins follow the same rename/move/trash the sidebar emitted.
+                // Applied unconditionally — applyRouteRewrites early-returns
+                // when the selection isn't a file, but pins must update either
+                // way.
+                pinnedFiles.apply(rewrites: rewrites)
             }
             .sheet(isPresented: $showCreateSheet) {
                 NavigationStack {
@@ -594,6 +615,12 @@ struct ProjectWindow: View {
         sidebarFileWatcherTask = Task { [events = watcher.events] in
             for await _ in events {
                 await navigator.reload(projectURL: projectURL)
+                // External rename/move/delete of a pinned file surfaces as the
+                // reload's inode diff (`externalRewrites`): a moved file is
+                // re-pointed, a deleted one dropped. Reading the property right
+                // after the awaited reload is race-free — both run on the
+                // MainActor and this loop body is sequential.
+                pinnedFiles.apply(rewrites: navigator.externalRewrites)
             }
         }
     }

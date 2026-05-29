@@ -211,22 +211,22 @@ private struct SwiftTermBridge: NSViewRepresentable {
         }
         let brightBlack = colorScheme == .light ? color(80, 80, 80) : color(129, 131, 131)
         let palette: [SwiftTerm.Color] = [
-            color(0, 0, 0),         // 0  black
-            color(194, 54, 33),     // 1  red
-            color(37, 188, 36),     // 2  green
-            color(173, 173, 39),    // 3  yellow
-            color(73, 46, 225),     // 4  blue
-            color(211, 56, 211),    // 5  magenta
-            color(51, 187, 200),    // 6  cyan
-            color(203, 204, 205),   // 7  white
-            brightBlack,            // 8  bright black
-            color(252, 57, 31),     // 9  bright red
-            color(49, 231, 34),     // 10 bright green
-            color(234, 236, 35),    // 11 bright yellow
-            color(88, 51, 255),     // 12 bright blue
-            color(249, 53, 248),    // 13 bright magenta
-            color(20, 240, 240),    // 14 bright cyan
-            color(233, 235, 235),   // 15 bright white
+            color(0, 0, 0),  // 0  black
+            color(194, 54, 33),  // 1  red
+            color(37, 188, 36),  // 2  green
+            color(173, 173, 39),  // 3  yellow
+            color(73, 46, 225),  // 4  blue
+            color(211, 56, 211),  // 5  magenta
+            color(51, 187, 200),  // 6  cyan
+            color(203, 204, 205),  // 7  white
+            brightBlack,  // 8  bright black
+            color(252, 57, 31),  // 9  bright red
+            color(49, 231, 34),  // 10 bright green
+            color(234, 236, 35),  // 11 bright yellow
+            color(88, 51, 255),  // 12 bright blue
+            color(249, 53, 248),  // 13 bright magenta
+            color(20, 240, 240),  // 14 bright cyan
+            color(233, 235, 235),  // 15 bright white
         ]
         view.installColors(palette)
     }

@@ -25,11 +25,22 @@ final class NavigatorModel {
     // on move, falls back to .kanban on trash). Observed via onChange.
     private(set) var routeRewrites: [RouteRewrite] = []
 
+    // Move/remove rewrites derived from the inode diff of the most recent
+    // reload — i.e. *external* (FSEvents) renames, moves and deletes the
+    // in-app mutators never emitted as `routeRewrites`. The pin watcher applies
+    // these so an externally renamed pinned file follows instead of vanishing.
+    private(set) var externalRewrites: [RouteRewrite] = []
+
     private var bannerResetTask: Task<Void, Never>?
     private let bannerDisplayDuration: Duration
     // Monotonic token so a slow `FileTreeBuilder.build` from an earlier
     // reload can't overwrite the tree a newer reload already published.
     private var reloadGeneration = 0
+    // path→inode snapshot of the previous reload, plus the project it described.
+    // A reload of a *different* project resets the baseline so the first diff
+    // doesn't mistake another project's files for deletions.
+    private var fileInodes: [String: Int] = [:]
+    private var inodeBaselineProject: URL?
 
     init(bannerDisplayDuration: Duration = .seconds(3)) {
         self.bannerDisplayDuration = bannerDisplayDuration
@@ -38,16 +49,57 @@ final class NavigatorModel {
     func reload(projectURL: URL) async {
         reloadGeneration &+= 1
         let generation = reloadGeneration
-        let nodes = await Task.detached(priority: .userInitiated) {
-            FileTreeBuilder.build(projectURL: projectURL)
+        let result = await Task.detached(priority: .userInitiated) {
+            () -> (nodes: [FileNode], index: FileTreeBuilder.FileIndex) in
+            let nodes = FileTreeBuilder.build(projectURL: projectURL)
+            return (nodes, FileTreeBuilder.fileIndex(in: nodes))
         }.value
         // A newer reload started while this build ran — its result is fresher,
         // so drop ours instead of clobbering it with stale nodes.
         guard generation == reloadGeneration else { return }
-        self.rootNodes = nodes
+        self.rootNodes = result.nodes
+        // Diff against the previous reload's inodes — but only within the same
+        // project; a project switch starts a fresh baseline (no spurious diff).
+        let sameProject = inodeBaselineProject == projectURL
+        externalRewrites =
+            sameProject
+            ? Self.deriveExternalRewrites(
+                previousInodes: fileInodes,
+                currentInodes: result.index.inodes,
+                currentPaths: result.index.paths)
+            : []
+        fileInodes = result.index.inodes
+        inodeBaselineProject = projectURL
         // `pendingCreate` is intentionally preserved across reloads — an
         // FSEvent triggered mid-inline-edit must not collapse the user's
         // open create row.
+    }
+
+    // Pure inode diff: a previously-known path that is gone from `currentPaths`
+    // becomes `.moved` if a *new* path now carries its inode (rename/move on the
+    // same volume preserves the inode), otherwise `.removed`. Files that merely
+    // appeared, or were edited in place (same path), produce nothing. Emitted in
+    // sorted old-path order for determinism. Inode reuse within a single reload
+    // window can mis-pair a delete+create as a move — accepted, since the
+    // fallback severity (a pin pointing at a new file) matches the prior "drop".
+    nonisolated static func deriveExternalRewrites(
+        previousInodes: [String: Int],
+        currentInodes: [String: Int],
+        currentPaths: Set<String>
+    ) -> [RouteRewrite] {
+        guard !previousInodes.isEmpty else { return [] }
+        var currentPathByInode: [Int: String] = [:]
+        for (path, ino) in currentInodes { currentPathByInode[ino] = path }
+        var rewrites: [RouteRewrite] = []
+        for oldPath in previousInodes.keys.sorted() where !currentPaths.contains(oldPath) {
+            guard let ino = previousInodes[oldPath] else { continue }
+            if let newPath = currentPathByInode[ino], previousInodes[newPath] == nil {
+                rewrites.append(.moved(oldRelativePath: oldPath, newRelativePath: newPath))
+            } else {
+                rewrites.append(.removed(oldRelativePath: oldPath))
+            }
+        }
+        return rewrites
     }
 
     func beginPendingCreate(parent: URL, isFolder: Bool) {

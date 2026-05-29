@@ -20,7 +20,7 @@ struct GitCommitModelTests {
                 unstagedStatus: "M", originalPath: nil),
             GitFileStatus(
                 path: "c.swift", stagedStatus: "?",
-                unstagedStatus: "?", originalPath: nil)
+                unstagedStatus: "?", originalPath: nil),
         ]
         let diff = MockGitWorkingDiffRunner()
         let stage = MockGitStager()
@@ -73,7 +73,7 @@ struct GitCommitModelTests {
                 unstagedStatus: " ", originalPath: nil),
             GitFileStatus(
                 path: "b.swift", stagedStatus: " ",
-                unstagedStatus: "M", originalPath: nil)
+                unstagedStatus: "M", originalPath: nil),
         ]
         let stage = MockGitStager()
         let commit = MockGitCommitter()

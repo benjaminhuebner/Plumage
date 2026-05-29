@@ -130,7 +130,8 @@ nonisolated struct GitStatusRunner: GitStatusRunning {
             // Renames/copies push one extra token with the original path.
             // Both staged and unstaged sides can carry R/C — the second slot
             // happens on staged renames followed by an unstaged edit.
-            let needsOriginal = staged == "R" || staged == "C"
+            let needsOriginal =
+                staged == "R" || staged == "C"
                 || unstaged == "R" || unstaged == "C"
             var originalPath: String?
             if needsOriginal {
@@ -183,7 +184,7 @@ nonisolated final class MockGitStatusRunner: GitStatusRunning, @unchecked Sendab
     }
 
     var calls: [URL] {
-        get { lock.withLock { $0.calls } }
+        lock.withLock { $0.calls }
     }
 
     func run(repoURL: URL) async throws -> [GitFileStatus] {

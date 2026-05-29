@@ -19,7 +19,7 @@ struct PermissionModeTests {
         #expect(PermissionMode.allCases.count == 6)
         #expect(
             Set(PermissionMode.allCases) == [
-                .plan, .acceptEdits, .auto, .bypassPermissions, .default, .dontAsk
+                .plan, .acceptEdits, .auto, .bypassPermissions, .default, .dontAsk,
             ]
         )
     }

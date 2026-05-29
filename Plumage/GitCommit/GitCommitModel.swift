@@ -213,7 +213,8 @@ final class GitCommitModel {
             // We only need to unstage rows that the index currently lists
             // as staged; otherwise `git reset HEAD --` would noop with a
             // confusing exit code on the path.
-            let unstagePaths = files
+            let unstagePaths =
+                files
                 .filter { $0.isStaged && !stagedPaths.contains($0.path) }
                 .map(\.path)
             if !unstagePaths.isEmpty {
