@@ -12,12 +12,24 @@ struct WelcomeView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
+    @State private var showNewProject = false
+
     var body: some View {
         HStack(spacing: 0) {
             leftPane
                 .frame(width: Self.leftPaneWidth)
             rightPane
         }
+        .sheet(isPresented: $showNewProject) {
+            // Sheets present in their own SwiftUI tree and don't inherit the
+            // presenter's environment; RecentProjects must be injected so the
+            // post-create open path can record the project.
+            NewProjectSheet()
+                .environment(recentProjects)
+        }
+        // Lets the "New Project… ⌘N" menu command open the wizard while Welcome
+        // is the focused scene.
+        .focusedSceneValue(\.newProjectPresented, $showNewProject)
         // min/ideal pair instead of a hard width/height: a hard `.frame(width:height:)`
         // on a Window scene root historically wedged XCUITest auto-terminate
         // (notes.md 00002-open-project), and a non-resizable window also
@@ -46,6 +58,13 @@ struct WelcomeView: View {
             }
             Spacer().frame(height: 8)
             VStack(alignment: .leading, spacing: 8) {
+                actionRow(
+                    systemImage: "plus.square.on.square",
+                    title: "New Project…",
+                    subtitle: "Scaffold a fresh Plumage project"
+                ) {
+                    showNewProject = true
+                }
                 actionRow(
                     systemImage: "folder.badge.plus",
                     title: "Open a Project…",
