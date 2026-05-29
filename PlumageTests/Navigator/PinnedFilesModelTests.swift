@@ -69,6 +69,23 @@ struct PinnedFilesModelTests {
         #expect(PinnedFilesStore.load(bundle: fixture.bundle) == ["CLAUDE.md", ".claude/docs/PROJECT.md"])
     }
 
+    @Test("loadOrSeed seeds nested .claude/CLAUDE.md + PROJECT.md (no root CLAUDE.md)")
+    func loadOrSeedSeedsNestedClaude() async throws {
+        // Mirrors Plumage's own project shape: no root CLAUDE.md, but
+        // .claude/CLAUDE.md and .claude/docs/PROJECT.md both present.
+        let fixture = try Fixture()
+        try fixture.makeFile(at: ".claude/CLAUDE.md")
+        try fixture.makeFile(at: ".claude/docs/PROJECT.md")
+        let model = PinnedFilesModel()
+
+        await model.loadOrSeed(projectURL: fixture.root)
+
+        #expect(model.pinned == [".claude/CLAUDE.md", ".claude/docs/PROJECT.md"])
+        #expect(
+            PinnedFilesStore.load(bundle: fixture.bundle)
+                == [".claude/CLAUDE.md", ".claude/docs/PROJECT.md"])
+    }
+
     @Test("loadOrSeed does not reseed a present-but-empty file")
     func loadOrSeedNoReseedWhenEmpty() async throws {
         let fixture = try Fixture()
