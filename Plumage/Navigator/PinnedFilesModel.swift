@@ -28,12 +28,18 @@ final class PinnedFilesModel {
         self.projectURL = projectURL
         let result = await Task.detached(priority: .userInitiated) { () -> [String] in
             guard let bundle = try? BundleResolver.resolve(from: projectURL).bundle else {
+                Self.log.error(
+                    "loadOrSeed: no bundle for \(projectURL.path, privacy: .public)")
                 return []
             }
             if let loaded = PinnedFilesStore.load(bundle: bundle) {
+                Self.log.info(
+                    "loadOrSeed: loaded \(loaded.count) pin(s) from existing pins.json")
                 return loaded
             }
             let seeded = PinnedFilesStore.seedDefaults(projectURL: projectURL)
+            Self.log.info(
+                "loadOrSeed: no pins.json, seeded \(seeded.count) default(s): \(seeded, privacy: .public)")
             do {
                 try PinnedFilesStore.save(seeded, bundle: bundle)
             } catch {
