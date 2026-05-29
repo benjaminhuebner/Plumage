@@ -31,6 +31,12 @@ final class NewProjectModel {
 
     // Step 4
     var parentDirectory: URL?
+    // Snapshot of whether `projectDirectory` already exists on disk. Filesystem
+    // state isn't observable, so a plain computed check would let the collision
+    // warning and the "Create" gating drift out of sync (one body re-renders, the
+    // other doesn't). Refreshing this stored value at defined moments keeps every
+    // reader consistent.
+    private(set) var targetExists: Bool = false
 
     // Create state — driven by `create()`, read by the view for progress/banner.
     var isCreating: Bool = false
@@ -53,9 +59,14 @@ final class NewProjectModel {
         return parentDirectory.appending(path: trimmedName, directoryHint: .isDirectory)
     }
 
-    var projectDirectoryExists: Bool {
-        guard let projectDirectory else { return false }
-        return FileManager.default.fileExists(atPath: projectDirectory.path)
+    // Re-snapshot `targetExists` from disk. Call when the inputs that determine
+    // the target path settle: the parent is picked, or the location step appears.
+    func refreshTargetExists() {
+        guard let projectDirectory else {
+            targetExists = false
+            return
+        }
+        targetExists = FileManager.default.fileExists(atPath: projectDirectory.path)
     }
 
     // MARK: - Per-step validation (pure)
@@ -75,7 +86,7 @@ final class NewProjectModel {
     }
 
     var isLocationStepValid: Bool {
-        projectDirectory != nil && !projectDirectoryExists
+        projectDirectory != nil && !targetExists
     }
 
     func isValid(_ step: Step) -> Bool {

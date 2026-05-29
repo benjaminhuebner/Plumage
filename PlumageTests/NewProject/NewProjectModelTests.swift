@@ -172,9 +172,10 @@ import Testing
         model.kind = .macOS
         model.name = "MyApp"
         model.parentDirectory = parent
+        model.refreshTargetExists()
 
         #expect(model.projectDirectory?.lastPathComponent == "MyApp")
-        #expect(model.projectDirectoryExists == false)
+        #expect(model.targetExists == false)
         #expect(model.isLocationStepValid)
         #expect(model.canCreate)
     }
@@ -189,10 +190,31 @@ import Testing
         model.kind = .macOS
         model.name = "MyApp"
         model.parentDirectory = parent
+        model.refreshTargetExists()
 
-        #expect(model.projectDirectoryExists)
+        #expect(model.targetExists)
         #expect(model.isLocationStepValid == false)
         #expect(model.canCreate == false)
+    }
+
+    @Test func refreshClearsStaleCollisionWhenTargetMissing() throws {
+        let parent = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let existing = parent.appending(path: "MyApp", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+
+        let model = NewProjectModel()
+        model.kind = .macOS
+        model.name = "MyApp"
+        model.parentDirectory = parent
+        model.refreshTargetExists()
+        #expect(model.targetExists)
+
+        // The target disappears → a refresh must clear the stale collision flag.
+        try FileManager.default.removeItem(at: existing)
+        model.refreshTargetExists()
+        #expect(model.targetExists == false)
+        #expect(model.isLocationStepValid)
     }
 
     // MARK: - Error messages

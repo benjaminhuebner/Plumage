@@ -25,7 +25,7 @@ struct LocationStepView: View {
                     Text(projectDirectory.path)
                         .lineLimit(2)
                         .truncationMode(.middle)
-                    if model.projectDirectoryExists {
+                    if model.targetExists {
                         Label(
                             "A folder named “\(model.trimmedName)” already exists here. "
                                 + "Pick another name or location.",
@@ -40,6 +40,9 @@ struct LocationStepView: View {
             }
         }
         .formStyle(.grouped)
+        // Re-check collision whenever this step is shown (covers re-entry with a
+        // changed name and reopening the wizard after a prior creation).
+        .onAppear { model.refreshTargetExists() }
     }
 
     private func chooseParent() {
@@ -53,6 +56,7 @@ struct LocationStepView: View {
         panel.prompt = "Choose"
         if panel.runModal() == .OK {
             model.parentDirectory = panel.url
+            model.refreshTargetExists()
         }
     }
 }
