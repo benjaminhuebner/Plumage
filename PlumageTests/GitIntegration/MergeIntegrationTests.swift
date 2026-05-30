@@ -65,13 +65,7 @@ struct MergeIntegrationTests {
 
     @Test(
         "delete-branch=false keeps the branch but still flips spec status",
-        .enabled(if: ToolchainLocator.git() != nil),
-        // Hangs the hosted xctest runner under parallel load (the #00046
-        // parallel-runner wedge — happy-path sibling always passes, this one
-        // deadlocks coordination). Disabled until a follow-up issue roots it
-        // out; see notes.md 2026-05-30 #00056. Excluded from the default gate
-        // already via .integration; the disable also keeps --full unblocked.
-        .disabled("Flaky/hangs under parallel xctest-runner load — follow-up needed (#00056)")
+        .enabled(if: ToolchainLocator.git() != nil)
     )
     func keepsBranchWhenDeleteFalse() async throws {
         let repo = try await TmpGitRepo.make()
