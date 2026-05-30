@@ -93,14 +93,17 @@ struct IssueSnapshotProducerTests {
         clock.advance(by: .milliseconds(250))
 
         try await waitUntil(timeout: .seconds(2)) { source.callCount > callsAfterStart }
-        try? await Task.sleep(for: .milliseconds(50))
-        let count = await collector.count
-        #expect(count == 1)
-        #expect(source.callCount == callsAfterStart + 1)
 
         await producer.stop()
         rawCont.finish()
         _ = await consumer.value
+
+        // Identical output after the tick: discovery ran once more, but no new
+        // snapshot was yielded. Draining the stream first makes the negative
+        // assertion deterministic — a spurious yield would have been counted.
+        let count = await collector.count
+        #expect(count == 1)
+        #expect(source.callCount == callsAfterStart + 1)
     }
 
     @Test("stop() finishes the snapshots stream")
