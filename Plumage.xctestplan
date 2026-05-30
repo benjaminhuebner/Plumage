@@ -17,13 +17,6 @@
   },
   "testTargets" : [
     {
-      "skippedTests" : [
-        "IssueWatcherIntegrationTests",
-        "MergeIntegrationTests",
-        "ProductionProcessRunnerIntegrationTests",
-        "ProductionXcodeProcessRunnerTests",
-        "SpecEditorExternalChangeIntegrationTests"
-      ],
       "target" : {
         "containerPath" : "container:Plumage.xcodeproj",
         "identifier" : "CA46014B2FB2F26900CAD6C3",

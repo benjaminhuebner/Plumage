@@ -1,5 +1,7 @@
 import Foundation
 
+// @unchecked Sendable: every mutable member (currentOffset, waiters, nextID) is
+// accessed only under `lock` (NSLock). See notes.md.
 nonisolated final class ManualClock: Clock, @unchecked Sendable {
     struct Instant: InstantProtocol {
         let offset: Duration

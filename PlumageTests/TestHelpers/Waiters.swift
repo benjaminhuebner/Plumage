@@ -23,5 +23,9 @@ func waitUntil(
         try await Task.sleep(for: backoff[min(step, backoff.count - 1)])
         step += 1
     }
+    // The condition may have flipped during the final sleep, after which
+    // `clock.now < deadline` is false but the wait did succeed. Check once more
+    // before declaring a timeout to avoid a spurious failure under load.
+    if await condition() { return }
     throw WaitTimeoutError()
 }

@@ -40,7 +40,8 @@
 #   .integration suites are excluded in default mode via -skip-testing flags
 #   derived from the `.tags(.integration)` annotations (xcodebuild does not
 #   honour Swift Testing tag/skip selection inside .xctestplan files — see
-#   precommit-gate.md).
+#   precommit-gate.md). These derived flags are the single source of truth for
+#   the exclusion; the test plans carry no manual skip list.
 #
 # Output:
 #   One header line per step:  [N/7] <name>... <PASS|FAIL|SKIP>
@@ -50,7 +51,8 @@
 # Exit codes:
 #   0  all checks passed (or skipped)
 #   1  at least one check failed
-#   2  environment problem (missing tools, not in a git repo, no Swift project)
+#   2  environment problem (missing tools, not in a git repo, no Swift project,
+#      or another gate run already holds the lock)
 
 set -uo pipefail
 
@@ -94,6 +96,22 @@ if [ -z "$repo_root" ]; then
 fi
 cd "$repo_root"
 
+# ---- Single-instance lock ---------------------------------------------------
+#
+# Two xcodebuild invocations against the same project deadlock over
+# DerivedData/SWBBuildService. The native toolbar button and a /plumage-implement
+# run can both reach this script, so guard with a per-repo lock (atomic mkdir;
+# macOS has no flock). Released on EXIT; a -9'd run leaves a stale dir the
+# message below tells the user to remove.
+lock_key=$(printf '%s' "$repo_root" | shasum 2>/dev/null | cut -c1-12 || echo default)
+lock_dir="${TMPDIR:-/tmp}/plumage-precommit-gate-${lock_key}.lock"
+if ! mkdir "$lock_dir" 2>/dev/null; then
+    echo "error: another precommit-gate run holds the lock ($lock_dir)." >&2
+    echo "       wait for it to finish, or remove the lock dir if it is stale." >&2
+    exit 2
+fi
+trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+
 project_type="unknown"
 if [ -f Package.swift ]; then
     project_type="swiftpm"
@@ -135,15 +153,22 @@ if [ "$project_type" = "xcodeproj" ] || [ "$project_type" = "xcworkspace" ]; the
     default_plan=$(basename "${default_plan%.xctestplan}" 2>/dev/null || true)
 
     # .integration-tagged suites, for default-mode -skip-testing. Derived from
-    # the annotations so a newly-tagged suite is excluded automatically.
+    # the annotations so a newly-tagged suite is excluded automatically. Handles
+    # multiple tagged suites per file and `struct`/`class`/`final class` forms.
     while IFS= read -r f; do
         [ -z "$f" ] && continue
-        ln=$(grep -nE 'tags\(\.integration\)' "$f" | head -1 | cut -d: -f1)
-        [ -z "$ln" ] && continue
-        name=$(tail -n +"$ln" "$f" | grep -oE '(struct|final class) [A-Za-z0-9_]+' | head -1 | awk '{print $NF}')
-        [ -n "$name" ] && integration_suites+=("$name")
+        while IFS= read -r ln; do
+            [ -z "$ln" ] && continue
+            name=$(tail -n +"$ln" "$f" | grep -oE '(struct|final class|class) [A-Za-z0-9_]+' | head -1 | awk '{print $NF}')
+            [ -n "$name" ] && integration_suites+=("$name")
+        done < <(grep -nE 'tags\(\.integration\)' "$f" | cut -d: -f1)
     done < <(grep -rlE 'tags\(\.integration\)' --include='*.swift' . 2>/dev/null \
         | grep -vE '/\.build/|/DerivedData/' || true)
+
+    # Dedupe (a file may yield the same name twice; names never contain spaces).
+    if [ ${#integration_suites[@]} -gt 0 ]; then
+        integration_suites=($(printf '%s\n' "${integration_suites[@]}" | sort -u))
+    fi
 fi
 
 # ---- Running-instance handling (GUI app) ------------------------------------
@@ -198,7 +223,7 @@ fi
 # ---- Per-step result store (decouples parallel execution from print order) --
 
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; rmdir "$lock_dir" 2>/dev/null || true' EXIT
 
 # record <step-n> <pass|fail|skip> <seconds> [reason]   (detail excerpt: $work/<n>.detail)
 record() {
@@ -339,10 +364,19 @@ track_c() {
     # Step 5: untracked secret files
     t0=$(now)
     local secret_pattern='(^|/)(\.env(\..+)?|.*\.key|.*\.pem|id_rsa|id_ed25519|id_ecdsa|aws-credentials|\.netrc)$'
-    local untracked
-    untracked=$(git status --porcelain 2>/dev/null | awk '$1 == "??" { print $2 }' | grep -E "$secret_pattern" || true)
+    # NUL-delimited so paths with spaces / special chars are matched (porcelain
+    # quotes such paths and a whitespace split would miss them).
+    local untracked="" entry path
+    while IFS= read -r -d '' entry; do
+        [ "${entry:0:2}" = "??" ] || continue
+        path="${entry:3}"
+        if printf '%s' "$path" | grep -qE "$secret_pattern"; then
+            untracked="${untracked}${path}
+"
+        fi
+    done < <(git status --porcelain -z 2>/dev/null)
     if [ -n "$untracked" ]; then
-        record 5 fail $(( $(now) - t0 )); printf '%s\n' "$untracked" > "$work/5.detail"
+        record 5 fail $(( $(now) - t0 )); printf '%s' "$untracked" > "$work/5.detail"
     else
         record 5 pass $(( $(now) - t0 ))
     fi
@@ -403,8 +437,14 @@ gate_start=$(now)
 track_b & b_pid=$!
 track_c & c_pid=$!
 track_a
-wait "$b_pid" 2>/dev/null || true
-wait "$c_pid" 2>/dev/null || true
+wait "$b_pid"; b_rc=$?
+wait "$c_pid"; c_rc=$?
+
+# A track that died on a signal (segfault, OOM-kill) leaves its remaining steps
+# unrecorded; the assembler below turns a missing status into a failure, so the
+# non-zero rc here is informational. Surface it so the cause is visible.
+[ "$b_rc" -ne 0 ] && echo "warning: lint/format track exited abnormally (rc=$b_rc)" >&2
+[ "$c_rc" -ne 0 ] && echo "warning: secret/gitignore track exited abnormally (rc=$c_rc)" >&2
 
 # ---- Assemble the numbered output in fixed order ----------------------------
 
@@ -421,7 +461,15 @@ total=7
 failures=0
 
 for n in 1 2 3 4 5 6 7; do
-    status=$(cat "$work/$n.status" 2>/dev/null || echo skip)
+    # A missing status means the responsible track died before recording this
+    # step (every code path otherwise calls `record`). Treat that as a failure,
+    # never a silent skip — a crashed lint/secret track must not pass the gate.
+    if [ -f "$work/$n.status" ]; then
+        status=$(cat "$work/$n.status")
+    else
+        status=fail
+        [ -s "$work/$n.detail" ] || printf 'check did not complete (track crashed before recording)' > "$work/$n.detail"
+    fi
     secs=$(cat "$work/$n.secs" 2>/dev/null || echo 0)
     reason=$(cat "$work/$n.reason" 2>/dev/null || true)
     t=""

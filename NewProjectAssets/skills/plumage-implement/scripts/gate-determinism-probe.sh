@@ -14,7 +14,8 @@
 # Exit codes:
 #   0  all N runs passed
 #   1  at least one run failed (the run logs are kept for inspection)
-#   2  environment problem (gate script not found, not in a git repo)
+#   2  environment problem (gate script not found, not in a git repo, or a run
+#      SKIPPED its tests so determinism cannot be assessed)
 
 set -uo pipefail
 
@@ -47,7 +48,18 @@ echo "Probing the default gate ${runs}x on ${commit} (logs: ${logdir})"
 pass=0
 fail=0
 for i in $(seq 1 "$runs"); do
-    if "$gate" --close-instances > "$logdir/run-$i.log" 2>&1; then
+    "$gate" --close-instances > "$logdir/run-$i.log" 2>&1
+    rc=$?
+    # The probe measures TEST determinism. If the Tests step was skipped (e.g. a
+    # running app instance wedged the launch), a green exit is vacuous — refuse
+    # to call the gate deterministic on data that never ran.
+    if grep -qE '^\[2/7\] Tests\.\.\. SKIP' "$logdir/run-$i.log"; then
+        echo "error: the Tests step was SKIPPED on run $i — cannot assess" >&2
+        echo "       determinism without tests actually running." >&2
+        echo "       (app instance running? see $logdir/run-$i.log)" >&2
+        exit 2
+    fi
+    if [ $rc -eq 0 ]; then
         pass=$((pass + 1))
         printf 'run %2d/%d: PASS\n' "$i" "$runs"
     else
