@@ -49,9 +49,23 @@ nonisolated struct ProductionGitProcessRunner: GitProcessRunning {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        // Await exit via terminationHandler, NOT Task.detached { waitUntilExit() }.
+        // waitUntilExit() spins a CFRunLoop on the calling thread to wait for the
+        // child-termination mach message; called from the Swift cooperative pool
+        // that wakeup races with Foundation's child-monitoring queue and is lost,
+        // so the call blocks forever even after the child has exited and both
+        // reads have EOF'd. terminationHandler fires on Foundation's own queue
+        // with no runloop dependency. Root-caused with a standalone repro:
+        // leaky form hung 2/2, this form passed 6/6 (#00057, notes.md/decisions.md).
+        let termination = GitProcessTermination()
+        process.terminationHandler = { finished in
+            termination.complete(finished.terminationStatus)
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             throw GitProcessRunnerError.spawnFailed(error.localizedDescription)
         }
 
@@ -62,11 +76,10 @@ nonisolated struct ProductionGitProcessRunner: GitProcessRunning {
             async let stderrData = Task.detached {
                 (try? stderrHandle.readToEnd()) ?? Data()
             }.value
-            async let exit: Int32 = Task.detached {
-                process.waitUntilExit()
-                return process.terminationStatus
-            }.value
-            let (out, err, code) = await (stdoutData, stderrData, exit)
+            let code = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+                termination.attach(continuation)
+            }
+            let (out, err) = await (stdoutData, stderrData)
             if Task.isCancelled { throw CancellationError() }
             return GitSpawnResult(exitCode: code, stdout: out, stderr: err)
         } onCancel: {
@@ -84,6 +97,41 @@ nonisolated struct ProductionGitProcessRunner: GitProcessRunning {
             try? await Task.sleep(for: .seconds(Self.cancellationGraceSeconds))
             if pid > 0, process.isRunning {
                 _ = Darwin.kill(pid, SIGKILL)
+            }
+        }
+    }
+}
+
+// Bridges Process.terminationHandler — which Foundation may invoke on its own
+// queue before OR after the awaiting continuation is installed — to a single
+// continuation resume. The lock makes the early-vs-late ordering race-free.
+// Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool
+// (#00057).
+nonisolated final class GitProcessTermination: Sendable {
+    private struct State {
+        var status: Int32?
+        var continuation: CheckedContinuation<Int32, Never>?
+    }
+
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
+
+    func complete(_ status: Int32) {
+        state.withLock { box in
+            if let continuation = box.continuation {
+                box.continuation = nil
+                continuation.resume(returning: status)
+            } else {
+                box.status = status
+            }
+        }
+    }
+
+    func attach(_ continuation: CheckedContinuation<Int32, Never>) {
+        state.withLock { box in
+            if let status = box.status {
+                continuation.resume(returning: status)
+            } else {
+                box.continuation = continuation
             }
         }
     }
