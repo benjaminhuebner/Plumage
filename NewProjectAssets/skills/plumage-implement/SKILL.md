@@ -73,33 +73,29 @@ For each unchecked task in the spec, in order:
 
 1. Update run-state: `phase: "running task <n>"`, `lastProgressAt` to now.
 2. **Implement.** Make the code changes the task describes. Read the spec section for context. Stay inside the task's scope — if a related change is needed, finish the current task first, then add a new task to the spec rather than silently expanding.
-3. **Build.** Run `swift build` for SwiftPM; for Xcode projects, use the matching `mcp__xcodebuildmcp__*` tool (use MCP discovery to find the right one for the project type). Zero warnings counts as failure — fix them in this task. Silencing a warning with `// swiftlint:disable` requires a one-line justification.
-4. **Test.** Run the test suite. New tests must be green. Existing tests must not regress. If the project has no tests at all, skip silently.
-5. **On pass:**
+3. **Default gate.** Run `scripts/precommit-gate.sh --close-instances` (add `--first-commit` on this run's first commit). The fast default gate is the per-task standard behind every commit (~15 s): it builds, runs the test suite minus `.integration`/`*UITests` suites, lints, and scans for secrets. Zero warnings is compiler-enforced (`SWIFT_TREAT_WARNINGS_AS_ERRORS`). A new test added in this task must be green; existing tests must not regress. If an earlier step already built via a higher-fidelity tool, pass `--skip-build`. For a non-code task (docs only) the gate's build/test are a fast no-op — still run it.
+4. **On pass:**
     - Tick the task and bump `updated:` in one shot: `scripts/spec-task-tick.py .claude/issues/<id-padded>-<slug>/spec.md --task 1`. The script counts only unchecked tasks under `## Tasks`, ignores `[ ]` inside fenced code blocks and other sections, and writes atomically. Calling it with `--task 1` always means "the next unchecked one".
     - Stage only the files this task touched: `git add <file> <file>...`. **Never** `git add -A` — unrelated dirty state (stale build artifacts, a config edit from another session) must not ride along in the commit.
     - Commit: `git commit -m "<imperative single-line message>"`. Present tense, no period, describes the result.
     - Update run-state: `lastCompletedTask: <n>`, `lastProgressAt` to now.
-6. **On fail:**
+5. **On fail:**
     - Try once more, applying whatever fix the build/test output points to.
     - Still failing → stop. Run-state: `phase: "failed at task <n>"`. Tell the user what failed, where, and what was tried. Do not commit broken code. Do not proceed to the next task.
 
-## Pre-commit gate
+## Final gate (`--full`)
 
-After the last task. Update run-state phase → `"pre-commit-gate"`.
+After the last task, before PR.md. Update run-state phase → `"pre-commit-gate"`.
 
 ```bash
-scripts/precommit-gate.sh --first-commit --close-instances  # first commit of this run
-scripts/precommit-gate.sh --close-instances                 # subsequent runs
+scripts/precommit-gate.sh --full --close-instances
 ```
 
-The script runs seven checks: build, tests, SwiftLint, swift-format, untracked-secret-files, hardcoded-secret-in-diff, and (first commit only) `.gitignore` sanity. See `references/precommit-gate.md` for the rationale per check and what failures mean.
+The default gate already ran behind every commit; this single `--full` pass adds the `.integration` suites and the swift-format full-tree sweep — the slow, real-I/O checks worth running once at the end (target ≤ 4 min, typically far less on a warm cache). Seven checks total: build, tests, SwiftLint, swift-format, untracked-secret-files, hardcoded-secret-in-diff, and (with `--first-commit`) `.gitignore` sanity. See `references/precommit-gate.md` for the rationale per check and what failures mean.
 
 `--close-instances` matters: a running instance of the app under test (a leftover `<app>.app`, or an Xcode Run/debug session held under `debugserver`) wedges xcodebuild's test launch into a multi-minute hang. With the flag the gate closes it (and a holding debugserver) before testing; without it, a running instance makes the gate skip the whole test step — on a TTY it prompts to close instead.
 
 Any failure stops the run; nothing is rolled back, the user decides. For `spike` issues the gate is optional — skip if the spec sets `skipPreCommitGate: true` in frontmatter.
-
-If an earlier task used the MCP build tool with higher-fidelity output, pass `--skip-build` here to avoid re-running the same compile against a clean CLI. The MCP build counts as the gate's build check when it has been used.
 
 ## Write PR.md
 
