@@ -3,7 +3,7 @@ import Testing
 
 @testable import Plumage
 
-@Suite("ProductionXcodeProcessRunner")
+@Suite("ProductionXcodeProcessRunner", .tags(.integration))
 struct ProductionXcodeProcessRunnerTests {
     @Test("captures stdout and exit code from /bin/echo")
     func runCapturesStdout() async throws {

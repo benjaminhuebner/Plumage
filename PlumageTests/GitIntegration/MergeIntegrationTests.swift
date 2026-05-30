@@ -3,7 +3,7 @@ import Testing
 
 @testable import Plumage
 
-@Suite("End-to-end merge against a real tmp git repo")
+@Suite("End-to-end merge against a real tmp git repo", .tags(.integration))
 struct MergeIntegrationTests {
     @Test(
         "happy path merges issue branch into main, flips spec status, deletes branch, signals kanban",

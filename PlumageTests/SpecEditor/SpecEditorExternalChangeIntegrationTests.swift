@@ -4,7 +4,7 @@ import Testing
 
 @testable import Plumage
 
-@Suite("SpecEditorExternalChange")
+@Suite("SpecEditorExternalChange", .tags(.integration))
 @MainActor
 struct SpecEditorExternalChangeIntegrationTests {
     @Test("Clean buffer silently reloads when disk content changes")

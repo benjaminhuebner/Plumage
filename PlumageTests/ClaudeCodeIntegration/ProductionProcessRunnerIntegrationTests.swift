@@ -3,7 +3,7 @@ import Testing
 
 @testable import Plumage
 
-@Suite("ProductionProcessRunner integration")
+@Suite("ProductionProcessRunner integration", .tags(.integration))
 struct ProductionProcessRunnerIntegrationTests {
     @Test("echoed version string parses through the detect pipeline")
     func happyDetect() async throws {
