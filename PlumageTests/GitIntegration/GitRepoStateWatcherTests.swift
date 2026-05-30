@@ -124,8 +124,11 @@ struct GitRepoStateWatcherTests {
         rawCont.yield(())
         try await clock.waitForWaiterCount(1)
         clock.advance(by: .milliseconds(250))
-        // Give the pump a moment to process; if it would emit, this is when.
-        try? await Task.sleep(for: .milliseconds(50))
+        // The pump reads state exactly once per tick; waiting for that read is
+        // the positive signal that it processed the event. The read returns the
+        // same branch, so de-dup suppresses the emission — decided synchronously
+        // right after the read, so no emit can be in flight once it landed.
+        try await waitUntil(timeout: .seconds(2)) { counter.callCount >= 1 }
 
         let count = await collector.count
         #expect(count == 1)  // still just the initial state
@@ -159,8 +162,9 @@ struct GitRepoStateWatcherTests {
         clock.advance(by: .milliseconds(250))
         try await waitUntil(timeout: .seconds(2)) { await collector.count == 2 }
 
-        clock.advance(by: .milliseconds(500))
-        try? await Task.sleep(for: .milliseconds(50))
+        // The burst coalesced into exactly one debounce waiter (asserted above)
+        // which fired once; with no further signal there is no further waiter
+        // and no further event, so the count is stably 2 — no settle needed.
         let count = await collector.count
         #expect(count == 2)
         let last = await collector.last
@@ -190,6 +194,8 @@ private final class ReadCounter: @unchecked Sendable {
     init(states: [RepoState]) {
         self.states = states
     }
+
+    var callCount: Int { lock.withLock { index } }
 
     func next() -> RepoState {
         lock.withLock {

@@ -41,9 +41,9 @@ struct ProjectKanbanModelHighlightTests {
         #expect(model.highlightedIssueID == "00002-b")
 
         try await clock.waitForWaiterCount(1)
+        // Still highlighted — only 900ms into a 1s window, so the clear waiter
+        // (registered above) cannot have fired; the state is deterministically held.
         clock.advance(by: .milliseconds(900))
-        // Still highlighted — only 900ms in.
-        try await Task.sleep(for: .milliseconds(50))
         #expect(model.highlightedIssueID == "00002-b")
 
         clock.advance(by: .milliseconds(200))
