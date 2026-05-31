@@ -281,16 +281,19 @@ final class ClaudeSession {
         // SIGTERM right away so the exit-await resolves instead of pinning
         // a cooperative thread indefinitely. Matches ProductionProcessRunner.
         let output: String = await withTaskCancellationHandler {
+            // Drain the shared stdout/stderr pipe in parallel with the exit-await,
+            // not after it: a subcommand emitting more than the ~64 KB pipe buffer
+            // before exit would block on write() and never terminate if we only
+            // read post-exit. Off the cooperative pool — readToEnd() is a blocking
+            // syscall. Matches the parallel-drain shape in ProductionProcessRunner.
+            async let data = Task.detached { () -> Data in
+                (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
+            }.value
             _ = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
                 termination.attach(continuation)
             }
-            // Read after exit (preserved shape), but off the cooperative pool —
-            // readToEnd() is a blocking syscall.
-            let data = await Task.detached { () -> Data in
-                (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-            }.value
             let text =
-                String(data: data, encoding: .utf8)?
+                String(data: await data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? "(no output)" : text
         } onCancel: {
