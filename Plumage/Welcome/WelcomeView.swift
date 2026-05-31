@@ -65,7 +65,8 @@ struct WelcomeView: View {
                     OpenProjectCommand.openWithPicker(
                         recentProjects: recentProjects,
                         openWindow: openWindow,
-                        dismissWindow: dismissWindow
+                        dismissWindow: dismissWindow,
+                        onMigrate: offerMigration
                     )
                 }
                 actionRow(
@@ -159,6 +160,15 @@ struct WelcomeView: View {
         OpenProjectCommand.openConfirmed(
             url: item.url,
             recentProjects: recentProjects,
+            openWindow: openWindow,
+            dismissWindow: dismissWindow
+        )
+    }
+
+    private func offerMigration(_ url: URL) {
+        MigrateProjectCommand.present(
+            for: url,
+            request: migrationRequest,
             openWindow: openWindow,
             dismissWindow: dismissWindow
         )
