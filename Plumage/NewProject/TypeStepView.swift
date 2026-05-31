@@ -1,10 +1,5 @@
 import SwiftUI
 
-// Step 1 — pick a template. A grid of framed-icon tiles, grouped under section
-// headers (Apple Apps / Server-side / Other), mirroring the Xcode template
-// chooser. Binds the picked `ProjectKind` back into the wizard model; the
-// container's "Next" stays disabled until one is set. No `.glassEffect` — these
-// are content-surface tiles, not navigation chrome (Liquid-Glass rule).
 struct TypeStepView: View {
     @Bindable var model: NewProjectModel
 

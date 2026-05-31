@@ -10,10 +10,8 @@ nonisolated enum ProjectScaffoldError: Error, Sendable, Equatable {
     case missingAssets(URL)
 }
 
-// Orchestrates `create(spec:)`: turns a NewProjectSpec into a fully openable
-// Plumage project on disk (workflow layer only — no Xcode project or sources).
-// The result loads through `BundleResolver` + `ConfigLoader` unchanged. On any
-// failure the freshly created tree is removed (best-effort) since it's ours.
+// On any failure the freshly created tree is removed (best-effort) — it's ours,
+// created fresh by this call.
 nonisolated struct ProjectScaffolder {
     let assetsRoot: URL
     let configCreator: ProjectConfigCreator

@@ -1,12 +1,6 @@
 import AppKit
 import SwiftUI
 
-// Detail-pane view for files Plumage doesn't edit in-app — Swift sources,
-// Xcode bundles, and any binary or unknown-type file. Shows the file's
-// basic metadata and offers a small set of explicit "open externally"
-// affordances: Xcode for code/project bundles, the default app, or Finder.
-// Single-clicking a file in the sidebar lands here; nothing is opened
-// automatically.
 struct FileInfoView: View {
     let fileURL: URL
 

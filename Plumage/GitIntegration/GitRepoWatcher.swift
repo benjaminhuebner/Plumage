@@ -4,12 +4,8 @@ nonisolated enum GitRepoChangeEvent: Equatable, Sendable {
     case changed
 }
 
-// Watches the `.git/` directory of a repo and emits a debounced `.changed`
-// event whenever HEAD, index, or the current branch ref changes — enough
-// signal to know a commit/checkout/rebase happened without polling.
-// FSEventSource is reused from IssueCore/Discovery; per decisions.md
-// 2026-05-20 (#00030) and 2026-05-22 (#00036) we keep the copy-by-reuse
-// pattern until a fourth caller justifies extracting a generic watcher.
+// FSEventSource + Debouncer are duplicated from IssueCore/Discovery by the
+// rule-of-three; a fourth caller would justify extracting a generic watcher.
 nonisolated final class GitRepoWatcher: Sendable {
     nonisolated let events: AsyncStream<GitRepoChangeEvent>
 

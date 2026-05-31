@@ -1,14 +1,8 @@
 import Foundation
 
-// Composes a project's CLAUDE.md from the base template plus the kind's layer
-// files. Pure: give it a templates directory and a spec, get back the rendered
-// CLAUDE.md and the concatenated skill keywords (for skill-body injection).
-//
-// Each layer file carries `%% SECTION %%` blocks; same-named sections are
-// concatenated in layer order, then dropped into the base template's
-// `<<<TOKEN>>>` slots. Scalar tokens (project name, stack summary, the nested
-// `<<<XCODE_MCP_LINE>>>`) are substituted last so they resolve even inside an
-// inlined section. A section with no contributions has its heading removed.
+// Scalar tokens (project name, stack summary, the nested `<<<XCODE_MCP_LINE>>>`)
+// are substituted last so they resolve even inside an inlined `%% SECTION %%`
+// block.
 nonisolated struct ClaudeMdComposer {
     let templatesDir: URL
 

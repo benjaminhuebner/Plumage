@@ -1,10 +1,5 @@
 import SwiftUI
 
-// Step 2 — project options on a single page: name + tagline and the Git
-// toggles. Replaces the former separate Metadata and Git steps. The name
-// auto-focuses on appear and gates "Create" once it's a valid folder name
-// (validation lives on the model). The three inclusion toggles only matter when
-// a repo is created, so they disable when the repo toggle is off.
 struct OptionsStepView: View {
     @Bindable var model: NewProjectModel
     @FocusState private var focused: Field?

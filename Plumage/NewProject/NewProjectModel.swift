@@ -1,11 +1,5 @@
 import Foundation
 
-// Wizard state for the New Project flow. UI-free so the validation and spec
-// assembly are unit-testable without a view. The actual scaffolding lives in
-// the `ProjectScaffolder` engine (#00054); this model only collects the inputs,
-// validates them per step, and bridges the off-Main create call. The target
-// directory itself comes from the macOS save panel at "Create" time, so the
-// model carries no location state.
 @MainActor
 @Observable
 final class NewProjectModel {
@@ -16,20 +10,16 @@ final class NewProjectModel {
 
     var currentStep: Step = .template
 
-    // Template step — nil until the user picks a kind, so "Next" stays disabled.
     var kind: ProjectKind?
 
-    // Options step — metadata
     var name: String = ""
     var tagline: String = ""
 
-    // Options step — git
     var createGitRepo: Bool = true
     var plumageInGit: Bool = true
     var claudeInGit: Bool = true
     var createGitignore: Bool = true
 
-    // Create state — driven by `create(at:)`, read by the view for progress/banner.
     var isCreating: Bool = false
     var errorMessage: String?
 
@@ -54,12 +44,11 @@ final class NewProjectModel {
         return !value.isEmpty && !value.contains("/") && value != "." && value != ".."
     }
 
-    // Git step is always valid: the toggles always describe a usable GitSetup.
+    // Always valid: the toggles always describe a usable GitSetup.
     var isGitStepValid: Bool {
         true
     }
 
-    // The options step bundles metadata + git; it gates on the metadata name.
     var isOptionsStepValid: Bool {
         isMetadataStepValid && isGitStepValid
     }
@@ -81,14 +70,12 @@ final class NewProjectModel {
         currentStep == Step.allCases.last
     }
 
-    // "Next" is offered on every step but the last; enabled once the current
-    // step validates.
     var canAdvance: Bool {
         !isLastStep && isValid(currentStep)
     }
 
-    // Gates the "Create" button before the save panel even opens. The final
-    // target directory (and thus the project name) comes from the panel.
+    // The final target directory (and thus the project name) comes from the save
+    // panel, so this gates only on type + name, not on a location.
     var canCreate: Bool {
         !isCreating
             && isTypeStepValid
@@ -147,7 +134,7 @@ final class NewProjectModel {
 
         do {
             // Off-Main: the scaffolder does synchronous disk I/O and a git
-            // subprocess. Pattern mirrors NavigatorModel's detached file work.
+            // subprocess.
             let created = try await Task.detached(priority: .userInitiated) {
                 try await ProjectScaffolder().create(spec: spec)
             }.value

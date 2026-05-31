@@ -1,8 +1,5 @@
 import Foundation
 
-// Pure suffix/basename-driven mapping from a project-relative path to the
-// detail view that should render it. Separated from `NavigatorDetail` so it
-// can be unit-tested without SwiftUI.
 nonisolated enum FileDetailViewKind: Equatable, Sendable {
     case doc
     case info

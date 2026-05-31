@@ -30,10 +30,8 @@ struct PlumageApp: App {
         }
         .environment(recentProjects)
 
-        // Single-instance: only one New Project session at a time. A second ⌘N
-        // (or Welcome button) brings the existing window forward. `.commandsRemoved`
-        // suppresses the auto "New Project" Window-menu item — the File > New
-        // command (NewProjectCommand) is the intended entry point.
+        // `.commandsRemoved()` suppresses the auto "New Project" Window-menu
+        // item; File > New (NewProjectCommand) is the intended entry point.
         Window("New Project", id: "new-project") {
             NewProjectWindowView()
                 .environment(recentProjects)

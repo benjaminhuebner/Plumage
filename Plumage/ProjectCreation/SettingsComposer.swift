@@ -1,10 +1,7 @@
 import Foundation
 
-// Builds `.claude/settings.json` for a project kind: the hook wiring (only the
-// hooks the profile selects, in the canonical event order) plus a permission
-// allowlist matching the kind's tooling. `settings.local.json` is intentionally
-// minimal — machine-specific paths and MCP opt-ins don't belong in a generated,
-// shared project.
+// `settings.local.json` is intentionally minimal: machine-specific paths and
+// MCP opt-ins don't belong in a generated, shared project.
 nonisolated struct SettingsComposer {
     // Canonical hook wiring. Order within an event is intentional: Bash safety
     // hooks before content scans; format before lint.

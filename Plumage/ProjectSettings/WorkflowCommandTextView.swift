@@ -1,11 +1,9 @@
 import AppKit
 
-// NSTextView subclass for the workflow command editor. Two overrides:
-// (a) `writeSelection(to:types:)` ensures that Cmd-C on a selection containing
-//     placeholder chips writes the placeholder tokens (`<slug>` etc.) as plain
-//     text on the pasteboard, not attachment-archive garbage; (b) the same
-//     conversion applies to any drag-out, so dragging a chip into Finder/Notes
-//     yields `<slug>`-style text.
+// The two overrides make placeholder chips copy and drag out as their plain
+// `<slug>` tokens — `writeSelection(to:types:)` for Cmd-C, the drag-out path
+// for dropping a chip into Finder/Notes. Without them AppKit writes
+// attachment-archive bytes instead of text.
 final class WorkflowCommandTextView: NSTextView {
     override func writeSelection(
         to pboard: NSPasteboard,

@@ -1,10 +1,5 @@
 import Foundation
 
-// Appends path patterns to a repo's `.git/info/exclude` — the local, uncommitted
-// ignore list. Used to keep agent files (`.claude/`, `.plumage/`, `.mcp.json`)
-// out of a repo when the user opted not to track them, without writing a shared
-// `.gitignore`. Pure FileManager work, no git subcommand. Idempotent: lines that
-// already exist are not re-appended.
 nonisolated struct GitExcludeWriter {
     func append(paths: [String], repoURL: URL) throws {
         let toWrite = paths.filter { !$0.isEmpty }

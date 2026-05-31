@@ -18,8 +18,7 @@ struct WelcomeView: View {
                 .frame(width: Self.leftPaneWidth)
             rightPane
         }
-        // Scopes the "New Project… ⌘N" menu command to the focused Welcome
-        // scene; the command opens the standalone New Project window (#00060).
+        // Scopes the "New Project… ⌘N" menu command to the focused Welcome scene.
         .focusedSceneValue(\.newProjectAvailable, true)
         // min/ideal pair instead of a hard width/height: a hard `.frame(width:height:)`
         // on a Window scene root historically wedged XCUITest auto-terminate
