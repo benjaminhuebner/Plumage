@@ -21,15 +21,16 @@ struct DiffTabModelTests {
 
     private func waitForState(
         _ model: DiffTabModel,
-        until predicate: @escaping @MainActor (DiffTabModel.State) -> Bool,
+        until predicate: @escaping @Sendable @MainActor (DiffTabModel.State) -> Bool,
         timeout: Duration = .seconds(2)
     ) async throws {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if predicate(model.state) { return }
-            try? await Task.sleep(for: .milliseconds(20))
+        do {
+            try await waitUntil(timeout: timeout) {
+                await MainActor.run { predicate(model.state) }
+            }
+        } catch {
+            Issue.record("timeout waiting for state, last = \(model.state)")
         }
-        Issue.record("timeout waiting for state, last = \(model.state)")
     }
 
     @Test("reload transitions to .diff([...]) on non-empty parsed diff")

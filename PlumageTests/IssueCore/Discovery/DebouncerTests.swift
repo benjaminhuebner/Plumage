@@ -20,13 +20,14 @@ struct DebouncerTests {
         clock.advance(by: .milliseconds(250))
         try await waitUntil(timeout: .seconds(2)) { await collector.count == 1 }
 
+        // Advance past the window with no new signal: no waiter is pending, so
+        // no further event may arrive. Drain the consumer via finish() and
+        // assert — a spurious event would have been yielded and counted before
+        // the stream finished.
         clock.advance(by: .milliseconds(500))
-        try? await Task.sleep(for: .milliseconds(50))
-        let final = await collector.count
-        #expect(final == 1)
-
         await debouncer.finish()
         await consumer.value
+        #expect(await collector.count == 1)
     }
 
     @Test("one signal then advance past window yields one event")
@@ -85,14 +86,14 @@ struct DebouncerTests {
         _ = await consumer.value
 
         await debouncer.signal()
-        // Advance well past the debounce window; nothing should reach the
-        // already-terminated consumer.
+        try await clock.waitForWaiterCount(1)
+        // Advance well past the debounce window; the resulting event has no live
+        // consumer to reach. finish() drains, then we assert nothing was counted.
         clock.advance(by: .milliseconds(500))
-        try? await Task.sleep(for: .milliseconds(50))
-
-        let count = await collector.count
-        #expect(count == 0)
         await debouncer.finish()
+
+        let finalCount = await collector.count
+        #expect(finalCount == 0)
     }
 
     @Test("finish during a pending debounce yields no event")

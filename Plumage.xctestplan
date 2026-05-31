@@ -1,0 +1,28 @@
+{
+  "configurations" : [
+    {
+      "id" : "B0000000-0000-0000-0000-0000000000D1",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:Plumage.xcodeproj",
+      "identifier" : "CA46013C2FB2F26800CAD6C3",
+      "name" : "Plumage"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:Plumage.xcodeproj",
+        "identifier" : "CA46014B2FB2F26900CAD6C3",
+        "name" : "PlumageTests"
+      }
+    }
+  ],
+  "version" : 1
+}

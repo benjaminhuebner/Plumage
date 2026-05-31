@@ -105,13 +105,11 @@ private func waitFor(
     timeout: Duration,
     _ condition: @Sendable () async -> Bool
 ) async throws {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: timeout)
-    while clock.now < deadline {
-        if await condition() { return }
-        try await Task.sleep(for: .milliseconds(5))
+    do {
+        try await waitUntil(timeout: timeout, condition: condition)
+    } catch {
+        Issue.record("condition not satisfied in time")
     }
-    Issue.record("condition not satisfied in time")
 }
 
 // Test runner that emits a scripted sequence on demand. `complete()` waits
@@ -149,7 +147,7 @@ private final class ScriptedSyncRunner: GitSyncing, @unchecked Sendable {
             completionContinuation = cont
             lock.unlock()
         }
-        // Yield one extra tick so the model's consume() loop catches up.
-        try? await Task.sleep(for: .milliseconds(20))
+        // Callers follow with a waitFor/waitForFinished poll that converges on
+        // the model's final state, so no fixed settle is needed here.
     }
 }

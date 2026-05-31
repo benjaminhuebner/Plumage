@@ -56,9 +56,19 @@ nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
         // hanging the subprocess (we detect the error pattern downstream).
         process.standardInput = FileHandle.nullDevice
 
+        // Same fix as ProductionGitProcessRunner (#00057): await exit via
+        // terminationHandler, not Task.detached { waitUntilExit() }. The latter
+        // spins a CFRunLoop on a cooperative-pool thread whose wakeup races with
+        // Foundation's child-monitoring queue and is lost, hanging forever.
+        let termination = GitProcessTermination()
+        process.terminationHandler = { finished in
+            termination.complete(finished.terminationStatus)
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             throw GitProcessRunnerError.spawnFailed(error.localizedDescription)
         }
 
@@ -91,15 +101,12 @@ nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
             }
         }
 
-        // Outcome awaitable. waitUntilExit runs off-actor so the caller
-        // doesn't block.
+        // Outcome awaitable — resolves from the terminationHandler set above.
         let outcome: @Sendable () async -> GitStreamOutcome = {
-            await withCheckedContinuation { (cont: CheckedContinuation<GitStreamOutcome, Never>) in
-                Task.detached {
-                    process.waitUntilExit()
-                    cont.resume(returning: GitStreamOutcome(exitCode: process.terminationStatus))
-                }
+            let code = await withCheckedContinuation { (cont: CheckedContinuation<Int32, Never>) in
+                termination.attach(cont)
             }
+            return GitStreamOutcome(exitCode: code)
         }
 
         return (lineStream, outcome)

@@ -10,7 +10,7 @@ struct XcodeRunModelTests {
     func discoversNoProject() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let model = await makeModel(stubProject: false)
+        let model = makeModel(stubProject: false)
         await model.discover(projectURL: dir)
         #expect(model.discoveryState == .noProject)
         #expect(model.projectRef == nil)
@@ -23,7 +23,7 @@ struct XcodeRunModelTests {
         let proj = dir.appendingPathComponent("Demo.xcodeproj")
         try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
 
-        let model = await makeModel()
+        let model = makeModel()
         await model.discover(projectURL: dir)
         #expect(model.discoveryState == .ready)
         #expect(model.projectRef?.kind == .project)
@@ -39,7 +39,7 @@ struct XcodeRunModelTests {
         let proj = dir.appendingPathComponent("Demo.xcodeproj")
         try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
 
-        let model = await XcodeRunModel(
+        let model = XcodeRunModel(
             xcodebuildRunner: XcodebuildRunner(
                 runner: MockXcodeProcessRunner(),
                 toolchain: { nil }),
@@ -61,7 +61,7 @@ struct XcodeRunModelTests {
         let proj = dir.appendingPathComponent("Demo.xcodeproj")
         try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
 
-        let model = await makeModel()
+        let model = makeModel()
         await model.discover(projectURL: dir)
         await model.selectScheme("PlumageTests")
         #expect(model.selectedScheme == "PlumageTests")
@@ -76,7 +76,7 @@ struct XcodeRunModelTests {
         let proj = dir.appendingPathComponent("Demo.xcodeproj")
         try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
 
-        let model = await makeModel()
+        let model = makeModel()
         await model.discover(projectURL: dir)
         // simctl fixture's iOS-26-5 group has iPad Pro 13 + iPhone 17 Pro available.
         let sim: XcodeDestination = .simulator(
@@ -100,7 +100,7 @@ struct XcodeRunModelTests {
         let proj = dir.appendingPathComponent("Demo.xcodeproj")
         try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
 
-        let model = await makeModel()
+        let model = makeModel()
         await model.discover(projectURL: dir)
         await model.restoreSelections(
             scheme: "PlumageTests",
@@ -116,7 +116,7 @@ struct XcodeRunModelTests {
 
     @Test("log buffer caps at logCap entries")
     func logCap() async {
-        let model = await makeModel(stubProject: false)
+        let model = makeModel(stubProject: false)
         for index in 0..<(XcodeRunModel.logCap + 50) {
             model.appendLog("line \(index)")
         }
@@ -219,7 +219,7 @@ struct XcodeRunModelTests {
                 stderr: Data()
             ))
         let simMock = MockXcodeProcessRunner()
-        let model = await XcodeRunModel(
+        let model = XcodeRunModel(
             xcodebuildRunner: XcodebuildRunner(
                 runner: xcodebuildMock,
                 toolchain: { URL(fileURLWithPath: "/usr/bin/xcodebuild") }),

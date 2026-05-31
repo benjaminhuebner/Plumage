@@ -3,7 +3,7 @@ import Testing
 
 @testable import Plumage
 
-@Suite("IssueWatcher (integration)")
+@Suite("IssueWatcher (integration)", .tags(.integration))
 struct IssueWatcherIntegrationTests {
     @Test("modifying spec.md emits at least one changed event")
     func specEditEmitsEvent() async throws {

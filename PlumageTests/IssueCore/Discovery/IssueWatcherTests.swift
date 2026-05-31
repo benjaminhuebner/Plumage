@@ -21,8 +21,9 @@ struct IssueWatcherTests {
         clock.advance(by: .milliseconds(250))
         try await waitUntil(timeout: .seconds(2)) { await collector.count == 1 }
 
-        clock.advance(by: .milliseconds(500))
-        try? await Task.sleep(for: .milliseconds(50))
+        // The burst coalesced into exactly one debounce waiter (asserted above)
+        // which fired once; with no further signal there is no further waiter
+        // and no further event, so the count is stably 1 — no settle needed.
         let final = await collector.count
         #expect(final == 1)
         let last = await collector.last

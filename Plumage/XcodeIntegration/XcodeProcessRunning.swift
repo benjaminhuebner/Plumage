@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 nonisolated struct XcodeSpawnResult: Sendable, Equatable {
     let exitCode: Int32
@@ -57,9 +58,20 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        // Await exit via terminationHandler, NOT Task.detached { waitUntilExit() }.
+        // waitUntilExit() spins a CFRunLoop on the calling thread; on the Swift
+        // cooperative pool that wakeup races with Foundation's child-monitoring
+        // queue and is lost, blocking forever. terminationHandler fires on
+        // Foundation's own queue. Same fix as #00057's git runner; #00058 here.
+        let termination = XcodeProcessTermination()
+        process.terminationHandler = { finished in
+            termination.complete(finished.terminationStatus)
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             throw XcodeProcessRunnerError.spawnFailed(error.localizedDescription)
         }
 
@@ -70,11 +82,10 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
             async let stderrData = Task.detached {
                 (try? stderrHandle.readToEnd()) ?? Data()
             }.value
-            async let exit: Int32 = Task.detached {
-                process.waitUntilExit()
-                return process.terminationStatus
-            }.value
-            let (out, err, code) = await (stdoutData, stderrData, exit)
+            let code = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+                termination.attach(continuation)
+            }
+            let (out, err) = await (stdoutData, stderrData)
             if Task.isCancelled { throw CancellationError() }
             return XcodeSpawnResult(exitCode: code, stdout: out, stderr: err)
         } onCancel: {
@@ -99,9 +110,17 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
 
+        // Await exit via terminationHandler, not waitUntilExit() — same
+        // cooperative-pool deadlock fix as run() above (#00057 / #00058).
+        let termination = XcodeProcessTermination()
+        process.terminationHandler = { finished in
+            termination.complete(finished.terminationStatus)
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             throw XcodeProcessRunnerError.spawnFailed(error.localizedDescription)
         }
 
@@ -129,14 +148,15 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
         }
 
         return try await withTaskCancellationHandler {
-            async let exit: Int32 = Task.detached {
-                process.waitUntilExit()
-                return process.terminationStatus
-            }.value
             for await line in stream {
                 onLine(line)
             }
-            let code = await exit
+            // Stream EOF means the child closed its pipe ends, i.e. it has
+            // exited; terminationHandler has fired (or is about to) — the box
+            // resolves either ordering race-free.
+            let code = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+                termination.attach(continuation)
+            }
             if Task.isCancelled { throw CancellationError() }
             return code
         } onCancel: {
@@ -157,6 +177,43 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
             try? await Task.sleep(for: .seconds(Self.cancellationGraceSeconds))
             if pid > 0, process.isRunning {
                 _ = Darwin.kill(pid, SIGKILL)
+            }
+        }
+    }
+}
+
+// Bridges Process.terminationHandler — which Foundation may invoke on its own
+// queue before OR after the awaiting continuation is installed — to a single
+// continuation resume. The lock makes the early-vs-late ordering race-free.
+// Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool
+// (#00057 root cause, #00058 applies the fix to the Xcode runner). Per-domain
+// copy of GitProcessTermination — decisions.md 2026-05-25 #00042 keeps the
+// subprocess runners duplicated per domain rather than extracting a shared box.
+nonisolated final class XcodeProcessTermination: Sendable {
+    private struct State {
+        var status: Int32?
+        var continuation: CheckedContinuation<Int32, Never>?
+    }
+
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
+
+    func complete(_ status: Int32) {
+        state.withLock { box in
+            if let continuation = box.continuation {
+                box.continuation = nil
+                continuation.resume(returning: status)
+            } else {
+                box.status = status
+            }
+        }
+    }
+
+    func attach(_ continuation: CheckedContinuation<Int32, Never>) {
+        state.withLock { box in
+            if let status = box.status {
+                continuation.resume(returning: status)
+            } else {
+                box.continuation = continuation
             }
         }
     }

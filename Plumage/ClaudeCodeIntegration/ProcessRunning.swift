@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 nonisolated protocol ProcessRunning: Sendable {
     func detectVersion() async throws -> VersionCheck
@@ -83,25 +84,36 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        // Await exit via terminationHandler, NOT Task.detached { waitUntilExit() }.
+        // waitUntilExit() spins a CFRunLoop on the calling thread; on the Swift
+        // cooperative pool that child-termination wakeup races with Foundation's
+        // child-monitoring queue and is lost, blocking forever. terminationHandler
+        // fires on Foundation's own queue, no runloop, no thread affinity.
+        // Same fix as ProductionGitProcessRunner (#00057); applied here per #00058.
+        let termination = ClaudeProcessTermination()
+        process.terminationHandler = { finished in
+            termination.complete(finished.terminationStatus)
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             throw ProcessRunnerError.spawnFailed(error.localizedDescription)
         }
 
         return try await withTaskCancellationHandler {
-            // Drain stdout/stderr in parallel with waitUntilExit to avoid pipe-buffer deadlock.
+            // Drain stdout/stderr in parallel with the exit-await to avoid pipe-buffer deadlock.
             async let stdoutData = Task.detached {
                 (try? stdoutHandle.readToEnd()) ?? Data()
             }.value
             async let stderrData = Task.detached {
                 (try? stderrHandle.readToEnd()) ?? Data()
             }.value
-            async let exit: Int32 = Task.detached {
-                process.waitUntilExit()
-                return process.terminationStatus
-            }.value
-            let (out, err, code) = await (stdoutData, stderrData, exit)
+            let code = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+                termination.attach(continuation)
+            }
+            let (out, err) = await (stdoutData, stderrData)
             if Task.isCancelled {
                 throw CancellationError()
             }
@@ -119,6 +131,43 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
                 if pid > 0, process.isRunning {
                     _ = Darwin.kill(pid, SIGKILL)
                 }
+            }
+        }
+    }
+}
+
+// Bridges Process.terminationHandler — which Foundation may invoke on its own
+// queue before OR after the awaiting continuation is installed — to a single
+// continuation resume. The lock makes the early-vs-late ordering race-free.
+// Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool
+// (#00057 root cause, #00058 applies the fix to the Claude runner). Per-domain
+// copy of GitProcessTermination — decisions.md 2026-05-25 #00042 keeps the
+// subprocess runners duplicated per domain rather than extracting a shared box.
+nonisolated final class ClaudeProcessTermination: Sendable {
+    private struct State {
+        var status: Int32?
+        var continuation: CheckedContinuation<Int32, Never>?
+    }
+
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
+
+    func complete(_ status: Int32) {
+        state.withLock { box in
+            if let continuation = box.continuation {
+                box.continuation = nil
+                continuation.resume(returning: status)
+            } else {
+                box.status = status
+            }
+        }
+    }
+
+    func attach(_ continuation: CheckedContinuation<Int32, Never>) {
+        state.withLock { box in
+            if let status = box.status {
+                continuation.resume(returning: status)
+            } else {
+                box.continuation = continuation
             }
         }
     }
