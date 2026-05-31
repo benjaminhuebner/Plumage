@@ -34,14 +34,17 @@ struct NewProjectWindowView: View {
         .frame(minWidth: 640, idealWidth: 720, minHeight: 460, idealHeight: 520)
     }
 
+    // The window title bar already reads "New Project", so the content header
+    // leads with the current step instead of duplicating it.
     private var header: some View {
         HStack(spacing: 14) {
-            Image(systemName: "plus.square.on.square")
-                .font(.system(size: 26))
+            Image(systemName: stepIcon)
+                .font(.system(size: 24))
                 .foregroundStyle(.tint)
+                .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
-                Text("New Project")
-                    .font(.title2.weight(.semibold))
+                Text(stepHeadline)
+                    .font(.title3.weight(.semibold))
                 Text(stepTitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -108,10 +111,24 @@ struct NewProjectWindowView: View {
         .background(Color.red.opacity(0.1))
     }
 
+    private var stepHeadline: String {
+        switch model.currentStep {
+        case .template: "Choose a Template"
+        case .options: "Project Options"
+        }
+    }
+
     private var stepTitle: String {
         switch model.currentStep {
-        case .template: "Choose a template for your new project"
-        case .options: "Configure your project"
+        case .template: "Pick a starting point for your new project."
+        case .options: "Name your project and set up Git."
+        }
+    }
+
+    private var stepIcon: String {
+        switch model.currentStep {
+        case .template: "square.grid.2x2"
+        case .options: "slider.horizontal.3"
         }
     }
 
