@@ -9,6 +9,10 @@ import SwiftUI
 // path reuses `OpenProjectCommand.openConfirmed` and then closes this window.
 struct NewProjectWindowView: View {
     @State private var model = NewProjectModel()
+    // Tracks whether this session ended in a created project, so the close
+    // handler knows whether to bring Welcome back (cancel/close) or leave it
+    // closed (success — the project window takes over).
+    @State private var didCreate = false
     @Environment(\.dismiss) private var dismiss
     @Environment(RecentProjects.self) private var recentProjects
     @Environment(\.openWindow) private var openWindow
@@ -31,13 +35,22 @@ struct NewProjectWindowView: View {
 
             footer
         }
-        .frame(minWidth: 640, idealWidth: 720, minHeight: 460, idealHeight: 520)
-        // A single-instance `Window` keeps its `@State` across close/reopen, so
-        // every close (Cancel, the title-bar close button, or a successful
-        // create) must clear the model — otherwise the next New Project session
-        // would resume the previous one's step, name, and selection. The save
-        // panel is app-modal and doesn't remove this view, so it won't trip this.
-        .onDisappear { model = NewProjectModel() }
+        .frame(minWidth: 640, idealWidth: 720, minHeight: 500, idealHeight: 560)
+        // Opening New Project closes Welcome (the window replaces it), so a
+        // close that didn't create a project must bring Welcome back —
+        // otherwise the app would be left with no window. On success Welcome
+        // stays closed; the project window takes over.
+        //
+        // A single-instance `Window` also keeps its `@State` across close/reopen,
+        // so every close must clear the model and the create flag — otherwise the
+        // next session would resume this one's step, name, selection, and outcome.
+        // The save panel is app-modal and doesn't remove this view, so it won't
+        // trip this.
+        .onDisappear {
+            if !didCreate { openWindow(id: "welcome") }
+            model = NewProjectModel()
+            didCreate = false
+        }
     }
 
     // The window title bar already reads "New Project", so the content header
@@ -163,6 +176,7 @@ struct NewProjectWindowView: View {
             // errorMessage drives the banner and the window stays on the options
             // page. Directory cleanup on failure is the engine's responsibility.
             if case .success(let created) = result {
+                didCreate = true
                 OpenProjectCommand.openConfirmed(
                     url: created.root,
                     recentProjects: recentProjects,

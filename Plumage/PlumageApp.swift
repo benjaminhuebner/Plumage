@@ -39,8 +39,9 @@ struct PlumageApp: App {
                 .environment(recentProjects)
         }
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 720, height: 520)
+        .defaultSize(width: 720, height: 560)
         .defaultPosition(.center)
+        .restorationBehavior(.disabled)
         .commandsRemoved()
 
         WindowGroup("Project", for: ProjectHandle.self) { $handle in

@@ -13,11 +13,13 @@ extension FocusedValues {
 struct NewProjectCommand: Commands {
     @FocusedValue(\.newProjectAvailable) private var available
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("New Project…") {
                 openWindow(id: "new-project")
+                dismissWindow(id: "welcome")
             }
             .keyboardShortcut("n", modifiers: .command)
             .disabled(available == nil)

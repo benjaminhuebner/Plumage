@@ -55,6 +55,7 @@ struct WelcomeView: View {
                     subtitle: "Scaffold a fresh Plumage project"
                 ) {
                     openWindow(id: "new-project")
+                    dismissWindow(id: "welcome")
                 }
                 actionRow(
                     systemImage: "folder.badge.plus",
