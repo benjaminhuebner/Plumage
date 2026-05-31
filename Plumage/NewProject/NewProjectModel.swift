@@ -2,43 +2,34 @@ import Foundation
 
 // Wizard state for the New Project flow. UI-free so the validation and spec
 // assembly are unit-testable without a view. The actual scaffolding lives in
-// the `ProjectScaffolder` engine (#00054); this model only collects a
-// `NewProjectSpec`, validates it per step, and bridges the off-Main create call.
+// the `ProjectScaffolder` engine (#00054); this model only collects the inputs,
+// validates them per step, and bridges the off-Main create call. The target
+// directory itself comes from the macOS save panel at "Create" time, so the
+// model carries no location state.
 @MainActor
 @Observable
 final class NewProjectModel {
     enum Step: Int, CaseIterable {
-        case type
-        case metadata
-        case git
-        case location
+        case template
+        case options
     }
 
-    var currentStep: Step = .type
+    var currentStep: Step = .template
 
-    // Step 1 — nil until the user picks a kind, so "Next" stays disabled.
+    // Template step — nil until the user picks a kind, so "Next" stays disabled.
     var kind: ProjectKind?
 
-    // Step 2
+    // Options step — metadata
     var name: String = ""
     var tagline: String = ""
 
-    // Step 3
+    // Options step — git
     var createGitRepo: Bool = true
     var plumageInGit: Bool = true
     var claudeInGit: Bool = true
     var createGitignore: Bool = true
 
-    // Step 4
-    var parentDirectory: URL?
-    // Snapshot of whether `projectDirectory` already exists on disk. Filesystem
-    // state isn't observable, so a plain computed check would let the collision
-    // warning and the "Create" gating drift out of sync (one body re-renders, the
-    // other doesn't). Refreshing this stored value at defined moments keeps every
-    // reader consistent.
-    private(set) var targetExists: Bool = false
-
-    // Create state — driven by `create()`, read by the view for progress/banner.
+    // Create state — driven by `create(at:)`, read by the view for progress/banner.
     var isCreating: Bool = false
     var errorMessage: String?
 
@@ -50,23 +41,6 @@ final class NewProjectModel {
 
     var trimmedTagline: String {
         tagline.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    // Project folder is `<parent>/<name>` — the user names the project in step 2,
-    // so step 4 only picks the parent directory.
-    var projectDirectory: URL? {
-        guard let parentDirectory, isMetadataStepValid else { return nil }
-        return parentDirectory.appending(path: trimmedName, directoryHint: .isDirectory)
-    }
-
-    // Re-snapshot `targetExists` from disk. Call when the inputs that determine
-    // the target path settle: the parent is picked, or the location step appears.
-    func refreshTargetExists() {
-        guard let projectDirectory else {
-            targetExists = false
-            return
-        }
-        targetExists = FileManager.default.fileExists(atPath: projectDirectory.path)
     }
 
     // MARK: - Per-step validation (pure)
@@ -85,16 +59,15 @@ final class NewProjectModel {
         true
     }
 
-    var isLocationStepValid: Bool {
-        projectDirectory != nil && !targetExists
+    // The options step bundles metadata + git; it gates on the metadata name.
+    var isOptionsStepValid: Bool {
+        isMetadataStepValid && isGitStepValid
     }
 
     func isValid(_ step: Step) -> Bool {
         switch step {
-        case .type: isTypeStepValid
-        case .metadata: isMetadataStepValid
-        case .git: isGitStepValid
-        case .location: isLocationStepValid
+        case .template: isTypeStepValid
+        case .options: isOptionsStepValid
         }
     }
 
@@ -114,11 +87,12 @@ final class NewProjectModel {
         !isLastStep && isValid(currentStep)
     }
 
+    // Gates the "Create" button before the save panel even opens. The final
+    // target directory (and thus the project name) comes from the panel.
     var canCreate: Bool {
         !isCreating
             && isTypeStepValid
             && isMetadataStepValid
-            && isLocationStepValid
     }
 
     func advance() {
@@ -133,12 +107,14 @@ final class NewProjectModel {
 
     // MARK: - Spec assembly
 
-    var assembledSpec: NewProjectSpec? {
-        guard
-            let kind,
-            let projectDirectory,
-            isMetadataStepValid
-        else { return nil }
+    // Build the engine input from the save-panel result. The panel URL is
+    // authoritative: the project folder and the recorded name follow
+    // `projectDirectory.lastPathComponent`, not the options-field value (the
+    // user may have edited the name inside the panel).
+    func assembledSpec(projectDirectory: URL) -> NewProjectSpec? {
+        guard let kind else { return nil }
+        let name = projectDirectory.lastPathComponent
+        guard !name.isEmpty, name != ".", name != ".." else { return nil }
 
         let git =
             createGitRepo
@@ -150,7 +126,7 @@ final class NewProjectModel {
 
         return NewProjectSpec(
             kind: kind,
-            name: trimmedName,
+            name: name,
             tagline: trimmedTagline,
             projectDirectory: projectDirectory,
             git: git)
@@ -158,8 +134,8 @@ final class NewProjectModel {
 
     // MARK: - Create (State-as-Bridge)
 
-    func create() async -> Result<CreatedProject, Error> {
-        guard let spec = assembledSpec else {
+    func create(at projectDirectory: URL) async -> Result<CreatedProject, Error> {
+        guard let spec = assembledSpec(projectDirectory: projectDirectory) else {
             let error = NewProjectError.incompleteForm
             errorMessage = Self.message(for: error)
             return .failure(error)
