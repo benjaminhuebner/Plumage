@@ -27,12 +27,16 @@ struct ClaudeDockPanel: View {
         // receives the drop. Applied after the glass, it inserts the dropped
         // paths into the chat draft (#00059).
         .dropDestination(for: URL.self) { urls, _ in
+            // Only accept when the chat input is actually on screen — see
+            // `acceptsFileDrop`. Otherwise the drop would write into a
+            // draftMessage the MissingClaudeView never shows, a silent black hole.
+            guard acceptsFileDrop else { return false }
             let files = urls.filter(\.isFileURL)
             guard !files.isEmpty else { return false }
             appendDroppedPaths(files)
             return true
         } isTargeted: {
-            isDropTargeted = $0
+            isDropTargeted = acceptsFileDrop && $0
         }
         .overlay {
             if isDropTargeted {
@@ -52,6 +56,17 @@ struct ClaudeDockPanel: View {
 
     func close() {
         isOpen = false
+    }
+
+    // Mirrors the `content` switch: the chat input (and thus draftMessage) only
+    // exists while claude is loading or ready. In the missing/unsupported/failed
+    // states MissingClaudeView is shown with no input, so a file drop has nowhere
+    // visible to land.
+    private var acceptsFileDrop: Bool {
+        switch indicatorState {
+        case .loading, .ok: return true
+        case .missing, .unsupported, .failed: return false
+        }
     }
 
     private func appendDroppedPaths(_ urls: [URL]) {
