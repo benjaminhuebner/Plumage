@@ -5,6 +5,7 @@ import SwiftUI
 struct PlumageApp: App {
     @NSApplicationDelegateAdaptor(PlumageAppDelegate.self) private var appDelegate
     @State private var recentProjects = RecentProjects()
+    @State private var migrationRequest = MigrationRequest()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -29,12 +30,24 @@ struct PlumageApp: App {
             NewProjectCommand()
         }
         .environment(recentProjects)
+        .environment(migrationRequest)
 
         // `.commandsRemoved()` suppresses the auto "New Project" Window-menu
         // item; File > New (NewProjectCommand) is the intended entry point.
         Window("New Project", id: "new-project") {
             NewProjectWindowView()
                 .environment(recentProjects)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 720, height: 560)
+        .defaultPosition(.center)
+        .restorationBehavior(.disabled)
+        .commandsRemoved()
+
+        Window("Migrate Project", id: "migrate-project") {
+            MigrateProjectWindowView()
+                .environment(recentProjects)
+                .environment(migrationRequest)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 720, height: 560)
@@ -65,6 +78,7 @@ struct PlumageApp: App {
         }
         .restorationBehavior(.disabled)
         .environment(recentProjects)
+        .environment(migrationRequest)
     }
 
     private func drainPendingURLs() {
