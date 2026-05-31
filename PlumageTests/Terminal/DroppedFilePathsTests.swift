@@ -5,36 +5,42 @@ import Testing
 
 @Suite("DroppedFilePaths")
 struct DroppedFilePathsTests {
-    @Test("single path is single-quoted with a trailing space")
+    @Test("whitespace-free path is inserted bare with a trailing space")
     func singlePath() {
         let url = URL(fileURLWithPath: "/Users/me/notes.txt")
-        #expect(DroppedFilePaths.insertionText(for: [url]) == "'/Users/me/notes.txt' ")
+        #expect(DroppedFilePaths.insertionText(for: [url]) == "/Users/me/notes.txt ")
     }
 
-    @Test("multiple paths are space-joined, each quoted, one trailing space")
+    @Test("multiple paths are space-joined, one trailing space")
     func multiplePaths() {
         let urls = [
             URL(fileURLWithPath: "/a/one.txt"),
             URL(fileURLWithPath: "/b/two.png"),
         ]
-        #expect(DroppedFilePaths.insertionText(for: urls) == "'/a/one.txt' '/b/two.png' ")
+        #expect(DroppedFilePaths.insertionText(for: urls) == "/a/one.txt /b/two.png ")
     }
 
-    @Test("path with spaces stays inside one quoted token")
+    @Test("path with spaces is double-quoted so it stays one token")
     func pathWithSpaces() {
         let url = URL(fileURLWithPath: "/Users/me/My Project/main file.swift")
         #expect(
             DroppedFilePaths.insertionText(for: [url])
-                == "'/Users/me/My Project/main file.swift' "
+                == "\"/Users/me/My Project/main file.swift\" "
         )
     }
 
-    @Test("single quote in path is POSIX-escaped")
-    func pathWithSingleQuote() {
+    @Test("apostrophe in a whitespace-free path stays literal, unquoted")
+    func pathWithApostropheNoSpace() {
+        let url = URL(fileURLWithPath: "/Users/me/it's.txt")
+        #expect(DroppedFilePaths.insertionText(for: [url]) == "/Users/me/it's.txt ")
+    }
+
+    @Test("apostrophe inside a spaced path stays literal within the double quotes")
+    func pathWithApostropheAndSpace() {
         let url = URL(fileURLWithPath: "/Users/me/it's mine.txt")
         #expect(
             DroppedFilePaths.insertionText(for: [url])
-                == #"'/Users/me/it'\''s mine.txt' "#
+                == "\"/Users/me/it's mine.txt\" "
         )
     }
 
