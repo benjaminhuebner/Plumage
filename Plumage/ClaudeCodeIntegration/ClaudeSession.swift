@@ -154,7 +154,7 @@ final class ClaudeSession {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        if trimmed.hasPrefix("/") {
+        if Self.looksLikeLocalCommand(trimmed) {
             handleLocalSlashCommand(trimmed)
             return
         }
@@ -177,6 +177,20 @@ final class ClaudeSession {
             appendSystemMessage("Failed to send message: \(error.localizedDescription)")
             awaitingResponse = false
         }
+    }
+
+    // A Plumage slash command is a single leading-slash token with no further
+    // path separators ("/clear", "/mcp"). A Finder-dropped absolute path
+    // ("/Users/me/notes.txt") also starts with "/" but carries interior slashes,
+    // so route those to claude as a normal message instead of bouncing them off
+    // handleLocalSlashCommand as an "unknown command". A bare root-level file
+    // ("/notes.txt") is the rare exception we accept — Finder paths are
+    // effectively always under /Users, /Volumes, etc.
+    private nonisolated static func looksLikeLocalCommand(_ trimmed: String) -> Bool {
+        guard trimmed.hasPrefix("/") else { return false }
+        let firstToken =
+            trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? trimmed
+        return !firstToken.dropFirst().contains("/")
     }
 
     func handleLocalSlashCommand(_ text: String) {

@@ -118,6 +118,16 @@ struct ClaudeSessionTests {
         #expect(session.messages[0].text.lowercased().contains("unknown"))
     }
 
+    @Test("a dropped absolute path is sent as a message, not an unknown command")
+    func absolutePathIsNotASlashCommand() async {
+        let session = startedSession()
+        await session.send("/Users/me/notes.txt")
+        #expect(session.messages.count == 1)
+        #expect(session.messages[0].role == .user)
+        #expect(session.messages[0].text == "/Users/me/notes.txt")
+        #expect(session.awaitingResponse)
+    }
+
     @Test("/clear clears messages without leaving claude alive")
     func slashClearResetsMessages() async {
         let session = startedSession()
