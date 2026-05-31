@@ -10,6 +10,7 @@ struct ClaudeDockPanel: View {
     @Binding var isOpen: Bool
 
     @AccessibilityFocusState private var contentFocused: Bool
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +20,30 @@ struct ClaudeDockPanel: View {
         .frame(width: Self.preferredWidth, height: Self.preferredHeight)
         .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius, style: .continuous))
         .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
+        // Finder file-drop lives here, OUTSIDE .glassEffect, on purpose: the
+        // glass effect renders its subtree into a compositing layer that
+        // swallows AppKit drag-destination delivery, so a .dropDestination (or
+        // any registerForDraggedTypes NSView) placed inside the glass never
+        // receives the drop. Applied after the glass, it inserts the dropped
+        // paths into the chat draft (#00059).
+        .dropDestination(for: URL.self) { urls, _ in
+            // Only accept when the chat input is actually on screen — see
+            // `acceptsFileDrop`. Otherwise the drop would write into a
+            // draftMessage the MissingClaudeView never shows, a silent black hole.
+            guard acceptsFileDrop else { return false }
+            let files = urls.filter(\.isFileURL)
+            guard !files.isEmpty else { return false }
+            appendDroppedPaths(files)
+            return true
+        } isTargeted: {
+            isDropTargeted = acceptsFileDrop && $0
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 2)
+            }
+        }
         .focusable()
         .focusEffectDisabled()
         .accessibilityFocused($contentFocused)
@@ -31,6 +56,28 @@ struct ClaudeDockPanel: View {
 
     func close() {
         isOpen = false
+    }
+
+    // Mirrors the `content` switch: the chat input (and thus draftMessage) only
+    // exists while claude is loading or ready. In the missing/unsupported/failed
+    // states MissingClaudeView is shown with no input, so a file drop has nowhere
+    // visible to land.
+    private var acceptsFileDrop: Bool {
+        switch indicatorState {
+        case .loading, .ok: return true
+        case .missing, .unsupported, .failed: return false
+        }
+    }
+
+    private func appendDroppedPaths(_ urls: [URL]) {
+        let insertion = DroppedFilePaths.insertionText(for: urls)
+        guard !insertion.isEmpty else { return }
+        let current = session.draftMessage
+        if current.isEmpty || current.last?.isWhitespace == true {
+            session.draftMessage = current + insertion
+        } else {
+            session.draftMessage = current + " " + insertion
+        }
     }
 
     @ViewBuilder

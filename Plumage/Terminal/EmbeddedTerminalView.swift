@@ -74,6 +74,13 @@ private struct SwiftTermBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> PersistentCursorTerminalView {
         let view = PersistentCursorTerminalView(frame: .zero)
         view.processDelegate = context.coordinator
+        // Finder file-drop routes through enqueue (not a direct send) so the
+        // existing .running gate + updateNSView flush machinery handles a drop
+        // that lands while claude is still booting — the path waits in
+        // pendingInput and flushes once the REPL is ready.
+        view.onFilePathsDropped = { [weak session] text in
+            session?.enqueue(text)
+        }
         view.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         // optionAsMetaKey=false lets macOS' text-input layer compose Option
         // sequences (Option+E → €, Option+U dead-key, etc.). With the
@@ -330,9 +337,14 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         if window != nil {
             startCursorKeepAlive()
             installShiftEnterMonitor()
+            // SwiftTerm registers no dragged types and implements no
+            // NSDraggingDestination methods (notes.md #00020), so this is the
+            // sole file-drop handler — no super conflict for .fileURL drags.
+            registerForDraggedTypes([.fileURL])
         } else {
             stopCursorKeepAlive()
             removeShiftEnterMonitor()
+            unregisterDraggedTypes()
         }
     }
 
@@ -388,6 +400,39 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
             NSEvent.removeMonitor(token)
             shiftEnterMonitor = nil
         }
+    }
+
+    // Set by SwiftTermBridge.makeNSView to route a Finder file-drop through
+    // TerminalClaudeSession.enqueue. Nil-safe: if unwired we fall back to a
+    // direct send so the view stays usable outside the bridge.
+    var onFilePathsDropped: ((String) -> Void)?
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        droppedFileURLs(from: sender).isEmpty ? super.draggingEntered(sender) : .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        droppedFileURLs(from: sender).isEmpty ? super.draggingUpdated(sender) : .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let urls = droppedFileURLs(from: sender)
+        guard !urls.isEmpty else { return super.performDragOperation(sender) }
+        let text = DroppedFilePaths.insertionText(for: urls)
+        guard !text.isEmpty else { return false }
+        if let onFilePathsDropped {
+            onFilePathsDropped(text)
+        } else {
+            send(txt: text)
+        }
+        return true
+    }
+
+    private func droppedFileURLs(from sender: any NSDraggingInfo) -> [URL] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let objects = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self], options: options)
+        return objects as? [URL] ?? []
     }
 
     // Called from SwiftTerm's existing terminate() when the host removes the
