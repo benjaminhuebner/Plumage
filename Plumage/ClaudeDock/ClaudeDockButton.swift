@@ -15,7 +15,7 @@ struct ClaudeDockButton: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var accessibilityValueText: String {
-        isWorking ? "arbeitet" : "bereit"
+        isWorking ? "Working" : "Ready"
     }
 
     var body: some View {

@@ -46,11 +46,30 @@ struct NewProjectWindowView: View {
         // next session would resume this one's step, name, selection, and outcome.
         // The save panel is app-modal and doesn't remove this view, so it won't
         // trip this.
-        .onDisappear {
-            if !didCreate { openWindow(id: "welcome") }
-            model = NewProjectModel()
-            didCreate = false
-        }
+        .onDisappear(perform: handleWindowClose)
+    }
+
+    // Runs on every close (Cancel, red close button, or success). Two concerns,
+    // kept in order: bring Welcome back unless this session created a project,
+    // then clear the single-instance window's surviving `@State` so the next
+    // session starts fresh.
+    private func handleWindowClose() {
+        if !didCreate { restoreWelcome() }
+        resetState()
+    }
+
+    // A single-instance `Window` keeps its `@State` across close/reopen, so a
+    // close that didn't create a project would otherwise leave the app with no
+    // window. `openWindow` on an already-visible Welcome just surfaces it — the
+    // single-instance scene never duplicates — so the cancel→reopen path is safe
+    // even if Welcome was reopened by another route in the meantime.
+    private func restoreWelcome() {
+        openWindow(id: "welcome")
+    }
+
+    private func resetState() {
+        model = NewProjectModel()
+        didCreate = false
     }
 
     // The window title bar already reads "New Project", so the content header
@@ -61,6 +80,7 @@ struct NewProjectWindowView: View {
                 .font(.system(size: 24))
                 .foregroundStyle(.tint)
                 .frame(width: 28)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(stepHeadline)
                     .font(.title3.weight(.semibold))
@@ -94,6 +114,7 @@ struct NewProjectWindowView: View {
             if model.isCreating {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("Creating project")
             }
 
             if !model.isFirstStep {
@@ -128,6 +149,8 @@ struct NewProjectWindowView: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.red.opacity(0.1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Error: \(message)")
     }
 
     private var stepHeadline: String {
@@ -163,8 +186,15 @@ struct NewProjectWindowView: View {
         panel.nameFieldStringValue = model.trimmedName
         panel.canCreateDirectories = true
         panel.prompt = "Create"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        performCreate(at: url)
+        // Attach the panel as a sheet on the New Project window instead of running
+        // it app-modally, so the main runloop stays live while it is open. The key
+        // window is this view's window — "Create" can only be pressed while it is
+        // frontmost. If there is somehow no key window, fall back to no-op.
+        guard let window = NSApp.keyWindow else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            performCreate(at: url)
+        }
     }
 
     private func performCreate(at projectDirectory: URL) {
