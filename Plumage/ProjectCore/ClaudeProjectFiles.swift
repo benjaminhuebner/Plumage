@@ -28,7 +28,6 @@ nonisolated enum ClaudeProjectFiles {
 
     // MARK: - Generic at-path create (used by the unified file tree)
 
-    // Creates an empty file under `parent`, suffix-walking on collision.
     static func createFileAt(parent: URL, name: String) throws -> URL {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -45,7 +44,6 @@ nonisolated enum ClaudeProjectFiles {
         return target
     }
 
-    // Creates a folder under `parent`, suffix-walking on collision.
     static func createFolderAt(parent: URL, name: String) throws -> URL {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

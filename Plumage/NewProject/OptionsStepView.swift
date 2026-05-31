@@ -1,9 +1,6 @@
 import SwiftUI
 
-// Step 2 — project name and one-line description. The name auto-focuses on
-// appear; the description is optional. "Next" enables once the name is a valid
-// folder name (validation lives on the model).
-struct MetadataStepView: View {
+struct OptionsStepView: View {
     @Bindable var model: NewProjectModel
     @FocusState private var focused: Field?
 
@@ -14,7 +11,7 @@ struct MetadataStepView: View {
 
     var body: some View {
         Form {
-            Section {
+            Section("Project") {
                 TextField("Name", text: $model.name, prompt: Text("My Project"))
                     .focused($focused, equals: .name)
                 TextField(
@@ -22,11 +19,26 @@ struct MetadataStepView: View {
                     prompt: Text("One-line summary (optional)")
                 )
                 .focused($focused, equals: .tagline)
-            } footer: {
                 if showsInvalidNameHint {
                     Text("The name can't contain “/” or be “.” or “..”.")
+                        .font(.caption)
                         .foregroundStyle(.red)
                 }
+            }
+
+            Section {
+                Toggle("Create a Git repository", isOn: $model.createGitRepo)
+                Group {
+                    Toggle("Include Plumage files in the repository", isOn: $model.plumageInGit)
+                    Toggle("Include Claude files in the repository", isOn: $model.claudeInGit)
+                    Toggle("Create a .gitignore", isOn: $model.createGitignore)
+                }
+                .disabled(!model.createGitRepo)
+            } header: {
+                Text("Git")
+            } footer: {
+                Text("Excluded files stay on disk but are kept out of the repository.")
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

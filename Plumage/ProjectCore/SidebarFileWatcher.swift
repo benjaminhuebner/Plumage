@@ -4,11 +4,8 @@ nonisolated enum SidebarFileChangeEvent: Equatable, Sendable {
     case changed
 }
 
-// Watches the project root and emits a debounced `.changed` event whenever
-// anything inside changes — used by the sidebar `Files`-section to reload
-// its tree without polling. FSEventSource is reused from IssueCore/Discovery
-// as a 4th copy: per decisions 2026-05-25 #00041 the Rule-of-three result
-// holds and the fourth caller does not justify extraction yet.
+// FSEventSource + Debouncer are duplicated from IssueCore/Discovery by the
+// rule-of-three; extraction of a generic watcher waits for a further caller.
 nonisolated final class SidebarFileWatcher: Sendable {
     nonisolated let events: AsyncStream<SidebarFileChangeEvent>
 

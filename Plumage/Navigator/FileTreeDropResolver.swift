@@ -1,11 +1,5 @@
 import Foundation
 
-// Pure URL-resolution for the file tree's `.dropDestination` modifier.
-// Splits the view-level question ("user dropped on this row") from the
-// model-level question ("which folder receives the copy"). Folder rows
-// land drops into themselves; file rows redirect to their parent
-// (Finder-consistent). Returns `nil` when the resolved target sits
-// outside the whitelisted tree, signalling a reject.
 nonisolated enum FileTreeDropResolver {
     static func resolveDropTarget(
         for node: FileNode, projectURL: URL

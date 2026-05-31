@@ -1,21 +1,13 @@
 import Foundation
 
-// Installs Plumage's bundled `plumage` claude theme into ~/.claude/themes/ so
-// the embedded terminal renders without opaque block backgrounds, regardless
-// of macOS appearance. The bundled JSON is the single source of truth; we
-// overwrite on each Plumage boot so a Plumage update can ship a refreshed
-// theme.
-//
 // The theme is activated *per session* via `claude --settings <inline-json>`
 // from TerminalClaudeSession.shellSpawnArgs — NOT by writing to the global
-// ~/.claude/settings.json. That keeps the user's own claude terminal on the
-// user's own theme. Earlier Plumage builds did write the global key; on boot
-// we strip it back out via removeManagedThemeFromSettings so users return to
-// whatever they had before (or to claude's default).
-// Pure file-I/O type with no UI state. Nonisolated so it can run from any
-// context (NSApplicationDelegate callback, tests, etc.) without forcing a
-// hop to MainActor — the default-actor-isolation project setting would
-// otherwise pin it to MainActor.
+// ~/.claude/settings.json, so the user's own claude terminal keeps the user's
+// theme. Earlier Plumage builds wrote the global key; on boot we strip it back
+// out via removeManagedThemeFromSettings.
+//
+// `nonisolated` so it can run from any context (app-delegate callback, tests)
+// without a MainActor hop — default-actor-isolation would otherwise pin it.
 nonisolated enum ClaudeThemeInstaller {
     enum InstallError: Error {
         case bundleResourceMissing

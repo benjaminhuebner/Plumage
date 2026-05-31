@@ -19,8 +19,8 @@ struct ClaudeDockButtonTests {
     func accessibilityValueReflectsWorkingState() {
         let idle = ClaudeDockButton(isWorking: false) {}
         let working = ClaudeDockButton(isWorking: true) {}
-        #expect(idle.accessibilityValueText == "bereit")
-        #expect(working.accessibilityValueText == "arbeitet")
+        #expect(idle.accessibilityValueText == "Ready")
+        #expect(working.accessibilityValueText == "Working")
     }
 
     @Test("symbol name is bubble.left.fill")

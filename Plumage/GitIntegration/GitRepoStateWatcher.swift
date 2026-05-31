@@ -1,14 +1,9 @@
 import Foundation
 
-// Sibling to GitRepoWatcher (#00041): instead of an opaque `.changed` ping,
-// this emits the live RepoState (isGitRepo, branchName, detached SHA) for the
-// status-bar indicator. Reads `.git/HEAD` directly via RepoStateReader rather
-// than spawning git — cheaper, fewer subprocess slots, and HEAD is the only
-// thing we need to look at.
-//
-// Per #00041 (decisions 2026-05-25): keeping copies of the FSEventSource +
-// Debouncer pipeline alongside IssueWatcher and GitRepoWatcher. Rule-of-three
-// still in force, fourth caller would trigger the extract.
+// Reads `.git/HEAD` directly via RepoStateReader rather than spawning git —
+// cheaper, and HEAD is the only thing we look at. The FSEventSource + Debouncer
+// pipeline is duplicated from IssueWatcher/GitRepoWatcher by the rule-of-three;
+// a fourth caller would justify extracting a generic watcher.
 nonisolated final class GitRepoStateWatcher: Sendable {
     nonisolated let states: AsyncStream<RepoState>
 

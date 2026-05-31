@@ -1,8 +1,7 @@
 import Foundation
 
-// Builds a project's `.gitignore` by concatenating the kind's gitignore-tag
-// fragments. The macOS block is always appended (contributors on macOS produce
-// `.DS_Store` etc. regardless of the project's platform).
+// The macOS block is always appended — contributors on macOS produce
+// `.DS_Store` etc. regardless of the project's platform.
 nonisolated struct GitignoreComposer {
     let fragmentsDir: URL
 

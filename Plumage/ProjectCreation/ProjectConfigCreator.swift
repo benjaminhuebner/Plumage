@@ -1,10 +1,8 @@
 import Foundation
 
-// Writes the full initial config.json for a new project. Distinct from
-// `ConfigWriter`, which only overlays the mutable `workflows`/`models` keys onto
-// an existing file — this creates every base field (`projectType`, `createdAt`,
-// `paths`, `plumageManaged`, …) that ConfigWriter deliberately leaves alone.
-// The result must load through `ConfigLoader` unchanged.
+// Distinct from `ConfigWriter`, which only overlays the mutable
+// `workflows`/`models` keys: this writes every base field ConfigWriter
+// deliberately leaves alone, and the result must load through `ConfigLoader`.
 nonisolated struct ProjectConfigCreator {
     let createdWithPlumageVersion: String
     let minPlumageVersion: String

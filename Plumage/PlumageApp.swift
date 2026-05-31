@@ -30,6 +30,18 @@ struct PlumageApp: App {
         }
         .environment(recentProjects)
 
+        // `.commandsRemoved()` suppresses the auto "New Project" Window-menu
+        // item; File > New (NewProjectCommand) is the intended entry point.
+        Window("New Project", id: "new-project") {
+            NewProjectWindowView()
+                .environment(recentProjects)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 720, height: 560)
+        .defaultPosition(.center)
+        .restorationBehavior(.disabled)
+        .commandsRemoved()
+
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
                 ProjectWindow(handle: handle)

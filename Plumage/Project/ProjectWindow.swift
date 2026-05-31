@@ -374,7 +374,7 @@ struct ProjectWindow: View {
                 }
                 .help("Terminal Inspector (⌥⌘T)")
                 .accessibilityLabel("Terminal Inspector")
-                .accessibilityValue(isTerminalInspectorOpen ? "Sichtbar" : "Ausgeblendet")
+                .accessibilityValue(isTerminalInspectorOpen ? "Visible" : "Hidden")
             }
         }
     }

@@ -1,8 +1,5 @@
 import Foundation
 
-// Reads/writes the per-project pinned-file set as `<bundle>/pins.json`.
-// Mirrors the ClaudeProjectFiles/ConfigLoader pattern: a nonisolated enum of
-// static functions over project-local paths, no Claude Code internals.
 nonisolated enum PinnedFilesStore {
     static let fileName = "pins.json"
 

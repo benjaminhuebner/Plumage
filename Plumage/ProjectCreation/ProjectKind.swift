@@ -26,7 +26,7 @@ nonisolated enum ProjectKind: String, CaseIterable, Codable, Hashable, Sendable 
         case .iOS: "iOS App"
         case .vapor: "Vapor"
         case .hummingbird: "Hummingbird"
-        case .swiftCLI: "Command-Line Tool"
+        case .swiftCLI: "Swift CLI"
         case .other: "Other"
         }
     }

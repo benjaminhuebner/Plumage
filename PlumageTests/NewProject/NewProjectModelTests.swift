@@ -5,9 +5,9 @@ import Testing
 
 @MainActor
 @Suite struct NewProjectModelTests {
-    // MARK: - Type step
+    // MARK: - Template step
 
-    @Test func typeStepInvalidUntilKindPicked() {
+    @Test func templateStepInvalidUntilKindPicked() {
         let model = NewProjectModel()
         #expect(model.isTypeStepValid == false)
         #expect(model.canAdvance == false)
@@ -17,7 +17,7 @@ import Testing
         #expect(model.canAdvance)
     }
 
-    // MARK: - Metadata step
+    // MARK: - Options step (metadata)
 
     @Test(arguments: [
         ("", false),
@@ -47,20 +47,13 @@ import Testing
 
     @Test func navigationWalksStepsForward() {
         let model = NewProjectModel()
-        #expect(model.currentStep == .type)
+        #expect(model.currentStep == .template)
         #expect(model.isFirstStep)
         #expect(model.isLastStep == false)
 
         model.kind = .iOS
         model.advance()
-        #expect(model.currentStep == .metadata)
-
-        model.name = "MyApp"
-        model.advance()
-        #expect(model.currentStep == .git)
-
-        model.advance()
-        #expect(model.currentStep == .location)
+        #expect(model.currentStep == .options)
         #expect(model.isLastStep)
         // Last step has no "Next".
         #expect(model.canAdvance == false)
@@ -69,30 +62,26 @@ import Testing
     @Test func navigationGoesBackAndClampsAtEdges() {
         let model = NewProjectModel()
         model.goBack()
-        #expect(model.currentStep == .type)
+        #expect(model.currentStep == .template)
 
-        model.currentStep = .location
+        model.currentStep = .options
         model.goBack()
-        #expect(model.currentStep == .git)
+        #expect(model.currentStep == .template)
+        // Clamps at the first step.
         model.goBack()
-        #expect(model.currentStep == .metadata)
+        #expect(model.currentStep == .template)
     }
 
     @Test func cannotAdvancePastInvalidStep() {
         let model = NewProjectModel()
-        // Type step invalid → no advance.
+        // Template step invalid → no advance.
         #expect(model.canAdvance == false)
 
         model.kind = .vapor
-        model.currentStep = .metadata
-        // Metadata invalid (empty name) → no advance.
-        #expect(model.canAdvance == false)
-
-        model.name = "Server"
         #expect(model.canAdvance)
     }
 
-    // MARK: - Git step / spec assembly
+    // MARK: - Options step (git) / spec assembly
 
     @Test func gitSetupReflectsTogglesWhenEnabled() throws {
         let model = makeValidModel()
@@ -101,7 +90,7 @@ import Testing
         model.claudeInGit = true
         model.createGitignore = false
 
-        let spec = try #require(model.assembledSpec)
+        let spec = try #require(model.assembledSpec(projectDirectory: targetURL(name: "MyApp")))
         let git = try #require(spec.git)
         #expect(git.plumageInGit == false)
         #expect(git.claudeInGit == true)
@@ -114,107 +103,47 @@ import Testing
         // The per-flag toggles are irrelevant once the repo is off.
         model.plumageInGit = false
 
-        let spec = try #require(model.assembledSpec)
+        let spec = try #require(model.assembledSpec(projectDirectory: targetURL(name: "MyApp")))
         #expect(spec.git == nil)
     }
 
     @Test func assembledSpecCarriesAllFields() throws {
-        let parent = try makeTempDirectory()
-        defer { try? FileManager.default.removeItem(at: parent) }
-
         let model = NewProjectModel()
         model.kind = .hummingbird
-        model.name = "  Birdy  "
+        model.name = "ignored-field"
         model.tagline = "  fast server  "
-        model.parentDirectory = parent
 
-        let spec = try #require(model.assembledSpec)
+        let target = targetURL(name: "Birdy")
+        let spec = try #require(model.assembledSpec(projectDirectory: target))
         #expect(spec.kind == .hummingbird)
+        // The panel URL is authoritative: name follows the last path component,
+        // not the options field.
         #expect(spec.name == "Birdy")
         #expect(spec.tagline == "fast server")
         #expect(spec.projectDirectory.lastPathComponent == "Birdy")
-        #expect(
-            spec.projectDirectory.deletingLastPathComponent().standardizedFileURL
-                == parent.standardizedFileURL)
+        #expect(spec.projectDirectory.standardizedFileURL == target.standardizedFileURL)
     }
 
-    @Test func assembledSpecNilWhenIncomplete() throws {
+    @Test func assembledSpecNilWithoutKind() throws {
         let model = NewProjectModel()
-        #expect(model.assembledSpec == nil)  // no kind, no name, no parent
+        model.name = "Thing"
+        #expect(model.assembledSpec(projectDirectory: targetURL(name: "Thing")) == nil)
 
         model.kind = .other
-        #expect(model.assembledSpec == nil)  // still no name / parent
-
-        model.name = "Thing"
-        #expect(model.assembledSpec == nil)  // still no parent
-
-        let parent = try makeTempDirectory()
-        defer { try? FileManager.default.removeItem(at: parent) }
-        model.parentDirectory = parent
-        #expect(model.assembledSpec != nil)
+        #expect(model.assembledSpec(projectDirectory: targetURL(name: "Thing")) != nil)
     }
 
-    // MARK: - Location step
+    // MARK: - Create gating
 
-    @Test func locationInvalidWithoutParent() {
+    @Test func cannotCreateUntilKindAndNameSet() {
         let model = NewProjectModel()
-        model.kind = .macOS
-        model.name = "MyApp"
-        #expect(model.projectDirectory == nil)
-        #expect(model.isLocationStepValid == false)
-    }
-
-    @Test func locationValidForFreshTarget() throws {
-        let parent = try makeTempDirectory()
-        defer { try? FileManager.default.removeItem(at: parent) }
-
-        let model = NewProjectModel()
-        model.kind = .macOS
-        model.name = "MyApp"
-        model.parentDirectory = parent
-        model.refreshTargetExists()
-
-        #expect(model.projectDirectory?.lastPathComponent == "MyApp")
-        #expect(model.targetExists == false)
-        #expect(model.isLocationStepValid)
-        #expect(model.canCreate)
-    }
-
-    @Test func locationInvalidOnCollision() throws {
-        let parent = try makeTempDirectory()
-        defer { try? FileManager.default.removeItem(at: parent) }
-        let existing = parent.appending(path: "MyApp", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
-
-        let model = NewProjectModel()
-        model.kind = .macOS
-        model.name = "MyApp"
-        model.parentDirectory = parent
-        model.refreshTargetExists()
-
-        #expect(model.targetExists)
-        #expect(model.isLocationStepValid == false)
         #expect(model.canCreate == false)
-    }
 
-    @Test func refreshClearsStaleCollisionWhenTargetMissing() throws {
-        let parent = try makeTempDirectory()
-        defer { try? FileManager.default.removeItem(at: parent) }
-        let existing = parent.appending(path: "MyApp", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
-
-        let model = NewProjectModel()
         model.kind = .macOS
-        model.name = "MyApp"
-        model.parentDirectory = parent
-        model.refreshTargetExists()
-        #expect(model.targetExists)
+        #expect(model.canCreate == false)  // still no name
 
-        // The target disappears → a refresh must clear the stale collision flag.
-        try FileManager.default.removeItem(at: existing)
-        model.refreshTargetExists()
-        #expect(model.targetExists == false)
-        #expect(model.isLocationStepValid)
+        model.name = "MyApp"
+        #expect(model.canCreate)
     }
 
     // MARK: - Error messages
@@ -232,7 +161,8 @@ import Testing
 
     @Test func createFailsFastWhenFormIncomplete() async {
         let model = NewProjectModel()
-        let result = await model.create()
+        // No kind → assembledSpec is nil → fails fast without touching disk.
+        let result = await model.create(at: targetURL(name: "MyApp"))
         #expect(throwsIncompleteForm(result))
         #expect(model.errorMessage != nil)
         #expect(model.isCreating == false)
@@ -244,16 +174,13 @@ import Testing
         let model = NewProjectModel()
         model.kind = .appleMultiplatform
         model.name = "MyApp"
-        model.parentDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "plumage-newproj-\(UUID().uuidString)", directoryHint: .isDirectory)
         return model
     }
 
-    private func makeTempDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+    private func targetURL(name: String) -> URL {
+        FileManager.default.temporaryDirectory
             .appending(path: "plumage-newproj-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+            .appending(path: name, directoryHint: .isDirectory)
     }
 
     private func throwsIncompleteForm(_ result: Result<CreatedProject, Error>) -> Bool {
