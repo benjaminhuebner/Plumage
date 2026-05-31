@@ -32,6 +32,12 @@ struct NewProjectWindowView: View {
             footer
         }
         .frame(minWidth: 640, idealWidth: 720, minHeight: 460, idealHeight: 520)
+        // A single-instance `Window` keeps its `@State` across close/reopen, so
+        // every close (Cancel, the title-bar close button, or a successful
+        // create) must clear the model — otherwise the next New Project session
+        // would resume the previous one's step, name, and selection. The save
+        // panel is app-modal and doesn't remove this view, so it won't trip this.
+        .onDisappear { model = NewProjectModel() }
     }
 
     // The window title bar already reads "New Project", so the content header
