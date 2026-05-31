@@ -8,6 +8,7 @@ struct ChatInputField: View {
 
     @FocusState private var focused: Bool
     @State private var contentHeight: CGFloat = 22
+    @State private var isDropTargeted = false
 
     private let minHeight: CGFloat = 22
     private let maxHeight: CGFloat = 132
@@ -56,11 +57,31 @@ struct ChatInputField: View {
         .overlay {
             RoundedRectangle(cornerRadius: 18)
                 .strokeBorder(
-                    focused
+                    focused || isDropTargeted
                         ? Color.accentColor.opacity(0.45)
                         : Color.primary.opacity(0.08),
                     lineWidth: 1
                 )
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard !files.isEmpty else { return false }
+            appendDroppedPaths(files)
+            return true
+        } isTargeted: {
+            isDropTargeted = $0
+        }
+    }
+
+    private func appendDroppedPaths(_ urls: [URL]) {
+        let insertion = DroppedFilePaths.insertionText(for: urls)
+        guard !insertion.isEmpty else { return }
+        // Preserve whatever the user already typed; add a separating space only
+        // when the draft doesn't already end with whitespace.
+        if text.isEmpty || text.last?.isWhitespace == true {
+            text += insertion
+        } else {
+            text += " " + insertion
         }
     }
 
@@ -192,6 +213,15 @@ private struct SubmittingTextEditor: NSViewRepresentable {
 
 private final class SubmittingTextView: NSTextView {
     var onSubmit: (() -> Void)?
+
+    // NSTextView greedily registers .fileURL and inserts a dropped file's
+    // *contents* on drop, which would steal the Finder drop from the SwiftUI
+    // .dropDestination behind it. Registering only .string here keeps text
+    // drag-in while letting file-URL drags bubble up to the drop destination
+    // that inserts the path text instead.
+    override func updateDragTypeRegistration() {
+        registerForDraggedTypes([.string])
+    }
 
     override func keyDown(with event: NSEvent) {
         // Return = keyCode 36, Enter on numpad = keyCode 76.
