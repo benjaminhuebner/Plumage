@@ -260,26 +260,39 @@ final class ClaudeSession {
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
 
+        // Await exit via terminationHandler, not waitUntilExit() — the latter
+        // deadlocks on the Swift cooperative pool (#00057 root cause, #00058
+        // applies the fix here). Reuses ProcessRunning's ClaudeProcessTermination.
+        let termination = ClaudeProcessTermination()
+        process.terminationHandler = { finished in
+            termination.complete(finished.terminationStatus)
+        }
+
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             appendSystemMessage("\(label):\nError: \(error.localizedDescription)")
             return
         }
 
         // withTaskCancellationHandler: if the surrounding session is torn
         // down (handOff / stop / clearAndRestart cancels this Task), send
-        // SIGTERM right away so `waitUntilExit` returns instead of pinning
+        // SIGTERM right away so the exit-await resolves instead of pinning
         // a cooperative thread indefinitely. Matches ProductionProcessRunner.
         let output: String = await withTaskCancellationHandler {
-            await Task.detached { () -> String in
-                process.waitUntilExit()
-                let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-                let text =
-                    String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return text.isEmpty ? "(no output)" : text
+            _ = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+                termination.attach(continuation)
+            }
+            // Read after exit (preserved shape), but off the cooperative pool —
+            // readToEnd() is a blocking syscall.
+            let data = await Task.detached { () -> Data in
+                (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
             }.value
+            let text =
+                String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? "(no output)" : text
         } onCancel: {
             if process.isRunning {
                 process.terminate()
