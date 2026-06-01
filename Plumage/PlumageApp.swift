@@ -112,9 +112,13 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         return urls
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Set the stored appearance before any window is presented; deferring to
+        // applicationDidFinishLaunching flashes the system appearance first.
         AppearanceApplier.applyStored()
+    }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
         // Sync Plumage's bundled claude theme so the embedded terminal renders
         // without opaque block backgrounds. Off-main: installIfNeeded is
         // nonisolated pure file I/O and on iCloud Drive / NFS homes the writes
