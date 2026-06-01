@@ -15,6 +15,8 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.col.waitingForReview") private var waitingExpanded = false
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
+    @State private var settingsHovering = false
+
     var body: some View {
         List(selection: selectionBinding) {
             SidebarSectionHeader(title: "Issues", help: "New Issue") {
@@ -29,10 +31,13 @@ struct NavigatorSidebar: View {
 
             PinnedSectionView(model: pinnedFiles, projectURL: projectURL)
 
-            filesSectionHeader
+            SidebarSectionHeader(title: "Files")
             FileTreeView(nodes: navigator.rootNodes, projectURL: projectURL)
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            projectSettingsRow
+        }
         .onKeyPress(.return) {
             handleReturnKey()
         }
@@ -41,31 +46,46 @@ struct NavigatorSidebar: View {
         }
     }
 
+    // Pinned outside the List so it stays visible no matter how far the file
+    // tree is scrolled. Selection/hover highlight is emulated here because the
+    // row isn't a List(selection:) member.
     @ViewBuilder
-    private var filesSectionHeader: some View {
-        HStack(spacing: 4) {
-            Text("FILES")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .tracking(0.3)
-            Spacer()
+    private var projectSettingsRow: some View {
+        let isSelected = selection == .projectSettings
+        VStack(spacing: 0) {
+            Divider()
             Button {
                 selection = .projectSettings
             } label: {
-                Image(systemName: "gearshape")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
+                HStack(spacing: 6) {
+                    Image(systemName: "gearshape")
+                        .imageScale(.medium)
+                        .frame(width: 20)
+                    Text("Project Settings")
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .contentShape(Rectangle())
+                .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(settingsRowFill(isSelected: isSelected))
+                )
             }
             .buttonStyle(.plain)
-            .help("Project Settings")
+            .clickableSidebarRow()
+            .onHover { settingsHovering = $0 }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .contentShape(Rectangle())
-        .listRowSeparator(.hidden)
-        .selectionDisabled()
+        .background(.bar)
+    }
+
+    private func settingsRowFill(isSelected: Bool) -> Color {
+        if isSelected { return .accentColor }
+        if settingsHovering { return Color.primary.opacity(0.08) }
+        return .clear
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {
