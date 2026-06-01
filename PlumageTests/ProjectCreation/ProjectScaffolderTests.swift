@@ -11,11 +11,13 @@ struct ProjectScaffolderTests {
     }
 
     private func scaffolder(
-        git: any GitInitializing = GitInitRunner(), overrideRoot: URL? = nil
+        git: any GitInitializing = GitInitRunner(), overrideRoot: URL? = nil,
+        toggles: ScaffoldToggles = ScaffoldToggles()
     ) -> ProjectScaffolder {
         ProjectScaffolder(
             assetsRoot: RepoAssets.root,
             overrideRoot: overrideRoot,
+            toggles: toggles,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
             gitInitRunner: git)
     }
@@ -123,5 +125,26 @@ struct ProjectScaffolderTests {
         let scaffolded = try String(
             contentsOf: dir.appending(path: ".claude/hooks/format-swift.sh"), encoding: .utf8)
         #expect(scaffolded.contains("MY_OVERRIDDEN_HOOK"))
+    }
+
+    @Test("A disabled hook and a disabled skill are absent from the scaffolded tree")
+    func disabledTogglesOmitArtifacts() async throws {
+        let fm = FileManager.default
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.hooks, "format-swift", false)
+        toggles.setEnabled(.skills, "plumage-review", false)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(toggles: toggles).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/hooks/format-swift.sh").path))
+        #expect(
+            !fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-review").path))
+        // Non-disabled siblings are still present.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/hooks/lint-swift.sh").path))
+        #expect(
+            fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
     }
 }

@@ -15,17 +15,20 @@ nonisolated enum ProjectScaffoldError: Error, Sendable, Equatable {
 nonisolated struct ProjectScaffolder {
     let assetsRoot: URL
     let overrides: ScaffoldOverrides
+    let toggles: ScaffoldToggles
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
 
     init(
         assetsRoot: URL = NewProjectAssets.bundledRoot,
         overrideRoot: URL? = ScaffoldOverrides.standardOverrideRoot(),
+        toggles: ScaffoldToggles = .loadStandard(),
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
         gitInitRunner: any GitInitializing = GitInitRunner()
     ) {
         self.assetsRoot = assetsRoot
         self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
+        self.toggles = toggles
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
     }
@@ -117,7 +120,9 @@ nonisolated struct ProjectScaffolder {
     private func writeSkills(spec: NewProjectSpec, claude: URL, skillKeywords: String) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        for skill in ["plumage-plan", "plumage-implement", "plumage-review"] {
+        let skills = toggles.enabledNames(
+            in: .skills, from: ["plumage-plan", "plumage-implement", "plumage-review"])
+        for skill in skills {
             let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
             try copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
 
@@ -133,7 +138,7 @@ nonisolated struct ProjectScaffolder {
     private func writeHooks(spec: NewProjectSpec, claude: URL) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in spec.kind.profile.hookNames {
+        for hook in toggles.enabledNames(in: .hooks, from: spec.kind.profile.hookNames) {
             try copy(
                 from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
