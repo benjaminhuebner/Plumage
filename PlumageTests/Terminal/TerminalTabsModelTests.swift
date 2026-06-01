@@ -190,25 +190,26 @@ struct TerminalTabsModelTests {
         #expect(model.tabs[0].id == mainID)
     }
 
-    @Test("plan tab with default opusplan model uses --permission-mode plan")
-    func addWorkflowTabPlanWithOpusplanForcesPlanMode() {
+    @Test("plan tab with default model uses --permission-mode plan and Opus")
+    func addWorkflowTabPlanDefaultUsesPlanMode() {
         let model = makeModel()
-        // No modelsConfig → falls back to slot default (opusplan).
+        // No modelsConfig → falls back to slot default (now .opus).
         let tab = model.addWorkflowTab(action: .plan, slug: "x")
         let cmd = tab.session.shellSpawnArgs()[1]
         #expect(cmd.contains("'--permission-mode' 'plan'"))
-        #expect(cmd.contains("'--model' 'opusplan'"))
+        #expect(cmd.contains("'--model' 'opus'"))
     }
 
-    @Test("plan tab with non-opusplan model opts out of plan mode")
-    func addWorkflowTabPlanWithOpusSkipsPlanMode() {
+    @Test("plan tab keeps plan mode regardless of chosen model")
+    func addWorkflowTabPlanKeepsPlanModeForAnyModel() {
         let model = makeModel()
-        model.modelsConfig = ModelsConfig(plan: .opus)
+        // Permission mode is decoupled from the model: a non-default model
+        // choice for Plan still spawns with --permission-mode plan.
+        model.modelsConfig = ModelsConfig(plan: .sonnet)
         let tab = model.addWorkflowTab(action: .plan, slug: "x")
         let cmd = tab.session.shellSpawnArgs()[1]
-        // permission-mode falls back to default → no --permission-mode flag.
-        #expect(!cmd.contains("'--permission-mode' 'plan'"))
-        #expect(cmd.contains("'--model' 'opus'"))
+        #expect(cmd.contains("'--permission-mode' 'plan'"))
+        #expect(cmd.contains("'--model' 'sonnet'"))
     }
 
     @Test("implement tab always uses acceptEdits regardless of model")
@@ -375,12 +376,12 @@ struct TerminalTabsModelTests {
     func addWorkflowTabUsesWorkflowModel() {
         let model = makeModel()
         model.modelsConfig = ModelsConfig(
-            plan: .opusPlan, implement: .opus, review: .haiku
+            plan: .sonnet, implement: .opus, review: .haiku
         )
         let plan = model.addWorkflowTab(action: .plan, slug: "x")
         let impl = model.addWorkflowTab(action: .implement, slug: "x")
         let rev = model.addWorkflowTab(action: .review, slug: "x")
-        #expect(plan.session.modelChoice == .opusPlan)
+        #expect(plan.session.modelChoice == .sonnet)
         #expect(impl.session.modelChoice == .opus)
         #expect(rev.session.modelChoice == .haiku)
     }

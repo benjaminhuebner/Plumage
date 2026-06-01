@@ -11,13 +11,12 @@ struct ModelChoiceTests {
         #expect(ModelChoice.opus.cliArg == ["--model", "opus"])
         #expect(ModelChoice.sonnet.cliArg == ["--model", "sonnet"])
         #expect(ModelChoice.haiku.cliArg == ["--model", "haiku"])
-        #expect(ModelChoice.opusPlan.cliArg == ["--model", "opusplan"])
     }
 
-    @Test("allCases covers the five spec'd options")
+    @Test("allCases covers the four spec'd options")
     func allCasesCount() {
-        #expect(ModelChoice.allCases.count == 5)
-        #expect(Set(ModelChoice.allCases) == [.default, .opus, .sonnet, .haiku, .opusPlan])
+        #expect(ModelChoice.allCases.count == 4)
+        #expect(Set(ModelChoice.allCases) == [.default, .opus, .sonnet, .haiku])
     }
 
     @Test("Codable round-trips every case via JSON")
@@ -37,7 +36,6 @@ struct ModelChoiceTests {
         #expect(ModelChoice.opus.rawValue == "opus")
         #expect(ModelChoice.sonnet.rawValue == "sonnet")
         #expect(ModelChoice.haiku.rawValue == "haiku")
-        #expect(ModelChoice.opusPlan.rawValue == "opusplan")
     }
 
     @Test("unknown raw value decodes to .default")
@@ -45,5 +43,12 @@ struct ModelChoiceTests {
         let data = try #require("\"sonnet-4-7-future\"".data(using: .utf8))
         let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
         #expect(decoded == .default)
+    }
+
+    @Test("dropped opusplan alias migrates to .opus")
+    func droppedOpusPlanMigratesToOpus() throws {
+        let data = try #require("\"opusplan\"".data(using: .utf8))
+        let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
+        #expect(decoded == .opus)
     }
 }

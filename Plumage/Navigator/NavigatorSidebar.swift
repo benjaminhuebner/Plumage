@@ -15,6 +15,9 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.col.waitingForReview") private var waitingExpanded = false
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
+    @State private var settingsHovering = false
+    @Environment(\.controlActiveState) private var controlActiveState
+
     var body: some View {
         List(selection: selectionBinding) {
             SidebarSectionHeader(title: "Issues", help: "New Issue") {
@@ -29,10 +32,13 @@ struct NavigatorSidebar: View {
 
             PinnedSectionView(model: pinnedFiles, projectURL: projectURL)
 
-            filesSectionHeader
+            SidebarSectionHeader(title: "Files")
             FileTreeView(nodes: navigator.rootNodes, projectURL: projectURL)
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            projectSettingsRow
+        }
         .onKeyPress(.return) {
             handleReturnKey()
         }
@@ -41,31 +47,63 @@ struct NavigatorSidebar: View {
         }
     }
 
+    // Pinned outside the List (via safeAreaInset) so it stays put as the file
+    // tree scrolls, hand-styled to read as an ordinary source-list row: same
+    // Label, native accent selection fill, subtle hover tint, and a leading
+    // inset that lines the icon up with the top-level rows ("Board" reserves
+    // the same space the disclosure rows use for their chevron). A nested
+    // sidebar List would match automatically but steals first-responder
+    // status, greying out the main list's active selection — hence the manual
+    // styling. The "selected" VoiceOver announcement is re-added by hand since
+    // the row isn't a List(selection:) member.
     @ViewBuilder
-    private var filesSectionHeader: some View {
-        HStack(spacing: 4) {
-            Text("FILES")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .tracking(0.3)
-            Spacer()
+    private var projectSettingsRow: some View {
+        let isSelected = selection == .projectSettings
+        VStack(spacing: 0) {
+            Divider()
             Button {
                 selection = .projectSettings
             } label: {
-                Image(systemName: "gearshape")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
+                Label("Project Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 18)
+                    .padding(.trailing, 6)
+                    .padding(.vertical, 5)
                     .contentShape(Rectangle())
+                    .foregroundStyle(settingsRowTextColor(isSelected: isSelected))
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(settingsRowFill(isSelected: isSelected))
+                    )
             }
             .buttonStyle(.plain)
-            .help("Project Settings")
+            .accessibilityLabel("Project Settings")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .clickableSidebarRow()
+            .onHover { settingsHovering = $0 }
+            .padding(.leading, 15)
+            .padding(.trailing, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .contentShape(Rectangle())
-        .listRowSeparator(.hidden)
-        .selectionDisabled()
+    }
+
+    // Selection must follow window-key state, not a constant accent:
+    // otherwise this hand-styled row stays fully accented while the native
+    // List rows beside it grey out when the window resigns key.
+    private func settingsRowFill(isSelected: Bool) -> Color {
+        if isSelected {
+            return controlActiveState == .key
+                ? Color(nsColor: .selectedContentBackgroundColor)
+                : Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+        }
+        if settingsHovering { return Color.primary.opacity(0.08) }
+        return .clear
+    }
+
+    private func settingsRowTextColor(isSelected: Bool) -> Color {
+        guard isSelected else { return .primary }
+        return controlActiveState == .key ? .white : .primary
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {

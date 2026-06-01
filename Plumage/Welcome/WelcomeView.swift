@@ -85,6 +85,9 @@ struct WelcomeView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Intentional: nudges the icon/title/action block slightly above true
+        // center for optical balance against the empty bottom of the pane.
+        .padding(.bottom, 24)
     }
 
     private var rightPane: some View {
@@ -93,11 +96,17 @@ struct WelcomeView: View {
                 emptyState
             } else {
                 List(recentProjects.items) { item in
-                    RecentRow(item: item)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
-                        .contentShape(Rectangle())
-                        .onTapGesture { open(item) }
+                    Button {
+                        open(item)
+                    } label: {
+                        RecentRow(item: item)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.name)
+                    .accessibilityHint("Opens the project")
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)

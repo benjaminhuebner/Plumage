@@ -11,7 +11,7 @@ struct ModelPickerRow: View {
 
     // The picker exposes only concrete model aliases — `.default` is an
     // internal "no --model flag" sentinel that the user never sees.
-    static let pickerOptions: [ModelChoice] = [.opus, .sonnet, .haiku, .opusPlan]
+    static let pickerOptions: [ModelChoice] = [.opus, .sonnet, .haiku]
 
     var body: some View {
         HStack {

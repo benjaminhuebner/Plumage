@@ -85,7 +85,7 @@ nonisolated struct ModelsConfig: Codable, Hashable, Sendable {
     // for session-spawning consumers (ProjectWindow, TerminalTabsModel).
     static let chatDefault: ModelChoice = .opus
     static let terminalsDefault: ModelChoice = .opus
-    static let planDefault: ModelChoice = .opusPlan
+    static let planDefault: ModelChoice = .opus
     static let implementDefault: ModelChoice = .opus
     static let reviewDefault: ModelChoice = .opus
 
