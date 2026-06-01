@@ -113,8 +113,7 @@ final class TerminalTabsModel {
             ?? ModelsConfig.slotDefault(
                 for: action.modelSlot
             )
-        let permMode =
-            override?.permissionMode ?? action.resolvedPermissionMode(model: resolved)
+        let permMode = override?.permissionMode ?? action.permissionMode
         let session = TerminalClaudeSession(
             cwd: cwd,
             binaryURL: binaryURL,

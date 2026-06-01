@@ -175,12 +175,11 @@ final class ProjectSettingsModel {
         Task { await saveNow() }
     }
 
-    // The mode a workflow tab actually spawns with when the user leaves the
-    // picker on "Built-in" — depends on the currently-selected model for
-    // Plan (opusplan → .plan, anything else → .default), constant for the
-    // other actions. Used by the picker UI to show an honest preview.
+    // The action's built-in default permission mode — the one the picker
+    // pre-selects and marks "(Default)" when no per-action override is set.
+    // Model-independent: Plan is always plan-mode regardless of model choice.
     func resolvedFallbackMode(for action: WorkflowAction) -> PermissionMode {
-        action.resolvedPermissionMode(model: model(for: action.modelSlot))
+        action.permissionMode
     }
 
     func model(for slot: ModelSlot) -> ModelChoice {
