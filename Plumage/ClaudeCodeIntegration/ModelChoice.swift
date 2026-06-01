@@ -5,7 +5,6 @@ nonisolated enum ModelChoice: String, CaseIterable, Sendable, Codable {
     case opus
     case sonnet
     case haiku
-    case opusPlan = "opusplan"
 
     var cliArg: [String] {
         switch self {
@@ -13,7 +12,6 @@ nonisolated enum ModelChoice: String, CaseIterable, Sendable, Codable {
         case .opus: ["--model", "opus"]
         case .sonnet: ["--model", "sonnet"]
         case .haiku: ["--model", "haiku"]
-        case .opusPlan: ["--model", "opusplan"]
         }
     }
 
@@ -23,7 +21,6 @@ nonisolated enum ModelChoice: String, CaseIterable, Sendable, Codable {
         case .opus: "Opus"
         case .sonnet: "Sonnet"
         case .haiku: "Haiku"
-        case .opusPlan: "Opus Plan Mode"
         }
     }
 
