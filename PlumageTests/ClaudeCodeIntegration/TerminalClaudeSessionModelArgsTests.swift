@@ -46,13 +46,6 @@ struct TerminalClaudeSessionModelArgsTests {
         #expect(args.joined(separator: " ").contains("'--model' 'haiku'"))
     }
 
-    @Test("opusPlan injects --model opusplan")
-    func opusPlanInjects() {
-        let session = makeSession(model: .opusPlan)
-        let args = session.shellSpawnArgs()
-        #expect(args.joined(separator: " ").contains("'--model' 'opusplan'"))
-    }
-
     @Test("permission mode plus model coexist")
     func permissionAndModelCoexist() {
         let tmp = FileManager.default.temporaryDirectory

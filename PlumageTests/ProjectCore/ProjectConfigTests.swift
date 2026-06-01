@@ -45,7 +45,9 @@ struct ProjectConfigTests {
         #expect(config.workflows?.review == nil)
         #expect(config.models?.chat == .opus)
         #expect(config.models?.terminals == .sonnet)
-        #expect(config.models?.plan == .opusPlan)
+        // The dropped "opusplan" alias coerces to .default via ModelChoice's
+        // custom decoder, so a stale on-disk config loads without error.
+        #expect(config.models?.plan == .default)
         #expect(config.models?.implement == nil)
     }
 
@@ -65,11 +67,11 @@ struct ProjectConfigTests {
     func modelsWorkflowAccessor() {
         let models = ModelsConfig(
             chat: .opus, terminals: nil,
-            plan: .sonnet, implement: .haiku, review: .opusPlan
+            plan: .sonnet, implement: .haiku, review: .opus
         )
         #expect(models.workflow(.plan) == .sonnet)
         #expect(models.workflow(.implement) == .haiku)
-        #expect(models.workflow(.review) == .opusPlan)
+        #expect(models.workflow(.review) == .opus)
     }
 
     @Test("round-trip encode/decode preserves additive fields")
