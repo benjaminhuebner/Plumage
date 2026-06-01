@@ -147,4 +147,41 @@ struct ProjectScaffolderTests {
         #expect(
             fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
     }
+
+    @Test("No agents in the override store: no .claude/agents directory is created")
+    func noAgentsNoDir() async throws {
+        let fm = FileManager.default
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder().create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents").path))
+    }
+
+    @Test("Enabled user agents are written to .claude/agents; a disabled one is not")
+    func writesEnabledAgents() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "AgentsOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        let agentsDir = overrideRoot.appending(path: "agents", directoryHint: .isDirectory)
+        try fm.createDirectory(at: agentsDir, withIntermediateDirectories: true)
+        try "# Reviewer agent\n".write(
+            to: agentsDir.appending(path: "reviewer.md"), atomically: true, encoding: .utf8)
+        try "# Planner agent\n".write(
+            to: agentsDir.appending(path: "planner.md"), atomically: true, encoding: .utf8)
+
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.agents, "planner.md", false)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot, toggles: toggles).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let written = try String(
+            contentsOf: dir.appending(path: ".claude/agents/reviewer.md"), encoding: .utf8)
+        #expect(written.contains("Reviewer agent"))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents/planner.md").path))
+    }
 }

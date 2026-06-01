@@ -61,4 +61,22 @@ nonisolated struct ScaffoldOverrides: Sendable {
         guard let override = overrideURL(forRelative: relativePath) else { return false }
         return FileManager.default.fileExists(atPath: override.path)
     }
+
+    // File names directly inside the override `<relativeDir>` directory, sorted.
+    // Used for catalogs that have no bundled baseline (user-authored agents):
+    // the set of files is whatever the user created. Empty when there is no
+    // override store or the directory is absent.
+    func overrideFileNames(inRelativeDir relativeDir: String) -> [String] {
+        guard let overrideRoot else { return [] }
+        let dir = overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        let contents =
+            (try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])) ?? []
+        return
+            contents
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            .map(\.lastPathComponent)
+            .sorted()
+    }
 }

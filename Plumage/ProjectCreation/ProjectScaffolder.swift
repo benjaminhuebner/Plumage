@@ -114,6 +114,7 @@ nonisolated struct ProjectScaffolder {
 
         try writeSkills(spec: spec, claude: claude, skillKeywords: claudeOutput.skillKeywords)
         try writeHooks(spec: spec, claude: claude)
+        try writeAgents(claude: claude)
         try SettingsComposer().write(for: spec.kind, toggles: toggles, toClaudeDir: claude)
     }
 
@@ -132,6 +133,22 @@ nonisolated struct ProjectScaffolder {
             try body.write(to: skillMd, atomically: true, encoding: .utf8)
 
             try makeExecutable(scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
+        }
+    }
+
+    // First-time agent scaffolding: Plumage ships no agents, so the catalog is the
+    // user's override `agents/` directory, filtered by the enable toggles. Written
+    // unconditionally into a fresh tree (the scaffolder owns the directory).
+    private func writeAgents(claude: URL) throws {
+        let enabled = toggles.enabledNames(
+            in: .agents, from: overrides.overrideFileNames(inRelativeDir: "agents"))
+        guard !enabled.isEmpty else { return }
+        let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
+        for name in enabled {
+            try copy(
+                from: overrides.url(forRelative: "agents/\(name)"),
+                to: agentsDir.appending(path: name))
         }
     }
 
