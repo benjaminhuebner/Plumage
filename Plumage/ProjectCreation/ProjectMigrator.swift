@@ -46,6 +46,7 @@ nonisolated enum ProjectMigrateError: Error, Sendable, Equatable {
 nonisolated struct ProjectMigrator {
     let assetsRoot: URL
     let overrides: ScaffoldOverrides
+    let toggles: ScaffoldToggles
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
     let repoStateReader: RepoStateReader
@@ -53,12 +54,14 @@ nonisolated struct ProjectMigrator {
     init(
         assetsRoot: URL = NewProjectAssets.bundledRoot,
         overrideRoot: URL? = ScaffoldOverrides.standardOverrideRoot(),
+        toggles: ScaffoldToggles = .loadStandard(),
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
         gitInitRunner: any GitInitializing = GitInitRunner(),
         repoStateReader: RepoStateReader = RepoStateReader()
     ) {
         self.assetsRoot = assetsRoot
         self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
+        self.toggles = toggles
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
         self.repoStateReader = repoStateReader
@@ -155,7 +158,9 @@ nonisolated struct ProjectMigrator {
     private func writeSkills(claude: URL, skillKeywords: String, into report: inout Report) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        for skill in ["plumage-plan", "plumage-implement", "plumage-review"] {
+        let skills = toggles.enabledNames(
+            in: .skills, from: ["plumage-plan", "plumage-implement", "plumage-review"])
+        for skill in skills {
             let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
             let rel = ".claude/skills/\(skill)"
             if fileManager.fileExists(atPath: dest.path) {
@@ -175,7 +180,7 @@ nonisolated struct ProjectMigrator {
     private func writeHooks(spec: NewProjectSpec, claude: URL, into report: inout Report) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in spec.kind.profile.hookNames {
+        for hook in toggles.enabledNames(in: .hooks, from: spec.kind.profile.hookNames) {
             try copyIfMissing(
                 from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),

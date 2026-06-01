@@ -7,10 +7,13 @@ import Testing
 struct ProjectMigratorTests {
     private let fileManager = FileManager.default
 
-    private func migrator(overrideRoot: URL? = nil) -> ProjectMigrator {
+    private func migrator(
+        overrideRoot: URL? = nil, toggles: ScaffoldToggles = ScaffoldToggles()
+    ) -> ProjectMigrator {
         ProjectMigrator(
             assetsRoot: RepoAssets.root,
             overrideRoot: overrideRoot,
+            toggles: toggles,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"))
     }
 
@@ -140,5 +143,26 @@ struct ProjectMigratorTests {
         let migrated = try String(
             contentsOf: root.appending(path: ".claude/hooks/format-swift.sh"), encoding: .utf8)
         #expect(migrated.contains("MY_OVERRIDDEN_HOOK"))
+    }
+
+    @Test("A disabled hook and a disabled skill are absent from the migrated tree")
+    func disabledTogglesOmitArtifacts() async throws {
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.hooks, "format-swift", false)
+        toggles.setEnabled(.skills, "plumage-review", false)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let (_, report) = try await migrator(toggles: toggles).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(!fileManager.fileExists(atPath: root.appending(path: ".claude/hooks/format-swift.sh").path))
+        #expect(!fileManager.fileExists(atPath: root.appending(path: ".claude/skills/plumage-review").path))
+        #expect(!report.added.contains(".claude/skills/plumage-review"))
+        // Non-disabled siblings still present.
+        #expect(fileManager.fileExists(atPath: root.appending(path: ".claude/hooks/lint-swift.sh").path))
+        #expect(
+            fileManager.fileExists(
+                atPath: root.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
     }
 }
