@@ -79,6 +79,10 @@ struct PlumageApp: App {
         .restorationBehavior(.disabled)
         .environment(recentProjects)
         .environment(migrationRequest)
+
+        Settings {
+            AppSettingsView()
+        }
     }
 
     private func drainPendingURLs() {
