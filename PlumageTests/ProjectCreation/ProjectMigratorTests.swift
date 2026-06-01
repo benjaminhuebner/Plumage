@@ -7,9 +7,10 @@ import Testing
 struct ProjectMigratorTests {
     private let fileManager = FileManager.default
 
-    private func migrator() -> ProjectMigrator {
+    private func migrator(overrideRoot: URL? = nil) -> ProjectMigrator {
         ProjectMigrator(
             assetsRoot: RepoAssets.root,
+            overrideRoot: overrideRoot,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"))
     }
 
@@ -118,5 +119,26 @@ struct ProjectMigratorTests {
         _ = try await migrator().migrate(spec: spec(root: root, kind: .other))
         #expect(!fileManager.fileExists(atPath: root.appending(path: ".swift-format").path))
         #expect(!fileManager.fileExists(atPath: root.appending(path: ".swiftlint.yml").path))
+    }
+
+    @Test("Override store: a migrated missing file uses the overridden content")
+    func overriddenFileMigrates() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let hookOverride = overrideRoot.appending(path: "hooks/format-swift.sh")
+        try fileManager.createDirectory(
+            at: hookOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho MY_OVERRIDDEN_HOOK\n".write(
+            to: hookOverride, atomically: true, encoding: .utf8)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        _ = try await migrator(overrideRoot: overrideRoot).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        let migrated = try String(
+            contentsOf: root.appending(path: ".claude/hooks/format-swift.sh"), encoding: .utf8)
+        #expect(migrated.contains("MY_OVERRIDDEN_HOOK"))
     }
 }

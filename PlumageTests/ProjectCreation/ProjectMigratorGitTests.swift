@@ -15,9 +15,10 @@ struct ProjectMigratorGitTests {
         return (root, parent)
     }
 
-    private func migrator() -> ProjectMigrator {
+    private func migrator(overrideRoot: URL? = nil) -> ProjectMigrator {
         ProjectMigrator(
             assetsRoot: RepoAssets.root,
+            overrideRoot: overrideRoot,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"))
     }
 

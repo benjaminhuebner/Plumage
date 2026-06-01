@@ -45,17 +45,20 @@ nonisolated enum ProjectMigrateError: Error, Sendable, Equatable {
 // and the error is surfaced.
 nonisolated struct ProjectMigrator {
     let assetsRoot: URL
+    let overrides: ScaffoldOverrides
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
     let repoStateReader: RepoStateReader
 
     init(
         assetsRoot: URL = NewProjectAssets.bundledRoot,
+        overrideRoot: URL? = ScaffoldOverrides.standardOverrideRoot(),
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
         gitInitRunner: any GitInitializing = GitInitRunner(),
         repoStateReader: RepoStateReader = RepoStateReader()
     ) {
         self.assetsRoot = assetsRoot
+        self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
         self.repoStateReader = repoStateReader
@@ -103,7 +106,7 @@ nonisolated struct ProjectMigrator {
         let scripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: scripts, withIntermediateDirectories: true)
         try copyIfMissing(
-            from: assetsRoot.appending(path: "plumage/roadmap.py"),
+            from: overrides.url(forRelative: "plumage/roadmap.py"),
             to: scripts.appending(path: "roadmap.py"),
             rel: ".plumage/scripts/roadmap.py", executable: true, into: &report)
     }
@@ -122,9 +125,7 @@ nonisolated struct ProjectMigrator {
         let claude = root.appending(path: ".claude", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: claude, withIntermediateDirectories: true)
 
-        let claudeOutput = try ClaudeMdComposer(
-            overrides: ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: nil)
-        ).compose(spec: spec)
+        let claudeOutput = try ClaudeMdComposer(overrides: overrides).compose(spec: spec)
         try writeIfMissing(
             claudeOutput.claudeMd, to: claude.appending(path: "CLAUDE.md"),
             rel: ".claude/CLAUDE.md", into: &report)
@@ -133,7 +134,7 @@ nonisolated struct ProjectMigrator {
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
         for doc in ["PROJECT.md", "notes.md", "decisions.md"] {
             try copyIfMissing(
-                from: assetsRoot.appending(path: "docs/\(doc)"),
+                from: overrides.url(forRelative: "docs/\(doc)"),
                 to: docs.appending(path: doc), rel: ".claude/docs/\(doc)", into: &report)
         }
 
@@ -142,7 +143,7 @@ nonisolated struct ProjectMigrator {
             at: issues.appending(path: "archive", directoryHint: .isDirectory),
             withIntermediateDirectories: true)
         try copyIfMissing(
-            from: assetsRoot.appending(path: "issues/_TEMPLATE.md"),
+            from: overrides.url(forRelative: "issues/_TEMPLATE.md"),
             to: issues.appending(path: "_TEMPLATE.md"),
             rel: ".claude/issues/_TEMPLATE.md", into: &report)
 
@@ -161,7 +162,7 @@ nonisolated struct ProjectMigrator {
                 report.skipped.append(rel)
                 continue
             }
-            try fileManager.copyItem(at: assetsRoot.appending(path: "skills/\(skill)"), to: dest)
+            try copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
             let skillMd = dest.appending(path: "SKILL.md")
             let body = try String(contentsOf: skillMd, encoding: .utf8)
                 .replacingOccurrences(of: "<<<SKILL_KEYWORDS>>>", with: skillKeywords)
@@ -176,7 +177,7 @@ nonisolated struct ProjectMigrator {
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
         for hook in spec.kind.profile.hookNames {
             try copyIfMissing(
-                from: assetsRoot.appending(path: "hooks/\(hook).sh"),
+                from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
                 rel: ".claude/hooks/\(hook).sh", executable: true, into: &report)
         }
@@ -215,10 +216,10 @@ nonisolated struct ProjectMigrator {
     private func writeSwiftConfigs(spec: NewProjectSpec, root: URL, into report: inout Report) throws {
         guard spec.kind.isSwift else { return }
         try copyIfMissing(
-            from: assetsRoot.appending(path: "configs/swift-format"),
+            from: overrides.url(forRelative: "configs/swift-format"),
             to: root.appending(path: ".swift-format"), rel: ".swift-format", into: &report)
         try copyIfMissing(
-            from: assetsRoot.appending(path: "configs/swiftlint.yml"),
+            from: overrides.url(forRelative: "configs/swiftlint.yml"),
             to: root.appending(path: ".swiftlint.yml"), rel: ".swiftlint.yml", into: &report)
     }
 
@@ -229,9 +230,7 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".gitignore")
             return
         }
-        let contents = try GitignoreComposer(
-            overrides: ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: nil)
-        ).compose(for: spec.kind)
+        let contents = try GitignoreComposer(overrides: overrides).compose(for: spec.kind)
         try contents.write(to: dest, atomically: true, encoding: .utf8)
         report.added.append(".gitignore")
     }
@@ -274,6 +273,29 @@ nonisolated struct ProjectMigrator {
                 plumageInGit: spec.git.plumageInGit,
                 claudeInGit: spec.git.claudeInGit,
                 createGitignore: spec.git.createGitignore))
+    }
+
+    // Copy a bundled directory subtree into `dest`, resolving every regular file
+    // through the override layer. The bundled tree defines the set of files; each
+    // file is read from its override when present, else bundled.
+    private func copyResolvedTree(relativeDir: String, to dest: URL) throws {
+        let bundledDir = assetsRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
+        guard
+            let enumerator = fileManager.enumerator(
+                at: bundledDir, includingPropertiesForKeys: [.isRegularFileKey])
+        else { return }
+        for case let url as URL in enumerator {
+            let isRegular = (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile ?? false
+            guard isRegular else { continue }
+            let suffix = url.standardizedFileURL.path
+                .replacingOccurrences(of: bundledDir.standardizedFileURL.path + "/", with: "")
+            let resolved = overrides.url(forRelative: "\(relativeDir)/\(suffix)")
+            let target = dest.appending(path: suffix)
+            try fileManager.createDirectory(
+                at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: resolved, to: target)
+        }
     }
 
     private func copyIfMissing(
