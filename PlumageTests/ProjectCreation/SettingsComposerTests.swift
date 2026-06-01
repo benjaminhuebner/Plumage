@@ -80,4 +80,23 @@ struct SettingsComposerTests {
         let obj = try JSONSerialization.jsonObject(with: composer.localSettingsJSON()) as? [String: Any]
         #expect(obj?.isEmpty == true)
     }
+
+    @Test("A disabled hook is not wired into settings.json")
+    func disabledHookNotWired() throws {
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.hooks, "format-swift", false)
+        let obj = try #require(
+            try JSONSerialization.jsonObject(
+                with: composer.settingsJSON(for: .macOS, toggles: toggles)) as? [String: Any])
+        let names = try hookNames(obj)
+        #expect(!names.contains("format-swift"))
+        #expect(names.contains("lint-swift"))  // a sibling stays wired
+    }
+
+    @Test("Empty toggles wire exactly the profile (byte-identical default)")
+    func emptyTogglesMatchProfile() throws {
+        let withDefault = try composer.settingsJSON(for: .macOS)
+        let withEmpty = try composer.settingsJSON(for: .macOS, toggles: ScaffoldToggles())
+        #expect(withDefault == withEmpty)
+    }
 }

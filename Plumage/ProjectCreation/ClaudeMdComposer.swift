@@ -4,7 +4,7 @@ import Foundation
 // are substituted last so they resolve even inside an inlined `%% SECTION %%`
 // block.
 nonisolated struct ClaudeMdComposer {
-    let templatesDir: URL
+    let overrides: ScaffoldOverrides
 
     nonisolated struct Output: Hashable, Sendable {
         let claudeMd: String
@@ -20,12 +20,11 @@ nonisolated struct ClaudeMdComposer {
 
     func compose(spec: NewProjectSpec) throws -> Output {
         let profile = spec.kind.profile
-        let base = try String(contentsOf: templatesDir.appending(path: "CLAUDE.md"), encoding: .utf8)
+        let base = try overrides.string(atRelative: "templates/CLAUDE.md")
 
         var sections: [String: [String]] = [:]
         for layer in profile.templateLayers {
-            let url = templatesDir.appending(path: "\(layer).md")
-            let layerContent = try String(contentsOf: url, encoding: .utf8)
+            let layerContent = try overrides.string(atRelative: "templates/\(layer).md")
             for parsed in Self.parseSections(layerContent) where !parsed.body.isEmpty {
                 sections[parsed.name, default: []].append(parsed.body)
             }

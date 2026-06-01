@@ -14,15 +14,21 @@ nonisolated enum ProjectScaffoldError: Error, Sendable, Equatable {
 // created fresh by this call.
 nonisolated struct ProjectScaffolder {
     let assetsRoot: URL
+    let overrides: ScaffoldOverrides
+    let toggles: ScaffoldToggles
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
 
     init(
         assetsRoot: URL = NewProjectAssets.bundledRoot,
+        overrideRoot: URL? = ScaffoldOverrides.standardOverrideRoot(),
+        toggles: ScaffoldToggles = .loadStandard(),
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
         gitInitRunner: any GitInitializing = GitInitRunner()
     ) {
         self.assetsRoot = assetsRoot
+        self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
+        self.toggles = toggles
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
     }
@@ -54,7 +60,7 @@ nonisolated struct ProjectScaffolder {
     }
 
     private func build(spec: NewProjectSpec, root: URL) async throws -> URL {
-        let claudeOutput = try ClaudeMdComposer(templatesDir: templatesDir).compose(spec: spec)
+        let claudeOutput = try ClaudeMdComposer(overrides: overrides).compose(spec: spec)
 
         let bundle = root.appending(path: "\(spec.name).plumage", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
@@ -75,7 +81,7 @@ nonisolated struct ProjectScaffolder {
         let scripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: scripts, withIntermediateDirectories: true)
         try copy(
-            from: assetsRoot.appending(path: "plumage/roadmap.py"),
+            from: overrides.url(forRelative: "plumage/roadmap.py"),
             to: scripts.appending(path: "roadmap.py"), executable: true)
     }
 
@@ -95,7 +101,7 @@ nonisolated struct ProjectScaffolder {
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
         for doc in ["PROJECT.md", "notes.md", "decisions.md"] {
-            try copy(from: assetsRoot.appending(path: "docs/\(doc)"), to: docs.appending(path: doc))
+            try copy(from: overrides.url(forRelative: "docs/\(doc)"), to: docs.appending(path: doc))
         }
 
         let issues = claude.appending(path: "issues", directoryHint: .isDirectory)
@@ -103,20 +109,23 @@ nonisolated struct ProjectScaffolder {
             at: issues.appending(path: "archive", directoryHint: .isDirectory),
             withIntermediateDirectories: true)
         try copy(
-            from: assetsRoot.appending(path: "issues/_TEMPLATE.md"),
+            from: overrides.url(forRelative: "issues/_TEMPLATE.md"),
             to: issues.appending(path: "_TEMPLATE.md"))
 
         try writeSkills(spec: spec, claude: claude, skillKeywords: claudeOutput.skillKeywords)
         try writeHooks(spec: spec, claude: claude)
-        try SettingsComposer().write(for: spec.kind, toClaudeDir: claude)
+        try writeAgents(claude: claude)
+        try SettingsComposer().write(for: spec.kind, toggles: toggles, toClaudeDir: claude)
     }
 
     private func writeSkills(spec: NewProjectSpec, claude: URL, skillKeywords: String) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        for skill in ["plumage-plan", "plumage-implement", "plumage-review"] {
+        let skills = toggles.enabledNames(
+            in: .skills, from: ["plumage-plan", "plumage-implement", "plumage-review"])
+        for skill in skills {
             let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
-            try fileManager.copyItem(at: assetsRoot.appending(path: "skills/\(skill)"), to: dest)
+            try copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
 
             let skillMd = dest.appending(path: "SKILL.md")
             let body = try String(contentsOf: skillMd, encoding: .utf8)
@@ -127,12 +136,28 @@ nonisolated struct ProjectScaffolder {
         }
     }
 
+    // First-time agent scaffolding: Plumage ships no agents, so the catalog is the
+    // user's override `agents/` directory, filtered by the enable toggles. Written
+    // unconditionally into a fresh tree (the scaffolder owns the directory).
+    private func writeAgents(claude: URL) throws {
+        let enabled = toggles.enabledNames(
+            in: .agents, from: overrides.overrideFileNames(inRelativeDir: "agents"))
+        guard !enabled.isEmpty else { return }
+        let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
+        for name in enabled {
+            try copy(
+                from: overrides.url(forRelative: "agents/\(name)"),
+                to: agentsDir.appending(path: name))
+        }
+    }
+
     private func writeHooks(spec: NewProjectSpec, claude: URL) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in spec.kind.profile.hookNames {
+        for hook in toggles.enabledNames(in: .hooks, from: spec.kind.profile.hookNames) {
             try copy(
-                from: assetsRoot.appending(path: "hooks/\(hook).sh"),
+                from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
                 executable: true)
         }
@@ -157,16 +182,16 @@ nonisolated struct ProjectScaffolder {
     private func writeSwiftConfigs(spec: NewProjectSpec, root: URL) throws {
         guard spec.kind.isSwift else { return }
         try copy(
-            from: assetsRoot.appending(path: "configs/swift-format"),
+            from: overrides.url(forRelative: "configs/swift-format"),
             to: root.appending(path: ".swift-format"))
         try copy(
-            from: assetsRoot.appending(path: "configs/swiftlint.yml"),
+            from: overrides.url(forRelative: "configs/swiftlint.yml"),
             to: root.appending(path: ".swiftlint.yml"))
     }
 
     private func writeGitignore(spec: NewProjectSpec, root: URL) throws {
         guard spec.git?.createGitignore == true else { return }
-        let contents = try GitignoreComposer(fragmentsDir: gitignoreDir).compose(for: spec.kind)
+        let contents = try GitignoreComposer(overrides: overrides).compose(for: spec.kind)
         try contents.write(to: root.appending(path: ".gitignore"), atomically: true, encoding: .utf8)
     }
 
@@ -184,12 +209,33 @@ nonisolated struct ProjectScaffolder {
 
     // MARK: - helpers
 
-    private var templatesDir: URL { assetsRoot.appending(path: "templates", directoryHint: .isDirectory) }
-    private var gitignoreDir: URL { templatesDir.appending(path: "gitignore", directoryHint: .isDirectory) }
-
     private func copy(from source: URL, to dest: URL, executable: Bool = false) throws {
         try fileManager.copyItem(at: source, to: dest)
         if executable { try setExecutable(dest) }
+    }
+
+    // Copy a bundled directory subtree into `dest`, resolving every regular file
+    // through the override layer. The bundled tree defines the set of files (an
+    // override replaces a file's content, it never adds files to a skill); each
+    // file is read from its override when present, else bundled.
+    private func copyResolvedTree(relativeDir: String, to dest: URL) throws {
+        let bundledDir = assetsRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
+        guard
+            let enumerator = fileManager.enumerator(
+                at: bundledDir, includingPropertiesForKeys: [.isRegularFileKey])
+        else { return }
+        for case let url as URL in enumerator {
+            let isRegular = (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile ?? false
+            guard isRegular else { continue }
+            let suffix = url.standardizedFileURL.path
+                .replacingOccurrences(of: bundledDir.standardizedFileURL.path + "/", with: "")
+            let resolved = overrides.url(forRelative: "\(relativeDir)/\(suffix)")
+            let target = dest.appending(path: suffix)
+            try fileManager.createDirectory(
+                at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: resolved, to: target)
+        }
     }
 
     private func setExecutable(_ url: URL) throws {

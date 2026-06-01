@@ -10,9 +10,14 @@ struct ProjectScaffolderTests {
             .appending(path: "Scaffold-\(UUID().uuidString)/MyApp", directoryHint: .isDirectory)
     }
 
-    private func scaffolder(git: any GitInitializing = GitInitRunner()) -> ProjectScaffolder {
+    private func scaffolder(
+        git: any GitInitializing = GitInitRunner(), overrideRoot: URL? = nil,
+        toggles: ScaffoldToggles = ScaffoldToggles()
+    ) -> ProjectScaffolder {
         ProjectScaffolder(
             assetsRoot: RepoAssets.root,
+            overrideRoot: overrideRoot,
+            toggles: toggles,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
             gitInitRunner: git)
     }
@@ -73,5 +78,110 @@ struct ProjectScaffolderTests {
             _ = try await scaffolder(git: failingGit).create(spec: spec)
         }
         #expect(!FileManager.default.fileExists(atPath: dir.path))
+    }
+
+    @Test("No override store: scaffolded files are byte-identical to the bundled originals")
+    func noOverrideByteIdentical() async throws {
+        let fm = FileManager.default
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder().create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        // A hook, a config, a doc, and a skill script — one from each copy site.
+        let checks: [(scaffolded: String, bundled: String)] = [
+            (".claude/hooks/format-swift.sh", "hooks/format-swift.sh"),
+            (".swift-format", "configs/swift-format"),
+            (".claude/docs/PROJECT.md", "docs/PROJECT.md"),
+            (
+                ".claude/skills/plumage-implement/scripts/precommit-gate.sh",
+                "skills/plumage-implement/scripts/precommit-gate.sh"
+            ),
+        ]
+        for check in checks {
+            let got = try Data(contentsOf: dir.appending(path: check.scaffolded))
+            let want = try Data(contentsOf: RepoAssets.root.appending(path: check.bundled))
+            #expect(got == want, "byte mismatch for \(check.scaffolded)")
+        }
+    }
+
+    @Test("Override store: a scaffolded file uses the overridden content")
+    func overriddenFileScaffolds() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "ScaffoldOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        let hookOverride = overrideRoot.appending(path: "hooks/format-swift.sh")
+        try fm.createDirectory(
+            at: hookOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho MY_OVERRIDDEN_HOOK\n".write(
+            to: hookOverride, atomically: true, encoding: .utf8)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let scaffolded = try String(
+            contentsOf: dir.appending(path: ".claude/hooks/format-swift.sh"), encoding: .utf8)
+        #expect(scaffolded.contains("MY_OVERRIDDEN_HOOK"))
+    }
+
+    @Test("A disabled hook and a disabled skill are absent from the scaffolded tree")
+    func disabledTogglesOmitArtifacts() async throws {
+        let fm = FileManager.default
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.hooks, "format-swift", false)
+        toggles.setEnabled(.skills, "plumage-review", false)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(toggles: toggles).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/hooks/format-swift.sh").path))
+        #expect(
+            !fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-review").path))
+        // Non-disabled siblings are still present.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/hooks/lint-swift.sh").path))
+        #expect(
+            fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
+    }
+
+    @Test("No agents in the override store: no .claude/agents directory is created")
+    func noAgentsNoDir() async throws {
+        let fm = FileManager.default
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder().create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents").path))
+    }
+
+    @Test("Enabled user agents are written to .claude/agents; a disabled one is not")
+    func writesEnabledAgents() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "AgentsOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        let agentsDir = overrideRoot.appending(path: "agents", directoryHint: .isDirectory)
+        try fm.createDirectory(at: agentsDir, withIntermediateDirectories: true)
+        try "# Reviewer agent\n".write(
+            to: agentsDir.appending(path: "reviewer.md"), atomically: true, encoding: .utf8)
+        try "# Planner agent\n".write(
+            to: agentsDir.appending(path: "planner.md"), atomically: true, encoding: .utf8)
+
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.agents, "planner.md", false)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot, toggles: toggles).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let written = try String(
+            contentsOf: dir.appending(path: ".claude/agents/reviewer.md"), encoding: .utf8)
+        #expect(written.contains("Reviewer agent"))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents/planner.md").path))
     }
 }

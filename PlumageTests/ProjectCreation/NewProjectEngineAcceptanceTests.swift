@@ -13,6 +13,7 @@ struct NewProjectEngineAcceptanceTests {
     private func scaffolder() -> ProjectScaffolder {
         ProjectScaffolder(
             assetsRoot: RepoAssets.root,
+            overrideRoot: nil,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"))
     }
 

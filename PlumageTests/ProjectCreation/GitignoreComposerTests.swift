@@ -6,7 +6,7 @@ import Testing
 @Suite("GitignoreComposer")
 struct GitignoreComposerTests {
     private let composer = GitignoreComposer(
-        fragmentsDir: RepoAssets.templatesDir.appending(path: "gitignore", directoryHint: .isDirectory))
+        overrides: ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: nil))
 
     @Test("macOS gets Swift + Xcode + macOS blocks")
     func macOS() throws {
@@ -37,5 +37,26 @@ struct GitignoreComposerTests {
         for kind in ProjectKind.allCases {
             #expect(try composer.compose(for: kind).contains(".DS_Store"), "macOS block missing for \(kind)")
         }
+    }
+
+    @Test("An overridden fragment flows in; other fragments fall back to bundled")
+    func overriddenFragmentComposes() throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "GitignoreOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        let swiftOverride = overrideRoot.appending(path: "templates/gitignore/swift.gitignore")
+        try fm.createDirectory(
+            at: swiftOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "MY_SWIFT_IGNORE\n".write(to: swiftOverride, atomically: true, encoding: .utf8)
+
+        let composer = GitignoreComposer(
+            overrides: ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: overrideRoot))
+        let out = try composer.compose(for: .macOS)
+
+        #expect(out.contains("MY_SWIFT_IGNORE"))  // overridden swift fragment
+        #expect(!out.contains(".build/"))  // original swift fragment gone
+        #expect(out.contains(".DS_Store"))  // macos fragment still bundled
+        #expect(out.contains("DerivedData/"))  // xcode fragment still bundled
     }
 }
