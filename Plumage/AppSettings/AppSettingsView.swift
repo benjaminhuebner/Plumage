@@ -5,7 +5,9 @@ struct AppSettingsView: View {
         TabView {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
+            TemplatesSettingsTab()
+                .tabItem { Label("Templates", systemImage: "doc.text") }
         }
-        .frame(width: 480, height: 200)
+        .frame(width: 860, height: 560)
     }
 }
