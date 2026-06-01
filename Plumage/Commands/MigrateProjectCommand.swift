@@ -23,7 +23,7 @@ enum MigrateProjectCommand {
         openWindow: OpenWindowAction,
         dismissWindow: DismissWindowAction
     ) {
-        request.folderURL = url
+        request.present(url)
         openWindow(id: "migrate-project")
         dismissWindow(id: "welcome")
     }

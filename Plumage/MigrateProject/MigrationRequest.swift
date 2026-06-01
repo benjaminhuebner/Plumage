@@ -7,5 +7,15 @@ import Foundation
 @Observable
 @MainActor
 final class MigrationRequest {
-    var folderURL: URL?
+    private(set) var folderURL: URL?
+
+    // Bumped on every present so the single-instance Migrate window rebuilds its
+    // model even when re-requested for the *same* folder — otherwise a `.task(id:
+    // folderURL)` wouldn't re-fire and a stale completion screen would show.
+    private(set) var generation = 0
+
+    func present(_ url: URL) {
+        folderURL = url
+        generation += 1
+    }
 }

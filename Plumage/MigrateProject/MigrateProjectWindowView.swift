@@ -8,19 +8,19 @@ struct MigrateProjectWindowView: View {
         Group {
             if let model {
                 MigrateProjectFlowView(model: model)
-                    .id(model.folderURL)
+                    .id(request.generation)
             } else {
-                Color.clear
+                ProgressView("Inspecting folder…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(minWidth: 640, idealWidth: 720, minHeight: 500, idealHeight: 560)
         // The single-instance window keeps `@State` across reopen; rebuild the
-        // model whenever the requested folder changes and run detection.
-        .task(id: request.folderURL) {
+        // model on every present (keyed on `generation`, not the URL, so
+        // re-migrating the same folder still starts a fresh flow) and detect.
+        .task(id: request.generation) {
             guard let url = request.folderURL else { return }
-            if model?.folderURL != url {
-                model = MigrateProjectModel(folderURL: url)
-            }
+            model = MigrateProjectModel(folderURL: url)
             await model?.load()
         }
     }
@@ -28,7 +28,7 @@ struct MigrateProjectWindowView: View {
 
 private struct MigrateProjectFlowView: View {
     @Bindable var model: MigrateProjectModel
-    @State private var migrated: CreatedProject?
+    @State private var migrateTask: Task<Void, Never>?
     @State private var didMigrate = false
     @Environment(\.dismiss) private var dismiss
     @Environment(RecentProjects.self) private var recentProjects
@@ -59,6 +59,7 @@ private struct MigrateProjectFlowView: View {
         // Opening Migrate closed Welcome, so a close that didn't open a project
         // must bring Welcome back or the app is left with no window.
         .onDisappear {
+            migrateTask?.cancel()
             if !didMigrate { openWindow(id: "welcome") }
         }
     }
@@ -206,19 +207,14 @@ private struct MigrateProjectFlowView: View {
     }
 
     private func performMigrate() {
-        Task {
-            let result = await model.migrate()
-            if case .success(let value) = result {
-                migrated = value.0
-            }
-        }
+        migrateTask = Task { await model.migrate() }
     }
 
     private func openMigrated() {
-        guard let migrated else { return }
+        guard let project = model.migratedProject else { return }
         didMigrate = true
         OpenProjectCommand.openConfirmed(
-            url: migrated.root,
+            url: project.root,
             recentProjects: recentProjects,
             openWindow: openWindow,
             dismissWindow: dismissWindow

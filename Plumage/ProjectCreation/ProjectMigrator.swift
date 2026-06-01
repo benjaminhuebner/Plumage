@@ -206,7 +206,7 @@ nonisolated struct ProjectMigrator {
         let data = try JSONSerialization.data(
             withJSONObject: ["mcpServers": servers],
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        try data.write(to: dest)
+        try data.write(to: dest, options: .atomic)
         report.added.append(".mcp.json")
     }
 
@@ -300,7 +300,7 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(rel)
             return
         }
-        try data.write(to: dest)
+        try data.write(to: dest, options: .atomic)
         report.added.append(rel)
     }
 

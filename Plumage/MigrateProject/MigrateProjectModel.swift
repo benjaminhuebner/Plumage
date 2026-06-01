@@ -27,6 +27,7 @@ final class MigrateProjectModel {
     var isMigrating: Bool = false
     var error: String?
     var report: MigrationReport?
+    private(set) var migratedProject: CreatedProject?
 
     private var didLoad = false
     private let detector: @Sendable (URL) -> ProjectKind?
@@ -50,7 +51,6 @@ final class MigrateProjectModel {
     // appearance. A user-chosen `kind` is never overwritten by detection.
     func load() async {
         guard !didLoad else { return }
-        didLoad = true
 
         let url = folderURL
         let detect = detector
@@ -59,6 +59,10 @@ final class MigrateProjectModel {
             (detect(url), reader.read(repoURL: url).isGitRepo)
         }.value
 
+        // A cancelled `.task(id:)` (folder changed mid-detection) must neither
+        // write stale results nor poison `didLoad` against the new folder.
+        guard !Task.isCancelled else { return }
+        didLoad = true
         detectedKind = result.0
         if kind == nil { kind = result.0 }
         isGitRepo = result.1
@@ -80,9 +84,12 @@ final class MigrateProjectModel {
         kind != nil
     }
 
+    static func isValidName(_ value: String) -> Bool {
+        !value.isEmpty && !value.contains("/") && value != "." && value != ".."
+    }
+
     var isMetadataStepValid: Bool {
-        let value = trimmedName
-        return !value.isEmpty && !value.contains("/") && value != "." && value != ".."
+        Self.isValidName(trimmedName)
     }
 
     var isOptionsStepValid: Bool {
@@ -129,7 +136,7 @@ final class MigrateProjectModel {
     func assembledSpec() -> MigrationSpec? {
         guard let kind else { return nil }
         let name = trimmedName
-        guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else { return nil }
+        guard Self.isValidName(name) else { return nil }
 
         return MigrationSpec(
             projectDirectory: folderURL,
@@ -145,11 +152,10 @@ final class MigrateProjectModel {
 
     // MARK: - Migrate (State-as-Bridge)
 
-    func migrate() async -> Result<(CreatedProject, MigrationReport), Error> {
+    func migrate() async {
         guard let spec = assembledSpec() else {
-            let error = MigrateProjectError.incompleteForm
-            self.error = Self.message(for: error)
-            return .failure(error)
+            error = Self.message(for: MigrateProjectError.incompleteForm)
+            return
         }
 
         isMigrating = true
@@ -162,11 +168,14 @@ final class MigrateProjectModel {
             let result = try await Task.detached(priority: .userInitiated) {
                 try await ProjectMigrator().migrate(spec: spec)
             }.value
+            // The driving Task is cancelled when the window closes mid-migration;
+            // don't write back into an orphaned model.
+            guard !Task.isCancelled else { return }
+            migratedProject = result.0
             report = result.1
-            return .success(result)
         } catch {
+            guard !Task.isCancelled else { return }
             self.error = Self.message(for: error)
-            return .failure(error)
         }
     }
 
