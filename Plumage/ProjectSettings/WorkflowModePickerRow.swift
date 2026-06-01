@@ -8,6 +8,7 @@ struct WorkflowModePickerRow: View {
     var body: some View {
         HStack {
             Text(label)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(width: 160, alignment: .leading)
             Picker("", selection: modeBinding) {
                 ForEach(PermissionMode.allCases, id: \.self) { pm in

@@ -74,6 +74,10 @@ struct NavigatorSidebar: View {
                 )
             }
             .buttonStyle(.plain)
+            // The row lives outside List(selection:), so List's automatic
+            // "selected" VoiceOver announcement never fires — re-add it by hand.
+            .accessibilityLabel("Project Settings")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
             .clickableSidebarRow()
             .onHover { settingsHovering = $0 }
             .padding(.horizontal, 8)
