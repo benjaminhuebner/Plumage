@@ -165,4 +165,38 @@ struct ProjectMigratorTests {
             fileManager.fileExists(
                 atPath: root.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
     }
+
+    @Test("Enabled user agents are migrated; a pre-existing agent file is preserved and skipped")
+    func migratesAgentsAdditively() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateAgents-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let storeAgents = overrideRoot.appending(path: "agents", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: storeAgents, withIntermediateDirectories: true)
+        try "# New reviewer\n".write(
+            to: storeAgents.appending(path: "reviewer.md"), atomically: true, encoding: .utf8)
+        try "# Store planner\n".write(
+            to: storeAgents.appending(path: "planner.md"), atomically: true, encoding: .utf8)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        // The user already has their own planner.md — must not be overwritten.
+        let targetAgents = root.appending(path: ".claude/agents", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: targetAgents, withIntermediateDirectories: true)
+        try "# My own planner\n".write(
+            to: targetAgents.appending(path: "planner.md"), atomically: true, encoding: .utf8)
+
+        let (_, report) = try await migrator(overrideRoot: overrideRoot).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(
+            try String(contentsOf: targetAgents.appending(path: "reviewer.md"), encoding: .utf8)
+                .contains("New reviewer"))
+        #expect(report.added.contains(".claude/agents/reviewer.md"))
+        // Pre-existing planner preserved byte-for-byte and reported skipped.
+        #expect(
+            try String(contentsOf: targetAgents.appending(path: "planner.md"), encoding: .utf8)
+                == "# My own planner\n")
+        #expect(report.skipped.contains(".claude/agents/planner.md"))
+    }
 }

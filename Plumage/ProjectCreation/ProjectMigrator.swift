@@ -152,6 +152,7 @@ nonisolated struct ProjectMigrator {
 
         try writeSkills(claude: claude, skillKeywords: claudeOutput.skillKeywords, into: &report)
         try writeHooks(spec: spec, claude: claude, into: &report)
+        try writeAgents(claude: claude, into: &report)
         try writeSettings(kind: spec.kind, claude: claude, into: &report)
     }
 
@@ -185,6 +186,22 @@ nonisolated struct ProjectMigrator {
                 from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
                 rel: ".claude/hooks/\(hook).sh", executable: true, into: &report)
+        }
+    }
+
+    // Agents parity with the scaffolder, additive: each enabled user agent is
+    // written only if it isn't already present in the target's `.claude/agents/`.
+    private func writeAgents(claude: URL, into report: inout Report) throws {
+        let enabled = toggles.enabledNames(
+            in: .agents, from: overrides.overrideFileNames(inRelativeDir: "agents"))
+        guard !enabled.isEmpty else { return }
+        let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
+        for name in enabled {
+            try copyIfMissing(
+                from: overrides.url(forRelative: "agents/\(name)"),
+                to: agentsDir.appending(path: name),
+                rel: ".claude/agents/\(name)", into: &report)
         }
     }
 
