@@ -15,5 +15,8 @@ struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: appearance) { _, newValue in
+            AppearanceApplier.apply(newValue)
+        }
     }
 }

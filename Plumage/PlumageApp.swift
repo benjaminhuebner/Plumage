@@ -113,6 +113,8 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppearanceApplier.applyStored()
+
         // Sync Plumage's bundled claude theme so the embedded terminal renders
         // without opaque block backgrounds. Off-main: installIfNeeded is
         // nonisolated pure file I/O and on iCloud Drive / NFS homes the writes
