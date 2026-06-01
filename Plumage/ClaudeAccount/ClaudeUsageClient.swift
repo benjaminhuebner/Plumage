@@ -27,6 +27,13 @@ actor ClaudeUsageClient {
     private let keychain: any KeychainReading
     private let endpoint: URL
 
+    // The CLI rewrites its Keychain item on every OAuth refresh, which resets the
+    // item's ACL and silently drops Plumage's "Always Allow" grant — so reading
+    // on every poll re-prompts the user after each refresh. Hence caching it.
+    // In-memory only: persisting a copy would be "own credential handling"
+    // (decisions.md 2026-05-20 #00031).
+    private var cachedToken: OAuthToken?
+
     init(
         fetcher: any HTTPFetching = ProductionHTTPFetcher(),
         keychain: any KeychainReading = ProductionKeychainReader(),
@@ -39,14 +46,37 @@ actor ClaudeUsageClient {
 
     func fetchUsage() async throws -> ClaudeUsageResponse {
         let token: OAuthToken
+        if let cachedToken {
+            token = cachedToken
+        } else {
+            token = try readToken()
+        }
+
         do {
-            token = try keychain.readToken()
+            return try await requestUsage(token: token)
+        } catch ClaudeUsageError.notLoggedIn {
+            // The token was rejected (rotated, revoked, or expired). Drop it so
+            // the next poll reads a fresh one from the Keychain — the CLI has by
+            // then written the refreshed token (and reset the item's ACL, which
+            // is why that read may re-prompt).
+            cachedToken = nil
+            throw ClaudeUsageError.notLoggedIn
+        }
+    }
+
+    private func readToken() throws -> OAuthToken {
+        do {
+            let token = try keychain.readToken()
+            cachedToken = token
+            return token
         } catch ClaudeAccountAuthError.notLoggedIn {
             throw ClaudeUsageError.notLoggedIn
         } catch {
             throw ClaudeUsageError.transport(error.localizedDescription)
         }
+    }
 
+    private func requestUsage(token: OAuthToken) async throws -> ClaudeUsageResponse {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")

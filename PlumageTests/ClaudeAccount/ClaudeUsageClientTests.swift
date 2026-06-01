@@ -74,6 +74,46 @@ struct ClaudeUsageClientTests {
         }
     }
 
+    @Test("reuses the in-memory token across polls instead of re-reading the Keychain")
+    func cachesTokenAcrossPolls() async throws {
+        let stub = StubHTTPFetcher()
+        let keychain = MockKeychainReader(outcome: .token(OAuthToken(value: "sk-cache", expiresAt: nil)))
+        stub.setOutcome(
+            .response(status: 200, body: Self.usageJSON), for: ClaudeUsageClient.usageEndpoint)
+        let client = ClaudeUsageClient(fetcher: stub, keychain: keychain)
+        _ = try await client.fetchUsage()
+        _ = try await client.fetchUsage()
+        _ = try await client.fetchUsage()
+        #expect(keychain.readCount == 1)
+        #expect(stub.requests.count == 3)
+    }
+
+    @Test("drops the cached token after 401 and re-reads the Keychain on the next poll")
+    func reReadsAfterUnauthorized() async throws {
+        let stub = StubHTTPFetcher()
+        let keychain = MockKeychainReader(outcome: .token(OAuthToken(value: "sk-old", expiresAt: nil)))
+        stub.setOutcome(
+            .response(status: 200, body: Self.usageJSON), for: ClaudeUsageClient.usageEndpoint)
+        let client = ClaudeUsageClient(fetcher: stub, keychain: keychain)
+        _ = try await client.fetchUsage()  // reads sk-old, caches it (1 read)
+        #expect(keychain.readCount == 1)
+
+        // Cached token now rejected: drop it, but don't re-read within this call.
+        stub.setOutcome(.response(status: 401, body: Data()), for: ClaudeUsageClient.usageEndpoint)
+        await #expect(throws: ClaudeUsageError.notLoggedIn) {
+            _ = try await client.fetchUsage()
+        }
+        #expect(keychain.readCount == 1)
+
+        // Next poll: cache is empty, so the rotated token is read fresh.
+        keychain.outcome = .token(OAuthToken(value: "sk-new", expiresAt: nil))
+        stub.setOutcome(
+            .response(status: 200, body: Self.usageJSON), for: ClaudeUsageClient.usageEndpoint)
+        _ = try await client.fetchUsage()
+        #expect(keychain.readCount == 2)
+        #expect(stub.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer sk-new")
+    }
+
     private static let usageJSON: Data = Data(
         #"""
         {
