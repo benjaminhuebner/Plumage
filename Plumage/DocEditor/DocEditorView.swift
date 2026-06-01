@@ -5,6 +5,8 @@ import SwiftUI
 struct DocEditorView: View {
     let fileURL: URL
     let displayName: String
+    // Fired after a successful save (e.g. so a host can refresh a derived view).
+    let onSave: (() -> Void)?
 
     @State private var model: DocEditorModel
     @State private var editorPosition = CodeEditor.Position()
@@ -25,9 +27,10 @@ struct DocEditorView: View {
 
     @Environment(\.scenePhase) private var scenePhase
 
-    init(fileURL: URL, displayName: String? = nil) {
+    init(fileURL: URL, displayName: String? = nil, onSave: (() -> Void)? = nil) {
         self.fileURL = fileURL
         self.displayName = displayName ?? fileURL.lastPathComponent
+        self.onSave = onSave
         _model = State(initialValue: DocEditorModel(fileURL: fileURL))
         self.language = DocEditorLanguage.configuration(for: fileURL)
     }
@@ -115,6 +118,7 @@ struct DocEditorView: View {
         Task {
             do {
                 try await model.saveIfDirty()
+                onSave?()
             } catch {
                 saveAlertMessage = error.localizedDescription
                 saveAlertVisible = true

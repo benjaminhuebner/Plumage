@@ -7,8 +7,11 @@ import Foundation
 //
 // Editing model: `DocEditorView` loads from and saves to a single file URL, so to
 // edit a bundled asset the model seeds its override slot with the bundled content
-// on first open and points the editor at the override URL. A file therefore shows
-// as overridden (●) once opened for editing; reset-to-default deletes the override.
+// on open and points the editor at the override URL. The ● marker tracks whether
+// the override *differs* from the bundled original, so merely browsing (which seeds
+// an identical copy) leaves a file as ○; the marker flips to ● only once a save
+// makes the content diverge. Identical (no-op) overrides left behind by browsing
+// are pruned on reload. Reset-to-default deletes the override.
 @MainActor
 @Observable
 final class TemplatesSettingsModel {
@@ -71,17 +74,25 @@ final class TemplatesSettingsModel {
     // react to seed/save/reset without polling the filesystem in `body`.
     private(set) var overriddenPaths: Set<String> = []
 
+    // Live preview of the composed CLAUDE.md for a chosen sample kind, run through
+    // the same composer the scaffolder uses, on the current overrides.
+    var sampleKind: ProjectKind = .macOS {
+        didSet { refreshPreview() }
+    }
+    private(set) var previewText: String = ""
+
     init(overrides: ScaffoldOverrides = .standard()) {
         self.overrides = overrides
         reload()
+        refreshPreview()
     }
 
     // MARK: - Catalog
 
     func reload() {
         entries = Self.buildCatalog(overrides: overrides)
-        overriddenPaths = Set(
-            entries.map(\.relativePath).filter { overrides.hasOverride(forRelative: $0) })
+        pruneIdenticalOverrides()
+        overriddenPaths = Set(entries.map(\.relativePath).filter { overrideDiffers($0) })
     }
 
     var groupedEntries: [(category: Category, entries: [CatalogEntry])] {
@@ -108,10 +119,17 @@ final class TemplatesSettingsModel {
     func beginEditing(_ entry: CatalogEntry) {
         do {
             editingFileURL = try ensureOverride(for: entry)
-            overriddenPaths.insert(entry.relativePath)
+            refreshOverrideStatus(for: entry.relativePath)
         } catch {
             editingFileURL = nil
         }
+    }
+
+    // Called after the editor saves the given file: the override may now differ
+    // from bundled, so refresh its ● marker and the live preview.
+    func notifySaved(relativePath: String) {
+        refreshOverrideStatus(for: relativePath)
+        refreshPreview()
     }
 
     func resetToDefault(_ entry: CatalogEntry) {
@@ -121,6 +139,58 @@ final class TemplatesSettingsModel {
         if editingFileURL == url {
             editingFileURL = nil
             selection = nil
+        }
+        refreshPreview()
+    }
+
+    private func refreshOverrideStatus(for relativePath: String) {
+        if overrideDiffers(relativePath) {
+            overriddenPaths.insert(relativePath)
+        } else {
+            overriddenPaths.remove(relativePath)
+        }
+    }
+
+    // An override counts as overridden only when its content diverges from the
+    // bundled original. Files with no bundled baseline (user-authored agents)
+    // count as overridden whenever an override file exists.
+    private func overrideDiffers(_ relativePath: String) -> Bool {
+        guard overrides.hasOverride(forRelative: relativePath),
+            let overrideURL = overrides.overrideURL(forRelative: relativePath)
+        else { return false }
+        let bundled = overrides.bundledRoot.appending(path: relativePath)
+        guard let bundledData = try? Data(contentsOf: bundled) else { return true }
+        let overrideData = (try? Data(contentsOf: overrideURL)) ?? Data()
+        return overrideData != bundledData
+    }
+
+    // Delete bundled-backed overrides whose content is byte-identical to the
+    // bundled original (no-op overrides a browse session may have seeded). The
+    // file currently open in the editor is left alone.
+    private func pruneIdenticalOverrides() {
+        let fm = FileManager.default
+        for entry in entries where entry.category != .agents {
+            guard let url = overrides.overrideURL(forRelative: entry.relativePath),
+                url != editingFileURL,
+                overrides.hasOverride(forRelative: entry.relativePath),
+                !overrideDiffers(entry.relativePath)
+            else { continue }
+            try? fm.removeItem(at: url)
+        }
+    }
+
+    // MARK: - Preview
+
+    func refreshPreview() {
+        let spec = NewProjectSpec(
+            kind: sampleKind, name: "SampleProject", tagline: "A sample project",
+            projectDirectory: URL(filePath: "/tmp/SampleProject"))
+        do {
+            previewText = try ClaudeMdComposer(overrides: overrides).compose(spec: spec).claudeMd
+        } catch {
+            previewText =
+                "Preview unavailable — the composer could not build CLAUDE.md:\n\n"
+                + error.localizedDescription
         }
     }
 

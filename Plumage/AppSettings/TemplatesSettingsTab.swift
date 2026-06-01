@@ -16,13 +16,20 @@ struct TemplatesSettingsTab: View {
             Divider()
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            previewPane
+                .frame(width: 320)
         }
+        .frame(width: 1040, height: 600)
+        .onAppear { model.reload() }
         .onChange(of: model.selection) { _, _ in
             if let entry = model.selectedEntry {
                 model.beginEditing(entry)
             }
         }
     }
+
+    // MARK: - Catalog
 
     private var catalogList: some View {
         @Bindable var model = model
@@ -50,14 +57,18 @@ struct TemplatesSettingsTab: View {
         }
     }
 
+    // MARK: - Editor
+
     @ViewBuilder
     private var detail: some View {
         if let url = model.editingFileURL, let entry = model.selectedEntry {
             VStack(spacing: 0) {
                 detailHeader(entry)
                 Divider()
-                DocEditorView(fileURL: url, displayName: entry.label)
-                    .id(url)
+                DocEditorView(fileURL: url, displayName: entry.label) {
+                    model.notifySaved(relativePath: entry.relativePath)
+                }
+                .id(url)
             }
         } else {
             ContentUnavailableView(
@@ -82,5 +93,35 @@ struct TemplatesSettingsTab: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    // MARK: - Preview
+
+    private var previewPane: some View {
+        @Bindable var model = model
+        return VStack(spacing: 0) {
+            HStack {
+                Text("CLAUDE.md Preview")
+                    .font(.headline)
+                Spacer()
+                Picker("", selection: $model.sampleKind) {
+                    ForEach(ProjectKind.allCases, id: \.self) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            Divider()
+            ScrollView {
+                Text(model.previewText)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+        }
     }
 }

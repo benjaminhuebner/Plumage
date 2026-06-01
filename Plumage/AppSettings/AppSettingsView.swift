@@ -8,6 +8,5 @@ struct AppSettingsView: View {
             TemplatesSettingsTab()
                 .tabItem { Label("Templates", systemImage: "doc.text") }
         }
-        .frame(width: 860, height: 560)
     }
 }
