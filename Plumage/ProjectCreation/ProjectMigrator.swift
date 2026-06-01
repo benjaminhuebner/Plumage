@@ -229,7 +229,9 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".gitignore")
             return
         }
-        let contents = try GitignoreComposer(fragmentsDir: gitignoreDir).compose(for: spec.kind)
+        let contents = try GitignoreComposer(
+            overrides: ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: nil)
+        ).compose(for: spec.kind)
         try contents.write(to: dest, atomically: true, encoding: .utf8)
         report.added.append(".gitignore")
     }
@@ -255,13 +257,6 @@ nonisolated struct ProjectMigrator {
     private struct Report {
         var added: [String] = []
         var skipped: [String] = []
-    }
-
-    private var templatesDir: URL {
-        assetsRoot.appending(path: "templates", directoryHint: .isDirectory)
-    }
-    private var gitignoreDir: URL {
-        templatesDir.appending(path: "gitignore", directoryHint: .isDirectory)
     }
 
     private func existingBundle(in root: URL) -> URL? {

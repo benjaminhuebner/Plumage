@@ -168,7 +168,9 @@ nonisolated struct ProjectScaffolder {
 
     private func writeGitignore(spec: NewProjectSpec, root: URL) throws {
         guard spec.git?.createGitignore == true else { return }
-        let contents = try GitignoreComposer(fragmentsDir: gitignoreDir).compose(for: spec.kind)
+        let contents = try GitignoreComposer(
+            overrides: ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: nil)
+        ).compose(for: spec.kind)
         try contents.write(to: root.appending(path: ".gitignore"), atomically: true, encoding: .utf8)
     }
 
@@ -185,9 +187,6 @@ nonisolated struct ProjectScaffolder {
     }
 
     // MARK: - helpers
-
-    private var templatesDir: URL { assetsRoot.appending(path: "templates", directoryHint: .isDirectory) }
-    private var gitignoreDir: URL { templatesDir.appending(path: "gitignore", directoryHint: .isDirectory) }
 
     private func copy(from source: URL, to dest: URL, executable: Bool = false) throws {
         try fileManager.copyItem(at: source, to: dest)
