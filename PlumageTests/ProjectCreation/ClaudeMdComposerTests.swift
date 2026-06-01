@@ -5,7 +5,8 @@ import Testing
 
 @Suite("ClaudeMdComposer")
 struct ClaudeMdComposerTests {
-    private let composer = ClaudeMdComposer(templatesDir: RepoAssets.templatesDir)
+    private let composer = ClaudeMdComposer(
+        overrides: ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: nil))
 
     private func compose(
         _ kind: ProjectKind, name: String = "Acme", tagline: String = "A tiny thing"
@@ -66,5 +67,29 @@ struct ClaudeMdComposerTests {
             #expect(!out.claudeMd.contains("<<<"), "unresolved token in \(kind)")
             #expect(!out.claudeMd.contains("%%"), "leftover section marker in \(kind)")
         }
+    }
+
+    @Test("An overridden layer flows into the composed output; other files fall back to bundled")
+    func overriddenLayerComposes() throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "ComposerOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        let macosOverride = overrideRoot.appending(path: "templates/macos.md")
+        try fm.createDirectory(
+            at: macosOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "%% CONVENTIONS %%\nOVERRIDE_MARKER_XYZ\n".write(
+            to: macosOverride, atomically: true, encoding: .utf8)
+
+        let composer = ClaudeMdComposer(
+            overrides: ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: overrideRoot))
+        let out = try composer.compose(
+            spec: NewProjectSpec(
+                kind: .macOS, name: "Acme", tagline: "tl", projectDirectory: URL(filePath: "/tmp/x")))
+
+        #expect(out.claudeMd.contains("OVERRIDE_MARKER_XYZ"))  // overridden macos layer
+        #expect(!out.claudeMd.contains("custom NSWindow chrome"))  // original macos content gone
+        #expect(out.claudeMd.contains("Strict concurrency is on"))  // swift-shared still bundled
+        #expect(!out.claudeMd.contains("<<<"))
     }
 }

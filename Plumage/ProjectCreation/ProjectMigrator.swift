@@ -122,7 +122,9 @@ nonisolated struct ProjectMigrator {
         let claude = root.appending(path: ".claude", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: claude, withIntermediateDirectories: true)
 
-        let claudeOutput = try ClaudeMdComposer(templatesDir: templatesDir).compose(spec: spec)
+        let claudeOutput = try ClaudeMdComposer(
+            overrides: ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: nil)
+        ).compose(spec: spec)
         try writeIfMissing(
             claudeOutput.claudeMd, to: claude.appending(path: "CLAUDE.md"),
             rel: ".claude/CLAUDE.md", into: &report)

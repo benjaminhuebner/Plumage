@@ -54,7 +54,9 @@ nonisolated struct ProjectScaffolder {
     }
 
     private func build(spec: NewProjectSpec, root: URL) async throws -> URL {
-        let claudeOutput = try ClaudeMdComposer(templatesDir: templatesDir).compose(spec: spec)
+        let claudeOutput = try ClaudeMdComposer(
+            overrides: ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: nil)
+        ).compose(spec: spec)
 
         let bundle = root.appending(path: "\(spec.name).plumage", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
