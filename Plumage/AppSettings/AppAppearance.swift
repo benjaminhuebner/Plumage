@@ -7,6 +7,10 @@ nonisolated enum AppAppearance: String, CaseIterable, Identifiable {
 
     static let storageKey = "appearance"
 
+    static func resolve(from stored: String?) -> AppAppearance {
+        stored.flatMap(AppAppearance.init(rawValue:)) ?? .system
+    }
+
     var id: String { rawValue }
 
     var displayName: String {

@@ -14,15 +14,16 @@ import Testing
     }
 
     @Test func unknownStoredValueFallsBackToSystem() {
-        let stored: String? = "frobnicate"
-        let resolved = stored.flatMap(AppAppearance.init(rawValue:)) ?? .system
-        #expect(resolved == .system)
+        #expect(AppAppearance.resolve(from: "frobnicate") == .system)
     }
 
     @Test func missingStoredValueFallsBackToSystem() {
-        let stored: String? = nil
-        let resolved = stored.flatMap(AppAppearance.init(rawValue:)) ?? .system
-        #expect(resolved == .system)
+        #expect(AppAppearance.resolve(from: nil) == .system)
+    }
+
+    @Test(arguments: AppAppearance.allCases)
+    func storedValueResolvesToMatchingCase(_ appearance: AppAppearance) {
+        #expect(AppAppearance.resolve(from: appearance.rawValue) == appearance)
     }
 
     @Test func nsAppearanceMapping() {

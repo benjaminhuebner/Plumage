@@ -8,7 +8,6 @@ enum AppearanceApplier {
 
     static func applyStored(from defaults: UserDefaults = .standard) {
         let stored = defaults.string(forKey: AppAppearance.storageKey)
-        let appearance = stored.flatMap(AppAppearance.init(rawValue:)) ?? .system
-        apply(appearance)
+        apply(AppAppearance.resolve(from: stored))
     }
 }
