@@ -79,6 +79,10 @@ struct PlumageApp: App {
         .restorationBehavior(.disabled)
         .environment(recentProjects)
         .environment(migrationRequest)
+
+        Settings {
+            AppSettingsView()
+        }
     }
 
     private func drainPendingURLs() {
@@ -106,6 +110,12 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         let urls = pendingURLs
         pendingURLs = []
         return urls
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Set the stored appearance before any window is presented; deferring to
+        // applicationDidFinishLaunching flashes the system appearance first.
+        AppearanceApplier.applyStored()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
