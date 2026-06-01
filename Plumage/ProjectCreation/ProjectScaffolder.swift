@@ -114,7 +114,7 @@ nonisolated struct ProjectScaffolder {
 
         try writeSkills(spec: spec, claude: claude, skillKeywords: claudeOutput.skillKeywords)
         try writeHooks(spec: spec, claude: claude)
-        try SettingsComposer().write(for: spec.kind, toClaudeDir: claude)
+        try SettingsComposer().write(for: spec.kind, toggles: toggles, toClaudeDir: claude)
     }
 
     private func writeSkills(spec: NewProjectSpec, claude: URL, skillKeywords: String) throws {

@@ -191,7 +191,8 @@ nonisolated struct ProjectMigrator {
     private func writeSettings(kind: ProjectKind, claude: URL, into report: inout Report) throws {
         let composer = SettingsComposer()
         try writeIfMissing(
-            try composer.settingsJSON(for: kind), to: claude.appending(path: "settings.json"),
+            try composer.settingsJSON(for: kind, toggles: toggles),
+            to: claude.appending(path: "settings.json"),
             rel: ".claude/settings.json", into: &report)
         try writeIfMissing(
             composer.localSettingsJSON(), to: claude.appending(path: "settings.local.json"),

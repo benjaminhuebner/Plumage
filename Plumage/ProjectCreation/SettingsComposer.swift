@@ -23,11 +23,14 @@ nonisolated struct SettingsComposer {
         "Bash(rg:*)", "Bash(jq:*)",
     ]
 
-    func settingsJSON(for kind: ProjectKind) throws -> Data {
+    func settingsJSON(for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles()) throws -> Data {
         let selected = Set(kind.profile.hookNames)
         func groups(_ event: String) -> [Settings.HookGroup]? {
             let groups = Self.wirings
-                .filter { $0.event == event && selected.contains($0.name) }
+                .filter {
+                    $0.event == event && selected.contains($0.name)
+                        && toggles.isEnabled(.hooks, $0.name)
+                }
                 .map {
                     Settings.HookGroup(
                         matcher: $0.matcher, hooks: [.init(command: Self.command(for: $0.name))])
@@ -49,8 +52,11 @@ nonisolated struct SettingsComposer {
         Data("{}\n".utf8)
     }
 
-    func write(for kind: ProjectKind, toClaudeDir claudeDir: URL) throws {
-        try settingsJSON(for: kind).write(to: claudeDir.appending(path: "settings.json"))
+    func write(
+        for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(), toClaudeDir claudeDir: URL
+    ) throws {
+        try settingsJSON(for: kind, toggles: toggles).write(
+            to: claudeDir.appending(path: "settings.json"))
         try localSettingsJSON().write(to: claudeDir.appending(path: "settings.local.json"))
     }
 
