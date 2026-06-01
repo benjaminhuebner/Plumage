@@ -47,12 +47,24 @@ struct TemplatesSettingsTab: View {
 
     private func catalogRow(_ entry: TemplatesSettingsModel.CatalogEntry) -> some View {
         HStack(spacing: 6) {
+            if model.showsToggle(for: entry) {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { model.isEnabled(entry) },
+                        set: { model.setEnabled(entry, $0) })
+                )
+                .labelsHidden()
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+            }
             Image(systemName: model.isOverridden(entry) ? "circle.fill" : "circle")
                 .font(.system(size: 7))
                 .foregroundStyle(model.isOverridden(entry) ? Color.accentColor : .secondary)
             Text(entry.label)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .foregroundStyle(model.isEnabled(entry) ? .primary : .secondary)
             Spacer(minLength: 0)
         }
     }

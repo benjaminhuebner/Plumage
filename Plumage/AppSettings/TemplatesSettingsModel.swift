@@ -81,8 +81,13 @@ final class TemplatesSettingsModel {
     }
     private(set) var previewText: String = ""
 
+    // Subtractive enable/disable mask shared with the scaffolder/migrator. Changes
+    // are persisted immediately so a later scaffold picks them up.
+    private(set) var toggles: ScaffoldToggles
+
     init(overrides: ScaffoldOverrides = .standard()) {
         self.overrides = overrides
+        self.toggles = .loadStandard()
         reload()
         refreshPreview()
     }
@@ -112,6 +117,55 @@ final class TemplatesSettingsModel {
 
     func isOverridden(_ entry: CatalogEntry) -> Bool {
         overriddenPaths.contains(entry.relativePath)
+    }
+
+    // MARK: - Enable / disable toggles
+
+    // Which toggle category an entry belongs to, or nil if it is not toggleable.
+    func toggleCategory(for entry: CatalogEntry) -> ScaffoldToggles.Category? {
+        switch entry.category {
+        case .hooks: return .hooks
+        case .skills: return .skills
+        case .agents: return .agents
+        default: return nil
+        }
+    }
+
+    // The toggle key for an entry, matching the names the scaffolder filters on:
+    // a hook's base name (no `.sh`), a skill's directory name, an agent's file name.
+    func toggleKey(for entry: CatalogEntry) -> String? {
+        switch entry.category {
+        case .hooks:
+            return entry.label.hasSuffix(".sh") ? String(entry.label.dropLast(3)) : entry.label
+        case .skills:
+            return entry.label.split(separator: "/").first.map(String.init)
+        case .agents:
+            return entry.label
+        default:
+            return nil
+        }
+    }
+
+    // Skills are toggled per directory but listed per file, so the checkbox is shown
+    // only on the representative `SKILL.md` row. Hooks and agents are 1:1 with a file.
+    func showsToggle(for entry: CatalogEntry) -> Bool {
+        switch entry.category {
+        case .hooks, .agents: return true
+        case .skills: return entry.label.hasSuffix("/SKILL.md")
+        default: return false
+        }
+    }
+
+    func isEnabled(_ entry: CatalogEntry) -> Bool {
+        guard let category = toggleCategory(for: entry), let key = toggleKey(for: entry)
+        else { return true }
+        return toggles.isEnabled(category, key)
+    }
+
+    func setEnabled(_ entry: CatalogEntry, _ enabled: Bool) {
+        guard let category = toggleCategory(for: entry), let key = toggleKey(for: entry) else { return }
+        toggles.setEnabled(category, key, enabled)
+        try? toggles.saveStandard()
     }
 
     // MARK: - Editing
