@@ -29,6 +29,10 @@ final class MigrateProjectModel {
     var report: MigrationReport?
     private(set) var migratedProject: CreatedProject?
 
+    // Set once the user opens the migrated project, so closing the window
+    // afterwards doesn't re-summon Welcome. Reset per present (model is rebuilt).
+    var didOpenProject = false
+
     private var didLoad = false
     private let detector: @Sendable (URL) -> ProjectKind?
     private let repoStateReader: RepoStateReader
