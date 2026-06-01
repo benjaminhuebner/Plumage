@@ -9,14 +9,16 @@ enum OpenProjectCommand {
     static func openWithPicker(
         recentProjects: RecentProjects,
         openWindow: OpenWindowAction,
-        dismissWindow: DismissWindowAction
+        dismissWindow: DismissWindowAction,
+        onMigrate: ((URL) -> Void)? = nil
     ) {
         guard let url = pickProject() else { return }
         openFromBundleURL(
             url,
             recentProjects: recentProjects,
             openWindow: openWindow,
-            dismissWindow: dismissWindow
+            dismissWindow: dismissWindow,
+            onMigrate: onMigrate
         )
     }
 
@@ -24,13 +26,14 @@ enum OpenProjectCommand {
         url: URL,
         recentProjects: RecentProjects,
         openWindow: OpenWindowAction,
-        dismissWindow: DismissWindowAction
+        dismissWindow: DismissWindowAction,
+        onMigrate: ((URL) -> Void)? = nil
     ) {
         let bundle: URL
         do {
             bundle = try BundleResolver.findBundle(in: url)
         } catch let error as BundleResolver.ResolveError {
-            presentAlertForResolverError(error)
+            presentAlertForResolverError(error, folder: url, onMigrate: onMigrate)
             return
         } catch {
             assertionFailure("BundleResolver.findBundle threw non-ResolveError: \(error)")
@@ -49,13 +52,14 @@ enum OpenProjectCommand {
         _ url: URL,
         recentProjects: RecentProjects,
         openWindow: OpenWindowAction,
-        dismissWindow: DismissWindowAction
+        dismissWindow: DismissWindowAction,
+        onMigrate: ((URL) -> Void)? = nil
     ) {
         let resolved: (root: URL, bundle: URL)
         do {
             resolved = try BundleResolver.resolve(from: url)
         } catch let error as BundleResolver.ResolveError {
-            presentAlertForResolverError(error)
+            presentAlertForResolverError(error, folder: url, onMigrate: onMigrate)
             return
         } catch {
             assertionFailure("BundleResolver.resolve threw non-ResolveError: \(error)")
@@ -70,10 +74,14 @@ enum OpenProjectCommand {
         )
     }
 
-    private static func presentAlertForResolverError(_ error: BundleResolver.ResolveError) {
+    private static func presentAlertForResolverError(
+        _ error: BundleResolver.ResolveError,
+        folder: URL,
+        onMigrate: ((URL) -> Void)? = nil
+    ) {
         switch error {
-        case .noBundle(let folder):
-            presentAlert(for: .noBundle(folder: folder))
+        case .noBundle:
+            presentAlert(for: .noBundle(folder: folder), migrateFolder: folder, onMigrate: onMigrate)
         case .multipleBundles(let urls):
             presentAlert(for: .multipleBundles(found: urls))
         }
@@ -115,12 +123,26 @@ enum OpenProjectCommand {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    private static func presentAlert(for error: ConfigLoader.LoadError) {
+    private static func presentAlert(
+        for error: ConfigLoader.LoadError,
+        migrateFolder: URL? = nil,
+        onMigrate: ((URL) -> Void)? = nil
+    ) {
         let alert = NSAlert()
         switch error {
         case .noBundle(let folder):
             alert.messageText = "Not a Plumage project"
             alert.informativeText = "No .plumage bundle found at \(folder.path)."
+            if let migrateFolder, let onMigrate {
+                alert.informativeText += "\n\nMigrate this folder to make it a Plumage project?"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Migrate This Folder…")
+                alert.addButton(withTitle: "Cancel")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    onMigrate(migrateFolder)
+                }
+                return
+            }
         case .noConfigFile(let bundle):
             alert.messageText = "Plumage bundle is missing config.json"
             alert.informativeText = "Bundle at \(bundle.path) has no config.json."

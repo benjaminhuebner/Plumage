@@ -22,17 +22,18 @@ nonisolated struct ProjectConfigCreator {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
     }
 
-    func makeConfigData(for spec: NewProjectSpec) throws -> Data {
+    func makeConfigData(for spec: NewProjectSpec, defaultBranch: String = "main") throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(makeConfig(for: spec))
+        return try encoder.encode(makeConfig(for: spec, defaultBranch: defaultBranch))
     }
 
-    func write(for spec: NewProjectSpec, toBundle bundle: URL) throws {
-        try makeConfigData(for: spec).write(to: bundle.appending(path: "config.json"))
+    func write(for spec: NewProjectSpec, toBundle bundle: URL, defaultBranch: String = "main") throws {
+        try makeConfigData(for: spec, defaultBranch: defaultBranch)
+            .write(to: bundle.appending(path: "config.json"))
     }
 
-    private func makeConfig(for spec: NewProjectSpec) -> FullConfig {
+    private func makeConfig(for spec: NewProjectSpec, defaultBranch: String) -> FullConfig {
         let profile = spec.kind.profile
         let timestamp = ISO8601DateFormatter().string(from: Date())
         return FullConfig(
@@ -42,7 +43,7 @@ nonisolated struct ProjectConfigCreator {
             git: .init(
                 agentFilesInGit: spec.git?.claudeInGit ?? true,
                 branchPrefix: "issue/",
-                defaultBranch: "main"),
+                defaultBranch: defaultBranch),
             issueIdPadding: issueIdPadding,
             minPlumageVersion: minPlumageVersion,
             name: spec.name,

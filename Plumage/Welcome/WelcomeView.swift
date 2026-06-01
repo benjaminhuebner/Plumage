@@ -9,6 +9,7 @@ struct WelcomeView: View {
     let windowAlphaHidden: Bool
 
     @Environment(RecentProjects.self) private var recentProjects
+    @Environment(MigrationRequest.self) private var migrationRequest
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -63,6 +64,18 @@ struct WelcomeView: View {
                 ) {
                     OpenProjectCommand.openWithPicker(
                         recentProjects: recentProjects,
+                        openWindow: openWindow,
+                        dismissWindow: dismissWindow,
+                        onMigrate: offerMigration
+                    )
+                }
+                actionRow(
+                    systemImage: "folder.badge.gearshape",
+                    title: "Migrate Existing Project…",
+                    subtitle: "Turn an existing folder into a Plumage project"
+                ) {
+                    MigrateProjectCommand.presentPicker(
+                        request: migrationRequest,
                         openWindow: openWindow,
                         dismissWindow: dismissWindow
                     )
@@ -152,6 +165,15 @@ struct WelcomeView: View {
         )
     }
 
+    private func offerMigration(_ url: URL) {
+        MigrateProjectCommand.present(
+            for: url,
+            request: migrationRequest,
+            openWindow: openWindow,
+            dismissWindow: dismissWindow
+        )
+    }
+
     // NSApp.applicationIconImage falls back to the system "Application" icon
     // when the bundle has no AppIcon set yet (debug runs from Xcode). Sized
     // by the caller via .frame.
@@ -170,6 +192,7 @@ struct WelcomeView: View {
 #Preview("Empty") {
     WelcomeView(windowAlphaHidden: false)
         .environment(RecentProjects(storeURL: previewStoreURL()))
+        .environment(MigrationRequest())
 }
 
 @MainActor
@@ -187,6 +210,7 @@ private func populatedRecents() -> RecentProjects {
 #Preview("Populated") {
     WelcomeView(windowAlphaHidden: false)
         .environment(populatedRecents())
+        .environment(MigrationRequest())
 }
 
 @MainActor
