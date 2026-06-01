@@ -45,9 +45,9 @@ struct ProjectConfigTests {
         #expect(config.workflows?.review == nil)
         #expect(config.models?.chat == .opus)
         #expect(config.models?.terminals == .sonnet)
-        // The dropped "opusplan" alias coerces to .default via ModelChoice's
-        // custom decoder, so a stale on-disk config loads without error.
-        #expect(config.models?.plan == .default)
+        // The dropped "opusplan" alias migrates to .opus via ModelChoice's
+        // custom decoder, so a stale on-disk config keeps the Opus model.
+        #expect(config.models?.plan == .opus)
         #expect(config.models?.implement == nil)
     }
 

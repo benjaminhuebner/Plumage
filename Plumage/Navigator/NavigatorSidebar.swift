@@ -16,6 +16,7 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
     @State private var settingsHovering = false
+    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         List(selection: selectionBinding) {
@@ -69,7 +70,7 @@ struct NavigatorSidebar: View {
                     .padding(.trailing, 6)
                     .padding(.vertical, 5)
                     .contentShape(Rectangle())
-                    .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    .foregroundStyle(settingsRowTextColor(isSelected: isSelected))
                     .background(
                         RoundedRectangle(cornerRadius: 6)
                             .fill(settingsRowFill(isSelected: isSelected))
@@ -87,10 +88,22 @@ struct NavigatorSidebar: View {
         }
     }
 
+    // Selection must follow window-key state, not a constant accent:
+    // otherwise this hand-styled row stays fully accented while the native
+    // List rows beside it grey out when the window resigns key.
     private func settingsRowFill(isSelected: Bool) -> Color {
-        if isSelected { return .accentColor }
+        if isSelected {
+            return controlActiveState == .key
+                ? Color(nsColor: .selectedContentBackgroundColor)
+                : Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+        }
         if settingsHovering { return Color.primary.opacity(0.08) }
         return .clear
+    }
+
+    private func settingsRowTextColor(isSelected: Bool) -> Color {
+        guard isSelected else { return .primary }
+        return controlActiveState == .key ? .white : .primary
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {

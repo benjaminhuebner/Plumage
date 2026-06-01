@@ -45,10 +45,10 @@ struct ModelChoiceTests {
         #expect(decoded == .default)
     }
 
-    @Test("dropped opusplan alias decodes to .default")
-    func droppedOpusPlanDecodesToDefault() throws {
+    @Test("dropped opusplan alias migrates to .opus")
+    func droppedOpusPlanMigratesToOpus() throws {
         let data = try #require("\"opusplan\"".data(using: .utf8))
         let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
-        #expect(decoded == .default)
+        #expect(decoded == .opus)
     }
 }

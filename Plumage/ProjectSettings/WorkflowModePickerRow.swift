@@ -15,8 +15,9 @@ struct WorkflowModePickerRow: View {
                     if pm == fallback {
                         // The action's built-in default. Tagged nil so picking
                         // it clears the override; pre-selected when no override
-                        // is set.
-                        Text("\(pm.displayName) (Default)")
+                        // is set. The ".default" mode already reads as
+                        // "Default", so it skips the redundant suffix.
+                        Text(pm == .default ? pm.displayName : "\(pm.displayName) (Default)")
                             .tag(Optional<PermissionMode>.none)
                     } else {
                         Text(pm.displayName).tag(Optional(pm))
