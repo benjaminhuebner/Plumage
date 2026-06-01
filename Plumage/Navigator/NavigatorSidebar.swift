@@ -46,9 +46,15 @@ struct NavigatorSidebar: View {
         }
     }
 
-    // Pinned outside the List so it stays visible no matter how far the file
-    // tree is scrolled. Selection/hover highlight is emulated here because the
-    // row isn't a List(selection:) member.
+    // Pinned outside the List (via safeAreaInset) so it stays put as the file
+    // tree scrolls, hand-styled to read as an ordinary source-list row: same
+    // Label, native accent selection fill, subtle hover tint, and a leading
+    // inset that lines the icon up with the top-level rows ("Board" reserves
+    // the same space the disclosure rows use for their chevron). A nested
+    // sidebar List would match automatically but steals first-responder
+    // status, greying out the main list's active selection — hence the manual
+    // styling. The "selected" VoiceOver announcement is re-added by hand since
+    // the row isn't a List(selection:) member.
     @ViewBuilder
     private var projectSettingsRow: some View {
         let isSelected = selection == .projectSettings
@@ -57,33 +63,28 @@ struct NavigatorSidebar: View {
             Button {
                 selection = .projectSettings
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "gearshape")
-                        .imageScale(.medium)
-                        .frame(width: 20)
-                    Text("Project Settings")
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .contentShape(Rectangle())
-                .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(settingsRowFill(isSelected: isSelected))
-                )
+                Label("Project Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 18)
+                    .padding(.trailing, 6)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(settingsRowFill(isSelected: isSelected))
+                    )
             }
             .buttonStyle(.plain)
-            // The row lives outside List(selection:), so List's automatic
-            // "selected" VoiceOver announcement never fires — re-add it by hand.
             .accessibilityLabel("Project Settings")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .clickableSidebarRow()
             .onHover { settingsHovering = $0 }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.leading, 15)
+            .padding(.trailing, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
         }
-        .background(.bar)
     }
 
     private func settingsRowFill(isSelected: Bool) -> Color {
