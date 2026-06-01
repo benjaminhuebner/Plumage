@@ -178,7 +178,7 @@ struct ProjectSettingsView: View {
         sectionHeader(
             title: "Workflow Modes",
             description:
-                "Permission mode passed to claude for each workflow button. \"Built-in\" uses the action's default."
+                "Permission mode passed to claude for each workflow button. Each action's default is pre-selected — pick another to override it."
         )
         VStack(alignment: .leading, spacing: 8) {
             ForEach(WorkflowAction.allCases, id: \.self) { action in
