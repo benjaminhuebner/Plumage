@@ -197,6 +197,49 @@ final class TemplatesSettingsModel {
         refreshPreview()
     }
 
+    // MARK: - Agents (user-authored, no bundled baseline)
+
+    var agentEntries: [CatalogEntry] {
+        entries.filter { $0.category == .agents }
+    }
+
+    // Create a new agent override file, seeded with a starter template, and select
+    // it for editing. Returns false if the name is empty or there is no store.
+    @discardableResult
+    func addAgent(name: String) -> Bool {
+        let sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+        guard !sanitized.isEmpty, let overrideRoot = overrides.overrideRoot else { return false }
+        let fileName = sanitized.hasSuffix(".md") ? sanitized : sanitized + ".md"
+        let url = overrideRoot.appending(path: "agents/\(fileName)")
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !fm.fileExists(atPath: url.path) {
+                let title = fileName.hasSuffix(".md") ? String(fileName.dropLast(3)) : fileName
+                try "# \(title)\n\nDescribe what this agent does.\n".write(
+                    to: url, atomically: true, encoding: .utf8)
+            }
+            reload()
+            selection = "agents/\(fileName)"
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func deleteAgent(_ entry: CatalogEntry) {
+        guard entry.category == .agents,
+            let url = overrides.overrideURL(forRelative: entry.relativePath)
+        else { return }
+        try? FileManager.default.removeItem(at: url)
+        overriddenPaths.remove(entry.relativePath)
+        if editingFileURL == url { editingFileURL = nil }
+        if selection == entry.relativePath { selection = nil }
+        reload()
+    }
+
     private func refreshOverrideStatus(for relativePath: String) {
         if overrideDiffers(relativePath) {
             overriddenPaths.insert(relativePath)

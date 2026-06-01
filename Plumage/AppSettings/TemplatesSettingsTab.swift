@@ -7,6 +7,8 @@ import SwiftUI
 // and live preview are owned by `TemplatesSettingsModel`.
 struct TemplatesSettingsTab: View {
     @State private var model = TemplatesSettingsModel()
+    @State private var showAddAgent = false
+    @State private var newAgentName = ""
 
     var body: some View {
         @Bindable var model = model
@@ -27,6 +29,16 @@ struct TemplatesSettingsTab: View {
                 model.beginEditing(entry)
             }
         }
+        .alert("New Agent", isPresented: $showAddAgent) {
+            TextField("Agent name", text: $newAgentName)
+            Button("Add") {
+                model.addAgent(name: newAgentName)
+                newAgentName = ""
+            }
+            Button("Cancel", role: .cancel) { newAgentName = "" }
+        } message: {
+            Text("Creates a .claude/agents/<name>.md file written into every new project.")
+        }
     }
 
     // MARK: - Catalog
@@ -34,13 +46,28 @@ struct TemplatesSettingsTab: View {
     private var catalogList: some View {
         @Bindable var model = model
         return List(selection: $model.selection) {
-            ForEach(model.groupedEntries, id: \.category.id) { group in
+            ForEach(model.groupedEntries.filter { $0.category != .agents }, id: \.category.id) { group in
                 Section(group.category.title) {
                     ForEach(group.entries) { entry in
                         catalogRow(entry)
                             .tag(entry.id)
                     }
                 }
+            }
+            // Agents are user-authored and always shown so the add affordance is
+            // reachable even when none exist yet.
+            Section(TemplatesSettingsModel.Category.agents.title) {
+                ForEach(model.agentEntries) { entry in
+                    catalogRow(entry)
+                        .tag(entry.id)
+                }
+                Button {
+                    showAddAgent = true
+                } label: {
+                    Label("Add Agent…", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -97,7 +124,11 @@ struct TemplatesSettingsTab: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
-            if model.isOverridden(entry) {
+            if entry.category == .agents {
+                Button("Delete", role: .destructive) {
+                    model.deleteAgent(entry)
+                }
+            } else if model.isOverridden(entry) {
                 Button("Reset to Default") {
                     model.resetToDefault(entry)
                 }
