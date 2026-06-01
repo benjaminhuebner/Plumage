@@ -19,16 +19,19 @@ nonisolated struct ScaffoldOverrides: Sendable {
         self.overrideRoot = overrideRoot
     }
 
-    // The standard resolver: bundled assets overlaid by the user's store at
-    // `~/Library/Application Support/Plumage/NewProjectAssets/`. The override root
-    // is computed but not created here — it materializes when the editor first
-    // writes an override.
+    // The user's override store under Application Support, mirroring the bundled
+    // tree flat. Computed but not created here — it materializes when the editor
+    // first writes an override. nil only if Application Support is unreachable.
+    static func standardOverrideRoot() -> URL? {
+        try? ApplicationSupport.appFolderURL()
+            .appending(path: NewProjectAssets.folderName, directoryHint: .isDirectory)
+    }
+
+    // The standard resolver: bundled assets overlaid by the user's store.
     static func standard(
         bundledRoot: URL = NewProjectAssets.bundledRoot
     ) -> ScaffoldOverrides {
-        let override = try? ApplicationSupport.appFolderURL()
-            .appending(path: NewProjectAssets.folderName, directoryHint: .isDirectory)
-        return ScaffoldOverrides(bundledRoot: bundledRoot, overrideRoot: override)
+        ScaffoldOverrides(bundledRoot: bundledRoot, overrideRoot: standardOverrideRoot())
     }
 
     func url(forRelative relativePath: String) -> URL {

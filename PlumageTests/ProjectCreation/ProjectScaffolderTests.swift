@@ -10,9 +10,12 @@ struct ProjectScaffolderTests {
             .appending(path: "Scaffold-\(UUID().uuidString)/MyApp", directoryHint: .isDirectory)
     }
 
-    private func scaffolder(git: any GitInitializing = GitInitRunner()) -> ProjectScaffolder {
+    private func scaffolder(
+        git: any GitInitializing = GitInitRunner(), overrideRoot: URL? = nil
+    ) -> ProjectScaffolder {
         ProjectScaffolder(
             assetsRoot: RepoAssets.root,
+            overrideRoot: overrideRoot,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
             gitInitRunner: git)
     }
@@ -73,5 +76,52 @@ struct ProjectScaffolderTests {
             _ = try await scaffolder(git: failingGit).create(spec: spec)
         }
         #expect(!FileManager.default.fileExists(atPath: dir.path))
+    }
+
+    @Test("No override store: scaffolded files are byte-identical to the bundled originals")
+    func noOverrideByteIdentical() async throws {
+        let fm = FileManager.default
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder().create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        // A hook, a config, a doc, and a skill script — one from each copy site.
+        let checks: [(scaffolded: String, bundled: String)] = [
+            (".claude/hooks/format-swift.sh", "hooks/format-swift.sh"),
+            (".swift-format", "configs/swift-format"),
+            (".claude/docs/PROJECT.md", "docs/PROJECT.md"),
+            (
+                ".claude/skills/plumage-implement/scripts/precommit-gate.sh",
+                "skills/plumage-implement/scripts/precommit-gate.sh"
+            ),
+        ]
+        for check in checks {
+            let got = try Data(contentsOf: dir.appending(path: check.scaffolded))
+            let want = try Data(contentsOf: RepoAssets.root.appending(path: check.bundled))
+            #expect(got == want, "byte mismatch for \(check.scaffolded)")
+        }
+    }
+
+    @Test("Override store: a scaffolded file uses the overridden content")
+    func overriddenFileScaffolds() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "ScaffoldOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        let hookOverride = overrideRoot.appending(path: "hooks/format-swift.sh")
+        try fm.createDirectory(
+            at: hookOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho MY_OVERRIDDEN_HOOK\n".write(
+            to: hookOverride, atomically: true, encoding: .utf8)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let scaffolded = try String(
+            contentsOf: dir.appending(path: ".claude/hooks/format-swift.sh"), encoding: .utf8)
+        #expect(scaffolded.contains("MY_OVERRIDDEN_HOOK"))
     }
 }
