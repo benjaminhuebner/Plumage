@@ -115,7 +115,9 @@ struct TemplatesSettingsTab: View {
                     fileURL: url, displayName: entry.label,
                     fallbackURL: model.editingFallbackURL,
                     onSave: { model.notifySaved(relativePath: entry.relativePath) },
-                    onDirtyChange: { model.setEditorDirty($0) }
+                    onDirtyChange: { model.setEditorDirty($0) },
+                    resetToken: model.editorResetToken,
+                    onResetComplete: { model.finishReset() }
                 )
                 .id(url)
             }

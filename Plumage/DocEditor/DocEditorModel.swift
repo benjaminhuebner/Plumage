@@ -92,6 +92,14 @@ final class DocEditorModel {
         pendingSave = nil
     }
 
+    // Drop the in-flight buffer back to the loaded content and cancel any pending
+    // save, so a subsequent teardown's autosave is a no-op. Used by hosts that want
+    // a "revert" gesture (e.g. Reset to Default) to truly discard unsaved edits.
+    func discardEdits() {
+        cancelPendingWork()
+        buffer = loadedContent
+    }
+
     func probeExternalChange() async {
         let url = fileURL
         let result = await Task.detached(priority: .utility) { () -> (String?, Bool) in

@@ -233,7 +233,22 @@ final class TemplatesSettingsModel {
         refreshPreview()
     }
 
+    // Reset is two-phase so the embedded editor can discard its in-flight buffer
+    // before we tear it down. Otherwise the editor's autosave-on-disappear would
+    // re-create the very override we just deleted (with the unsaved edits). Phase 1
+    // bumps the token the editor observes; the editor discards and calls back into
+    // `finishReset`, which performs the actual deletion.
+    private(set) var editorResetToken = 0
+    private var pendingResetEntry: CatalogEntry?
+
     func resetToDefault(_ entry: CatalogEntry) {
+        pendingResetEntry = entry
+        editorResetToken += 1
+    }
+
+    func finishReset() {
+        guard let entry = pendingResetEntry else { return }
+        pendingResetEntry = nil
         guard let url = overrides.overrideURL(forRelative: entry.relativePath) else { return }
         try? FileManager.default.removeItem(at: url)
         overriddenPaths.remove(entry.relativePath)

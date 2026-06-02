@@ -177,6 +177,31 @@ struct TemplatesSettingsModelTests {
         #expect(!ctx.model.isEditorDirty)
     }
 
+    @Test("Reset is two-phase: deletion is deferred to finishReset")
+    func resetTwoPhaseDefersDeletion() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        // Seed an override of a bundled doc so the entry is overridden.
+        let url = ctx.override.appending(path: "docs/PROJECT.md")
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "edited\n".write(to: url, atomically: true, encoding: .utf8)
+        ctx.model.reload()
+        let entry = try #require(ctx.model.entries.first { $0.relativePath == "docs/PROJECT.md" })
+        #expect(ctx.model.isOverridden(entry))
+
+        let before = ctx.model.editorResetToken
+        ctx.model.resetToDefault(entry)
+        // The token advances (the editor will discard), but deletion waits for the
+        // editor's callback so its disappear-autosave can't re-create the override.
+        #expect(ctx.model.editorResetToken == before + 1)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+
+        ctx.model.finishReset()
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(!ctx.model.isOverridden(entry))
+    }
+
     @Test("An override-only hook joins the catalog as user-authored")
     func overrideOnlyHookUnion() throws {
         let ctx = makeModel()
