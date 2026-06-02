@@ -13,7 +13,7 @@ nonisolated struct ProjectKindProfile: Hashable, Sendable {
     let xcodeMcpLine: String
 }
 
-nonisolated struct GateCommands: Hashable, Sendable {
+nonisolated struct GateCommands: Codable, Hashable, Sendable {
     let build: String?
     let test: String?
     let format: String?
@@ -36,7 +36,7 @@ nonisolated struct GateCommands: Hashable, Sendable {
     )
 }
 
-nonisolated struct MCPServerSpec: Hashable, Sendable {
+nonisolated struct MCPServerSpec: Codable, Hashable, Sendable {
     let name: String
     let command: String
     let args: [String]
