@@ -69,6 +69,21 @@ nonisolated struct ScaffoldOverrides: Sendable {
     func overrideFileNames(inRelativeDir relativeDir: String) -> [String] {
         guard let overrideRoot else { return [] }
         let dir = overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        return Self.regularFileNames(in: dir).sorted()
+    }
+
+    // Union of regular file names in the bundled and override copies of
+    // `relativeDir`, sorted and de-duplicated. Used by catalogs and writers that
+    // combine the bundled baseline with user-authored override-only files. With no
+    // override store this is exactly the bundled set (byte-identical default).
+    func unionFileNames(inRelativeDir relativeDir: String) -> [String] {
+        let bundledDir = bundledRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        var names = Set(Self.regularFileNames(in: bundledDir))
+        names.formUnion(overrideFileNames(inRelativeDir: relativeDir))
+        return names.sorted()
+    }
+
+    private static func regularFileNames(in dir: URL) -> [String] {
         let contents =
             (try? FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: [.isRegularFileKey],
@@ -77,6 +92,5 @@ nonisolated struct ScaffoldOverrides: Sendable {
             contents
             .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
             .map(\.lastPathComponent)
-            .sorted()
     }
 }

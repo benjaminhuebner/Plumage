@@ -80,9 +80,11 @@ nonisolated struct ProjectScaffolder {
     private func writePlumageScripts(root: URL) throws {
         let scripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: scripts, withIntermediateDirectories: true)
-        try copy(
-            from: overrides.url(forRelative: "plumage/roadmap.py"),
-            to: scripts.appending(path: "roadmap.py"), executable: true)
+        for script in overrides.unionFileNames(inRelativeDir: "plumage") {
+            try copy(
+                from: overrides.url(forRelative: "plumage/\(script)"),
+                to: scripts.appending(path: script), executable: true)
+        }
     }
 
     // MARK: - .claude tree
@@ -100,7 +102,7 @@ nonisolated struct ProjectScaffolder {
 
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
-        for doc in ["PROJECT.md", "notes.md", "decisions.md"] {
+        for doc in overrides.unionFileNames(inRelativeDir: "docs") {
             try copy(from: overrides.url(forRelative: "docs/\(doc)"), to: docs.appending(path: doc))
         }
 

@@ -108,10 +108,12 @@ nonisolated struct ProjectMigrator {
     private func writePlumageScripts(root: URL, into report: inout Report) throws {
         let scripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: scripts, withIntermediateDirectories: true)
-        try copyIfMissing(
-            from: overrides.url(forRelative: "plumage/roadmap.py"),
-            to: scripts.appending(path: "roadmap.py"),
-            rel: ".plumage/scripts/roadmap.py", executable: true, into: &report)
+        for script in overrides.unionFileNames(inRelativeDir: "plumage") {
+            try copyIfMissing(
+                from: overrides.url(forRelative: "plumage/\(script)"),
+                to: scripts.appending(path: script),
+                rel: ".plumage/scripts/\(script)", executable: true, into: &report)
+        }
     }
 
     private func writeConfigBundle(
@@ -135,7 +137,7 @@ nonisolated struct ProjectMigrator {
 
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
-        for doc in ["PROJECT.md", "notes.md", "decisions.md"] {
+        for doc in overrides.unionFileNames(inRelativeDir: "docs") {
             try copyIfMissing(
                 from: overrides.url(forRelative: "docs/\(doc)"),
                 to: docs.appending(path: doc), rel: ".claude/docs/\(doc)", into: &report)

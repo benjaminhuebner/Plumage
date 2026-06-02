@@ -158,6 +158,52 @@ struct ProjectScaffolderTests {
         #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents").path))
     }
 
+    @Test("User-authored docs and scripts are union-written alongside the bundled ones")
+    func unionWritesUserDocsAndScripts() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "UnionOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("# Guide\n", to: overrideRoot, rel: "docs/guide.md")
+        try write("#!/bin/sh\necho deploy\n", to: overrideRoot, rel: "plumage/deploy.sh")
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        // The user doc sits alongside the bundled docs.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/docs/guide.md").path))
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/docs/PROJECT.md").path))
+        // The user script is written executable; the bundled roadmap.py stays.
+        let scriptPath = dir.appending(path: ".plumage/scripts/deploy.sh").path
+        #expect(fm.fileExists(atPath: scriptPath))
+        let perms = try fm.attributesOfItem(atPath: scriptPath)[.posixPermissions] as? Int
+        #expect(((perms ?? 0) & 0o111) != 0)
+        #expect(fm.fileExists(atPath: dir.appending(path: ".plumage/scripts/roadmap.py").path))
+    }
+
+    @Test("No override store: docs and scripts are exactly the bundled set")
+    func emptyStoreDocsScriptsUnchanged() async throws {
+        let fm = FileManager.default
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder().create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let scripts = try fm.contentsOfDirectory(atPath: dir.appending(path: ".plumage/scripts").path)
+        #expect(Set(scripts) == ["roadmap.py"])
+        let docs = try fm.contentsOfDirectory(atPath: dir.appending(path: ".claude/docs").path)
+        #expect(Set(docs) == ["PROJECT.md", "notes.md", "decisions.md"])
+    }
+
+    private func write(_ contents: String, to root: URL, rel: String) throws {
+        let url = root.appending(path: rel)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     @Test("Enabled user agents are written to .claude/agents; a disabled one is not")
     func writesEnabledAgents() async throws {
         let fm = FileManager.default
