@@ -14,7 +14,7 @@ struct TemplateManagerWindowView: View {
             TemplateContentColumn(model: model)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320)
         } detail: {
-            TemplateCodeColumn(model: model)
+            TemplateCodeColumn(file: model.selectedFile)
         }
         .frame(minWidth: 820, minHeight: 520)
         .task { await model.load() }
