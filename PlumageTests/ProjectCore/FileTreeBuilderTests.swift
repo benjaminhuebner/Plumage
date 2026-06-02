@@ -111,6 +111,67 @@ struct FileTreeBuilderTests {
     }
 
     @Test
+    func emptyContextFileFlagPopulation() throws {
+        let project = try TempProject.make(content: nil)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let fm = FileManager.default
+        try fm.createDirectory(
+            at: project.appendingPathComponent(".claude/docs"),
+            withIntermediateDirectories: true)
+        // Target, empty (0 bytes) → flag true.
+        try Data().write(to: project.appendingPathComponent(".claude/CLAUDE.md"))
+        // Target, whitespace-only → flag true.
+        try "  \n\t\n".write(
+            to: project.appendingPathComponent(".claude/docs/PROJECT.md"),
+            atomically: true, encoding: .utf8)
+        // Non-target sibling that is empty → flag must stay false.
+        try Data().write(to: project.appendingPathComponent(".claude/docs/notes.md"))
+        // Root target, filled with real content → flag false.
+        try "# Real".write(
+            to: project.appendingPathComponent("CLAUDE.md"),
+            atomically: true, encoding: .utf8)
+
+        let nodes = FileTreeBuilder.build(projectURL: project)
+
+        let claude = try #require(nodes.first { $0.name == ".claude" })
+        let claudeChildren = try #require(claude.children)
+        let claudeMd = try #require(claudeChildren.first { $0.name == "CLAUDE.md" })
+        #expect(claudeMd.isEmptyContextFile)
+
+        let docs = try #require(claudeChildren.first { $0.name == "docs" })
+        let docsChildren = try #require(docs.children)
+        let projectMd = try #require(docsChildren.first { $0.name == "PROJECT.md" })
+        #expect(projectMd.isEmptyContextFile)
+        let notesMd = try #require(docsChildren.first { $0.name == "notes.md" })
+        #expect(!notesMd.isEmptyContextFile)
+
+        let rootClaude = try #require(nodes.first { $0.name == "CLAUDE.md" })
+        #expect(!rootClaude.isEmptyContextFile)
+    }
+
+    @Test
+    func missingTargetFileYieldsNoRow() throws {
+        let project = try TempProject.make(content: nil)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let fm = FileManager.default
+        try fm.createDirectory(
+            at: project.appendingPathComponent(".claude"),
+            withIntermediateDirectories: true)
+        // No CLAUDE.md / PROJECT.md exist: nothing to attach a warning to.
+        try "x".write(
+            to: project.appendingPathComponent(".claude/keep.md"),
+            atomically: true, encoding: .utf8)
+
+        let nodes = FileTreeBuilder.build(projectURL: project)
+        let claude = try #require(nodes.first { $0.name == ".claude" })
+        let children = try #require(claude.children)
+        #expect(!children.contains { $0.name == "CLAUDE.md" })
+        #expect(children.allSatisfy { !$0.isEmptyContextFile })
+    }
+
+    @Test
     func skipsSymlinks() throws {
         let project = try TempProject.make(content: nil)
         defer { try? FileManager.default.removeItem(at: project) }

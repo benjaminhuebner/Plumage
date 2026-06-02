@@ -5,6 +5,16 @@ import SwiftUI
 struct DocEditorView: View {
     let fileURL: URL
     let displayName: String
+    // Fired after a successful save (e.g. so a host can refresh a derived view).
+    let onSave: (() -> Void)?
+    // Fired whenever the dirty state flips, so a host can react to the first edit
+    // (e.g. surface a Reset button immediately rather than after a save).
+    let onDirtyChange: ((Bool) -> Void)?
+    // A host-driven counter: each increment asks the editor to discard its in-flight
+    // buffer (so the disappear-autosave is a no-op), then calls `onResetComplete`.
+    // Lets a "revert" host tear the editor down without its edits being saved back.
+    let resetToken: Int
+    let onResetComplete: (() -> Void)?
 
     @State private var model: DocEditorModel
     @State private var editorPosition = CodeEditor.Position()
@@ -18,6 +28,7 @@ struct DocEditorView: View {
     // flags as "FocusedValue update tried to update multiple times per
     // frame" during keystroke bursts.
     @State private var publishedDirtyName: String?
+    @State private var publishedDirty: Bool?
     @State private var publishedSaveAction: EditorAction?
 
     private let language: LanguageConfiguration
@@ -25,10 +36,18 @@ struct DocEditorView: View {
 
     @Environment(\.scenePhase) private var scenePhase
 
-    init(fileURL: URL, displayName: String? = nil) {
+    init(
+        fileURL: URL, displayName: String? = nil, fallbackURL: URL? = nil,
+        onSave: (() -> Void)? = nil, onDirtyChange: ((Bool) -> Void)? = nil,
+        resetToken: Int = 0, onResetComplete: (() -> Void)? = nil
+    ) {
         self.fileURL = fileURL
         self.displayName = displayName ?? fileURL.lastPathComponent
-        _model = State(initialValue: DocEditorModel(fileURL: fileURL))
+        self.onSave = onSave
+        self.onDirtyChange = onDirtyChange
+        self.resetToken = resetToken
+        self.onResetComplete = onResetComplete
+        _model = State(initialValue: DocEditorModel(fileURL: fileURL, fallbackURL: fallbackURL))
         self.language = DocEditorLanguage.configuration(for: fileURL)
     }
 
@@ -79,6 +98,12 @@ struct DocEditorView: View {
         }
         .onChange(of: model.buffer) { _, _ in refreshDirtyCache() }
         .onChange(of: model.loadedContent) { _, _ in refreshDirtyCache() }
+        .onChange(of: resetToken) { _, _ in
+            // Discard before the host tears us down, so .onDisappear's autosave
+            // sees a clean buffer and won't rewrite the file being reset.
+            model.discardEdits()
+            onResetComplete?()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 // Cancel any in-flight probe so two quick foreground/background
@@ -115,6 +140,7 @@ struct DocEditorView: View {
         Task {
             do {
                 try await model.saveIfDirty()
+                onSave?()
             } catch {
                 saveAlertMessage = error.localizedDescription
                 saveAlertVisible = true
@@ -123,9 +149,14 @@ struct DocEditorView: View {
     }
 
     private func refreshDirtyCache() {
-        let next = model.isDirty ? displayName : nil
+        let dirty = model.isDirty
+        let next = dirty ? displayName : nil
         if publishedDirtyName != next {
             publishedDirtyName = next
+        }
+        if publishedDirty != dirty {
+            publishedDirty = dirty
+            onDirtyChange?(dirty)
         }
     }
 

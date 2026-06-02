@@ -81,6 +81,8 @@ struct FileTreeRow: View {
                     Text(node.name)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .accessibilityLabel(folderAccessibilityLabel)
+                    folderWarning
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -120,6 +122,8 @@ struct FileTreeRow: View {
                 Text(node.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .accessibilityLabel(fileAccessibilityLabel)
+                emptyContextWarning
                 Spacer(minLength: 0)
                 pinButton
             }
@@ -182,18 +186,61 @@ struct FileTreeRow: View {
     }
 
     private var folderIcon: some View {
-        // NSWorkspace's icon for the folder — generic folder glyph, consistent
-        // across `.claude/` and any nested folder. Files get the type-specific
-        // icon via the same call.
-        Image(nsImage: NSWorkspace.shared.icon(forFile: node.url.path))
+        // Generic folder glyph, consistent across `.claude/` and any nested
+        // folder. Files get the type-specific icon via the same cached call.
+        Image(nsImage: WorkspaceIconCache.icon(forPath: node.url.path, isDirectory: true))
             .resizable()
             .frame(width: 16, height: 16)
     }
 
     private var fileIcon: some View {
-        Image(nsImage: NSWorkspace.shared.icon(forFile: node.url.path))
+        Image(nsImage: WorkspaceIconCache.icon(forPath: node.url.path, isDirectory: false))
             .resizable()
             .frame(width: 16, height: 16)
+    }
+
+    // Always-visible warning on an effectively-empty foundation context file
+    // (CLAUDE.md / PROJECT.md). Unlike the pin button this is not hover-gated —
+    // its job is to catch the eye that the agent starts with no context. Reads
+    // the navigator's observed set (not the static node value) so the row flips
+    // live on the next reload instead of waiting for a click to re-diff the List.
+    @ViewBuilder
+    private var emptyContextWarning: some View {
+        if isEmptyContextFile {
+            EmptyContextWarningIcon(message: EmptyContextWarningIcon.fileMessage(node.name))
+        }
+    }
+
+    private var isEmptyContextFile: Bool {
+        navigator.emptyContextFilePaths.contains(node.relativePath)
+    }
+
+    // Carries the warning because the icon is `accessibilityHidden` — otherwise
+    // VoiceOver stops twice on a warned row (once on the name, once on the icon).
+    private var fileAccessibilityLabel: String {
+        isEmptyContextFile
+            ? "\(node.name), \(EmptyContextWarningIcon.fileMessage(node.name))"
+            : node.name
+    }
+
+    // Same warning surfaced on a collapsed folder that hides an empty context
+    // file, so the signal isn't lost when the row is folded away. Once expanded
+    // the child rows carry their own icons, so this hides to avoid doubling up.
+    @ViewBuilder
+    private var folderWarning: some View {
+        if !expanded, hidesEmptyContextFile {
+            EmptyContextWarningIcon(message: EmptyContextWarningIcon.folderMessage)
+        }
+    }
+
+    private var hidesEmptyContextFile: Bool {
+        navigator.foldersHidingEmptyContextFile.contains(node.relativePath)
+    }
+
+    private var folderAccessibilityLabel: String {
+        (!expanded && hidesEmptyContextFile)
+            ? "\(node.name), \(EmptyContextWarningIcon.folderMessage)"
+            : node.name
     }
 
     // Hover-revealed pin toggle, files only. Filled glyph + "Unpin" when the

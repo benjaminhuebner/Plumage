@@ -99,4 +99,58 @@ struct SettingsComposerTests {
         let withEmpty = try composer.settingsJSON(for: .macOS, toggles: ScaffoldToggles())
         #expect(withDefault == withEmpty)
     }
+
+    @Test("Empty user wirings are byte-identical to the no-arg call")
+    func emptyUserWiringsByteIdentical() throws {
+        for kind in ProjectKind.allCases {
+            let base = try composer.settingsJSON(for: kind)
+            let withEmpty = try composer.settingsJSON(for: kind, userWirings: [])
+            #expect(base == withEmpty, "byte mismatch for \(kind)")
+        }
+    }
+
+    // The hook groups under an event key, or nil if the event is absent.
+    private func groups(_ obj: [String: Any], event: String) -> [[String: Any]]? {
+        (obj["hooks"] as? [String: Any])?[event] as? [[String: Any]]
+    }
+
+    @Test("A user wiring lands under its event with its matcher and command")
+    func userWiringWired() throws {
+        let wiring = HookWiring(name: "my-hook", event: .preToolUse, matcher: "Edit|Write")
+        let obj = try #require(
+            try JSONSerialization.jsonObject(
+                with: composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
+        #expect(try hookNames(obj).contains("my-hook"))
+        let preGroups = try #require(groups(obj, event: "PreToolUse"))
+        let mine = preGroups.first { group in
+            (group["hooks"] as? [[String: Any]])?.contains {
+                ($0["command"] as? String)?.contains("my-hook.sh") == true
+            } == true
+        }
+        #expect((mine?["matcher"] as? String) == "Edit|Write")
+    }
+
+    @Test("A user hook fires regardless of the kind profile")
+    func userHookIgnoresProfile() throws {
+        let wiring = HookWiring(name: "my-hook", event: .stop)
+        let obj = try #require(
+            try JSONSerialization.jsonObject(
+                with: composer.settingsJSON(for: .other, userWirings: [wiring])) as? [String: Any])
+        // .other carries no Swift hooks, but the user hook still appears under Stop.
+        let stopGroups = try #require(groups(obj, event: "Stop"))
+        #expect(!stopGroups.isEmpty)
+        #expect(stopGroups.first?["matcher"] == nil)  // no-matcher event → null/absent
+    }
+
+    @Test("A disabled user hook is not wired")
+    func disabledUserHookNotWired() throws {
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.hooks, "my-hook", false)
+        let wiring = HookWiring(name: "my-hook", event: .preToolUse, matcher: "Bash")
+        let obj = try #require(
+            try JSONSerialization.jsonObject(
+                with: composer.settingsJSON(for: .macOS, toggles: toggles, userWirings: [wiring]))
+                as? [String: Any])
+        #expect(!(try hookNames(obj).contains("my-hook")))
+    }
 }

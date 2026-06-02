@@ -8,6 +8,17 @@ import os
 // immutable `onChange` closure (which is @Sendable). FSEventStreamStop is
 // documented to flush in-flight callbacks before returning, so the read-side
 // races settle before mutation in stop().
+//
+// NOTE: unlike SessionLogWatcher, stop()/deinit deliberately do NOT add a
+// `queue.sync {}` drain barrier. This source's `onChange` is consumed by the
+// IssueWatcher live-sync pipeline, which hops onto the MainActor; a blocking
+// `queue.sync` from the MainActor (where stop()/deinit run) deadlocks against
+// an in-flight callback that is itself waiting on the MainActor — verified by
+// a dispatch_sync deadlock (EXC_BREAKPOINT in __DISPATCH_WAIT_FOR_QUEUE__).
+// SessionLogWatcher can drain safely because its callback only enqueues an
+// async `Task { @MainActor }` and returns immediately. If the unretained-self
+// race ever proves real here, the fix is passRetained + a release callback in
+// FSEventStreamContext (CF-style refcounting), not a blocking drain.
 nonisolated final class FSEventSource: @unchecked Sendable {
     // FSEventStreamRef is an OpaquePointer (not Sendable) — wrap it so the
     // lock's state type satisfies Sendable. FSEvents stream refs are

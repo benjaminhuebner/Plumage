@@ -30,7 +30,11 @@ struct ChatView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 8)
             }
-            .onChange(of: session.messages.count) {
+            // Scroll only when a genuinely new message lands at the bottom —
+            // keying on `.last?.id` instead of `.count` avoids stacking an
+            // animated scroll on every array mutation (e.g. trim-to-cap or
+            // mid-array status edits) during rapid Claude streaming.
+            .onChange(of: session.messages.last?.id) {
                 withAnimation(.easeOut(duration: 0.15)) {
                     proxy.scrollTo(scrollAnchorID, anchor: .bottom)
                 }

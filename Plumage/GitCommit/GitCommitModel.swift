@@ -65,7 +65,8 @@ final class GitCommitModel {
 
     func start() {
         observeWatcher()
-        Task { await refreshFiles() }
+        // Tracked so stop()/isolated deinit can cancel the initial load.
+        loadTask = Task { await runRefreshFiles() }
     }
 
     func stop() {
@@ -87,7 +88,7 @@ final class GitCommitModel {
 
     func selectFile(_ path: String?) {
         selectedPath = path
-        Task { await reloadDiff() }
+        reloadDiff()
     }
 
     var canCommit: Bool {
@@ -142,7 +143,7 @@ final class GitCommitModel {
                 selectedPath = fresh.first?.path
             }
             loadState = .loaded
-            await reloadDiff()
+            reloadDiff()
         } catch let error as GitStatusError {
             if Task.isCancelled { return }
             loadState = .error(error.displayMessage)
@@ -152,7 +153,7 @@ final class GitCommitModel {
         }
     }
 
-    private func reloadDiff() async {
+    private func reloadDiff() {
         guard let path = selectedPath else {
             diffPreview = []
             return

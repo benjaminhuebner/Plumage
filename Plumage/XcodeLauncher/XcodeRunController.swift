@@ -57,19 +57,21 @@ final class XcodeRunController {
 
         let session = runSession
         let model = model
-        // Controller is strongly retained for the build's lifetime. cancelRun
-        // (called from ProjectWindow.onDisappear and the toolbar Stop button)
-        // is the cancellation trigger — the task always tears down via either
-        // an outcome from session.run or a CancellationError surfaced through
-        // xcodebuildRunner. A [weak self] capture here would risk losing the
-        // applyOutcome call if the controller deallocs mid-build.
-        runTask = Task {
+        // `model` is captured locally so log appends survive regardless of the
+        // controller's lifetime. self is captured WEAKLY: if ProjectWindow's
+        // onDisappear is skipped on an abnormal window close, the controller
+        // (and its up-to-5000-line log buffer) can still dealloc instead of
+        // being pinned alive until xcodebuild exits — isolated deinit then
+        // cancels runTask. applyOutcome is simply skipped if self is gone,
+        // which is correct: nothing is observing the outcome anymore.
+        runTask = Task { [weak self] in
             let outcome = await session.run(inputs: inputs) { @Sendable line in
                 Task { @MainActor in
                     model.appendLog(line)
                 }
             }
             await MainActor.run {
+                guard let self else { return }
                 self.applyOutcome(outcome)
                 self.runTask = nil
             }

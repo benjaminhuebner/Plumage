@@ -8,12 +8,14 @@ struct ProjectMigratorTests {
     private let fileManager = FileManager.default
 
     private func migrator(
-        overrideRoot: URL? = nil, toggles: ScaffoldToggles = ScaffoldToggles()
+        overrideRoot: URL? = nil, toggles: ScaffoldToggles = ScaffoldToggles(),
+        hookWirings: [HookWiring] = []
     ) -> ProjectMigrator {
         ProjectMigrator(
             assetsRoot: RepoAssets.root,
             overrideRoot: overrideRoot,
             toggles: toggles,
+            hookWirings: hookWirings,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"))
     }
 
@@ -198,5 +200,84 @@ struct ProjectMigratorTests {
             try String(contentsOf: targetAgents.appending(path: "planner.md"), encoding: .utf8)
                 == "# My own planner\n")
         #expect(report.skipped.contains(".claude/agents/planner.md"))
+    }
+
+    @Test("A user hook is migrated and wired into settings.json")
+    func userHookMigratesAndWires() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateHook-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let hookURL = overrideRoot.appending(path: "hooks/my-hook.sh")
+        try fileManager.createDirectory(
+            at: hookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho hi\n".write(to: hookURL, atomically: true, encoding: .utf8)
+        let wirings = [HookWiring(name: "my-hook", event: .postToolUse, matcher: "Write")]
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let (_, report) = try await migrator(overrideRoot: overrideRoot, hookWirings: wirings).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(fileManager.fileExists(atPath: root.appending(path: ".claude/hooks/my-hook.sh").path))
+        #expect(report.added.contains(".claude/hooks/my-hook.sh"))
+        let settings = try String(
+            contentsOf: root.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("my-hook.sh"))
+        #expect(settings.contains("Write"))
+    }
+
+    @Test("A user-authored skill is migrated from the override store and reported added")
+    func userSkillMigrates() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateSkill-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let skillMd = overrideRoot.appending(path: "skills/my-skill/SKILL.md")
+        try fileManager.createDirectory(
+            at: skillMd.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "---\nname: my-skill\n---\n# my-skill\n".write(
+            to: skillMd, atomically: true, encoding: .utf8)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let (_, report) = try await migrator(overrideRoot: overrideRoot).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(
+            fileManager.fileExists(atPath: root.appending(path: ".claude/skills/my-skill/SKILL.md").path))
+        #expect(report.added.contains(".claude/skills/my-skill"))
+    }
+
+    @Test("User-authored docs and scripts are migrated additively and reported")
+    func migratesUserDocsAndScriptsAdditively() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateUnion-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let docOverride = overrideRoot.appending(path: "docs/guide.md")
+        try fileManager.createDirectory(
+            at: docOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "# Guide\n".write(to: docOverride, atomically: true, encoding: .utf8)
+        let scriptOverride = overrideRoot.appending(path: "plumage/deploy.sh")
+        try fileManager.createDirectory(
+            at: scriptOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho deploy\n".write(to: scriptOverride, atomically: true, encoding: .utf8)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        // A pre-existing user script must be preserved and reported skipped.
+        let existingScripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: existingScripts, withIntermediateDirectories: true)
+        try "# my own\n".write(
+            to: existingScripts.appending(path: "deploy.sh"), atomically: true, encoding: .utf8)
+
+        let (_, report) = try await migrator(overrideRoot: overrideRoot).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(fileManager.fileExists(atPath: root.appending(path: ".claude/docs/guide.md").path))
+        #expect(report.added.contains(".claude/docs/guide.md"))
+        // Pre-existing user script preserved byte-for-byte and reported skipped.
+        #expect(
+            try String(contentsOf: existingScripts.appending(path: "deploy.sh"), encoding: .utf8)
+                == "# my own\n")
+        #expect(report.skipped.contains(".plumage/scripts/deploy.sh"))
     }
 }

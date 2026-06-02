@@ -36,6 +36,7 @@ nonisolated enum ClaudeProjectFiles {
         let fm = FileManager.default
         try fm.createDirectory(at: parent, withIntermediateDirectories: true)
         let target = try findFreeName(in: parent, base: trimmed)
+        try requireContained(target, within: parent)
         // `trimmed` may carry path separators ("team/lead.md"); create the
         // intervening folders so the leaf write doesn't fail on a missing dir.
         try fm.createDirectory(
@@ -52,11 +53,23 @@ nonisolated enum ClaudeProjectFiles {
         let fm = FileManager.default
         try fm.createDirectory(at: parent, withIntermediateDirectories: true)
         let target = try findFreeName(in: parent, base: trimmed)
+        try requireContained(target, within: parent)
         // `withIntermediateDirectories: true` so a separator-bearing name
         // ("team/reviewers") creates the whole chain; `findFreeName` already
         // guarantees `target` itself is free.
         try fm.createDirectory(at: target, withIntermediateDirectories: true)
         return target
+    }
+
+    // Rejects names that resolve outside `parent` via `..` traversal. Path
+    // separators are allowed (subfolders are created intentionally); only an
+    // escape above the parent is refused.
+    private static func requireContained(_ target: URL, within parent: URL) throws {
+        let parentPath = parent.standardizedFileURL.path
+        let targetPath = target.standardizedFileURL.path
+        guard targetPath.hasPrefix(parentPath + "/") else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
     }
 
     // MARK: - Rename / Move / Trash
@@ -153,8 +166,4 @@ nonisolated enum ClaudeProjectFiles {
         }
         throw CocoaError(.fileWriteFileExists)
     }
-}
-
-nonisolated enum ClaudeProjectFilesError: Error, Equatable, Sendable {
-    case reservedName(String)
 }

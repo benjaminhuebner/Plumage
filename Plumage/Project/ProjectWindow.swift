@@ -209,8 +209,8 @@ struct ProjectWindow: View {
                 async let navLoad: Void = navigator.reload(projectURL: handle.url)
                 mountSidebarWatcher(projectURL: handle.url)
                 async let xcodeDiscover: Void = xcodeRun.discover(projectURL: handle.url)
-                async let usagePoll: Void = pollClaudeUsage()
-                async let statusPoll: Void = pollClaudeStatus()
+                async let usagePoll: Void = claudeUsage.startPolling(using: usageClient)
+                async let statusPoll: Void = claudeStatus.startPolling(using: statusClient)
                 // Load the persisted pin set (or seed defaults) BEFORE the
                 // await-group below: that group includes the never-returning
                 // poll loops (usagePoll/statusPoll), so anything sequenced
@@ -503,33 +503,6 @@ struct ProjectWindow: View {
     private var isLoaded: Bool {
         if case .loaded = model.state { return true }
         return false
-    }
-
-    // Polling cadence: 90s for usage (spec'd) and 60s for status. Both loops
-    // exit via Task cancellation when .task(id:) re-fires or onDisappear stops
-    // the parent; Task.sleep is the natural cancellation point.
-    private func pollClaudeUsage() async {
-        await claudeUsage.refresh(using: usageClient)
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: .seconds(90))
-            } catch {
-                return
-            }
-            await claudeUsage.refresh(using: usageClient)
-        }
-    }
-
-    private func pollClaudeStatus() async {
-        await claudeStatus.refresh(using: statusClient)
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: .seconds(60))
-            } catch {
-                return
-            }
-            await claudeStatus.refresh(using: statusClient)
-        }
     }
 
     private func runWorkflow(_ action: WorkflowAction, folderName: String) {

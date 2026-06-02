@@ -28,21 +28,41 @@ struct PinnedRow: View {
     let projectURL: URL
 
     @Environment(PinnedFilesModel.self) private var pinModel
+    // Read the navigator directly so this row is invalidated the moment its
+    // file's empty-state flips, without relying on the List to re-diff it.
+    @Environment(NavigatorModel.self) private var navigator
     @State private var hovering = false
 
     private var url: URL { projectURL.appendingPathComponent(relativePath) }
+
+    private var isEmptyContextFile: Bool {
+        navigator.emptyContextFilePaths.contains(relativePath)
+    }
+
+    // Carries the warning because the icon is `accessibilityHidden` — otherwise
+    // VoiceOver stops twice on a warned row (once on the name, once on the icon).
+    private var accessibilityLabel: String {
+        isEmptyContextFile
+            ? "\(url.lastPathComponent), \(EmptyContextWarningIcon.fileMessage(url.lastPathComponent))"
+            : url.lastPathComponent
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             // Match the leading inset of tree file rows (past the chevron slot)
             // so PINNED and FILES rows line up visually.
             Color.clear.frame(width: 14)
-            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+            Image(nsImage: WorkspaceIconCache.icon(forPath: url.path))
                 .resizable()
                 .frame(width: 16, height: 16)
             Text(url.lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .accessibilityLabel(accessibilityLabel)
+            if isEmptyContextFile {
+                EmptyContextWarningIcon(
+                    message: EmptyContextWarningIcon.fileMessage(url.lastPathComponent))
+            }
             Spacer(minLength: 0)
             unpinButton
         }

@@ -69,6 +69,59 @@ nonisolated struct ScaffoldOverrides: Sendable {
     func overrideFileNames(inRelativeDir relativeDir: String) -> [String] {
         guard let overrideRoot else { return [] }
         let dir = overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        return Self.regularFileNames(in: dir).sorted()
+    }
+
+    // Union of regular file names in the bundled and override copies of
+    // `relativeDir`, sorted and de-duplicated. Used by catalogs and writers that
+    // combine the bundled baseline with user-authored override-only files. With no
+    // override store this is exactly the bundled set (byte-identical default).
+    func unionFileNames(inRelativeDir relativeDir: String) -> [String] {
+        let bundledDir = bundledRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        var names = Set(Self.regularFileNames(in: bundledDir))
+        names.formUnion(overrideFileNames(inRelativeDir: relativeDir))
+        return names.sorted()
+    }
+
+    // Top-level directory names under the override `skills/` that contain a
+    // `SKILL.md` — i.e. user-authored skills (and any bundled skill the user has
+    // overridden). Empty with no override store.
+    func overrideSkillDirNames() -> [String] {
+        guard let overrideRoot else { return [] }
+        let skillsDir = overrideRoot.appending(path: "skills", directoryHint: .isDirectory)
+        let contents =
+            (try? FileManager.default.contentsOfDirectory(
+                at: skillsDir, includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles])) ?? []
+        return
+            contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .filter { FileManager.default.fileExists(atPath: $0.appending(path: "SKILL.md").path) }
+            .map(\.lastPathComponent)
+            .sorted()
+    }
+
+    // Regular file sub-paths (relative to `relativeDir`) found recursively in the
+    // override copy of `relativeDir`, sorted. Used to enumerate user skill trees.
+    func overrideFileNamesRecursive(inRelativeDir relativeDir: String) -> [String] {
+        guard let overrideRoot else { return [] }
+        let dir = overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+        else { return [] }
+        let base = dir.standardizedFileURL.path + "/"
+        var result: [String] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            else { continue }
+            result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
+        }
+        return result.sorted()
+    }
+
+    private static func regularFileNames(in dir: URL) -> [String] {
         let contents =
             (try? FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: [.isRegularFileKey],
@@ -77,6 +130,5 @@ nonisolated struct ScaffoldOverrides: Sendable {
             contents
             .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
             .map(\.lastPathComponent)
-            .sorted()
     }
 }

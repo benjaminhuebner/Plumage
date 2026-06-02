@@ -52,6 +52,9 @@ final class IssueDetailModel {
     private(set) var loadedPromptContent: String = ""
     var promptDraft: String = ""
     private(set) var prContent: String?
+    // Pre-parsed PR.md blocks so PRTabView renders without re-parsing on every
+    // body evaluation. Populated together with prContent in loadPR().
+    private(set) var prBlocks: [PRMarkdownParser.Block] = []
     var selectedBodyTab: BodyTab = .spec
     private(set) var conflict: ConflictState?
     private(set) var frontmatterError: FrontmatterError?
@@ -413,13 +416,16 @@ final class IssueDetailModel {
         await reloadFromDiskAfterOwnWrite()
     }
 
-    private func reloadFromDiskAfterOwnWrite() async {
-        guard let url = specURL else { return }
-        let fresh = await Task.detached(priority: .utility) {
+    private func readNormalized(_ url: URL) async -> String? {
+        let raw = await Task.detached(priority: .utility) {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
-        guard let fresh else { return }
-        let normalized = fresh.replacingOccurrences(of: "\r\n", with: "\n")
+        return raw?.replacingOccurrences(of: "\r\n", with: "\n")
+    }
+
+    private func reloadFromDiskAfterOwnWrite() async {
+        guard let url = specURL else { return }
+        guard let normalized = await readNormalized(url) else { return }
         lastWrittenContent = normalized
         // Body could change if the user typed inside a form-write window;
         // preserve the in-flight bodyDraft so we don't drop unsaved keystrokes.
@@ -462,11 +468,7 @@ final class IssueDetailModel {
         pendingBodySave = task
         try await task.value
 
-        let fresh = await Task.detached(priority: .utility) {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        if let fresh {
-            let normalized = fresh.replacingOccurrences(of: "\r\n", with: "\n")
+        if let normalized = await readNormalized(url) {
             lastWrittenContent = normalized
             applyLoaded(content: normalized)
         }
@@ -485,10 +487,7 @@ final class IssueDetailModel {
     func loadPrompt() async {
         guard let folder = folderName, let projectURL else { return }
         let url = IssueLayout.promptURL(in: projectURL, folderName: folder)
-        let raw = await Task.detached(priority: .utility) {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        let content = (raw ?? "").replacingOccurrences(of: "\r\n", with: "\n")
+        let content = await readNormalized(url) ?? ""
         loadedPromptContent = content
         promptDraft = content
     }
@@ -517,17 +516,23 @@ final class IssueDetailModel {
     func loadPR() async {
         guard let folder = folderName, let projectURL else {
             prContent = nil
+            prBlocks = []
             return
         }
         let url = IssueLayout.prURL(in: projectURL, folderName: folder)
-        let raw = await Task.detached(priority: .utility) {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        if let raw {
-            prContent = raw.replacingOccurrences(of: "\r\n", with: "\n")
-        } else {
-            prContent = nil
-        }
+        // Read AND parse off-main so the markdown parse never runs on a view
+        // body evaluation. Empty content yields no blocks (PRTabView shows the
+        // empty state) while still recording prContent for state checks.
+        let result: (content: String?, blocks: [PRMarkdownParser.Block]) =
+            await Task.detached(priority: .utility) {
+                guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
+                    return (nil, [])
+                }
+                let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+                return (normalized, normalized.isEmpty ? [] : PRMarkdownParser.parse(normalized))
+            }.value
+        prContent = result.content
+        prBlocks = result.blocks
     }
 
     func observeKanban(currentIssue: DiscoveredIssue?) {
@@ -555,11 +560,7 @@ final class IssueDetailModel {
         // setting `.fileDeleted` on the kanban signal alone would flash a
         // banner that is correct only after the move lands. Reading disk
         // here turns "snapshot says gone" into "disk confirms gone".
-        let fresh = await Task.detached(priority: .utility) {
-            try? String(contentsOf: url, encoding: .utf8)
-        }.value
-        if let fresh {
-            let normalized = fresh.replacingOccurrences(of: "\r\n", with: "\n")
+        if let normalized = await readNormalized(url) {
             if normalized == loadedSpecContent || normalized == lastWrittenContent { return }
             await handleExternalChange(diskContent: normalized)
         } else {
@@ -645,32 +646,15 @@ final class IssueDetailModel {
         guard bodyStart <= lines.count else { return "" }
         return lines[bodyStart..<lines.count].joined(separator: "\n")
     }
+}
 
-    nonisolated static func replaceBody(in content: String, with newBody: String) -> String {
-        // CRLF input is normalized first so the function is safe to call on
-        // raw file content from any platform.
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        let lines = normalized.components(separatedBy: "\n")
-        var seen = 0
-        var splitIndex: Int?
-        for (index, line) in lines.enumerated() {
-            if line.trimmingCharacters(in: .whitespaces) == "---" {
-                seen += 1
-                if seen == 2 {
-                    splitIndex = index
-                    break
-                }
-            }
-        }
-        guard let splitIndex else {
-            // No frontmatter: return the new body verbatim.
-            return newBody
-        }
-        let frontmatter = lines[0...splitIndex].joined(separator: "\n")
-        // Preserve a single blank-line separator between frontmatter and body
-        // (matches how spec.md is conventionally formatted). The new body
-        // already carries its own internal newlines.
-        return frontmatter + "\n\n" + newBody
+nonisolated protocol SpecWriting: Sendable {
+    func write(_ content: String, to url: URL) throws
+}
+
+nonisolated struct DefaultSpecWriter: SpecWriting {
+    func write(_ content: String, to url: URL) throws {
+        try SpecWriter.write(content, to: url)
     }
 }
 

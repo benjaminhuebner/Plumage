@@ -56,13 +56,10 @@ nonisolated extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
-            if let raw = try? container.decode(String.self) {
-                let primary = ISO8601DateFormatter()
-                primary.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                if let date = primary.date(from: raw) { return date }
-                let fallback = ISO8601DateFormatter()
-                fallback.formatOptions = [.withInternetDateTime]
-                if let date = fallback.date(from: raw) { return date }
+            if let raw = try? container.decode(String.self),
+                let date = ISO8601Flexible.date(from: raw)
+            {
+                return date
             }
             if let seconds = try? container.decode(Double.self) {
                 return Date(timeIntervalSince1970: seconds)

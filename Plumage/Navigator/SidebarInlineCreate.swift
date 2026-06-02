@@ -64,52 +64,6 @@ struct InlineCreateRow: View {
     }
 }
 
-// Inline rename row. Uses a custom NSViewRepresentable text field so the
-// stem-selection (everything before the extension) is scoped to *this* view's
-// field rather than reaching into `NSApp.keyWindow.firstResponder` — which
-// races focus changes and silently picks the wrong window under multi-window
-// scenarios.
-struct InlineRenameRow: View {
-    let projectURL: URL
-    let icon: String
-    @Environment(NavigatorModel.self) private var navigator
-    @State private var isCommitting = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            StemSelectingTextField(
-                text: nameBinding,
-                placeholder: navigator.renaming?.url.lastPathComponent ?? "",
-                onSubmit: commit,
-                onCancel: { navigator.cancelRename() },
-                onBlur: commit
-            )
-            .id(navigator.renaming?.id)
-        }
-    }
-
-    private func commit() {
-        guard !isCommitting else { return }
-        isCommitting = true
-        Task { @MainActor in
-            _ = await navigator.commitRename(projectURL: projectURL)
-        }
-    }
-
-    private var nameBinding: Binding<String> {
-        Binding(
-            get: { navigator.renaming?.name ?? "" },
-            set: { newValue in
-                guard navigator.renaming != nil else { return }
-                navigator.renaming?.name = newValue
-            }
-        )
-    }
-}
-
 // AppKit-backed text field for inline rename. Owns its own focus + stem
 // selection so we don't need a 50 ms sleep + NSApp.keyWindow reach.
 struct StemSelectingTextField: NSViewRepresentable {

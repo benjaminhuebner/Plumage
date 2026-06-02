@@ -12,12 +12,13 @@ struct ProjectScaffolderTests {
 
     private func scaffolder(
         git: any GitInitializing = GitInitRunner(), overrideRoot: URL? = nil,
-        toggles: ScaffoldToggles = ScaffoldToggles()
+        toggles: ScaffoldToggles = ScaffoldToggles(), hookWirings: [HookWiring] = []
     ) -> ProjectScaffolder {
         ProjectScaffolder(
             assetsRoot: RepoAssets.root,
             overrideRoot: overrideRoot,
             toggles: toggles,
+            hookWirings: hookWirings,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
             gitInitRunner: git)
     }
@@ -156,6 +157,117 @@ struct ProjectScaffolderTests {
         _ = try await scaffolder().create(
             spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
         #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents").path))
+    }
+
+    @Test("User-authored docs and scripts are union-written alongside the bundled ones")
+    func unionWritesUserDocsAndScripts() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "UnionOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("# Guide\n", to: overrideRoot, rel: "docs/guide.md")
+        try write("#!/bin/sh\necho deploy\n", to: overrideRoot, rel: "plumage/deploy.sh")
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        // The user doc sits alongside the bundled docs.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/docs/guide.md").path))
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/docs/PROJECT.md").path))
+        // The user script is written executable; the bundled roadmap.py stays.
+        let scriptPath = dir.appending(path: ".plumage/scripts/deploy.sh").path
+        #expect(fm.fileExists(atPath: scriptPath))
+        let perms = try fm.attributesOfItem(atPath: scriptPath)[.posixPermissions] as? Int
+        #expect(((perms ?? 0) & 0o111) != 0)
+        #expect(fm.fileExists(atPath: dir.appending(path: ".plumage/scripts/roadmap.py").path))
+    }
+
+    @Test("A user hook is scaffolded and wired into settings.json")
+    func userHookScaffoldsAndWires() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "HookOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("#!/bin/sh\necho hi\n", to: overrideRoot, rel: "hooks/my-hook.sh")
+        let wirings = [HookWiring(name: "my-hook", event: .preToolUse, matcher: "Edit|Write")]
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot, hookWirings: wirings).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let hookPath = dir.appending(path: ".claude/hooks/my-hook.sh").path
+        #expect(fm.fileExists(atPath: hookPath))
+        let perms = try fm.attributesOfItem(atPath: hookPath)[.posixPermissions] as? Int
+        #expect(((perms ?? 0) & 0o111) != 0)
+
+        let settings = try String(
+            contentsOf: dir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("my-hook.sh"))
+        #expect(settings.contains("Edit|Write"))
+    }
+
+    @Test("No override store: docs and scripts are exactly the bundled set")
+    func emptyStoreDocsScriptsUnchanged() async throws {
+        let fm = FileManager.default
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder().create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let scripts = try fm.contentsOfDirectory(atPath: dir.appending(path: ".plumage/scripts").path)
+        #expect(Set(scripts) == ["roadmap.py"])
+        let docs = try fm.contentsOfDirectory(atPath: dir.appending(path: ".claude/docs").path)
+        #expect(Set(docs) == ["PROJECT.md", "notes.md", "decisions.md"])
+    }
+
+    @Test("A user-authored skill is scaffolded from the override store, tree intact")
+    func userSkillScaffolds() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "SkillOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("---\nname: my-skill\n---\n# my-skill\n", to: overrideRoot, rel: "skills/my-skill/SKILL.md")
+        try write("echo hi\n", to: overrideRoot, rel: "skills/my-skill/scripts/run.sh")
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/skills/my-skill/SKILL.md").path))
+        let scriptPath = dir.appending(path: ".claude/skills/my-skill/scripts/run.sh").path
+        #expect(fm.fileExists(atPath: scriptPath))
+        let perms = try fm.attributesOfItem(atPath: scriptPath)[.posixPermissions] as? Int
+        #expect(((perms ?? 0) & 0o111) != 0)
+        // Bundled skills still scaffold alongside the user one.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
+    }
+
+    @Test("A disabled user skill is absent from the scaffolded tree")
+    func disabledUserSkillOmitted() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "SkillOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("---\nname: my-skill\n---\n", to: overrideRoot, rel: "skills/my-skill/SKILL.md")
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.skills, "my-skill", false)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot, toggles: toggles).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/skills/my-skill").path))
+    }
+
+    private func write(_ contents: String, to root: URL, rel: String) throws {
+        let url = root.appending(path: rel)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
     @Test("Enabled user agents are written to .claude/agents; a disabled one is not")

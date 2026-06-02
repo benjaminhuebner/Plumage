@@ -47,6 +47,7 @@ nonisolated struct ProjectMigrator {
     let assetsRoot: URL
     let overrides: ScaffoldOverrides
     let toggles: ScaffoldToggles
+    let hookWirings: [HookWiring]
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
     let repoStateReader: RepoStateReader
@@ -55,6 +56,7 @@ nonisolated struct ProjectMigrator {
         assetsRoot: URL = NewProjectAssets.bundledRoot,
         overrideRoot: URL? = ScaffoldOverrides.standardOverrideRoot(),
         toggles: ScaffoldToggles = .loadStandard(),
+        hookWirings: [HookWiring] = HookWiringStore.loadStandard().wirings,
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
         gitInitRunner: any GitInitializing = GitInitRunner(),
         repoStateReader: RepoStateReader = RepoStateReader()
@@ -62,9 +64,20 @@ nonisolated struct ProjectMigrator {
         self.assetsRoot = assetsRoot
         self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
         self.toggles = toggles
+        self.hookWirings = hookWirings
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
         self.repoStateReader = repoStateReader
+    }
+
+    // The bundled-or-user hooks enabled for a kind: profile hooks plus override-only
+    // `.sh` files, minus any disabled by the toggles.
+    private func enabledHookNames(for kind: ProjectKind) -> [String] {
+        let userHooks = overrides.overrideFileNames(inRelativeDir: "hooks")
+            .filter { $0.hasSuffix(".sh") }
+            .map { String($0.dropLast(3)) }
+            .filter { !kind.profile.hookNames.contains($0) }
+        return toggles.enabledNames(in: .hooks, from: kind.profile.hookNames + userHooks)
     }
 
     private var fileManager: FileManager { .default }
@@ -108,10 +121,12 @@ nonisolated struct ProjectMigrator {
     private func writePlumageScripts(root: URL, into report: inout Report) throws {
         let scripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: scripts, withIntermediateDirectories: true)
-        try copyIfMissing(
-            from: overrides.url(forRelative: "plumage/roadmap.py"),
-            to: scripts.appending(path: "roadmap.py"),
-            rel: ".plumage/scripts/roadmap.py", executable: true, into: &report)
+        for script in overrides.unionFileNames(inRelativeDir: "plumage") {
+            try copyIfMissing(
+                from: overrides.url(forRelative: "plumage/\(script)"),
+                to: scripts.appending(path: script),
+                rel: ".plumage/scripts/\(script)", executable: true, into: &report)
+        }
     }
 
     private func writeConfigBundle(
@@ -135,7 +150,7 @@ nonisolated struct ProjectMigrator {
 
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
-        for doc in ["PROJECT.md", "notes.md", "decisions.md"] {
+        for doc in overrides.unionFileNames(inRelativeDir: "docs") {
             try copyIfMissing(
                 from: overrides.url(forRelative: "docs/\(doc)"),
                 to: docs.appending(path: doc), rel: ".claude/docs/\(doc)", into: &report)
@@ -156,11 +171,16 @@ nonisolated struct ProjectMigrator {
         try writeSettings(kind: spec.kind, claude: claude, into: &report)
     }
 
+    private static let bundledSkills = ["plumage-plan", "plumage-implement", "plumage-review"]
+    private var skillNames: [String] {
+        let userSkills = overrides.overrideSkillDirNames().filter { !Self.bundledSkills.contains($0) }
+        return Self.bundledSkills + userSkills
+    }
+
     private func writeSkills(claude: URL, skillKeywords: String, into report: inout Report) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        let skills = toggles.enabledNames(
-            in: .skills, from: ["plumage-plan", "plumage-implement", "plumage-review"])
+        let skills = toggles.enabledNames(in: .skills, from: skillNames)
         for skill in skills {
             let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
             let rel = ".claude/skills/\(skill)"
@@ -181,7 +201,7 @@ nonisolated struct ProjectMigrator {
     private func writeHooks(spec: NewProjectSpec, claude: URL, into report: inout Report) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in toggles.enabledNames(in: .hooks, from: spec.kind.profile.hookNames) {
+        for hook in enabledHookNames(for: spec.kind) {
             try copyIfMissing(
                 from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
@@ -208,7 +228,7 @@ nonisolated struct ProjectMigrator {
     private func writeSettings(kind: ProjectKind, claude: URL, into report: inout Report) throws {
         let composer = SettingsComposer()
         try writeIfMissing(
-            try composer.settingsJSON(for: kind, toggles: toggles),
+            try composer.settingsJSON(for: kind, toggles: toggles, userWirings: hookWirings),
             to: claude.appending(path: "settings.json"),
             rel: ".claude/settings.json", into: &report)
         try writeIfMissing(
@@ -298,21 +318,24 @@ nonisolated struct ProjectMigrator {
                 createGitignore: spec.git.createGitignore))
     }
 
-    // Copy a bundled directory subtree into `dest`, resolving every regular file
-    // through the override layer. The bundled tree defines the set of files; each
-    // file is read from its override when present, else bundled.
+    // Copy a directory subtree into `dest`, resolving every regular file through the
+    // override layer. The source tree defines the set of files: the bundled dir for a
+    // bundled skill, or the override dir for a user-authored skill with no baseline.
     private func copyResolvedTree(relativeDir: String, to dest: URL) throws {
         let bundledDir = assetsRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        let sourceDir =
+            fileManager.fileExists(atPath: bundledDir.path)
+            ? bundledDir : (overrides.overrideURL(forRelative: relativeDir) ?? bundledDir)
         try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
         guard
             let enumerator = fileManager.enumerator(
-                at: bundledDir, includingPropertiesForKeys: [.isRegularFileKey])
+                at: sourceDir, includingPropertiesForKeys: [.isRegularFileKey])
         else { return }
         for case let url as URL in enumerator {
             let isRegular = (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile ?? false
             guard isRegular else { continue }
             let suffix = url.standardizedFileURL.path
-                .replacingOccurrences(of: bundledDir.standardizedFileURL.path + "/", with: "")
+                .replacingOccurrences(of: sourceDir.standardizedFileURL.path + "/", with: "")
             let resolved = overrides.url(forRelative: "\(relativeDir)/\(suffix)")
             let target = dest.appending(path: suffix)
             try fileManager.createDirectory(

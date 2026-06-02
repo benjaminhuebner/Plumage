@@ -572,22 +572,6 @@ struct IssueDetailModelTests {
         )
     }
 
-    @Test("replaceBody preserves frontmatter")
-    func replaceBodyPreserves() {
-        let content = """
-            ---
-            id: 1
-            status: approved
-            ---
-
-            old body
-            """
-        let updated = IssueDetailModel.replaceBody(in: content, with: "new body")
-        #expect(updated.contains("status: approved"))
-        #expect(updated.hasSuffix("new body"))
-        #expect(!updated.contains("old body"))
-    }
-
     private static func baseSpec(status: String, body: String = "Some content.") -> String {
         """
         ---

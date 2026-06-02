@@ -20,6 +20,42 @@ struct NavigatorModelTests {
         #expect(model.rootNodes.map(\.name) == [".claude", ".mcp.json"])
     }
 
+    @Test("reload publishes empty-context paths for target files only")
+    func reloadPublishesEmptyContextPaths() async throws {
+        let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/CLAUDE.md", content: "")
+        try fixture.makeFile(at: ".claude/docs/PROJECT.md", content: "  \n\t\n")
+        // Non-target empty file and a filled target must stay out of the set.
+        try fixture.makeFile(at: ".claude/docs/notes.md", content: "")
+        try fixture.makeFile(at: "CLAUDE.md", content: "# Real")
+
+        let model = NavigatorModel()
+        await model.reload(projectURL: fixture.root)
+
+        #expect(
+            model.emptyContextFilePaths == [".claude/CLAUDE.md", ".claude/docs/PROJECT.md"])
+        // Every ancestor folder of an empty target warns on collapse.
+        #expect(model.foldersHidingEmptyContextFile == [".claude", ".claude/docs"])
+
+        // Filling a target removes it from both sets on the next reload.
+        try fixture.makeFile(at: ".claude/CLAUDE.md", content: "# Now real")
+        await model.reload(projectURL: fixture.root)
+        #expect(model.emptyContextFilePaths == [".claude/docs/PROJECT.md"])
+        #expect(model.foldersHidingEmptyContextFile == [".claude", ".claude/docs"])
+    }
+
+    @Test("collectFoldersHidingEmptyContextPaths returns every ancestor folder")
+    func collectFoldersHidingEmptyContextPaths() {
+        #expect(
+            NavigatorModel.collectFoldersHidingEmptyContextPaths(
+                [".claude/docs/PROJECT.md", ".claude/CLAUDE.md"])
+                == [".claude", ".claude/docs"])
+        // A root-level target file has no ancestor folder to warn.
+        #expect(
+            NavigatorModel.collectFoldersHidingEmptyContextPaths(["CLAUDE.md"]).isEmpty)
+        #expect(NavigatorModel.collectFoldersHidingEmptyContextPaths([]).isEmpty)
+    }
+
     @Test("beginPendingCreate seeds the default name for files and folders")
     func beginPendingCreateSeedsName() async throws {
         let fixture = try NavigatorModelFixture()

@@ -35,7 +35,7 @@ nonisolated struct ProjectConfigCreator {
 
     private func makeConfig(for spec: NewProjectSpec, defaultBranch: String) -> FullConfig {
         let profile = spec.kind.profile
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = ISO8601Flexible.string(from: .now)
         return FullConfig(
             agentTimeouts: .init(planModeProbeMs: 5000),
             createdAt: timestamp,

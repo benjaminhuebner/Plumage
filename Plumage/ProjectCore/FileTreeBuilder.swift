@@ -25,7 +25,8 @@ nonisolated enum FileTreeBuilder {
                     relativePath: fileName,
                     name: fileName,
                     isDirectory: false,
-                    children: nil
+                    children: nil,
+                    isEmptyContextFile: emptyContextFlag(relativePath: fileName, url: url)
                 )
             )
         }
@@ -49,7 +50,8 @@ nonisolated enum FileTreeBuilder {
                 relativePath: relativePath,
                 name: name,
                 isDirectory: false,
-                children: nil
+                children: nil,
+                isEmptyContextFile: emptyContextFlag(relativePath: relativePath, url: url)
             )
         }
 
@@ -84,6 +86,15 @@ nonisolated enum FileTreeBuilder {
             isDirectory: true,
             children: folders + files
         )
+    }
+
+    // Reads file content ONLY for the ≤3 foundation context paths so I/O stays
+    // bounded; every other node skips the read. A read failure fails safe to
+    // `false` so a permission error never shows a scary false warning.
+    private static func emptyContextFlag(relativePath: String, url: URL) -> Bool {
+        guard EmptyContextFiles.isTarget(relativePath: relativePath) else { return false }
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        return EmptyContextFiles.isEffectivelyEmpty(content)
     }
 
     private static func isSymlink(_ url: URL) -> Bool {

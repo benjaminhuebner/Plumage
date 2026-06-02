@@ -145,18 +145,8 @@ nonisolated struct NextIssueAllocator: Sendable {
         return max(configured, 1)
     }
 
-    // ISO8601DateFormatter formatting is reentrant; share one instance
-    // (formatOptions are set once at file-scope and never mutated).
-    // `nonisolated(unsafe)` because ISO8601DateFormatter is not Sendable
-    // but Apple's docs guarantee concurrent use is safe.
-    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
     private static func iso8601(from date: Date) -> String {
-        isoFormatter.string(from: date)
+        ISO8601Flexible.string(from: date)
     }
 
     static func slugify(_ input: String) -> String {

@@ -8,6 +8,21 @@ final class NavigatorModel {
     private(set) var rootNodes: [FileNode] = []
     private(set) var loadError: String?
 
+    // Relative paths of every effectively-empty foundation context file in the
+    // current tree, recomputed on each reload. A *stored* observed property (not
+    // computed) so every sidebar row that reads it — file row, collapsed folder,
+    // pinned shortcut — is individually invalidated the instant it changes,
+    // rather than waiting for the NSTableView-backed List to re-diff stable rows
+    // on the next click. That direct per-row observation is what makes the
+    // warning flip live without a stray interaction.
+    private(set) var emptyContextFilePaths: Set<String> = []
+
+    // Relative paths of every folder that *hides* an empty context file in its
+    // subtree, so a collapsed folder row can warn with a single O(1) lookup
+    // instead of scanning `emptyContextFilePaths` with a prefix match per render.
+    // Derived from `emptyContextFilePaths`, so it only changes when that does.
+    private(set) var foldersHidingEmptyContextFile: Set<String> = []
+
     // Transient sidebar state for the "+ creates a new row with a focused
     // TextField" interaction. View binds the textfield to `pendingCreate?.name`
     // and calls commit/cancel based on Enter/Escape/blur.
@@ -46,6 +61,13 @@ final class NavigatorModel {
         self.bannerDisplayDuration = bannerDisplayDuration
     }
 
+    // Cancel the auto-reset banner task on teardown — consistent with the
+    // other @Observable models that own Tasks. (`[weak self]` already prevents
+    // retention; this just stops the timer from outliving the model.)
+    isolated deinit {
+        bannerResetTask?.cancel()
+    }
+
     func reload(projectURL: URL) async {
         reloadGeneration &+= 1
         let generation = reloadGeneration
@@ -58,6 +80,16 @@ final class NavigatorModel {
         // so drop ours instead of clobbering it with stale nodes.
         guard generation == reloadGeneration else { return }
         self.rootNodes = result.nodes
+        // Guard the assignment: `@Observable` fires on every set regardless of
+        // equality, so reassigning an identical set on an unrelated FSEvent
+        // reload would re-render every row that reads it. Only publish on a
+        // real change — the derived folder set is recomputed in lockstep.
+        let newEmptyPaths = Self.collectEmptyContextPaths(result.nodes)
+        if newEmptyPaths != emptyContextFilePaths {
+            self.emptyContextFilePaths = newEmptyPaths
+            self.foldersHidingEmptyContextFile = Self.collectFoldersHidingEmptyContextPaths(
+                newEmptyPaths)
+        }
         // Diff against the previous reload's inodes — but only within the same
         // project; a project switch starts a fresh baseline (no spurious diff).
         let sameProject = inodeBaselineProject == projectURL
@@ -73,6 +105,36 @@ final class NavigatorModel {
         // `pendingCreate` is intentionally preserved across reloads — an
         // FSEvent triggered mid-inline-edit must not collapse the user's
         // open create row.
+    }
+
+    // Flat set of every empty-context file's relative path in a built tree.
+    nonisolated static func collectEmptyContextPaths(_ nodes: [FileNode]) -> Set<String> {
+        var result: Set<String> = []
+        func walk(_ node: FileNode) {
+            if node.isEmptyContextFile { result.insert(node.relativePath) }
+            node.children?.forEach(walk)
+        }
+        nodes.forEach(walk)
+        return result
+    }
+
+    // Precomputed once per reload so a collapsed-folder row can warn with an
+    // O(1) Set lookup instead of a per-render `hasPrefix` scan over every path.
+    nonisolated static func collectFoldersHidingEmptyContextPaths(
+        _ emptyPaths: Set<String>
+    ) -> Set<String> {
+        var result: Set<String> = []
+        for path in emptyPaths {
+            var components = path.split(separator: "/").map(String.init)
+            guard !components.isEmpty else { continue }
+            components.removeLast()
+            var prefix = ""
+            for component in components {
+                prefix = prefix.isEmpty ? component : prefix + "/" + component
+                result.insert(prefix)
+            }
+        }
+        return result
     }
 
     // Pure inode diff: a previously-known path that is gone from `currentPaths`

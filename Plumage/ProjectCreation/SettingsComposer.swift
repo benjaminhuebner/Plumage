@@ -23,25 +23,33 @@ nonisolated struct SettingsComposer {
         "Bash(rg:*)", "Bash(jq:*)",
     ]
 
-    func settingsJSON(for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles()) throws -> Data {
+    func settingsJSON(
+        for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(),
+        userWirings: [HookWiring] = []
+    ) throws -> Data {
         let selected = Set(kind.profile.hookNames)
-        func groups(_ event: String) -> [Settings.HookGroup]? {
-            let groups = Self.wirings
-                .filter {
-                    $0.event == event && selected.contains($0.name)
-                        && toggles.isEnabled(.hooks, $0.name)
-                }
-                .map {
-                    Settings.HookGroup(
-                        matcher: $0.matcher, hooks: [.init(command: Self.command(for: $0.name))])
-                }
-            return groups.isEmpty ? nil : groups
+        var groupsByEvent: [HookEvent: [Settings.HookGroup]] = [:]
+
+        // Built-in wirings: filtered to the kind's profile and the hooks toggle, in
+        // declaration order (ordering within an event is intentional).
+        for wiring in Self.wirings
+        where selected.contains(wiring.name) && toggles.isEnabled(.hooks, wiring.name) {
+            guard let event = HookEvent(rawValue: wiring.event) else { continue }
+            groupsByEvent[event, default: []].append(
+                Settings.HookGroup(
+                    matcher: wiring.matcher, hooks: [.init(command: Self.command(for: wiring.name))]))
         }
+
+        // User wirings: not gated by the kind profile (they fire in every project),
+        // only by the hooks toggle. Appended after the built-ins per event.
+        for wiring in userWirings where toggles.isEnabled(.hooks, wiring.name) {
+            groupsByEvent[wiring.event, default: []].append(
+                Settings.HookGroup(
+                    matcher: wiring.matcher, hooks: [.init(command: Self.command(for: wiring.name))]))
+        }
+
         let settings = Settings(
-            hooks: .init(
-                userPromptSubmit: groups("UserPromptSubmit"),
-                preToolUse: groups("PreToolUse"),
-                postToolUse: groups("PostToolUse")),
+            hooks: Settings.Hooks(groupsByEvent: groupsByEvent),
             permissions: .init(allow: permissions(for: kind)))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -53,9 +61,10 @@ nonisolated struct SettingsComposer {
     }
 
     func write(
-        for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(), toClaudeDir claudeDir: URL
+        for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(),
+        userWirings: [HookWiring] = [], toClaudeDir claudeDir: URL
     ) throws {
-        try settingsJSON(for: kind, toggles: toggles).write(
+        try settingsJSON(for: kind, toggles: toggles, userWirings: userWirings).write(
             to: claudeDir.appending(path: "settings.json"))
         try localSettingsJSON().write(to: claudeDir.appending(path: "settings.local.json"))
     }
@@ -83,15 +92,26 @@ private nonisolated struct Settings: Encodable {
     let hooks: Hooks
     let permissions: Permissions
 
+    // Event-keyed dynamic encoding: any `HookEvent` round-trips as its own
+    // `settings.json` key. Empty events are omitted; with `.sortedKeys` the key
+    // order is deterministic, so built-in output is byte-identical to the prior
+    // three-fixed-key encoder.
     struct Hooks: Encodable {
-        let userPromptSubmit: [HookGroup]?
-        let preToolUse: [HookGroup]?
-        let postToolUse: [HookGroup]?
+        let groupsByEvent: [HookEvent: [HookGroup]]
 
-        enum CodingKeys: String, CodingKey {
-            case userPromptSubmit = "UserPromptSubmit"
-            case preToolUse = "PreToolUse"
-            case postToolUse = "PostToolUse"
+        struct EventKey: CodingKey {
+            let stringValue: String
+            let intValue: Int? = nil
+            init(_ event: HookEvent) { stringValue = event.rawValue }
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: EventKey.self)
+            for (event, groups) in groupsByEvent where !groups.isEmpty {
+                try container.encode(groups, forKey: EventKey(event))
+            }
         }
     }
 

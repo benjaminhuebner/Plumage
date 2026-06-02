@@ -293,7 +293,7 @@ struct IssueDetailView: View {
             )
         case .pullRequest:
             VStack(alignment: .leading, spacing: 12) {
-                PRTabView(content: model.prContent)
+                PRTabView(blocks: model.prBlocks)
                     .task(id: model.selectedBodyTab) {
                         // Reload-on-show: PR.md changes externally (e.g.
                         // /plumage-implement just wrote it), and the tab is
