@@ -7,6 +7,9 @@ struct DocEditorView: View {
     let displayName: String
     // Fired after a successful save (e.g. so a host can refresh a derived view).
     let onSave: (() -> Void)?
+    // Fired whenever the dirty state flips, so a host can react to the first edit
+    // (e.g. surface a Reset button immediately rather than after a save).
+    let onDirtyChange: ((Bool) -> Void)?
 
     @State private var model: DocEditorModel
     @State private var editorPosition = CodeEditor.Position()
@@ -20,6 +23,7 @@ struct DocEditorView: View {
     // flags as "FocusedValue update tried to update multiple times per
     // frame" during keystroke bursts.
     @State private var publishedDirtyName: String?
+    @State private var publishedDirty: Bool?
     @State private var publishedSaveAction: EditorAction?
 
     private let language: LanguageConfiguration
@@ -29,11 +33,12 @@ struct DocEditorView: View {
 
     init(
         fileURL: URL, displayName: String? = nil, fallbackURL: URL? = nil,
-        onSave: (() -> Void)? = nil
+        onSave: (() -> Void)? = nil, onDirtyChange: ((Bool) -> Void)? = nil
     ) {
         self.fileURL = fileURL
         self.displayName = displayName ?? fileURL.lastPathComponent
         self.onSave = onSave
+        self.onDirtyChange = onDirtyChange
         _model = State(initialValue: DocEditorModel(fileURL: fileURL, fallbackURL: fallbackURL))
         self.language = DocEditorLanguage.configuration(for: fileURL)
     }
@@ -130,9 +135,14 @@ struct DocEditorView: View {
     }
 
     private func refreshDirtyCache() {
-        let next = model.isDirty ? displayName : nil
+        let dirty = model.isDirty
+        let next = dirty ? displayName : nil
         if publishedDirtyName != next {
             publishedDirtyName = next
+        }
+        if publishedDirty != dirty {
+            publishedDirty = dirty
+            onDirtyChange?(dirty)
         }
     }
 

@@ -164,6 +164,19 @@ struct TemplatesSettingsModelTests {
         #expect(!ctx.model.entries.contains { $0.relativePath == "skills/scratch-skill/SKILL.md" })
     }
 
+    @Test("Editor dirty state tracks setEditorDirty and resets on beginEditing")
+    func editorDirtyLifecycle() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        #expect(!ctx.model.isEditorDirty)
+        ctx.model.setEditorDirty(true)
+        #expect(ctx.model.isEditorDirty)
+        // Opening another entry clears the dirty flag (no stale Reset on the next row).
+        let entry = try #require(ctx.model.entries.first { $0.relativePath == "docs/PROJECT.md" })
+        ctx.model.beginEditing(entry)
+        #expect(!ctx.model.isEditorDirty)
+    }
+
     @Test("An override-only hook joins the catalog as user-authored")
     func overrideOnlyHookUnion() throws {
         let ctx = makeModel()

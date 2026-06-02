@@ -113,10 +113,10 @@ struct TemplatesSettingsTab: View {
                 Divider()
                 DocEditorView(
                     fileURL: url, displayName: entry.label,
-                    fallbackURL: model.editingFallbackURL
-                ) {
-                    model.notifySaved(relativePath: entry.relativePath)
-                }
+                    fallbackURL: model.editingFallbackURL,
+                    onSave: { model.notifySaved(relativePath: entry.relativePath) },
+                    onDirtyChange: { model.setEditorDirty($0) }
+                )
                 .id(url)
             }
         } else {
@@ -138,7 +138,9 @@ struct TemplatesSettingsTab: View {
                 Button("Delete", role: .destructive) {
                     model.delete(entry)
                 }
-            } else if model.isOverridden(entry) {
+            } else if model.isOverridden(entry) || model.isEditorDirty {
+                // Reset appears the moment the bundled template is edited (dirty),
+                // not only after a save has created an override on disk.
                 Button("Reset to Default") {
                     model.resetToDefault(entry)
                 }

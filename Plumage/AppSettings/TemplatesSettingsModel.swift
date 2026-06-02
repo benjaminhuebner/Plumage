@@ -96,6 +96,15 @@ final class TemplatesSettingsModel {
     // react to seed/save/reset without polling the filesystem in `body`.
     private(set) var overriddenPaths: Set<String> = []
 
+    // Live dirty state of the embedded editor, surfaced by `DocEditorView` so the
+    // header can show Reset to Default on the first edit (before any save creates an
+    // override). Reset on each selection change via `beginEditing`.
+    private(set) var isEditorDirty = false
+
+    func setEditorDirty(_ dirty: Bool) {
+        if isEditorDirty != dirty { isEditorDirty = dirty }
+    }
+
     // Live preview of the composed CLAUDE.md for a chosen sample kind, run through
     // the same composer the scaffolder uses, on the current overrides.
     var sampleKind: ProjectKind = .macOS {
@@ -202,6 +211,10 @@ final class TemplatesSettingsModel {
     // No disk write here: the editor reads via the fallback and only a save creates
     // an override, so browsing never pins an asset to its current bundled content.
     func beginEditing(_ entry: CatalogEntry) {
+        // A freshly opened editor starts clean; the new DocEditorView reconfirms via
+        // onDirtyChange once it loads. Resetting here avoids a stale Reset button
+        // flashing on the next entry during the editor swap.
+        isEditorDirty = false
         guard let overrideURL = overrides.overrideURL(forRelative: entry.relativePath) else {
             editingFileURL = overrides.url(forRelative: entry.relativePath)
             editingFallbackURL = nil
@@ -224,6 +237,7 @@ final class TemplatesSettingsModel {
         guard let url = overrides.overrideURL(forRelative: entry.relativePath) else { return }
         try? FileManager.default.removeItem(at: url)
         overriddenPaths.remove(entry.relativePath)
+        isEditorDirty = false
         if editingFileURL == url {
             editingFileURL = nil
             editingFallbackURL = nil
