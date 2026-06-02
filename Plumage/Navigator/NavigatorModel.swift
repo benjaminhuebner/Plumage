@@ -9,18 +9,13 @@ final class NavigatorModel {
     private(set) var loadError: String?
 
     // Relative paths of every effectively-empty foundation context file in the
-    // current tree. Derived from `rootNodes`, so it re-publishes on each reload
-    // and lets the pinned section (which has no tree node of its own) mark the
-    // same files live.
-    var emptyContextFilePaths: Set<String> {
-        var result: Set<String> = []
-        func walk(_ node: FileNode) {
-            if node.isEmptyContextFile { result.insert(node.relativePath) }
-            node.children?.forEach(walk)
-        }
-        rootNodes.forEach(walk)
-        return result
-    }
+    // current tree, recomputed on each reload. A *stored* observed property (not
+    // computed) so every sidebar row that reads it — file row, collapsed folder,
+    // pinned shortcut — is individually invalidated the instant it changes,
+    // rather than waiting for the NSTableView-backed List to re-diff stable rows
+    // on the next click. That direct per-row observation is what makes the
+    // warning flip live without a stray interaction.
+    private(set) var emptyContextFilePaths: Set<String> = []
 
     // Transient sidebar state for the "+ creates a new row with a focused
     // TextField" interaction. View binds the textfield to `pendingCreate?.name`
@@ -72,6 +67,7 @@ final class NavigatorModel {
         // so drop ours instead of clobbering it with stale nodes.
         guard generation == reloadGeneration else { return }
         self.rootNodes = result.nodes
+        self.emptyContextFilePaths = Self.collectEmptyContextPaths(result.nodes)
         // Diff against the previous reload's inodes — but only within the same
         // project; a project switch starts a fresh baseline (no spurious diff).
         let sameProject = inodeBaselineProject == projectURL
@@ -87,6 +83,17 @@ final class NavigatorModel {
         // `pendingCreate` is intentionally preserved across reloads — an
         // FSEvent triggered mid-inline-edit must not collapse the user's
         // open create row.
+    }
+
+    // Flat set of every empty-context file's relative path in a built tree.
+    nonisolated static func collectEmptyContextPaths(_ nodes: [FileNode]) -> Set<String> {
+        var result: Set<String> = []
+        func walk(_ node: FileNode) {
+            if node.isEmptyContextFile { result.insert(node.relativePath) }
+            node.children?.forEach(walk)
+        }
+        nodes.forEach(walk)
+        return result
     }
 
     // Pure inode diff: a previously-known path that is gone from `currentPaths`

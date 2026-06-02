@@ -200,10 +200,12 @@ struct FileTreeRow: View {
 
     // Always-visible warning on an effectively-empty foundation context file
     // (CLAUDE.md / PROJECT.md). Unlike the pin button this is not hover-gated —
-    // its job is to catch the eye that the agent starts with no context.
+    // its job is to catch the eye that the agent starts with no context. Reads
+    // the navigator's observed set (not the static node value) so the row flips
+    // live on the next reload instead of waiting for a click to re-diff the List.
     @ViewBuilder
     private var emptyContextWarning: some View {
-        if node.isEmptyContextFile {
+        if navigator.emptyContextFilePaths.contains(node.relativePath) {
             EmptyContextWarningIcon(message: EmptyContextWarningIcon.fileMessage(node.name))
         }
     }
@@ -213,9 +215,14 @@ struct FileTreeRow: View {
     // the child rows carry their own icons, so this hides to avoid doubling up.
     @ViewBuilder
     private var folderWarning: some View {
-        if !expanded && node.containsEmptyContextFileDescendant {
+        if !expanded, hidesEmptyContextFile {
             EmptyContextWarningIcon(message: EmptyContextWarningIcon.folderMessage)
         }
+    }
+
+    private var hidesEmptyContextFile: Bool {
+        let prefix = node.relativePath + "/"
+        return navigator.emptyContextFilePaths.contains { $0.hasPrefix(prefix) }
     }
 
     // Hover-revealed pin toggle, files only. Filled glyph + "Unpin" when the

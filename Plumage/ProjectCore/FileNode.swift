@@ -12,16 +12,6 @@ nonisolated struct FileNode: Identifiable, Hashable, Sendable {
 
     var id: String { relativePath }
 
-    // True when any descendant (at any depth) is an empty context file — drives
-    // the warning on a collapsed folder that hides such a file. Recomputed on
-    // access; the trees are small and it is only read for folder rows.
-    var containsEmptyContextFileDescendant: Bool {
-        guard let children else { return false }
-        return children.contains {
-            $0.isEmptyContextFile || $0.containsEmptyContextFileDescendant
-        }
-    }
-
     init(
         url: URL,
         relativePath: String,

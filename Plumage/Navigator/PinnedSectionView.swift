@@ -8,20 +8,12 @@ import SwiftUI
 struct PinnedSectionView: View {
     let model: PinnedFilesModel
     let projectURL: URL
-    // Empty-context paths from the live file tree (NavigatorModel), so a pinned
-    // CLAUDE.md / PROJECT.md carries the same warning as its tree row and flips
-    // on/off with the same FSEvents reload.
-    let emptyContextPaths: Set<String>
 
     var body: some View {
         if !model.pinned.isEmpty {
             SidebarSectionHeader(title: "Pinned")
             ForEach(model.pinned, id: \.self) { relativePath in
-                PinnedRow(
-                    relativePath: relativePath,
-                    projectURL: projectURL,
-                    isEmptyContextFile: emptyContextPaths.contains(relativePath)
-                )
+                PinnedRow(relativePath: relativePath, projectURL: projectURL)
             }
         }
     }
@@ -34,9 +26,11 @@ struct PinnedSectionView: View {
 struct PinnedRow: View {
     let relativePath: String
     let projectURL: URL
-    let isEmptyContextFile: Bool
 
     @Environment(PinnedFilesModel.self) private var pinModel
+    // Read the navigator directly so this row is invalidated the moment its
+    // file's empty-state flips, without relying on the List to re-diff it.
+    @Environment(NavigatorModel.self) private var navigator
     @State private var hovering = false
 
     private var url: URL { projectURL.appendingPathComponent(relativePath) }
@@ -52,7 +46,7 @@ struct PinnedRow: View {
             Text(url.lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if isEmptyContextFile {
+            if navigator.emptyContextFilePaths.contains(relativePath) {
                 EmptyContextWarningIcon(
                     message: EmptyContextWarningIcon.fileMessage(url.lastPathComponent))
             }
