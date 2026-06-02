@@ -120,6 +120,7 @@ struct FileTreeRow: View {
                 Text(node.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                emptyContextWarning
                 Spacer(minLength: 0)
                 pinButton
             }
@@ -194,6 +195,21 @@ struct FileTreeRow: View {
         Image(nsImage: NSWorkspace.shared.icon(forFile: node.url.path))
             .resizable()
             .frame(width: 16, height: 16)
+    }
+
+    // Always-visible warning on an effectively-empty foundation context file
+    // (CLAUDE.md / PROJECT.md). Unlike the pin button this is not hover-gated —
+    // its job is to catch the eye that the agent starts with no context.
+    @ViewBuilder
+    private var emptyContextWarning: some View {
+        if node.isEmptyContextFile {
+            let message = "\(node.name) is empty — Claude has no project context"
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .imageScale(.small)
+                .help(message)
+                .accessibilityLabel(message)
+        }
     }
 
     // Hover-revealed pin toggle, files only. Filled glyph + "Unpin" when the
