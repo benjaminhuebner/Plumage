@@ -9,19 +9,23 @@ struct TemplatesSettingsModelTests {
     private struct Harness {
         let model: TemplatesSettingsModel
         let override: URL
+        let wiringURL: URL
         let cleanup: () -> Void
     }
 
     // A model rooted at the real bundled assets with an isolated, empty override
-    // store under a temp dir, so catalog/add/delete behavior is hermetic.
+    // store and hook-wiring file under a temp dir, so behavior is hermetic.
     private func makeModel() -> Harness {
         let fm = FileManager.default
-        let overrideRoot = fm.temporaryDirectory.appending(
+        let base = fm.temporaryDirectory.appending(
             path: "TemplatesModel-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let overrideRoot = base.appending(path: "NewProjectAssets", directoryHint: .isDirectory)
+        let wiringURL = base.appending(path: "hook-wirings.json")
         let overrides = ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: overrideRoot)
         return Harness(
-            model: TemplatesSettingsModel(overrides: overrides), override: overrideRoot,
-            cleanup: { try? fm.removeItem(at: overrideRoot) })
+            model: TemplatesSettingsModel(overrides: overrides, hookWiringStoreURL: wiringURL),
+            override: overrideRoot, wiringURL: wiringURL,
+            cleanup: { try? fm.removeItem(at: base) })
     }
 
     @Test("Bundled docs are catalogued and not user-authored")
@@ -158,5 +162,52 @@ struct TemplatesSettingsModelTests {
             !FileManager.default.fileExists(
                 atPath: ctx.override.appending(path: "skills/scratch-skill").path))
         #expect(!ctx.model.entries.contains { $0.relativePath == "skills/scratch-skill/SKILL.md" })
+    }
+
+    @Test("An override-only hook joins the catalog as user-authored")
+    func overrideOnlyHookUnion() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        let url = ctx.override.appending(path: "hooks/my-hook.sh")
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: url, atomically: true, encoding: .utf8)
+
+        ctx.model.reload()
+        let entry = ctx.model.entries.first { $0.relativePath == "hooks/my-hook.sh" }
+        #expect(entry?.userAuthored == true)
+        // A bundled hook stays non-user-authored.
+        let bundled = ctx.model.entries.first { $0.relativePath == "hooks/force-plumage-skill.sh" }
+        #expect(bundled?.userAuthored == false)
+    }
+
+    @Test("addTemplate(.hooks) writes the .sh and persists its wiring")
+    func addHookPersistsWiring() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        #expect(
+            ctx.model.addTemplate(
+                category: .hooks, name: "my-hook", wiring: (event: .preToolUse, matcher: "Edit|Write")))
+        #expect(ctx.model.selection == "hooks/my-hook.sh")
+        #expect(
+            FileManager.default.fileExists(atPath: ctx.override.appending(path: "hooks/my-hook.sh").path))
+
+        let store = try HookWiringStore.load(from: ctx.wiringURL)
+        let wiring = try #require(store.wiring(named: "my-hook"))
+        #expect(wiring.event == .preToolUse)
+        #expect(wiring.matcher == "Edit|Write")
+    }
+
+    @Test("Deleting a user hook removes its file and its wiring")
+    func deleteHookDropsWiring() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        #expect(ctx.model.addTemplate(category: .hooks, name: "my-hook", wiring: (event: .stop, matcher: nil)))
+        let entry = try #require(ctx.model.entries.first { $0.relativePath == "hooks/my-hook.sh" })
+        ctx.model.delete(entry)
+
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "hooks/my-hook.sh").path))
+        let store = try HookWiringStore.load(from: ctx.wiringURL)
+        #expect(store.wiring(named: "my-hook") == nil)
     }
 }

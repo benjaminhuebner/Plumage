@@ -35,8 +35,8 @@ struct TemplatesSettingsTab: View {
             }
         }
         .sheet(item: $addCategory) { category in
-            AddTemplateSheet(category: category) { name in
-                model.addTemplate(category: category, name: name)
+            AddTemplateSheet(category: category) { name, wiring in
+                model.addTemplate(category: category, name: name, wiring: wiring)
             }
         }
     }
@@ -183,13 +183,22 @@ struct TemplatesSettingsTab: View {
 // hooks case adds an event picker and matcher field.
 private struct AddTemplateSheet: View {
     let category: TemplatesSettingsModel.Category
-    let onAdd: (String) -> Void
+    let onAdd: (String, (event: HookEvent, matcher: String?)?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var event: HookEvent = .preToolUse
+    @State private var matcher = ""
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // The trigger for a new hook, or nil for kinds that have no wiring.
+    private var wiring: (event: HookEvent, matcher: String?)? {
+        guard category == .hooks else { return nil }
+        let trimmed = matcher.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (event, trimmed.isEmpty ? nil : trimmed)
     }
 
     var body: some View {
@@ -198,6 +207,17 @@ private struct AddTemplateSheet: View {
                 .font(.headline)
             TextField("\(category.addNoun) name", text: $name)
                 .textFieldStyle(.roundedBorder)
+            if category == .hooks {
+                Picker("Event", selection: $event) {
+                    ForEach(HookEvent.allCases, id: \.self) { event in
+                        Text(event.displayName).tag(event)
+                    }
+                }
+                if event.supportsMatcher {
+                    TextField("Matcher (e.g. Edit|Write)", text: $matcher)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
             Text(hint)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -206,7 +226,7 @@ private struct AddTemplateSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button("Add") {
-                    onAdd(name)
+                    onAdd(name, wiring)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

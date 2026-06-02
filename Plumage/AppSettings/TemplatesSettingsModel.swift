@@ -41,7 +41,7 @@ final class TemplatesSettingsModel {
         // Whether the user can author a new item of this kind from scratch.
         var isAddable: Bool {
             switch self {
-            case .agents, .docs, .plumageScripts, .skills: return true
+            case .agents, .docs, .plumageScripts, .skills, .hooks: return true
             default: return false
             }
         }
@@ -107,9 +107,17 @@ final class TemplatesSettingsModel {
     // are persisted immediately so a later scaffold picks them up.
     private(set) var toggles: ScaffoldToggles
 
-    init(overrides: ScaffoldOverrides = .standard()) {
+    // Trigger metadata for user-authored hooks, persisted alongside the toggles so a
+    // later scaffold wires them into `settings.json`. Injectable for hermetic tests.
+    private let hookWiringStoreURL: URL?
+    private var hookWirings: HookWiringStore
+
+    init(overrides: ScaffoldOverrides = .standard(), hookWiringStoreURL: URL? = nil) {
         self.overrides = overrides
         self.toggles = .loadStandard()
+        let storeURL = hookWiringStoreURL ?? (try? HookWiringStore.standardURL())
+        self.hookWiringStoreURL = storeURL
+        self.hookWirings = storeURL.flatMap { try? HookWiringStore.load(from: $0) } ?? HookWiringStore()
         reload()
         refreshPreview()
     }
@@ -236,7 +244,9 @@ final class TemplatesSettingsModel {
     // writing a duplicate. Returns false on an empty/invalid name, a non-addable
     // category, or no override store.
     @discardableResult
-    func addTemplate(category: Category, name: String) -> Bool {
+    func addTemplate(
+        category: Category, name: String, wiring: (event: HookEvent, matcher: String?)? = nil
+    ) -> Bool {
         let sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
         guard !sanitized.isEmpty, let overrideRoot = overrides.overrideRoot,
@@ -256,6 +266,11 @@ final class TemplatesSettingsModel {
             if !fm.fileExists(atPath: url.path) {
                 try plan.starter.write(to: url, atomically: true, encoding: .utf8)
             }
+            if category == .hooks, let base = Self.hookBaseName(forRelativePath: plan.relativePath) {
+                persistWiring(
+                    HookWiring(
+                        name: base, event: wiring?.event ?? .preToolUse, matcher: wiring?.matcher))
+            }
             reload()
             selection = plan.relativePath
             return true
@@ -274,6 +289,12 @@ final class TemplatesSettingsModel {
         // just the selected file. Flat kinds delete the single override file.
         let toRemove = (entry.category == .skills ? overrideSkillDirURL(for: entry) : url) ?? url
         try? FileManager.default.removeItem(at: toRemove)
+        // A user hook drops its wiring too, so the next scaffold removes it from
+        // settings.json as well as the file tree.
+        if entry.category == .hooks, let base = Self.hookBaseName(forRelativePath: entry.relativePath) {
+            hookWirings.remove(named: base)
+            if let storeURL = hookWiringStoreURL { try? hookWirings.save(to: storeURL) }
+        }
         overriddenPaths.remove(entry.relativePath)
         if editingFileURL == url {
             editingFileURL = nil
@@ -309,9 +330,26 @@ final class TemplatesSettingsModel {
             return ("plumage/\(sanitizedName)", shebang)
         case .skills:
             return ("skills/\(sanitizedName)/SKILL.md", Self.skillStarter(name: sanitizedName))
+        case .hooks:
+            let base = sanitizedName.hasSuffix(".sh") ? String(sanitizedName.dropLast(3)) : sanitizedName
+            return ("hooks/\(base).sh", "#!/bin/sh\n")
         default:
             return nil
         }
+    }
+
+    // The hook base name (toggle key / wiring name) for a `hooks/<name>.sh` path.
+    private static func hookBaseName(forRelativePath rel: String) -> String? {
+        guard rel.hasPrefix("hooks/"), rel.hasSuffix(".sh") else { return nil }
+        return String(rel.dropFirst("hooks/".count).dropLast(".sh".count))
+    }
+
+    private func persistWiring(_ wiring: HookWiring) {
+        hookWirings.upsert(wiring)
+        guard let storeURL = hookWiringStoreURL else { return }
+        try? FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? hookWirings.save(to: storeURL)
     }
 
     private static func skillStarter(name: String) -> String {
@@ -391,6 +429,15 @@ final class TemplatesSettingsModel {
                     CatalogEntry(
                         relativePath: rel, category: category, label: name, userAuthored: true))
             }
+        }
+
+        // Hooks: add override-only `.sh` files (overrides of bundled hooks are
+        // already listed as bundled entries).
+        for name in overrides.overrideFileNames(inRelativeDir: "hooks") where name.hasSuffix(".sh") {
+            let rel = "hooks/\(name)"
+            guard !bundledPaths.contains(rel) else { continue }
+            result.append(
+                CatalogEntry(relativePath: rel, category: .hooks, label: name, userAuthored: true))
         }
 
         // Skills are directories: enumerate each override skill tree and add its
