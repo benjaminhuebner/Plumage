@@ -39,6 +39,20 @@ final class ClaudeUsageModel {
         return nil
     }
 
+    // Never returns normally — loops until the caller's Task is cancelled
+    // (parent .task(id:) re-fire or window close); Task.sleep is that point.
+    func startPolling(using client: ClaudeUsageClient, interval: Duration = .seconds(90)) async {
+        await refresh(using: client)
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: interval)
+            } catch {
+                return
+            }
+            await refresh(using: client)
+        }
+    }
+
     func refresh(using client: ClaudeUsageClient) async {
         do {
             let response = try await client.fetchUsage()

@@ -61,6 +61,13 @@ final class NavigatorModel {
         self.bannerDisplayDuration = bannerDisplayDuration
     }
 
+    // Cancel the auto-reset banner task on teardown — consistent with the
+    // other @Observable models that own Tasks. (`[weak self]` already prevents
+    // retention; this just stops the timer from outliving the model.)
+    isolated deinit {
+        bannerResetTask?.cancel()
+    }
+
     func reload(projectURL: URL) async {
         reloadGeneration &+= 1
         let generation = reloadGeneration

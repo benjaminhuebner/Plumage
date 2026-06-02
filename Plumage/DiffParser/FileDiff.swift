@@ -5,6 +5,10 @@ nonisolated public struct FileDiff: Sendable, Equatable, Hashable {
     public let status: FileStatus
     public let modeChange: ModeChange?
     public let hunks: [Hunk]
+    // Computed once here so views don't re-reduce over every hunk line on each
+    // body evaluation.
+    public let addedCount: Int
+    public let removedCount: Int
 
     public init(
         path: String,
@@ -16,6 +20,19 @@ nonisolated public struct FileDiff: Sendable, Equatable, Hashable {
         self.status = status
         self.modeChange = modeChange
         self.hunks = hunks
+        var added = 0
+        var removed = 0
+        for hunk in hunks {
+            for line in hunk.lines {
+                switch line.kind {
+                case .added: added += 1
+                case .removed: removed += 1
+                case .context: break
+                }
+            }
+        }
+        self.addedCount = added
+        self.removedCount = removed
     }
 }
 

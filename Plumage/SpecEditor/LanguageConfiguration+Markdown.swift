@@ -6,7 +6,7 @@ extension LanguageConfiguration {
             name: "Markdown",
             supportsSquareBrackets: true,
             supportsCurlyBrackets: false,
-            stringRegex: try? Regex<Substring>(#"`[^`\n]+`"#, as: Substring.self),
+            stringRegex: #/`[^`\n]+`/#,
             characterRegex: nil,
             numberRegex: nil,
             singleLineComment: nil,

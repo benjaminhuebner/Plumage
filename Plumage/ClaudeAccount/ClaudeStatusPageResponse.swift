@@ -89,20 +89,12 @@ nonisolated struct ClaudeStatusPageResponse: Sendable, Equatable, Decodable {
 }
 
 nonisolated extension JSONDecoder {
-    // ISO8601DateFormatter is not Sendable, so we construct it per call inside
-    // the @Sendable strategy closure — notes.md 2026-05-13 (#00008-spec-editor
-    // Code-Review) settled on this pattern after the cached-formatter rollback.
     fileprivate static var statusPageDecoder: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let raw = try container.decode(String.self)
-            let primary = ISO8601DateFormatter()
-            primary.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = primary.date(from: raw) { return date }
-            let fallback = ISO8601DateFormatter()
-            fallback.formatOptions = [.withInternetDateTime]
-            if let date = fallback.date(from: raw) { return date }
+            if let date = ISO8601Flexible.date(from: raw) { return date }
             throw DecodingError.dataCorruptedError(
                 in: container, debugDescription: "Unparseable ISO-8601 date: \(raw)")
         }

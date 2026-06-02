@@ -127,19 +127,10 @@ private struct FileDiffHeader: View {
 
     @ViewBuilder
     private var additionsRemovals: some View {
-        let counts = file.hunks.reduce(into: (added: 0, removed: 0)) { acc, hunk in
-            for line in hunk.lines {
-                switch line.kind {
-                case .added: acc.added += 1
-                case .removed: acc.removed += 1
-                case .context: break
-                }
-            }
-        }
         HStack(spacing: 6) {
-            Text("+\(counts.added)")
+            Text("+\(file.addedCount)")
                 .foregroundStyle(.green)
-            Text("−\(counts.removed)")
+            Text("−\(file.removedCount)")
                 .foregroundStyle(.red)
         }
         .font(.system(.caption, design: .monospaced))

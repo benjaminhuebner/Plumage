@@ -186,16 +186,15 @@ struct FileTreeRow: View {
     }
 
     private var folderIcon: some View {
-        // NSWorkspace's icon for the folder — generic folder glyph, consistent
-        // across `.claude/` and any nested folder. Files get the type-specific
-        // icon via the same call.
-        Image(nsImage: NSWorkspace.shared.icon(forFile: node.url.path))
+        // Generic folder glyph, consistent across `.claude/` and any nested
+        // folder. Files get the type-specific icon via the same cached call.
+        Image(nsImage: WorkspaceIconCache.icon(forPath: node.url.path, isDirectory: true))
             .resizable()
             .frame(width: 16, height: 16)
     }
 
     private var fileIcon: some View {
-        Image(nsImage: NSWorkspace.shared.icon(forFile: node.url.path))
+        Image(nsImage: WorkspaceIconCache.icon(forPath: node.url.path, isDirectory: false))
             .resizable()
             .frame(width: 16, height: 16)
     }

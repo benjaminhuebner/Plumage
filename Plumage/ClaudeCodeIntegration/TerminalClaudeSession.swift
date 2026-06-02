@@ -258,30 +258,40 @@ final class TerminalClaudeSession {
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
     func shellSpawnArgs() -> [String] {
-        let quotedCwd = cwd.path.replacingOccurrences(of: "'", with: #"'\''"#)
-        let quotedBin = binaryURL.path.replacingOccurrences(of: "'", with: #"'\''"#)
         // Inject the plumage theme per-session via --settings instead of
         // writing it into the user's global ~/.claude/settings.json — that
         // earlier approach also re-skinned the user's own claude terminal.
-        // Inline JSON contains no single quotes so shellQuotedAttachArgs
-        // wraps it safely with one quote pair.
+        // Inline JSON contains no single quotes so shellQuote wraps it safely
+        // with one quote pair.
         var args = ["--settings", ClaudeThemeInstaller.perSessionSettingsJSON]
         args += resumeOrInitArgs()
         if let permissionMode {
             args += ["--permission-mode", permissionMode.rawCLIValue]
         }
         args += modelChoice.cliArg
+        // cwd, binary, and every attach arg go through the SAME validated
+        // quoting — no value enters the `/bin/sh -c` string without an
+        // isShellSafe check, so validation isn't split between here and the
+        // call site.
+        let quotedCwd = Self.shellQuote(cwd.path)
+        let quotedBin = Self.shellQuote(binaryURL.path)
         let attach = Self.shellQuotedAttachArgs(args)
-        return ["-c", "cd '\(quotedCwd)' && exec '\(quotedBin)' \(attach)"]
+        return ["-c", "cd \(quotedCwd) && exec \(quotedBin) \(attach)"]
     }
 
     static func shellQuotedAttachArgs(_ args: [String]) -> String {
-        args.map { arg in
-            precondition(isShellSafe(arg), "shellQuotedAttachArgs: unsafe arg")
-            let escaped = arg.replacingOccurrences(of: "'", with: #"'\''"#)
-            return "'\(escaped)'"
-        }
-        .joined(separator: " ")
+        args.map(shellQuote).joined(separator: " ")
+    }
+
+    // Single-quote-wraps a value for POSIX sh. The precondition is fail-closed:
+    // it fires on the three characters single-quoting cannot neutralize
+    // (\0, \n, \r) — crashing is strictly safer than emitting an injectable
+    // shell string. All current inputs are static/enum/UUID-derived, so it is
+    // unreachable in practice; it guards against a future user-controlled arg.
+    static func shellQuote(_ value: String) -> String {
+        precondition(isShellSafe(value), "shellQuote: unsafe arg")
+        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
+        return "'\(escaped)'"
     }
 
     static func isShellSafe(_ value: String) -> Bool {

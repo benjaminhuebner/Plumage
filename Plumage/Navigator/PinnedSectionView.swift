@@ -52,7 +52,7 @@ struct PinnedRow: View {
             // Match the leading inset of tree file rows (past the chevron slot)
             // so PINNED and FILES rows line up visually.
             Color.clear.frame(width: 14)
-            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+            Image(nsImage: WorkspaceIconCache.icon(forPath: url.path))
                 .resizable()
                 .frame(width: 16, height: 16)
             Text(url.lastPathComponent)

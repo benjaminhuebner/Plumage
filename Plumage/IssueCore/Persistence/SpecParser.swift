@@ -2,27 +2,17 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
-    // YAMLDecoder source review (Yams 5.4 Decoder.swift): decode(_:from:) builds
-    // a fresh Parser + _Decoder per call and only reads the immutable `options`
-    // value, which we never mutate after init. Hoisting to a shared instance
-    // saves a per-call allocation in the keystroke-frequent validate() path.
-    // nonisolated(unsafe) is sound and parallels the formatter caches below.
+    // BUMP-CHECK (Yams 5.4): YAMLDecoder source review (Decoder.swift) confirms
+    // decode(_:from:) builds a fresh Parser + _Decoder per call and only reads
+    // the immutable `options` value, which we never mutate after init — so a
+    // shared instance is safe to read concurrently. `nonisolated(unsafe)` is
+    // sound on that basis. Re-verify this on every Yams major bump: if a future
+    // version adds mutable shared state to YAMLDecoder, revert to per-call.
     // See notes.md #00009-yams-thread-safety.
     nonisolated(unsafe) private static let sharedDecoder = YAMLDecoder()
 
-    // Public hook so SpecEditorModel can skip validate() entirely when the
-    // frontmatter substring hasn't changed across keystrokes (the body
-    // changes far more often than the frontmatter does). Returns the
-    // extracted frontmatter region or nil if absent.
-    static func extractFrontmatterRegion(from content: String) -> String? {
-        extractFrontmatter(from: content)
-    }
-
-    // Returns the frontmatter error if parsing fails, otherwise nil. Used
-    // by callers that only need validation, not the parsed Issue value —
-    // SpecEditorModel calls this on every keystroke, so it skips the
-    // Issue allocation (and the unused `extractGoal` walk) that
-    // `parse(content:folderName:)` does on the success path.
+    // Skips the Issue allocation and `extractGoal` walk that
+    // `parse(content:folderName:)` does — for validation-only callers.
     static func validate(content: String) -> FrontmatterError? {
         guard let yaml = extractFrontmatter(from: content) else {
             return .missingFrontmatter
@@ -196,28 +186,8 @@ nonisolated enum SpecParser {
         return nil
     }
 
-    // ISO8601DateFormatter is documented thread-safe for parsing (Foundation
-    // formatters' reentrancy guarantee covers the ISO8601 variant; the
-    // older "not thread-safe" caveat applies to DateFormatter's
-    // locale-sensitive paths). Sharing two pre-configured instances avoids
-    // a per-call allocation on every Issue parse — SpecEditorModel runs
-    // this on each keystroke. `nonisolated(unsafe)` is sound: formatOptions
-    // are set once at file-scope and never mutated.
-    nonisolated(unsafe) private static let plainParser: ISO8601DateFormatter = {
-        let parser = ISO8601DateFormatter()
-        parser.formatOptions = [.withInternetDateTime]
-        return parser
-    }()
-
-    nonisolated(unsafe) private static let fractionalParser: ISO8601DateFormatter = {
-        let parser = ISO8601DateFormatter()
-        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return parser
-    }()
-
     private static func parseDate(_ string: String) -> Date? {
-        if let date = plainParser.date(from: string) { return date }
-        return fractionalParser.date(from: string)
+        ISO8601Flexible.date(from: string)
     }
 
     private static func mapYamlError(_ error: YamlError) -> FrontmatterError {

@@ -17,13 +17,8 @@ struct GitSyncView: View {
         .frame(minWidth: 540, minHeight: 360)
         .task { model.start() }
         .onDisappear { model.cancel() }
-        .onChange(of: model.state) { _, _ in
-            if model.shouldAutoDismiss {
-                Task {
-                    try? await Task.sleep(for: .seconds(model.successAutoDismissSeconds))
-                    onDismiss()
-                }
-            }
+        .task(id: model.state) {
+            if await model.waitForAutoDismiss() { onDismiss() }
         }
     }
 

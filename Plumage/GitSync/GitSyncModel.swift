@@ -41,6 +41,13 @@ final class GitSyncModel {
         self.successAutoDismissSeconds = successAutoDismissSeconds
     }
 
+    // Safety net for abnormal sheet teardown (Escape / system-initiated close)
+    // where the view's .onDisappear → cancel() is skipped. Otherwise an
+    // in-flight push/pull keeps the runner + stream alive until it finishes.
+    isolated deinit {
+        runTask?.cancel()
+    }
+
     var headerTitle: String { operation.displayName }
 
     var isRunning: Bool {
@@ -56,6 +63,12 @@ final class GitSyncModel {
     var isAuthBlocked: Bool {
         if case .authBlocked = state { return true }
         return false
+    }
+
+    func waitForAutoDismiss() async -> Bool {
+        guard shouldAutoDismiss else { return false }
+        try? await Task.sleep(for: .seconds(successAutoDismissSeconds))
+        return shouldAutoDismiss
     }
 
     var didFail: Bool {

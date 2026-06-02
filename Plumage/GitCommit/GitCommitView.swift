@@ -155,9 +155,7 @@ private struct FileRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Toggle(
-                isOn: Binding(get: { isStaged }, set: { _ in onToggle() })
-            ) {
+            Toggle(isOn: stagedBinding) {
                 EmptyView()
             }
             .toggleStyle(.checkbox)
@@ -175,6 +173,12 @@ private struct FileRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
+    }
+
+    // Side-effect-only: the setter ignores its value and routes to the model —
+    // no mirrored local state to keep in sync.
+    private var stagedBinding: Binding<Bool> {
+        Binding(get: { isStaged }, set: { _ in onToggle() })
     }
 
     private var badgeBackground: Color {
