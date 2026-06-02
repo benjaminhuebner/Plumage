@@ -81,6 +81,7 @@ struct FileTreeRow: View {
                     Text(node.name)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .accessibilityLabel(folderAccessibilityLabel)
                     folderWarning
                     Spacer(minLength: 0)
                 }
@@ -121,6 +122,7 @@ struct FileTreeRow: View {
                 Text(node.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .accessibilityLabel(fileAccessibilityLabel)
                 emptyContextWarning
                 Spacer(minLength: 0)
                 pinButton
@@ -205,9 +207,21 @@ struct FileTreeRow: View {
     // live on the next reload instead of waiting for a click to re-diff the List.
     @ViewBuilder
     private var emptyContextWarning: some View {
-        if navigator.emptyContextFilePaths.contains(node.relativePath) {
+        if isEmptyContextFile {
             EmptyContextWarningIcon(message: EmptyContextWarningIcon.fileMessage(node.name))
         }
+    }
+
+    private var isEmptyContextFile: Bool {
+        navigator.emptyContextFilePaths.contains(node.relativePath)
+    }
+
+    // Carries the warning because the icon is `accessibilityHidden` — otherwise
+    // VoiceOver stops twice on a warned row (once on the name, once on the icon).
+    private var fileAccessibilityLabel: String {
+        isEmptyContextFile
+            ? "\(node.name), \(EmptyContextWarningIcon.fileMessage(node.name))"
+            : node.name
     }
 
     // Same warning surfaced on a collapsed folder that hides an empty context
@@ -221,8 +235,13 @@ struct FileTreeRow: View {
     }
 
     private var hidesEmptyContextFile: Bool {
-        let prefix = node.relativePath + "/"
-        return navigator.emptyContextFilePaths.contains { $0.hasPrefix(prefix) }
+        navigator.foldersHidingEmptyContextFile.contains(node.relativePath)
+    }
+
+    private var folderAccessibilityLabel: String {
+        (!expanded && hidesEmptyContextFile)
+            ? "\(node.name), \(EmptyContextWarningIcon.folderMessage)"
+            : node.name
     }
 
     // Hover-revealed pin toggle, files only. Filled glyph + "Unpin" when the

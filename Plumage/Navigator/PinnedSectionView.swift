@@ -35,6 +35,18 @@ struct PinnedRow: View {
 
     private var url: URL { projectURL.appendingPathComponent(relativePath) }
 
+    private var isEmptyContextFile: Bool {
+        navigator.emptyContextFilePaths.contains(relativePath)
+    }
+
+    // Carries the warning because the icon is `accessibilityHidden` — otherwise
+    // VoiceOver stops twice on a warned row (once on the name, once on the icon).
+    private var accessibilityLabel: String {
+        isEmptyContextFile
+            ? "\(url.lastPathComponent), \(EmptyContextWarningIcon.fileMessage(url.lastPathComponent))"
+            : url.lastPathComponent
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             // Match the leading inset of tree file rows (past the chevron slot)
@@ -46,7 +58,8 @@ struct PinnedRow: View {
             Text(url.lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if navigator.emptyContextFilePaths.contains(relativePath) {
+                .accessibilityLabel(accessibilityLabel)
+            if isEmptyContextFile {
                 EmptyContextWarningIcon(
                     message: EmptyContextWarningIcon.fileMessage(url.lastPathComponent))
             }

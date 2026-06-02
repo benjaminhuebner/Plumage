@@ -1,18 +1,18 @@
 import SwiftUI
 
-// Always-visible red marker for an effectively-empty foundation context file
-// (CLAUDE.md / PROJECT.md). Shown on the file's tree row, its pinned shortcut,
-// and the collapsed folder that currently hides it. Carries help + a matching
-// VoiceOver label so the warning is never a silent visual-only cue.
+// Triangle (not a circle) so the warning reads by shape alone — the cue must
+// survive color-blindness / Differentiate Without Color where red is the only
+// other signal. No imageScale so it tracks the row's Dynamic Type size.
+// accessibilityHidden because the owning row folds the message into its own
+// VoiceOver label; without this the icon is a second, duplicate focus stop.
 struct EmptyContextWarningIcon: View {
     let message: String
 
     var body: some View {
-        Image(systemName: "exclamationmark.circle.fill")
+        Image(systemName: "exclamationmark.triangle.fill")
             .foregroundStyle(.red)
-            .imageScale(.small)
             .help(message)
-            .accessibilityLabel(message)
+            .accessibilityHidden(true)
     }
 
     static func fileMessage(_ name: String) -> String {

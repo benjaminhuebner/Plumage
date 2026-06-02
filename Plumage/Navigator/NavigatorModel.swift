@@ -17,6 +17,12 @@ final class NavigatorModel {
     // warning flip live without a stray interaction.
     private(set) var emptyContextFilePaths: Set<String> = []
 
+    // Relative paths of every folder that *hides* an empty context file in its
+    // subtree, so a collapsed folder row can warn with a single O(1) lookup
+    // instead of scanning `emptyContextFilePaths` with a prefix match per render.
+    // Derived from `emptyContextFilePaths`, so it only changes when that does.
+    private(set) var foldersHidingEmptyContextFile: Set<String> = []
+
     // Transient sidebar state for the "+ creates a new row with a focused
     // TextField" interaction. View binds the textfield to `pendingCreate?.name`
     // and calls commit/cancel based on Enter/Escape/blur.
@@ -67,7 +73,16 @@ final class NavigatorModel {
         // so drop ours instead of clobbering it with stale nodes.
         guard generation == reloadGeneration else { return }
         self.rootNodes = result.nodes
-        self.emptyContextFilePaths = Self.collectEmptyContextPaths(result.nodes)
+        // Guard the assignment: `@Observable` fires on every set regardless of
+        // equality, so reassigning an identical set on an unrelated FSEvent
+        // reload would re-render every row that reads it. Only publish on a
+        // real change — the derived folder set is recomputed in lockstep.
+        let newEmptyPaths = Self.collectEmptyContextPaths(result.nodes)
+        if newEmptyPaths != emptyContextFilePaths {
+            self.emptyContextFilePaths = newEmptyPaths
+            self.foldersHidingEmptyContextFile = Self.collectFoldersHidingEmptyContextPaths(
+                newEmptyPaths)
+        }
         // Diff against the previous reload's inodes — but only within the same
         // project; a project switch starts a fresh baseline (no spurious diff).
         let sameProject = inodeBaselineProject == projectURL
@@ -93,6 +108,25 @@ final class NavigatorModel {
             node.children?.forEach(walk)
         }
         nodes.forEach(walk)
+        return result
+    }
+
+    // Precomputed once per reload so a collapsed-folder row can warn with an
+    // O(1) Set lookup instead of a per-render `hasPrefix` scan over every path.
+    nonisolated static func collectFoldersHidingEmptyContextPaths(
+        _ emptyPaths: Set<String>
+    ) -> Set<String> {
+        var result: Set<String> = []
+        for path in emptyPaths {
+            var components = path.split(separator: "/").map(String.init)
+            guard !components.isEmpty else { continue }
+            components.removeLast()
+            var prefix = ""
+            for component in components {
+                prefix = prefix.isEmpty ? component : prefix + "/" + component
+                result.insert(prefix)
+            }
+        }
         return result
     }
 
