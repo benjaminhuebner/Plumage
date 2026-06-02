@@ -3,6 +3,8 @@ import Foundation
 // `settings.local.json` is intentionally minimal: machine-specific paths and
 // MCP opt-ins don't belong in a generated, shared project.
 nonisolated struct SettingsComposer {
+    var catalog: TemplateCatalog = .bundledDefault
+
     // Canonical hook wiring. Order within an event is intentional: Bash safety
     // hooks before content scans; format before lint.
     private static let wirings: [(name: String, event: String, matcher: String?)] = [
@@ -27,7 +29,7 @@ nonisolated struct SettingsComposer {
         for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(),
         userWirings: [HookWiring] = []
     ) throws -> Data {
-        let selected = Set(kind.profile.hookNames)
+        let selected = Set(catalog.effectiveHooks(forTemplate: kind.rawValue))
         var groupsByEvent: [HookEvent: [Settings.HookGroup]] = [:]
 
         // Built-in wirings: filtered to the kind's profile and the hooks toggle, in
@@ -71,7 +73,7 @@ nonisolated struct SettingsComposer {
 
     func permissions(for kind: ProjectKind) -> [String] {
         var allow = Self.commonPermissions
-        let gate = kind.profile.gateCommands
+        let gate = catalog.effectiveGateCommands(forTemplate: kind.rawValue)
         if let build = gate.build {
             if build.contains("xcodebuild") { allow.append("Bash(xcodebuild:*)") }
             if build.contains("swift build") {
