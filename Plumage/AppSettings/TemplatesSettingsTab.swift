@@ -22,7 +22,13 @@ struct TemplatesSettingsTab: View {
             previewPane
                 .frame(width: 320)
         }
-        .frame(width: 1040, height: 600)
+        // Resizable with a floor: this tab hosts a code editor plus catalog and
+        // preview columns, so the user benefits from enlarging it — unlike the
+        // compact, fixed General tab.
+        .frame(
+            minWidth: 880, idealWidth: 1040, maxWidth: .infinity,
+            minHeight: 520, idealHeight: 600, maxHeight: .infinity
+        )
         .onAppear { model.reload() }
         .onChange(of: model.selection) { _, _ in
             if let entry = model.selectedEntry {
@@ -104,7 +110,10 @@ struct TemplatesSettingsTab: View {
             VStack(spacing: 0) {
                 detailHeader(entry)
                 Divider()
-                DocEditorView(fileURL: url, displayName: entry.label) {
+                DocEditorView(
+                    fileURL: url, displayName: entry.label,
+                    fallbackURL: model.editingFallbackURL
+                ) {
                     model.notifySaved(relativePath: entry.relativePath)
                 }
                 .id(url)

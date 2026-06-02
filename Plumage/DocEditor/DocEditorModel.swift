@@ -9,6 +9,10 @@ final class DocEditorModel {
     }
 
     let fileURL: URL
+    // Saves always target `fileURL`, but while it is absent the buffer seeds from
+    // here and the file is still reported not-on-disk — so a host can open an
+    // overridable asset without an override being written until a real edit lands.
+    let fallbackURL: URL?
 
     var buffer: String = ""
     private(set) var loadedContent: String = ""
@@ -28,8 +32,9 @@ final class DocEditorModel {
 
     var isDirty: Bool { buffer != loadedContent }
 
-    init(fileURL: URL, writer: DocWriting = DefaultDocWriter()) {
+    init(fileURL: URL, fallbackURL: URL? = nil, writer: DocWriting = DefaultDocWriter()) {
         self.fileURL = fileURL
+        self.fallbackURL = fallbackURL
         self.writer = writer
     }
 
@@ -42,9 +47,15 @@ final class DocEditorModel {
 
     func load() async throws {
         let url = fileURL
+        let fallback = fallbackURL
         let result = await Task.detached(priority: .userInitiated) { () -> (String, Bool) in
             if let data = try? String(contentsOf: url, encoding: .utf8) {
                 return (data, true)
+            }
+            // No file at the primary URL yet: seed from the read-only baseline if
+            // one is set, but report it as not-on-disk so saves create it fresh.
+            if let fallback, let data = try? String(contentsOf: fallback, encoding: .utf8) {
+                return (data, false)
             }
             return ("", false)
         }.value

@@ -5,13 +5,9 @@ import Foundation
 // store and the live CLAUDE.md preview. State-as-bridge: disk I/O is funnelled
 // through this @MainActor type so the view stays declarative.
 //
-// Editing model: `DocEditorView` loads from and saves to a single file URL, so to
-// edit a bundled asset the model seeds its override slot with the bundled content
-// on open and points the editor at the override URL. The ● marker tracks whether
-// the override *differs* from the bundled original, so merely browsing (which seeds
-// an identical copy) leaves a file as ○; the marker flips to ● only once a save
-// makes the content diverge. Identical (no-op) overrides left behind by browsing
-// are pruned on reload. Reset-to-default deletes the override.
+// Editing model: the editor reads from a fallback (the bundled original) but saves
+// to the override slot, so browsing an asset creates no override. Without that, a
+// merely-viewed asset would pin its content and shadow future bundled updates.
 @MainActor
 @Observable
 final class TemplatesSettingsModel {
@@ -70,6 +66,9 @@ final class TemplatesSettingsModel {
     private(set) var entries: [CatalogEntry] = []
     var selection: CatalogEntry.ID?
     private(set) var editingFileURL: URL?
+    // Read-only baseline the editor falls back to while the override slot is empty,
+    // so opening an asset never writes to disk. nil for user-authored agents.
+    private(set) var editingFallbackURL: URL?
     // Observed mirror of which assets have an override on disk, so the ● markers
     // react to seed/save/reset without polling the filesystem in `body`.
     private(set) var overriddenPaths: Set<String> = []
@@ -96,7 +95,6 @@ final class TemplatesSettingsModel {
 
     func reload() {
         entries = Self.buildCatalog(overrides: overrides)
-        pruneIdenticalOverrides()
         overriddenPaths = Set(entries.map(\.relativePath).filter { overrideDiffers($0) })
     }
 
@@ -170,13 +168,18 @@ final class TemplatesSettingsModel {
 
     // MARK: - Editing
 
+    // No disk write here: the editor reads via the fallback and only a save creates
+    // an override, so browsing never pins an asset to its current bundled content.
     func beginEditing(_ entry: CatalogEntry) {
-        do {
-            editingFileURL = try ensureOverride(for: entry)
-            refreshOverrideStatus(for: entry.relativePath)
-        } catch {
-            editingFileURL = nil
+        guard let overrideURL = overrides.overrideURL(forRelative: entry.relativePath) else {
+            editingFileURL = overrides.url(forRelative: entry.relativePath)
+            editingFallbackURL = nil
+            return
         }
+        editingFileURL = overrideURL
+        let bundled = overrides.bundledRoot.appending(path: entry.relativePath)
+        editingFallbackURL =
+            FileManager.default.fileExists(atPath: bundled.path) ? bundled : nil
     }
 
     // Called after the editor saves the given file: the override may now differ
@@ -192,6 +195,7 @@ final class TemplatesSettingsModel {
         overriddenPaths.remove(entry.relativePath)
         if editingFileURL == url {
             editingFileURL = nil
+            editingFallbackURL = nil
             selection = nil
         }
         refreshPreview()
@@ -235,7 +239,10 @@ final class TemplatesSettingsModel {
         else { return }
         try? FileManager.default.removeItem(at: url)
         overriddenPaths.remove(entry.relativePath)
-        if editingFileURL == url { editingFileURL = nil }
+        if editingFileURL == url {
+            editingFileURL = nil
+            editingFallbackURL = nil
+        }
         if selection == entry.relativePath { selection = nil }
         reload()
     }
@@ -261,21 +268,6 @@ final class TemplatesSettingsModel {
         return overrideData != bundledData
     }
 
-    // Delete bundled-backed overrides whose content is byte-identical to the
-    // bundled original (no-op overrides a browse session may have seeded). The
-    // file currently open in the editor is left alone.
-    private func pruneIdenticalOverrides() {
-        let fm = FileManager.default
-        for entry in entries where entry.category != .agents {
-            guard let url = overrides.overrideURL(forRelative: entry.relativePath),
-                url != editingFileURL,
-                overrides.hasOverride(forRelative: entry.relativePath),
-                !overrideDiffers(entry.relativePath)
-            else { continue }
-            try? fm.removeItem(at: url)
-        }
-    }
-
     // MARK: - Preview
 
     func refreshPreview() {
@@ -289,25 +281,6 @@ final class TemplatesSettingsModel {
                 "Preview unavailable — the composer could not build CLAUDE.md:\n\n"
                 + error.localizedDescription
         }
-    }
-
-    // Copy the bundled content into the override slot if it isn't there yet, and
-    // return the override URL the editor should bind to. Agents (no bundled
-    // baseline) already exist in the store, so the copy is skipped.
-    private func ensureOverride(for entry: CatalogEntry) throws -> URL {
-        guard let overrideURL = overrides.overrideURL(forRelative: entry.relativePath) else {
-            return overrides.url(forRelative: entry.relativePath)
-        }
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: overrideURL.path) {
-            try fm.createDirectory(
-                at: overrideURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let bundled = overrides.bundledRoot.appending(path: entry.relativePath)
-            if fm.fileExists(atPath: bundled.path) {
-                try fm.copyItem(at: bundled, to: overrideURL)
-            }
-        }
-        return overrideURL
     }
 
     // MARK: - Catalog construction

@@ -27,11 +27,14 @@ struct DocEditorView: View {
 
     @Environment(\.scenePhase) private var scenePhase
 
-    init(fileURL: URL, displayName: String? = nil, onSave: (() -> Void)? = nil) {
+    init(
+        fileURL: URL, displayName: String? = nil, fallbackURL: URL? = nil,
+        onSave: (() -> Void)? = nil
+    ) {
         self.fileURL = fileURL
         self.displayName = displayName ?? fileURL.lastPathComponent
         self.onSave = onSave
-        _model = State(initialValue: DocEditorModel(fileURL: fileURL))
+        _model = State(initialValue: DocEditorModel(fileURL: fileURL, fallbackURL: fallbackURL))
         self.language = DocEditorLanguage.configuration(for: fileURL)
     }
 
