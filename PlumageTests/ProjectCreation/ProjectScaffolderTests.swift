@@ -197,6 +197,46 @@ struct ProjectScaffolderTests {
         #expect(Set(docs) == ["PROJECT.md", "notes.md", "decisions.md"])
     }
 
+    @Test("A user-authored skill is scaffolded from the override store, tree intact")
+    func userSkillScaffolds() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "SkillOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("---\nname: my-skill\n---\n# my-skill\n", to: overrideRoot, rel: "skills/my-skill/SKILL.md")
+        try write("echo hi\n", to: overrideRoot, rel: "skills/my-skill/scripts/run.sh")
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/skills/my-skill/SKILL.md").path))
+        let scriptPath = dir.appending(path: ".claude/skills/my-skill/scripts/run.sh").path
+        #expect(fm.fileExists(atPath: scriptPath))
+        let perms = try fm.attributesOfItem(atPath: scriptPath)[.posixPermissions] as? Int
+        #expect(((perms ?? 0) & 0o111) != 0)
+        // Bundled skills still scaffold alongside the user one.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
+    }
+
+    @Test("A disabled user skill is absent from the scaffolded tree")
+    func disabledUserSkillOmitted() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "SkillOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("---\nname: my-skill\n---\n", to: overrideRoot, rel: "skills/my-skill/SKILL.md")
+        var toggles = ScaffoldToggles()
+        toggles.setEnabled(.skills, "my-skill", false)
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot, toggles: toggles).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/skills/my-skill").path))
+    }
+
     private func write(_ contents: String, to root: URL, rel: String) throws {
         let url = root.appending(path: rel)
         try FileManager.default.createDirectory(

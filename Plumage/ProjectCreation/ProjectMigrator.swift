@@ -158,11 +158,16 @@ nonisolated struct ProjectMigrator {
         try writeSettings(kind: spec.kind, claude: claude, into: &report)
     }
 
+    private static let bundledSkills = ["plumage-plan", "plumage-implement", "plumage-review"]
+    private var skillNames: [String] {
+        let userSkills = overrides.overrideSkillDirNames().filter { !Self.bundledSkills.contains($0) }
+        return Self.bundledSkills + userSkills
+    }
+
     private func writeSkills(claude: URL, skillKeywords: String, into report: inout Report) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        let skills = toggles.enabledNames(
-            in: .skills, from: ["plumage-plan", "plumage-implement", "plumage-review"])
+        let skills = toggles.enabledNames(in: .skills, from: skillNames)
         for skill in skills {
             let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
             let rel = ".claude/skills/\(skill)"
@@ -300,21 +305,24 @@ nonisolated struct ProjectMigrator {
                 createGitignore: spec.git.createGitignore))
     }
 
-    // Copy a bundled directory subtree into `dest`, resolving every regular file
-    // through the override layer. The bundled tree defines the set of files; each
-    // file is read from its override when present, else bundled.
+    // Copy a directory subtree into `dest`, resolving every regular file through the
+    // override layer. The source tree defines the set of files: the bundled dir for a
+    // bundled skill, or the override dir for a user-authored skill with no baseline.
     private func copyResolvedTree(relativeDir: String, to dest: URL) throws {
         let bundledDir = assetsRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        let sourceDir =
+            fileManager.fileExists(atPath: bundledDir.path)
+            ? bundledDir : (overrides.overrideURL(forRelative: relativeDir) ?? bundledDir)
         try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
         guard
             let enumerator = fileManager.enumerator(
-                at: bundledDir, includingPropertiesForKeys: [.isRegularFileKey])
+                at: sourceDir, includingPropertiesForKeys: [.isRegularFileKey])
         else { return }
         for case let url as URL in enumerator {
             let isRegular = (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile ?? false
             guard isRegular else { continue }
             let suffix = url.standardizedFileURL.path
-                .replacingOccurrences(of: bundledDir.standardizedFileURL.path + "/", with: "")
+                .replacingOccurrences(of: sourceDir.standardizedFileURL.path + "/", with: "")
             let resolved = overrides.url(forRelative: "\(relativeDir)/\(suffix)")
             let target = dest.appending(path: suffix)
             try fileManager.createDirectory(

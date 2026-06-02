@@ -200,6 +200,27 @@ struct ProjectMigratorTests {
         #expect(report.skipped.contains(".claude/agents/planner.md"))
     }
 
+    @Test("A user-authored skill is migrated from the override store and reported added")
+    func userSkillMigrates() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateSkill-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let skillMd = overrideRoot.appending(path: "skills/my-skill/SKILL.md")
+        try fileManager.createDirectory(
+            at: skillMd.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "---\nname: my-skill\n---\n# my-skill\n".write(
+            to: skillMd, atomically: true, encoding: .utf8)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let (_, report) = try await migrator(overrideRoot: overrideRoot).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(
+            fileManager.fileExists(atPath: root.appending(path: ".claude/skills/my-skill/SKILL.md").path))
+        #expect(report.added.contains(".claude/skills/my-skill"))
+    }
+
     @Test("User-authored docs and scripts are migrated additively and reported")
     func migratesUserDocsAndScriptsAdditively() async throws {
         let overrideRoot = fileManager.temporaryDirectory.appending(
