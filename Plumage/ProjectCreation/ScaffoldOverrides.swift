@@ -83,6 +83,44 @@ nonisolated struct ScaffoldOverrides: Sendable {
         return names.sorted()
     }
 
+    // Top-level directory names under the override `skills/` that contain a
+    // `SKILL.md` — i.e. user-authored skills (and any bundled skill the user has
+    // overridden). Empty with no override store.
+    func overrideSkillDirNames() -> [String] {
+        guard let overrideRoot else { return [] }
+        let skillsDir = overrideRoot.appending(path: "skills", directoryHint: .isDirectory)
+        let contents =
+            (try? FileManager.default.contentsOfDirectory(
+                at: skillsDir, includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles])) ?? []
+        return
+            contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .filter { FileManager.default.fileExists(atPath: $0.appending(path: "SKILL.md").path) }
+            .map(\.lastPathComponent)
+            .sorted()
+    }
+
+    // Regular file sub-paths (relative to `relativeDir`) found recursively in the
+    // override copy of `relativeDir`, sorted. Used to enumerate user skill trees.
+    func overrideFileNamesRecursive(inRelativeDir relativeDir: String) -> [String] {
+        guard let overrideRoot else { return [] }
+        let dir = overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+        else { return [] }
+        let base = dir.standardizedFileURL.path + "/"
+        var result: [String] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            else { continue }
+            result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
+        }
+        return result.sorted()
+    }
+
     private static func regularFileNames(in dir: URL) -> [String] {
         let contents =
             (try? FileManager.default.contentsOfDirectory(

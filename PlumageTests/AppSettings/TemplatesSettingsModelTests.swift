@@ -115,4 +115,48 @@ struct TemplatesSettingsModelTests {
         ctx.model.delete(bundled)
         #expect(ctx.model.entries.contains { $0.relativePath == "docs/PROJECT.md" })
     }
+
+    @Test("addTemplate creates a skill SKILL.md starter and selects it")
+    func addSkill() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        #expect(ctx.model.addTemplate(category: .skills, name: "my-skill"))
+        #expect(ctx.model.selection == "skills/my-skill/SKILL.md")
+        let entry = ctx.model.entries.first { $0.relativePath == "skills/my-skill/SKILL.md" }
+        #expect(entry?.userAuthored == true)
+        #expect(entry?.category == .skills)
+        let md = try String(
+            contentsOf: ctx.override.appending(path: "skills/my-skill/SKILL.md"), encoding: .utf8)
+        #expect(md.contains("name: my-skill"))
+    }
+
+    @Test("An override-only skill joins the catalog; bundled skills stay non-user-authored")
+    func overrideOnlySkillUnion() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        let md = ctx.override.appending(path: "skills/custom/SKILL.md")
+        try FileManager.default.createDirectory(
+            at: md.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "---\nname: custom\n---\n".write(to: md, atomically: true, encoding: .utf8)
+
+        ctx.model.reload()
+        let entry = ctx.model.entries.first { $0.relativePath == "skills/custom/SKILL.md" }
+        #expect(entry?.userAuthored == true)
+        let bundled = ctx.model.entries.first { $0.relativePath == "skills/plumage-plan/SKILL.md" }
+        #expect(bundled?.userAuthored == false)
+    }
+
+    @Test("Deleting a user skill removes the whole skill directory")
+    func deleteSkillDir() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        #expect(ctx.model.addTemplate(category: .skills, name: "scratch-skill"))
+        let entry = try #require(
+            ctx.model.entries.first { $0.relativePath == "skills/scratch-skill/SKILL.md" })
+        ctx.model.delete(entry)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "skills/scratch-skill").path))
+        #expect(!ctx.model.entries.contains { $0.relativePath == "skills/scratch-skill/SKILL.md" })
+    }
 }

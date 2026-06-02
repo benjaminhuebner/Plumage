@@ -41,7 +41,7 @@ final class TemplatesSettingsModel {
         // Whether the user can author a new item of this kind from scratch.
         var isAddable: Bool {
             switch self {
-            case .agents, .docs, .plumageScripts: return true
+            case .agents, .docs, .plumageScripts, .skills: return true
             default: return false
             }
         }
@@ -270,7 +270,10 @@ final class TemplatesSettingsModel {
         guard entry.userAuthored,
             let url = overrides.overrideURL(forRelative: entry.relativePath)
         else { return }
-        try? FileManager.default.removeItem(at: url)
+        // A user skill is a directory: delete the whole `skills/<name>` tree, not
+        // just the selected file. Flat kinds delete the single override file.
+        let toRemove = (entry.category == .skills ? overrideSkillDirURL(for: entry) : url) ?? url
+        try? FileManager.default.removeItem(at: toRemove)
         overriddenPaths.remove(entry.relativePath)
         if editingFileURL == url {
             editingFileURL = nil
@@ -278,6 +281,15 @@ final class TemplatesSettingsModel {
         }
         if selection == entry.relativePath { selection = nil }
         reload()
+    }
+
+    // The override `skills/<name>` directory URL for a skill entry whose relative
+    // path is `skills/<name>/…`, or nil if there is no store / malformed path.
+    private func overrideSkillDirURL(for entry: CatalogEntry) -> URL? {
+        guard let overrideRoot = overrides.overrideRoot else { return nil }
+        let comps = entry.relativePath.split(separator: "/")
+        guard comps.count >= 2, comps[0] == "skills" else { return nil }
+        return overrideRoot.appending(path: "skills/\(comps[1])", directoryHint: .isDirectory)
     }
 
     // The override relative path and starter content for a new user item, or nil for
@@ -295,9 +307,24 @@ final class TemplatesSettingsModel {
         case .plumageScripts:
             let shebang = sanitizedName.hasSuffix(".py") ? "#!/usr/bin/env python3\n" : "#!/bin/sh\n"
             return ("plumage/\(sanitizedName)", shebang)
+        case .skills:
+            return ("skills/\(sanitizedName)/SKILL.md", Self.skillStarter(name: sanitizedName))
         default:
             return nil
         }
+    }
+
+    private static func skillStarter(name: String) -> String {
+        """
+        ---
+        name: \(name)
+        description: Describe when this skill should be used.
+        ---
+
+        # \(name)
+
+        Describe what this skill does.
+        """ + "\n"
     }
 
     private func refreshOverrideStatus(for relativePath: String) {
@@ -363,6 +390,19 @@ final class TemplatesSettingsModel {
                 result.append(
                     CatalogEntry(
                         relativePath: rel, category: category, label: name, userAuthored: true))
+            }
+        }
+
+        // Skills are directories: enumerate each override skill tree and add its
+        // override-only files (overrides of bundled skill files are already listed).
+        for skill in overrides.overrideSkillDirNames() {
+            for sub in overrides.overrideFileNamesRecursive(inRelativeDir: "skills/\(skill)") {
+                let rel = "skills/\(skill)/\(sub)"
+                guard !bundledPaths.contains(rel) else { continue }
+                result.append(
+                    CatalogEntry(
+                        relativePath: rel, category: .skills, label: "\(skill)/\(sub)",
+                        userAuthored: true))
             }
         }
         return result
