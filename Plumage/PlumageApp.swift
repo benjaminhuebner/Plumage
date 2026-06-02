@@ -55,6 +55,19 @@ struct PlumageApp: App {
         .restorationBehavior(.disabled)
         .commandsRemoved()
 
+        // App-global, like Settings — opens with no project window required. A
+        // singleton `Window` auto-adds its Window-menu item; the scene-level
+        // shortcut binds ⇧⌘T to it and (unlike a CommandGroup button) fires
+        // regardless of which window is key, mirroring Welcome's ⇧⌘0.
+        Window("Template Manager", id: "template-manager") {
+            TemplateManagerWindowView()
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 1040, height: 680)
+        .defaultPosition(.center)
+        .restorationBehavior(.disabled)
+        .keyboardShortcut("t", modifiers: [.command, .shift])
+
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
                 ProjectWindow(handle: handle)

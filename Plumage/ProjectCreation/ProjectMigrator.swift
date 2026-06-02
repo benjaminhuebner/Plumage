@@ -51,6 +51,7 @@ nonisolated struct ProjectMigrator {
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
     let repoStateReader: RepoStateReader
+    let catalog: TemplateCatalog
 
     init(
         assetsRoot: URL = NewProjectAssets.bundledRoot,
@@ -59,7 +60,8 @@ nonisolated struct ProjectMigrator {
         hookWirings: [HookWiring] = HookWiringStore.loadStandard().wirings,
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
         gitInitRunner: any GitInitializing = GitInitRunner(),
-        repoStateReader: RepoStateReader = RepoStateReader()
+        repoStateReader: RepoStateReader = RepoStateReader(),
+        catalog: TemplateCatalog = .bundledDefault
     ) {
         self.assetsRoot = assetsRoot
         self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
@@ -68,16 +70,18 @@ nonisolated struct ProjectMigrator {
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
         self.repoStateReader = repoStateReader
+        self.catalog = catalog
     }
 
-    // The bundled-or-user hooks enabled for a kind: profile hooks plus override-only
+    // The bundled-or-user hooks enabled for a kind: effective hooks plus override-only
     // `.sh` files, minus any disabled by the toggles.
     private func enabledHookNames(for kind: ProjectKind) -> [String] {
+        let effective = catalog.effectiveHooks(forTemplate: kind.rawValue)
         let userHooks = overrides.overrideFileNames(inRelativeDir: "hooks")
             .filter { $0.hasSuffix(".sh") }
             .map { String($0.dropLast(3)) }
-            .filter { !kind.profile.hookNames.contains($0) }
-        return toggles.enabledNames(in: .hooks, from: kind.profile.hookNames + userHooks)
+            .filter { !effective.contains($0) }
+        return toggles.enabledNames(in: .hooks, from: effective + userHooks)
     }
 
     private var fileManager: FileManager { .default }
@@ -143,7 +147,7 @@ nonisolated struct ProjectMigrator {
         let claude = root.appending(path: ".claude", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: claude, withIntermediateDirectories: true)
 
-        let claudeOutput = try ClaudeMdComposer(overrides: overrides).compose(spec: spec)
+        let claudeOutput = try ClaudeMdComposer(overrides: overrides, catalog: catalog).compose(spec: spec)
         try writeIfMissing(
             claudeOutput.claudeMd, to: claude.appending(path: "CLAUDE.md"),
             rel: ".claude/CLAUDE.md", into: &report)
@@ -226,7 +230,7 @@ nonisolated struct ProjectMigrator {
     }
 
     private func writeSettings(kind: ProjectKind, claude: URL, into report: inout Report) throws {
-        let composer = SettingsComposer()
+        let composer = SettingsComposer(catalog: catalog)
         try writeIfMissing(
             try composer.settingsJSON(for: kind, toggles: toggles, userWirings: hookWirings),
             to: claude.appending(path: "settings.json"),
@@ -243,7 +247,7 @@ nonisolated struct ProjectMigrator {
             return
         }
         var servers: [String: Any] = [:]
-        for server in spec.kind.profile.mcpServers {
+        for server in catalog.effectiveMCPServers(forTemplate: spec.kind.rawValue) {
             var entry: [String: Any] = ["command": server.command]
             if !server.args.isEmpty { entry["args"] = server.args }
             if !server.env.isEmpty { entry["env"] = server.env }
@@ -273,7 +277,7 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".gitignore")
             return
         }
-        let contents = try GitignoreComposer(overrides: overrides).compose(for: spec.kind)
+        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog).compose(for: spec.kind)
         try contents.write(to: dest, atomically: true, encoding: .utf8)
         report.added.append(".gitignore")
     }

@@ -19,6 +19,7 @@ nonisolated struct ProjectScaffolder {
     let hookWirings: [HookWiring]
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
+    let catalog: TemplateCatalog
 
     init(
         assetsRoot: URL = NewProjectAssets.bundledRoot,
@@ -26,7 +27,8 @@ nonisolated struct ProjectScaffolder {
         toggles: ScaffoldToggles = .loadStandard(),
         hookWirings: [HookWiring] = HookWiringStore.loadStandard().wirings,
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
-        gitInitRunner: any GitInitializing = GitInitRunner()
+        gitInitRunner: any GitInitializing = GitInitRunner(),
+        catalog: TemplateCatalog = .bundledDefault
     ) {
         self.assetsRoot = assetsRoot
         self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
@@ -34,16 +36,18 @@ nonisolated struct ProjectScaffolder {
         self.hookWirings = hookWirings
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
+        self.catalog = catalog
     }
 
-    // The bundled-or-user hooks enabled for a kind: profile hooks plus override-only
+    // The bundled-or-user hooks enabled for a kind: effective hooks plus override-only
     // `.sh` files, minus any disabled by the toggles.
     private func enabledHookNames(for kind: ProjectKind) -> [String] {
+        let effective = catalog.effectiveHooks(forTemplate: kind.rawValue)
         let userHooks = overrides.overrideFileNames(inRelativeDir: "hooks")
             .filter { $0.hasSuffix(".sh") }
             .map { String($0.dropLast(3)) }
-            .filter { !kind.profile.hookNames.contains($0) }
-        return toggles.enabledNames(in: .hooks, from: kind.profile.hookNames + userHooks)
+            .filter { !effective.contains($0) }
+        return toggles.enabledNames(in: .hooks, from: effective + userHooks)
     }
 
     private var fileManager: FileManager { .default }
@@ -73,7 +77,7 @@ nonisolated struct ProjectScaffolder {
     }
 
     private func build(spec: NewProjectSpec, root: URL) async throws -> URL {
-        let claudeOutput = try ClaudeMdComposer(overrides: overrides).compose(spec: spec)
+        let claudeOutput = try ClaudeMdComposer(overrides: overrides, catalog: catalog).compose(spec: spec)
 
         let bundle = root.appending(path: "\(spec.name).plumage", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
@@ -130,7 +134,7 @@ nonisolated struct ProjectScaffolder {
         try writeSkills(spec: spec, claude: claude, skillKeywords: claudeOutput.skillKeywords)
         try writeHooks(spec: spec, claude: claude)
         try writeAgents(claude: claude)
-        try SettingsComposer().write(
+        try SettingsComposer(catalog: catalog).write(
             for: spec.kind, toggles: toggles, userWirings: hookWirings, toClaudeDir: claude)
     }
 
@@ -189,7 +193,7 @@ nonisolated struct ProjectScaffolder {
 
     private func writeMCPConfig(spec: NewProjectSpec, root: URL) throws {
         var servers: [String: Any] = [:]
-        for server in spec.kind.profile.mcpServers {
+        for server in catalog.effectiveMCPServers(forTemplate: spec.kind.rawValue) {
             var entry: [String: Any] = ["command": server.command]
             if !server.args.isEmpty { entry["args"] = server.args }
             if !server.env.isEmpty { entry["env"] = server.env }
@@ -213,7 +217,7 @@ nonisolated struct ProjectScaffolder {
 
     private func writeGitignore(spec: NewProjectSpec, root: URL) throws {
         guard spec.git?.createGitignore == true else { return }
-        let contents = try GitignoreComposer(overrides: overrides).compose(for: spec.kind)
+        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog).compose(for: spec.kind)
         try contents.write(to: root.appending(path: ".gitignore"), atomically: true, encoding: .utf8)
     }
 

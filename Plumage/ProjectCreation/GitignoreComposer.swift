@@ -4,9 +4,10 @@ import Foundation
 // `.DS_Store` etc. regardless of the project's platform.
 nonisolated struct GitignoreComposer {
     let overrides: ScaffoldOverrides
+    var catalog: TemplateCatalog = .bundledDefault
 
     func compose(for kind: ProjectKind) throws -> String {
-        var tags = kind.profile.gitignoreTags
+        var tags = catalog.effectiveGitignoreTags(forTemplate: kind.rawValue)
         if !tags.contains("macos") {
             tags.append("macos")
         }

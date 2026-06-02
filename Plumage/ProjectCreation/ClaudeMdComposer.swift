@@ -5,6 +5,9 @@ import Foundation
 // block.
 nonisolated struct ClaudeMdComposer {
     let overrides: ScaffoldOverrides
+    // The resolved catalog supplies the effective layer list and scalar tokens.
+    // Defaults to the bundled catalog, which reproduces `ProjectKind.profile` exactly.
+    var catalog: TemplateCatalog = .bundledDefault
 
     nonisolated struct Output: Hashable, Sendable {
         let claudeMd: String
@@ -19,11 +22,12 @@ nonisolated struct ClaudeMdComposer {
     ]
 
     func compose(spec: NewProjectSpec) throws -> Output {
-        let profile = spec.kind.profile
+        let templateID = spec.kind.rawValue
+        let layers = catalog.effectiveLayers(forTemplate: templateID)
         let base = try overrides.string(atRelative: "templates/CLAUDE.md")
 
         var sections: [String: [String]] = [:]
-        for layer in profile.templateLayers {
+        for layer in layers {
             let layerContent = try overrides.string(atRelative: "templates/\(layer).md")
             for parsed in Self.parseSections(layerContent) where !parsed.body.isEmpty {
                 sections[parsed.name, default: []].append(parsed.body)
@@ -40,8 +44,14 @@ nonisolated struct ClaudeMdComposer {
             result
             .replacingOccurrences(of: "<<<PROJECT_NAME>>>", with: spec.name)
             .replacingOccurrences(of: "<<<PROJECT_TAGLINE>>>", with: spec.tagline)
-            .replacingOccurrences(of: "<<<STACK_SUMMARY>>>", with: profile.stackSummary)
-            .replacingOccurrences(of: "<<<XCODE_MCP_LINE>>>", with: profile.xcodeMcpLine)
+            .replacingOccurrences(
+                of: "<<<STACK_SUMMARY>>>",
+                with: catalog.effectiveStackSummary(forTemplate: templateID)
+            )
+            .replacingOccurrences(
+                of: "<<<XCODE_MCP_LINE>>>",
+                with: catalog.effectiveXcodeMcpLine(forTemplate: templateID)
+            )
 
         let skillKeywords = (sections["SKILL_KEYWORDS"] ?? []).joined(separator: ", ")
         return Output(claudeMd: result, skillKeywords: skillKeywords)
