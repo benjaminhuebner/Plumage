@@ -8,12 +8,14 @@ struct ProjectMigratorTests {
     private let fileManager = FileManager.default
 
     private func migrator(
-        overrideRoot: URL? = nil, toggles: ScaffoldToggles = ScaffoldToggles()
+        overrideRoot: URL? = nil, toggles: ScaffoldToggles = ScaffoldToggles(),
+        hookWirings: [HookWiring] = []
     ) -> ProjectMigrator {
         ProjectMigrator(
             assetsRoot: RepoAssets.root,
             overrideRoot: overrideRoot,
             toggles: toggles,
+            hookWirings: hookWirings,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"))
     }
 
@@ -198,6 +200,30 @@ struct ProjectMigratorTests {
             try String(contentsOf: targetAgents.appending(path: "planner.md"), encoding: .utf8)
                 == "# My own planner\n")
         #expect(report.skipped.contains(".claude/agents/planner.md"))
+    }
+
+    @Test("A user hook is migrated and wired into settings.json")
+    func userHookMigratesAndWires() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateHook-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let hookURL = overrideRoot.appending(path: "hooks/my-hook.sh")
+        try fileManager.createDirectory(
+            at: hookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho hi\n".write(to: hookURL, atomically: true, encoding: .utf8)
+        let wirings = [HookWiring(name: "my-hook", event: .postToolUse, matcher: "Write")]
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let (_, report) = try await migrator(overrideRoot: overrideRoot, hookWirings: wirings).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(fileManager.fileExists(atPath: root.appending(path: ".claude/hooks/my-hook.sh").path))
+        #expect(report.added.contains(".claude/hooks/my-hook.sh"))
+        let settings = try String(
+            contentsOf: root.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("my-hook.sh"))
+        #expect(settings.contains("Write"))
     }
 
     @Test("A user-authored skill is migrated from the override store and reported added")

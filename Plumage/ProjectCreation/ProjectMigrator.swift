@@ -47,6 +47,7 @@ nonisolated struct ProjectMigrator {
     let assetsRoot: URL
     let overrides: ScaffoldOverrides
     let toggles: ScaffoldToggles
+    let hookWirings: [HookWiring]
     let configCreator: ProjectConfigCreator
     let gitInitRunner: any GitInitializing
     let repoStateReader: RepoStateReader
@@ -55,6 +56,7 @@ nonisolated struct ProjectMigrator {
         assetsRoot: URL = NewProjectAssets.bundledRoot,
         overrideRoot: URL? = ScaffoldOverrides.standardOverrideRoot(),
         toggles: ScaffoldToggles = .loadStandard(),
+        hookWirings: [HookWiring] = HookWiringStore.loadStandard().wirings,
         configCreator: ProjectConfigCreator = ProjectConfigCreator(),
         gitInitRunner: any GitInitializing = GitInitRunner(),
         repoStateReader: RepoStateReader = RepoStateReader()
@@ -62,9 +64,20 @@ nonisolated struct ProjectMigrator {
         self.assetsRoot = assetsRoot
         self.overrides = ScaffoldOverrides(bundledRoot: assetsRoot, overrideRoot: overrideRoot)
         self.toggles = toggles
+        self.hookWirings = hookWirings
         self.configCreator = configCreator
         self.gitInitRunner = gitInitRunner
         self.repoStateReader = repoStateReader
+    }
+
+    // The bundled-or-user hooks enabled for a kind: profile hooks plus override-only
+    // `.sh` files, minus any disabled by the toggles.
+    private func enabledHookNames(for kind: ProjectKind) -> [String] {
+        let userHooks = overrides.overrideFileNames(inRelativeDir: "hooks")
+            .filter { $0.hasSuffix(".sh") }
+            .map { String($0.dropLast(3)) }
+            .filter { !kind.profile.hookNames.contains($0) }
+        return toggles.enabledNames(in: .hooks, from: kind.profile.hookNames + userHooks)
     }
 
     private var fileManager: FileManager { .default }
@@ -188,7 +201,7 @@ nonisolated struct ProjectMigrator {
     private func writeHooks(spec: NewProjectSpec, claude: URL, into report: inout Report) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in toggles.enabledNames(in: .hooks, from: spec.kind.profile.hookNames) {
+        for hook in enabledHookNames(for: spec.kind) {
             try copyIfMissing(
                 from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
@@ -215,7 +228,7 @@ nonisolated struct ProjectMigrator {
     private func writeSettings(kind: ProjectKind, claude: URL, into report: inout Report) throws {
         let composer = SettingsComposer()
         try writeIfMissing(
-            try composer.settingsJSON(for: kind, toggles: toggles),
+            try composer.settingsJSON(for: kind, toggles: toggles, userWirings: hookWirings),
             to: claude.appending(path: "settings.json"),
             rel: ".claude/settings.json", into: &report)
         try writeIfMissing(

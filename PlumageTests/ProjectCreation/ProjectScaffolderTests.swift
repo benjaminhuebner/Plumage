@@ -12,12 +12,13 @@ struct ProjectScaffolderTests {
 
     private func scaffolder(
         git: any GitInitializing = GitInitRunner(), overrideRoot: URL? = nil,
-        toggles: ScaffoldToggles = ScaffoldToggles()
+        toggles: ScaffoldToggles = ScaffoldToggles(), hookWirings: [HookWiring] = []
     ) -> ProjectScaffolder {
         ProjectScaffolder(
             assetsRoot: RepoAssets.root,
             overrideRoot: overrideRoot,
             toggles: toggles,
+            hookWirings: hookWirings,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
             gitInitRunner: git)
     }
@@ -181,6 +182,31 @@ struct ProjectScaffolderTests {
         let perms = try fm.attributesOfItem(atPath: scriptPath)[.posixPermissions] as? Int
         #expect(((perms ?? 0) & 0o111) != 0)
         #expect(fm.fileExists(atPath: dir.appending(path: ".plumage/scripts/roadmap.py").path))
+    }
+
+    @Test("A user hook is scaffolded and wired into settings.json")
+    func userHookScaffoldsAndWires() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "HookOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("#!/bin/sh\necho hi\n", to: overrideRoot, rel: "hooks/my-hook.sh")
+        let wirings = [HookWiring(name: "my-hook", event: .preToolUse, matcher: "Edit|Write")]
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot, hookWirings: wirings).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let hookPath = dir.appending(path: ".claude/hooks/my-hook.sh").path
+        #expect(fm.fileExists(atPath: hookPath))
+        let perms = try fm.attributesOfItem(atPath: hookPath)[.posixPermissions] as? Int
+        #expect(((perms ?? 0) & 0o111) != 0)
+
+        let settings = try String(
+            contentsOf: dir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("my-hook.sh"))
+        #expect(settings.contains("Edit|Write"))
     }
 
     @Test("No override store: docs and scripts are exactly the bundled set")
