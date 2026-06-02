@@ -28,6 +28,7 @@ struct PlumageApp: App {
         .keyboardShortcut("0", modifiers: [.command, .shift])
         .commands {
             NewProjectCommand()
+            TemplateManagerCommand()
         }
         .environment(recentProjects)
         .environment(migrationRequest)
@@ -51,6 +52,17 @@ struct PlumageApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 720, height: 560)
+        .defaultPosition(.center)
+        .restorationBehavior(.disabled)
+        .commandsRemoved()
+
+        // App-global, like Settings — opens with no project window required. The
+        // auto Window-menu item is suppressed; TemplateManagerCommand provides it.
+        Window("Template Manager", id: "template-manager") {
+            TemplateManagerWindowView()
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 1040, height: 680)
         .defaultPosition(.center)
         .restorationBehavior(.disabled)
         .commandsRemoved()
