@@ -18,5 +18,6 @@ struct TemplateManagerWindowView: View {
         }
         .frame(minWidth: 820, minHeight: 520)
         .task { await model.load() }
+        .onChange(of: model.selection) { model.refreshContent() }
     }
 }
