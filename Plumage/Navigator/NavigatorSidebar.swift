@@ -30,7 +30,11 @@ struct NavigatorSidebar: View {
                 columnRow(column)
             }
 
-            PinnedSectionView(model: pinnedFiles, projectURL: projectURL)
+            PinnedSectionView(
+                model: pinnedFiles,
+                projectURL: projectURL,
+                emptyContextPaths: navigator.emptyContextFilePaths
+            )
 
             SidebarSectionHeader(title: "Files")
             FileTreeView(nodes: navigator.rootNodes, projectURL: projectURL)

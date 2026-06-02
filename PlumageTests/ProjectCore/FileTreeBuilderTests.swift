@@ -148,6 +148,10 @@ struct FileTreeBuilderTests {
 
         let rootClaude = try #require(nodes.first { $0.name == "CLAUDE.md" })
         #expect(!rootClaude.isEmptyContextFile)
+
+        // Collapsed folders that hide an empty target carry the aggregate flag.
+        #expect(claude.containsEmptyContextFileDescendant)
+        #expect(docs.containsEmptyContextFileDescendant)
     }
 
     @Test
@@ -169,6 +173,8 @@ struct FileTreeBuilderTests {
         let children = try #require(claude.children)
         #expect(!children.contains { $0.name == "CLAUDE.md" })
         #expect(children.allSatisfy { !$0.isEmptyContextFile })
+        // No empty target anywhere below → folder shows no aggregate warning.
+        #expect(!claude.containsEmptyContextFileDescendant)
     }
 
     @Test

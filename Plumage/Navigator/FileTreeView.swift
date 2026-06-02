@@ -81,6 +81,7 @@ struct FileTreeRow: View {
                     Text(node.name)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    folderWarning
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -203,12 +204,17 @@ struct FileTreeRow: View {
     @ViewBuilder
     private var emptyContextWarning: some View {
         if node.isEmptyContextFile {
-            let message = "\(node.name) is empty — Claude has no project context"
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-                .imageScale(.small)
-                .help(message)
-                .accessibilityLabel(message)
+            EmptyContextWarningIcon(message: EmptyContextWarningIcon.fileMessage(node.name))
+        }
+    }
+
+    // Same warning surfaced on a collapsed folder that hides an empty context
+    // file, so the signal isn't lost when the row is folded away. Once expanded
+    // the child rows carry their own icons, so this hides to avoid doubling up.
+    @ViewBuilder
+    private var folderWarning: some View {
+        if !expanded && node.containsEmptyContextFileDescendant {
+            EmptyContextWarningIcon(message: EmptyContextWarningIcon.folderMessage)
         }
     }
 

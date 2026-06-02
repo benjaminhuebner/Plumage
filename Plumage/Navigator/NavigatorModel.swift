@@ -8,6 +8,20 @@ final class NavigatorModel {
     private(set) var rootNodes: [FileNode] = []
     private(set) var loadError: String?
 
+    // Relative paths of every effectively-empty foundation context file in the
+    // current tree. Derived from `rootNodes`, so it re-publishes on each reload
+    // and lets the pinned section (which has no tree node of its own) mark the
+    // same files live.
+    var emptyContextFilePaths: Set<String> {
+        var result: Set<String> = []
+        func walk(_ node: FileNode) {
+            if node.isEmptyContextFile { result.insert(node.relativePath) }
+            node.children?.forEach(walk)
+        }
+        rootNodes.forEach(walk)
+        return result
+    }
+
     // Transient sidebar state for the "+ creates a new row with a focused
     // TextField" interaction. View binds the textfield to `pendingCreate?.name`
     // and calls commit/cancel based on Enter/Escape/blur.
