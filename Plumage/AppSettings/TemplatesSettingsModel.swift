@@ -58,6 +58,9 @@ final class TemplatesSettingsModel {
         let relativePath: String
         let category: Category
         let label: String
+        // No bundled baseline exists at `relativePath`: the entry lives only in the
+        // user's override store. Drives Delete (user-authored) vs Reset (bundled).
+        let userAuthored: Bool
         var id: String { relativePath }
     }
 
@@ -201,40 +204,50 @@ final class TemplatesSettingsModel {
         refreshPreview()
     }
 
-    // MARK: - Agents (user-authored, no bundled baseline)
+    // MARK: - User-authored templates (override store, no bundled baseline)
 
     var agentEntries: [CatalogEntry] {
         entries.filter { $0.category == .agents }
     }
 
-    // Create a new agent override file, seeded with a starter template, and select
-    // it for editing. Returns false if the name is empty or there is no store.
+    // Create a new override file for `category`, seeded with a per-kind starter, and
+    // select it for editing. A name that resolves to an existing catalog entry (a
+    // bundled item or an already-added override) selects that entry instead of
+    // writing a duplicate. Returns false on an empty/invalid name, a non-addable
+    // category, or no override store.
     @discardableResult
-    func addAgent(name: String) -> Bool {
+    func addTemplate(category: Category, name: String) -> Bool {
         let sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
-        guard !sanitized.isEmpty, let overrideRoot = overrides.overrideRoot else { return false }
-        let fileName = sanitized.hasSuffix(".md") ? sanitized : sanitized + ".md"
-        let url = overrideRoot.appending(path: "agents/\(fileName)")
+        guard !sanitized.isEmpty, let overrideRoot = overrides.overrideRoot,
+            let plan = Self.newTemplatePlan(category: category, sanitizedName: sanitized)
+        else { return false }
+
+        if let existing = entries.first(where: { $0.relativePath == plan.relativePath }) {
+            selection = existing.id
+            return true
+        }
+
+        let url = overrideRoot.appending(path: plan.relativePath)
         let fm = FileManager.default
         do {
             try fm.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if !fm.fileExists(atPath: url.path) {
-                let title = fileName.hasSuffix(".md") ? String(fileName.dropLast(3)) : fileName
-                try "# \(title)\n\nDescribe what this agent does.\n".write(
-                    to: url, atomically: true, encoding: .utf8)
+                try plan.starter.write(to: url, atomically: true, encoding: .utf8)
             }
             reload()
-            selection = "agents/\(fileName)"
+            selection = plan.relativePath
             return true
         } catch {
             return false
         }
     }
 
-    func deleteAgent(_ entry: CatalogEntry) {
-        guard entry.category == .agents,
+    // Remove a user-authored override file and prune it from the catalog. A no-op for
+    // bundled entries (they reset, they don't delete).
+    func delete(_ entry: CatalogEntry) {
+        guard entry.userAuthored,
             let url = overrides.overrideURL(forRelative: entry.relativePath)
         else { return }
         try? FileManager.default.removeItem(at: url)
@@ -245,6 +258,26 @@ final class TemplatesSettingsModel {
         }
         if selection == entry.relativePath { selection = nil }
         reload()
+    }
+
+    // The override relative path and starter content for a new user item, or nil for
+    // a category that can't be authored from scratch.
+    private static func newTemplatePlan(
+        category: Category, sanitizedName: String
+    ) -> (relativePath: String, starter: String)? {
+        switch category {
+        case .agents:
+            let file = sanitizedName.hasSuffix(".md") ? sanitizedName : sanitizedName + ".md"
+            return ("agents/\(file)", "# \(String(file.dropLast(3)))\n\nDescribe what this agent does.\n")
+        case .docs:
+            let file = sanitizedName.hasSuffix(".md") ? sanitizedName : sanitizedName + ".md"
+            return ("docs/\(file)", "# \(String(file.dropLast(3)))\n\n")
+        case .plumageScripts:
+            let shebang = sanitizedName.hasSuffix(".py") ? "#!/usr/bin/env python3\n" : "#!/bin/sh\n"
+            return ("plumage/\(sanitizedName)", shebang)
+        default:
+            return nil
+        }
     }
 
     private func refreshOverrideStatus(for relativePath: String) {
@@ -287,11 +320,30 @@ final class TemplatesSettingsModel {
 
     private static func buildCatalog(overrides: ScaffoldOverrides) -> [CatalogEntry] {
         var result = bundledEntries(root: overrides.bundledRoot)
+        let bundledPaths = Set(result.map(\.relativePath))
+
         // Agents have no bundled baseline: the catalog is the override store.
         for name in overrides.overrideFileNames(inRelativeDir: "agents") {
             result.append(
                 CatalogEntry(
-                    relativePath: "agents/\(name)", category: .agents, label: name))
+                    relativePath: "agents/\(name)", category: .agents, label: name,
+                    userAuthored: true))
+        }
+
+        // Docs and plumage scripts: the bundled files are already listed; add any
+        // override-only files the user authored (skipping overrides of bundled files,
+        // which are the same entries with an override on disk).
+        let unionDirs: [(dir: String, category: Category)] = [
+            ("docs", .docs), ("plumage", .plumageScripts),
+        ]
+        for (dir, category) in unionDirs {
+            for name in overrides.overrideFileNames(inRelativeDir: dir) {
+                let rel = "\(dir)/\(name)"
+                guard !bundledPaths.contains(rel) else { continue }
+                result.append(
+                    CatalogEntry(
+                        relativePath: rel, category: category, label: name, userAuthored: true))
+            }
         }
         return result
     }
@@ -312,7 +364,9 @@ final class TemplatesSettingsModel {
             let rel = url.standardizedFileURL.path.replacingOccurrences(of: rootPath, with: "")
             guard let category = category(for: rel) else { continue }
             result.append(
-                CatalogEntry(relativePath: rel, category: category, label: label(for: rel, category: category)))
+                CatalogEntry(
+                    relativePath: rel, category: category,
+                    label: label(for: rel, category: category), userAuthored: false))
         }
         return result.sorted { $0.relativePath < $1.relativePath }
     }

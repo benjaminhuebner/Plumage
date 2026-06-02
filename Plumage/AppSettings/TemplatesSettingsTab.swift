@@ -38,7 +38,7 @@ struct TemplatesSettingsTab: View {
         .alert("New Agent", isPresented: $showAddAgent) {
             TextField("Agent name", text: $newAgentName)
             Button("Add") {
-                model.addAgent(name: newAgentName)
+                model.addTemplate(category: .agents, name: newAgentName)
                 newAgentName = ""
             }
             Button("Cancel", role: .cancel) { newAgentName = "" }
@@ -133,9 +133,9 @@ struct TemplatesSettingsTab: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
-            if entry.category == .agents {
+            if entry.userAuthored {
                 Button("Delete", role: .destructive) {
-                    model.deleteAgent(entry)
+                    model.delete(entry)
                 }
             } else if model.isOverridden(entry) {
                 Button("Reset to Default") {
