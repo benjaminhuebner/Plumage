@@ -7,8 +7,7 @@ import SwiftUI
 // and live preview are owned by `TemplatesSettingsModel`.
 struct TemplatesSettingsTab: View {
     @State private var model = TemplatesSettingsModel()
-    @State private var showAddAgent = false
-    @State private var newAgentName = ""
+    @State private var addCategory: TemplatesSettingsModel.Category?
 
     var body: some View {
         @Bindable var model = model
@@ -35,15 +34,10 @@ struct TemplatesSettingsTab: View {
                 model.beginEditing(entry)
             }
         }
-        .alert("New Agent", isPresented: $showAddAgent) {
-            TextField("Agent name", text: $newAgentName)
-            Button("Add") {
-                model.addTemplate(category: .agents, name: newAgentName)
-                newAgentName = ""
+        .sheet(item: $addCategory) { category in
+            AddTemplateSheet(category: category) { name in
+                model.addTemplate(category: category, name: name)
             }
-            Button("Cancel", role: .cancel) { newAgentName = "" }
-        } message: {
-            Text("Creates a .claude/agents/<name>.md file written into every new project.")
         }
     }
 
@@ -58,6 +52,9 @@ struct TemplatesSettingsTab: View {
                         catalogRow(entry)
                             .tag(entry.id)
                     }
+                    if group.category.isAddable {
+                        addRow(group.category)
+                    }
                 }
             }
             // Agents are user-authored and always shown so the add affordance is
@@ -67,15 +64,19 @@ struct TemplatesSettingsTab: View {
                     catalogRow(entry)
                         .tag(entry.id)
                 }
-                Button {
-                    showAddAgent = true
-                } label: {
-                    Label("Add Agent…", systemImage: "plus")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                addRow(.agents)
             }
         }
+    }
+
+    private func addRow(_ category: TemplatesSettingsModel.Category) -> some View {
+        Button {
+            addCategory = category
+        } label: {
+            Label("Add \(category.addNoun)…", systemImage: "plus")
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
     }
 
     private func catalogRow(_ entry: TemplatesSettingsModel.CatalogEntry) -> some View {
@@ -174,6 +175,62 @@ struct TemplatesSettingsTab: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
             }
+        }
+    }
+}
+
+// Kind-aware "Add …" sheet. Name-only for docs, scripts, skills and agents; the
+// hooks case adds an event picker and matcher field.
+private struct AddTemplateSheet: View {
+    let category: TemplatesSettingsModel.Category
+    let onAdd: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("New \(category.addNoun)")
+                .font(.headline)
+            TextField("\(category.addNoun) name", text: $name)
+                .textFieldStyle(.roundedBorder)
+            Text(hint)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Add") {
+                    onAdd(name)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(trimmedName.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+
+    private var hint: String {
+        switch category {
+        case .agents:
+            return "Creates a .claude/agents/<name>.md file written into every new project."
+        case .docs:
+            return "Creates a .claude/docs/<name>.md file written into every new project."
+        case .plumageScripts:
+            return "Creates a .plumage/scripts/<name> file written into every new project."
+        case .skills:
+            return "Creates a .claude/skills/<name>/SKILL.md written into every new project."
+        case .hooks:
+            return "Creates a .claude/hooks/<name>.sh and wires it into settings.json."
+        default:
+            return ""
         }
     }
 }

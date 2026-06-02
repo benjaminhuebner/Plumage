@@ -38,6 +38,26 @@ final class TemplatesSettingsModel {
             }
         }
 
+        // Whether the user can author a new item of this kind from scratch.
+        var isAddable: Bool {
+            switch self {
+            case .agents, .docs, .plumageScripts: return true
+            default: return false
+            }
+        }
+
+        // Singular noun for the "Add …" affordance, empty for non-addable kinds.
+        var addNoun: String {
+            switch self {
+            case .agents: return "Agent"
+            case .docs: return "Doc"
+            case .plumageScripts: return "Script"
+            case .skills: return "Skill"
+            case .hooks: return "Hook"
+            default: return ""
+            }
+        }
+
         // Path prefix in the assets tree this category owns. Order is the display order.
         var folderPrefix: String {
             switch self {
