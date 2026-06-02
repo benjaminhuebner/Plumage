@@ -241,6 +241,10 @@ final class TemplatesSettingsModel {
     private(set) var editorResetToken = 0
     private var pendingResetEntry: CatalogEntry?
 
+    // Invariant: this is only reachable from the Reset button in the detail header,
+    // which is shown only while the DocEditorView is mounted. The mounted editor is
+    // what observes `editorResetToken` and calls `finishReset`, so the deletion always
+    // completes. If that coupling ever changes, the override would be left in place.
     func resetToDefault(_ entry: CatalogEntry) {
         pendingResetEntry = entry
         editorResetToken += 1
@@ -276,9 +280,8 @@ final class TemplatesSettingsModel {
     func addTemplate(
         category: Category, name: String, wiring: (event: HookEvent, matcher: String?)? = nil
     ) -> Bool {
-        let sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "/", with: "-")
-        guard !sanitized.isEmpty, let overrideRoot = overrides.overrideRoot,
+        guard let sanitized = Self.sanitizedName(from: name),
+            let overrideRoot = overrides.overrideRoot,
             let plan = Self.newTemplatePlan(category: category, sanitizedName: sanitized)
         else { return false }
 
@@ -308,6 +311,14 @@ final class TemplatesSettingsModel {
         }
     }
 
+    // A user skill is one directory listed per file, but Delete removes the whole
+    // tree, so it's gated to the representative SKILL.md row (where the toggle lives).
+    func canDelete(_ entry: CatalogEntry) -> Bool {
+        guard entry.userAuthored else { return false }
+        if entry.category == .skills { return entry.label.hasSuffix("/SKILL.md") }
+        return true
+    }
+
     // Remove a user-authored override file and prune it from the catalog. A no-op for
     // bundled entries (they reset, they don't delete).
     func delete(_ entry: CatalogEntry) {
@@ -322,7 +333,7 @@ final class TemplatesSettingsModel {
         // settings.json as well as the file tree.
         if entry.category == .hooks, let base = Self.hookBaseName(forRelativePath: entry.relativePath) {
             hookWirings.remove(named: base)
-            if let storeURL = hookWiringStoreURL { try? hookWirings.save(to: storeURL) }
+            saveHookWirings()
         }
         overriddenPaths.remove(entry.relativePath)
         if editingFileURL == url {
@@ -340,6 +351,17 @@ final class TemplatesSettingsModel {
         let comps = entry.relativePath.split(separator: "/")
         guard comps.count >= 2, comps[0] == "skills" else { return nil }
         return overrideRoot.appending(path: "skills/\(comps[1])", directoryHint: .isDirectory)
+    }
+
+    // Slashes collapse to `-` and `.`/`..`/control chars are rejected so the name can
+    // never escape its category folder or resolve to an odd spot under the override root.
+    private static func sanitizedName(from raw: String) -> String? {
+        let collapsed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+        guard !collapsed.isEmpty, collapsed != ".", collapsed != "..",
+            collapsed.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
+        else { return nil }
+        return collapsed
     }
 
     // The override relative path and starter content for a new user item, or nil for
@@ -375,6 +397,12 @@ final class TemplatesSettingsModel {
 
     private func persistWiring(_ wiring: HookWiring) {
         hookWirings.upsert(wiring)
+        saveHookWirings()
+    }
+
+    // Creates the store directory first so a delete before any add still writes
+    // cleanly — otherwise a removed wiring re-loads as a ghost hook on the next launch.
+    private func saveHookWirings() {
         guard let storeURL = hookWiringStoreURL else { return }
         try? FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)

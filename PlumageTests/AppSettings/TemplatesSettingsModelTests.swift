@@ -248,4 +248,50 @@ struct TemplatesSettingsModelTests {
         let store = try HookWiringStore.load(from: ctx.wiringURL)
         #expect(store.wiring(named: "my-hook") == nil)
     }
+
+    @Test("A name that resolves to a dot/dot-dot path component is rejected")
+    func dottedNameRejected() {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        let before = ctx.model.entries.count
+        #expect(!ctx.model.addTemplate(category: .skills, name: ".."))
+        #expect(!ctx.model.addTemplate(category: .plumageScripts, name: "."))
+        #expect(!ctx.model.addTemplate(category: .docs, name: "  ..  "))
+        // Nothing was written above the category folder or into the catalog.
+        #expect(ctx.model.entries.count == before)
+        #expect(
+            !FileManager.default.fileExists(atPath: ctx.override.appending(path: "SKILL.md").path))
+    }
+
+    @Test("canDelete is offered only on a user skill's SKILL.md row")
+    func canDeleteSkillRepresentativeRowOnly() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        // A user skill with a second file beyond SKILL.md, so the catalog lists two rows.
+        try write("---\nname: multi\n---\n", to: ctx.override, rel: "skills/multi/SKILL.md")
+        try write("echo hi\n", to: ctx.override, rel: "skills/multi/scripts/run.sh")
+        ctx.model.reload()
+
+        let skillMd = try #require(
+            ctx.model.entries.first { $0.relativePath == "skills/multi/SKILL.md" })
+        let subFile = try #require(
+            ctx.model.entries.first { $0.relativePath == "skills/multi/scripts/run.sh" })
+        #expect(ctx.model.canDelete(skillMd))
+        #expect(!ctx.model.canDelete(subFile))
+
+        // A flat user kind is always deletable.
+        #expect(ctx.model.addTemplate(category: .docs, name: "scratch"))
+        let doc = try #require(ctx.model.entries.first { $0.relativePath == "docs/scratch.md" })
+        #expect(ctx.model.canDelete(doc))
+        // A bundled entry is never deletable.
+        let bundled = try #require(ctx.model.entries.first { $0.relativePath == "docs/PROJECT.md" })
+        #expect(!ctx.model.canDelete(bundled))
+    }
+
+    private func write(_ contents: String, to root: URL, rel: String) throws {
+        let url = root.appending(path: rel)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
 }

@@ -137,8 +137,12 @@ struct TemplatesSettingsTab: View {
                 .truncationMode(.middle)
             Spacer()
             if entry.userAuthored {
-                Button("Delete", role: .destructive) {
-                    model.delete(entry)
+                // A user skill is listed per file but deletes as a whole tree, so the
+                // Delete button appears only on its representative SKILL.md row.
+                if model.canDelete(entry) {
+                    Button("Delete", role: .destructive) {
+                        model.delete(entry)
+                    }
                 }
             } else if model.isOverridden(entry) || model.isEditorDirty {
                 // Reset appears the moment the bundled template is edited (dirty),
@@ -187,7 +191,8 @@ struct TemplatesSettingsTab: View {
 // hooks case adds an event picker and matcher field.
 private struct AddTemplateSheet: View {
     let category: TemplatesSettingsModel.Category
-    let onAdd: (String, (event: HookEvent, matcher: String?)?) -> Void
+    // Bool so the sheet can stay open on failure rather than dismiss with nothing created.
+    let onAdd: (String, (event: HookEvent, matcher: String?)?) -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
@@ -230,8 +235,7 @@ private struct AddTemplateSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button("Add") {
-                    onAdd(name, wiring)
-                    dismiss()
+                    if onAdd(name, wiring) { dismiss() }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(trimmedName.isEmpty)
