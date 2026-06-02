@@ -8,12 +8,23 @@ import SwiftUI
 struct TemplatesSettingsTab: View {
     @State private var model = TemplatesSettingsModel()
     @State private var addCategory: TemplatesSettingsModel.Category?
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var model = model
         HStack(spacing: 0) {
-            catalogList
-                .frame(width: 240)
+            VStack(spacing: 0) {
+                catalogList
+                Divider()
+                Button {
+                    openWindow(id: "template-manager")
+                } label: {
+                    Label("Open Template Manager…", systemImage: "rectangle.3.group")
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .padding(8)
+            }
+            .frame(width: 240)
             Divider()
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
