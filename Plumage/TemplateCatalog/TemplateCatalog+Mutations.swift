@@ -105,6 +105,14 @@ nonisolated extension TemplateCatalog {
         return descriptor
     }
 
+    // Enables or disables a template (the Settings → Templates toggle). A disabled
+    // predefined template is captured by the overlay diff (it differs from its
+    // bundled, enabled record); re-enabling drops it from the overlay again.
+    mutating func setTemplateEnabled(id: String, _ enabled: Bool) {
+        guard let index = templates.firstIndex(where: { $0.id == id }) else { return }
+        templates[index].enabled = enabled
+    }
+
     // Removes a template and drops it from every shared component's membership.
     // (A predefined removal becomes a tombstone via the overlay diff; a custom one
     // vanishes outright — the model also trashes its override files.)

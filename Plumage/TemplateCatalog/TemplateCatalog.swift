@@ -121,6 +121,13 @@ nonisolated struct TemplateCatalog: Codable, Hashable, Sendable {
         templates.filter { $0.categoryID == categoryID }.sorted { $0.order < $1.order }
     }
 
+    // The enabled templates of a category, in display order — the New/Migrate grids'
+    // tile set. A category whose templates are all disabled yields an empty array and
+    // is hidden from the grids.
+    func enabledTemplates(inCategory categoryID: String) -> [TemplateDescriptor] {
+        templates(inCategory: categoryID).filter(\.enabled)
+    }
+
     // Shared components a template is a member of, in concatenation order.
     func sharedComponents(forTemplate templateID: String) -> [SharedComponent] {
         sharedComponents.filter { $0.isMember(templateID) }.sorted { $0.order < $1.order }
