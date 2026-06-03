@@ -142,7 +142,7 @@ struct TemplateCatalogMutationTests {
         var catalog = TemplateCatalog.bundledDefault
         let created = catalog.addSharedComponent(
             name: "My Layer", kind: .layer, memberTemplateIDs: ["macOS"])
-        #expect(created.files == [created.id])
+        #expect(created.files == [ComponentFile(kind: .layer, name: created.id)])
         #expect(created.memberTemplateIDs == ["macOS"])
         #expect(catalog.sharedComponent(id: created.id) != nil)
     }

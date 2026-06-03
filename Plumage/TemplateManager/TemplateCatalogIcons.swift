@@ -28,6 +28,11 @@ extension UserTemplateKind {
     }
 }
 
+extension SharedComponent {
+    // Components can mix kinds, so the sidebar uses a single bundle icon.
+    var sfSymbolName: String { "shippingbox" }
+}
+
 extension SharedComponentKind {
     var sfSymbolName: String {
         switch self {

@@ -390,9 +390,12 @@ final class TemplateManagerModel {
                 // component, a skill folder into a skill component).
                 let importKind: UserTemplateKind? =
                     plan.isSkill ? .skill : (!plan.isDirectory && leaf.hasSuffix(".sh") ? .hook : nil)
-                if let importKind, let componentID = membershipComponentID(forKind: importKind) {
+                if let importKind, let componentKind = Self.sharedComponentKind(for: importKind),
+                    let componentID = membershipComponentID(forKind: importKind)
+                {
                     registerMembership(
-                        componentID, fileName: importKind == .hook ? String(leaf.dropLast(3)) : leaf)
+                        componentID, kind: componentKind,
+                        fileName: importKind == .hook ? String(leaf.dropLast(3)) : leaf)
                 }
             } catch {
                 rejected.append(url.lastPathComponent)
@@ -466,19 +469,22 @@ final class TemplateManagerModel {
         }
     }
 
-    // The selected component this add/drop should join, if the kind matches it.
+    // The selected component a hook/skill add or drop should join (a component now
+    // mixes kinds, so any component accepts a hook or skill file).
     private func membershipComponentID(forKind kind: UserTemplateKind) -> String? {
         guard case .sharedComponent(let id) = selection,
-            let component = catalog.sharedComponent(id: id),
-            Self.sharedComponentKind(for: kind) == component.kind
+            catalog.sharedComponent(id: id) != nil,
+            Self.sharedComponentKind(for: kind) != nil
         else { return nil }
         return id
     }
 
-    private func registerMembership(_ componentID: String?, fileName: String) {
+    private func registerMembership(
+        _ componentID: String?, kind: SharedComponentKind, fileName: String
+    ) {
         guard let componentID else { return }
         var updated = catalog
-        updated.addFile(toComponentID: componentID, fileName: fileName)
+        updated.addFile(toComponentID: componentID, kind: kind, fileName: fileName)
         persist(updated)
     }
 
@@ -515,7 +521,7 @@ final class TemplateManagerModel {
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
                 try kind.starter(forLeaf: dir.lastPathComponent).write(
                     to: dir.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
-                registerMembership(componentID, fileName: dir.lastPathComponent)
+                registerMembership(componentID, kind: .skill, fileName: dir.lastPathComponent)
                 return selectCreatedFile(storagePath: storagePath("\(dir.lastPathComponent)/SKILL.md"), kind: kind)
             case .folder:
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
@@ -532,7 +538,8 @@ final class TemplateManagerModel {
                     to: url, atomically: true, encoding: .utf8)
                 // A hook joining a component is registered by its base name (no `.sh`).
                 if kind == .hook {
-                    registerMembership(componentID, fileName: String(url.lastPathComponent.dropLast(3)))
+                    registerMembership(
+                        componentID, kind: .hook, fileName: String(url.lastPathComponent.dropLast(3)))
                 }
                 return selectCreatedFile(storagePath: storagePath(url.lastPathComponent), kind: kind)
             }
@@ -838,7 +845,7 @@ extension TemplateManagerModel {
         var updated = catalog
         updated.deleteSharedComponent(id: component.id)
         for file in component.files {
-            let relativePath = relativePath(for: component.kind, file: file)
+            let relativePath = relativePath(for: file.kind, file: file.name)
             if !overrides.hasBundledOriginal(forRelative: relativePath),
                 let url = overrides.overrideURL(forRelative: relativePath)
             {
@@ -852,9 +859,9 @@ extension TemplateManagerModel {
 
     private func writeComponentStarter(for component: SharedComponent) {
         guard let file = component.files.first else { return }
-        let relativePath = relativePath(for: component.kind, file: file)
+        let relativePath = relativePath(for: file.kind, file: file.name)
         let content: String
-        switch component.kind {
+        switch file.kind {
         case .layer: content = "# \(component.name)\n"
         case .hook: content = "#!/bin/bash\n# \(component.name)\n"
         case .skill: content = "# \(component.name)\n"

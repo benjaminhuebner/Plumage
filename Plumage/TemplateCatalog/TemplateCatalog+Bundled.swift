@@ -26,21 +26,23 @@ nonisolated extension TemplateCatalog {
             !ProjectKindProfile.workflowHooks.contains($0)
         }
 
+        // Swift Shared carries both the shared CLAUDE.md layer and the Swift tooling
+        // hooks — same membership (every Swift kind), so they live in one component.
         let sharedComponents = [
             SharedComponent(
-                id: "swift-shared", name: "Swift Shared", kind: .layer,
-                files: ["swift-shared"], order: 0, memberTemplateIDs: swiftKindIDs),
+                id: "swift-shared", name: "Swift Shared",
+                files: [ComponentFile(kind: .layer, name: "swift-shared")]
+                    + swiftToolingHooks.map { ComponentFile(kind: .hook, name: $0) },
+                order: 0, memberTemplateIDs: swiftKindIDs),
             SharedComponent(
-                id: "apple-shared", name: "Apple Shared", kind: .layer,
-                files: ["apple-shared"], order: 1, memberTemplateIDs: appleKindIDs),
-            SharedComponent(
-                id: "swift-tooling-hooks", name: "Swift Tooling Hooks", kind: .hook,
-                files: swiftToolingHooks, order: 0, memberTemplateIDs: swiftKindIDs),
+                id: "apple-shared", name: "Apple Shared",
+                files: [ComponentFile(kind: .layer, name: "apple-shared")],
+                order: 1, memberTemplateIDs: appleKindIDs),
         ]
 
         // Layer files contributed by shared components — stripped from each profile's
         // layer list to leave only the template-specific layer(s).
-        let sharedLayerFiles = Set(sharedComponents.filter { $0.kind == .layer }.flatMap(\.files))
+        let sharedLayerFiles = Set(sharedComponents.flatMap { $0.files(ofKind: .layer) })
 
         let templates = ProjectKind.allCases.enumerated().map { index, kind -> TemplateDescriptor in
             let profile = kind.profile

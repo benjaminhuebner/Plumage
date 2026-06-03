@@ -31,7 +31,7 @@ struct TemplateManagerSelectionTreeTests {
     func hookComponentStructure() {
         let ctx = makeModel()
         defer { ctx.cleanup() }
-        ctx.model.selection = .sharedComponent("swift-tooling-hooks")
+        ctx.model.selection = .sharedComponent("swift-shared")
         ctx.model.refreshContent()
 
         #expect(find(ctx.model.contentTree, [".claude", "hooks", "format-swift.sh"]) != nil)
@@ -67,7 +67,7 @@ struct TemplateManagerSelectionTreeTests {
     func bundledHookNotFlagged() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
-        ctx.model.selection = .sharedComponent("swift-tooling-hooks")
+        ctx.model.selection = .sharedComponent("swift-shared")
         ctx.model.refreshContent()
 
         let hook = try #require(find(ctx.model.contentTree, [".claude", "hooks", "format-swift.sh"]))
@@ -81,13 +81,15 @@ struct TemplateManagerSelectionTreeTests {
     func addHookJoinsComponent() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
-        ctx.model.selection = .sharedComponent("swift-tooling-hooks")
+        ctx.model.selection = .sharedComponent("swift-shared")
         ctx.model.refreshContent()
 
         let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-extra-hook"))
         #expect(node.relativePath == "hooks/my-extra-hook.sh")
-        // It is now part of the component's membership…
-        #expect(ctx.model.catalog.sharedComponent(id: "swift-tooling-hooks")?.files.contains("my-extra-hook") == true)
+        // It is now part of the component's hook membership…
+        #expect(
+            ctx.model.catalog.sharedComponent(id: "swift-shared")?
+                .files(ofKind: .hook).contains("my-extra-hook") == true)
         // …and shows under .claude/hooks in the component tree.
         #expect(find(ctx.model.contentTree, [".claude", "hooks", "my-extra-hook.sh"]) != nil)
     }

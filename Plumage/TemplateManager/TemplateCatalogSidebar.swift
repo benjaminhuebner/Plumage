@@ -23,7 +23,7 @@ struct TemplateCatalogSidebar: View {
 
             Section("Shared Components") {
                 ForEach(model.catalog.sortedSharedComponents) { component in
-                    Label(component.name, systemImage: component.kind.sfSymbolName)
+                    Label(component.name, systemImage: component.sfSymbolName)
                         .tag(TemplateCatalogItem.sharedComponent(component.id))
                         .contextMenu { sharedComponentMenu(component) }
                 }

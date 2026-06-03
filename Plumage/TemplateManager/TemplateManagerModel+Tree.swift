@@ -192,29 +192,30 @@ extension TemplateManagerModel {
     private func componentLeafSpecs(_ component: SharedComponent) -> [LeafSpec] {
         var specs: [LeafSpec] = []
         for file in component.files {
-            switch component.kind {
+            let name = file.name
+            switch file.kind {
             case .layer:
                 specs.append(
                     LeafSpec(
-                        output: ".claude/CLAUDE.md", relative: "templates/\(file)/CLAUDE.md",
+                        output: ".claude/CLAUDE.md", relative: "templates/\(name)/CLAUDE.md",
                         name: "CLAUDE.md"))
             case .hook:
                 specs.append(
                     LeafSpec(
-                        output: ".claude/hooks/\(file).sh", relative: "hooks/\(file).sh",
-                        name: "\(file).sh"))
+                        output: ".claude/hooks/\(name).sh", relative: "hooks/\(name).sh",
+                        name: "\(name).sh"))
             case .skill:
-                let subs = overrides.unionFileNamesRecursive(inRelativeDir: "skills/\(file)")
+                let subs = overrides.unionFileNamesRecursive(inRelativeDir: "skills/\(name)")
                 let entries = subs.isEmpty ? ["SKILL.md"] : subs
                 for sub in entries {
                     specs.append(
                         LeafSpec(
-                            output: ".claude/skills/\(file)/\(sub)",
-                            relative: "skills/\(file)/\(sub)", name: (sub as NSString).lastPathComponent))
+                            output: ".claude/skills/\(name)/\(sub)",
+                            relative: "skills/\(name)/\(sub)", name: (sub as NSString).lastPathComponent))
                 }
             case .config:
                 specs.append(
-                    LeafSpec(output: ".claude/\(file)", relative: "configs/\(file)", name: file))
+                    LeafSpec(output: ".claude/\(name)", relative: "configs/\(name)", name: name))
             }
         }
         return specs
