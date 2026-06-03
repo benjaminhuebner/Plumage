@@ -135,4 +135,72 @@ struct TemplateManagerModelTests {
         #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/notes.md"))
         #expect(!ctx.model.isOverridden(file))
     }
+
+    // MARK: - Add
+
+    @Test("Adding a doc writes the override, shows it in the tree, and selects it")
+    func addDocAppearsSelected() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        // selection defaults to .base, where adds are allowed.
+        let added = ctx.model.addUserFile(kind: .doc, rawName: "notes")
+
+        let node = try #require(added)
+        #expect(node.relativePath == "docs/notes.md")
+        #expect(ctx.model.selectedFile == node)
+        #expect(ctx.model.contentFiles.contains(node))
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/notes.md"))
+        #expect(try ctx.model.overrides.string(atRelative: "docs/notes.md").hasPrefix("# notes"))
+    }
+
+    @Test("A colliding name suffix-walks instead of overwriting")
+    func addCollisionSuffixWalks() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+
+        let first = try #require(ctx.model.addUserFile(kind: .doc, rawName: "notes"))
+        let second = try #require(ctx.model.addUserFile(kind: .doc, rawName: "notes"))
+
+        #expect(first.relativePath == "docs/notes.md")
+        #expect(second.relativePath == "docs/notes-1.md")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/notes.md"))
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/notes-1.md"))
+    }
+
+    @Test("Adding a skill authors a SKILL.md folder")
+    func addSkillFolder() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+
+        let node = try #require(ctx.model.addUserFile(kind: .skill, rawName: "my-skill"))
+        #expect(node.relativePath == "skills/my-skill/SKILL.md")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "skills/my-skill/SKILL.md"))
+    }
+
+    @Test("An invalid name is rejected and writes nothing")
+    func addRejectsInvalidName() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+
+        #expect(ctx.model.addUserFile(kind: .doc, rawName: "..") == nil)
+        #expect(ctx.model.addUserFile(kind: .doc, rawName: "   ") == nil)
+        // A slash collapses to a hyphen, so the name can never escape its folder.
+        let slashy = try #require(ctx.model.addUserFile(kind: .doc, rawName: "a/b"))
+        #expect(slashy.relativePath == "docs/a-b.md")
+    }
+
+    @Test("Add is offered only on Base, not templates or shared components")
+    func addableKindsGating() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+
+        ctx.model.selection = .base
+        #expect(ctx.model.addableKinds == [.hook, .skill, .doc, .script, .agent])
+
+        ctx.model.selection = .template("anything")
+        #expect(ctx.model.addableKinds.isEmpty)
+
+        ctx.model.selection = .sharedComponent("anything")
+        #expect(ctx.model.addableKinds.isEmpty)
+    }
 }

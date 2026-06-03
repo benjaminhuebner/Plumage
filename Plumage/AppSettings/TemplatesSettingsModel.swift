@@ -47,14 +47,18 @@ final class TemplatesSettingsModel {
         }
 
         // Singular noun for the "Add …" affordance, empty for non-addable kinds.
-        var addNoun: String {
+        var addNoun: String { userTemplateKind?.addNoun ?? "" }
+
+        // The shared user-authorable kind this category maps to, or nil for the
+        // non-addable (manifest-defined) categories.
+        var userTemplateKind: UserTemplateKind? {
             switch self {
-            case .agents: return "Agent"
-            case .docs: return "Doc"
-            case .plumageScripts: return "Script"
-            case .skills: return "Skill"
-            case .hooks: return "Hook"
-            default: return ""
+            case .agents: return .agent
+            case .docs: return .doc
+            case .plumageScripts: return .script
+            case .skills: return .skill
+            case .hooks: return .hook
+            default: return nil
             }
         }
 
@@ -353,15 +357,8 @@ final class TemplatesSettingsModel {
         return overrideRoot.appending(path: "skills/\(comps[1])", directoryHint: .isDirectory)
     }
 
-    // Slashes collapse to `-` and `.`/`..`/control chars are rejected so the name can
-    // never escape its category folder or resolve to an odd spot under the override root.
     private static func sanitizedName(from raw: String) -> String? {
-        let collapsed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "/", with: "-")
-        guard !collapsed.isEmpty, collapsed != ".", collapsed != "..",
-            collapsed.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
-        else { return nil }
-        return collapsed
+        UserTemplateKind.sanitizedName(from: raw)
     }
 
     // The override relative path and starter content for a new user item, or nil for
@@ -369,30 +366,16 @@ final class TemplatesSettingsModel {
     private static func newTemplatePlan(
         category: Category, sanitizedName: String
     ) -> (relativePath: String, starter: String)? {
-        switch category {
-        case .agents:
-            let file = sanitizedName.hasSuffix(".md") ? sanitizedName : sanitizedName + ".md"
-            return ("agents/\(file)", "# \(String(file.dropLast(3)))\n\nDescribe what this agent does.\n")
-        case .docs:
-            let file = sanitizedName.hasSuffix(".md") ? sanitizedName : sanitizedName + ".md"
-            return ("docs/\(file)", "# \(String(file.dropLast(3)))\n\n")
-        case .plumageScripts:
-            let shebang = sanitizedName.hasSuffix(".py") ? "#!/usr/bin/env python3\n" : "#!/bin/sh\n"
-            return ("plumage/\(sanitizedName)", shebang)
-        case .skills:
-            return ("skills/\(sanitizedName)/SKILL.md", Self.skillStarter(name: sanitizedName))
-        case .hooks:
-            let base = sanitizedName.hasSuffix(".sh") ? String(sanitizedName.dropLast(3)) : sanitizedName
-            return ("hooks/\(base).sh", "#!/bin/sh\n")
-        default:
-            return nil
-        }
+        guard let kind = category.userTemplateKind else { return nil }
+        let relativePath = kind.relativePath(forSanitized: sanitizedName)
+        let leaf = (relativePath as NSString).lastPathComponent
+        // A skill seeds its SKILL.md from the folder name, not the literal "SKILL.md".
+        let starterLeaf = kind == .skill ? sanitizedName : leaf
+        return (relativePath, kind.starter(forLeaf: starterLeaf))
     }
 
-    // The hook base name (toggle key / wiring name) for a `hooks/<name>.sh` path.
     private static func hookBaseName(forRelativePath rel: String) -> String? {
-        guard rel.hasPrefix("hooks/"), rel.hasSuffix(".sh") else { return nil }
-        return String(rel.dropFirst("hooks/".count).dropLast(".sh".count))
+        UserTemplateKind.hookBaseName(forRelativePath: rel)
     }
 
     private func persistWiring(_ wiring: HookWiring) {
@@ -407,19 +390,6 @@ final class TemplatesSettingsModel {
         try? FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? hookWirings.save(to: storeURL)
-    }
-
-    private static func skillStarter(name: String) -> String {
-        """
-        ---
-        name: \(name)
-        description: Describe when this skill should be used.
-        ---
-
-        # \(name)
-
-        Describe what this skill does.
-        """ + "\n"
     }
 
     private func refreshOverrideStatus(for relativePath: String) {

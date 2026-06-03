@@ -169,6 +169,53 @@ final class TemplateManagerModel {
             })
     }
 
+    // MARK: - Add
+
+    // The kinds the user can author under the current selection. Only Base offers an
+    // Add affordance: its surfaces (hooks, skills, docs, scripts, agents) are unioned
+    // by the scaffolder without manifest membership. A template's layers and a shared
+    // component's files are manifest membership — adding/removing those is #00069.
+    var addableKinds: [UserTemplateKind] {
+        selection == .base ? [.hook, .skill, .doc, .script, .agent] : []
+    }
+
+    // Author a new override file of `kind`, seeded with its starter, suffix-walking
+    // on collision and validating containment via `ClaudeProjectFiles`. The new file
+    // is selected for editing. Returns the created node (so a hook add can raise the
+    // wiring sheet), or nil on an invalid name / no override store / write failure.
+    @discardableResult
+    func addUserFile(kind: UserTemplateKind, rawName: String) -> FileNode? {
+        guard let name = UserTemplateKind.sanitizedName(from: rawName),
+            let overrideRoot = overrides.overrideRoot
+        else { return nil }
+        let parent = overrideRoot.appending(path: kind.directory, directoryHint: .isDirectory)
+        do {
+            let createdRelativePath: String
+            if kind.isFolder {
+                let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
+                let skillMd = dir.appending(path: "SKILL.md")
+                try kind.starter(forLeaf: dir.lastPathComponent)
+                    .write(to: skillMd, atomically: true, encoding: .utf8)
+                createdRelativePath = "\(kind.directory)/\(dir.lastPathComponent)/SKILL.md"
+            } else {
+                let url = try ClaudeProjectFiles.createFileAt(
+                    parent: parent, name: kind.fileName(forSanitized: name))
+                try kind.starter(forLeaf: url.lastPathComponent)
+                    .write(to: url, atomically: true, encoding: .utf8)
+                createdRelativePath = "\(kind.directory)/\(url.lastPathComponent)"
+            }
+            refreshContent()
+            let node = contentFiles.first { $0.relativePath == createdRelativePath }
+            if let node {
+                selectedFile = node
+                beginEditing(node)
+            }
+            return node
+        } catch {
+            return nil
+        }
+    }
+
     var selectionTitle: String {
         switch selection {
         case .base: catalog.base.name
@@ -194,21 +241,30 @@ final class TemplateManagerModel {
         }
     }
 
+    // Base contributes the global scaffold surfaces. Beyond the bundled CLAUDE.md,
+    // workflow hooks and issue template, it unions the user-authorable directories
+    // (the scaffolder unions these too), so a file added here shows up immediately.
     private func baseFileNodes() -> [FileNode] {
         var nodes: [FileNode] = []
-        if let claudeMd = fileNode(relative: catalog.base.claudeMdRelativePath) { nodes.append(claudeMd) }
-        for hook in catalog.base.workflowHooks {
-            if let node = fileNode(relative: "hooks/\(hook).sh") { nodes.append(node) }
+        var seen = Set<String>()
+        func add(_ relative: String, displayName: String? = nil) {
+            guard !seen.contains(relative),
+                let node = fileNode(relative: relative, displayName: displayName)
+            else { return }
+            seen.insert(relative)
+            nodes.append(node)
         }
-        if let issueTemplate = fileNode(relative: "issues/_TEMPLATE.md") { nodes.append(issueTemplate) }
-        for script in overrides.unionFileNames(inRelativeDir: "plumage") {
-            if let node = fileNode(relative: "plumage/\(script)") { nodes.append(node) }
+        add(catalog.base.claudeMdRelativePath)
+        for hook in catalog.base.workflowHooks { add("hooks/\(hook).sh") }
+        for name in overrides.overrideFileNames(inRelativeDir: "hooks") where name.hasSuffix(".sh") {
+            add("hooks/\(name)")
         }
-        for skill in bundledSkillNames() {
-            if let node = fileNode(relative: "skills/\(skill)/SKILL.md", displayName: skill) {
-                nodes.append(node)
-            }
-        }
+        add("issues/_TEMPLATE.md")
+        for script in overrides.unionFileNames(inRelativeDir: "plumage") { add("plumage/\(script)") }
+        for doc in overrides.unionFileNames(inRelativeDir: "docs") { add("docs/\(doc)") }
+        let skillNames = bundledSkillNames() + overrides.overrideSkillDirNames()
+        for skill in skillNames { add("skills/\(skill)/SKILL.md", displayName: skill) }
+        for agent in overrides.overrideFileNames(inRelativeDir: "agents") { add("agents/\(agent)") }
         return nodes
     }
 

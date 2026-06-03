@@ -2,9 +2,10 @@ import SwiftUI
 
 // Middle column: the selected item's files (selectable, drive the right column)
 // plus a read-only membership section. A ● marks a file whose override diverges
-// from the bundled original.
+// from the bundled original. Base offers a "+" to author new files/folders.
 struct TemplateContentColumn: View {
     @Bindable var model: TemplateManagerModel
+    @State private var addKind: UserTemplateKind?
 
     var body: some View {
         List(selection: $model.selectedFile) {
@@ -13,6 +14,7 @@ struct TemplateContentColumn: View {
                     ForEach(model.contentFiles) { node in
                         fileRow(node)
                             .tag(node)
+                            .contextMenu { rowMenu(node) }
                     }
                 }
             }
@@ -37,6 +39,22 @@ struct TemplateContentColumn: View {
             }
         }
         .navigationTitle(model.selectionTitle)
+        .toolbar {
+            if !model.addableKinds.isEmpty {
+                ToolbarItem {
+                    Menu {
+                        addMenu()
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                }
+            }
+        }
+        .sheet(item: $addKind) { kind in
+            TemplateAddSheet(kind: kind) { name in
+                model.addUserFile(kind: kind, rawName: name) != nil
+            }
+        }
     }
 
     private func fileRow(_ node: FileNode) -> some View {
@@ -49,6 +67,28 @@ struct TemplateContentColumn: View {
                     .foregroundStyle(Color.accentColor)
                     .accessibilityLabel("Overridden")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func addMenu() -> some View {
+        ForEach(model.addableKinds) { kind in
+            Button("Add \(kind.addNoun)…") { addKind = kind }
+        }
+    }
+
+    @ViewBuilder
+    private func rowMenu(_ node: FileNode) -> some View {
+        if !model.addableKinds.isEmpty {
+            addMenu()
+            Divider()
+        }
+        Button("Reveal in Finder") {
+            NSWorkspace.shared.activateFileViewerSelecting([node.url])
+        }
+        if model.isUserAuthored(node) {
+            Divider()
+            Button("Delete", role: .destructive) { model.delete(node) }
         }
     }
 }
