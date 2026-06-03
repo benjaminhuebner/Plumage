@@ -58,12 +58,12 @@ struct TemplateCatalogSidebar: View {
             categoryHeader(category)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .background {
+                .overlay {
                     // A section header isn't a list row (no `listRowBackground`), so the
-                    // empty-category drop target keeps a matching rounded accent fill.
+                    // empty-category drop target gets the same rounded accent outline.
                     if dropTargetCategoryID == category.id {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.15))
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
                     }
                 }
                 .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
@@ -241,15 +241,16 @@ struct TemplateCatalogSidebar: View {
 }
 
 extension TemplateCatalogSidebar {
-    // The native source-list drop highlight: a full-row, rounded-inset selection-style
-    // fill via `listRowBackground`, matching the macOS list selection shape. `nil` keeps
-    // the default row background.
+    // The native AppKit "drop on a row" feedback (Finder list/source view): a rounded
+    // accent outline around the full row — not a fill — drawn via `listRowBackground` so
+    // it spans the list's row geometry. `nil` keeps the default row background.
     fileprivate func dropRowBackground(active: Bool) -> AnyView? {
         guard active else { return nil }
         return AnyView(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.accentColor.opacity(0.15))
-                .padding(.horizontal, 8))
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1))
     }
 }
 

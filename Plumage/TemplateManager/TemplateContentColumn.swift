@@ -205,14 +205,15 @@ struct TemplateContentColumn: View {
 }
 
 extension TemplateContentColumn {
-    // The native source-list drop highlight: a full-row, rounded-inset selection-style
-    // fill via `listRowBackground`, matching the macOS list selection shape instead of a
-    // hand-drawn inner box. `nil` keeps the default row background.
+    // The native AppKit "drop on a row" feedback (Finder list view): a rounded accent
+    // outline around the full row — not a fill — drawn via `listRowBackground` so it spans
+    // the list's row geometry. `nil` keeps the default row background.
     fileprivate func dropRowBackground(active: Bool) -> AnyView? {
         guard active else { return nil }
         return AnyView(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.accentColor.opacity(0.15))
-                .padding(.horizontal, 8))
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1))
     }
 }
