@@ -124,10 +124,19 @@ struct TemplateContentColumn: View {
     private var floatingDragRow: some View {
         if drag.isActive, let node = drag.sourceNode {
             TemplateTreeRowLabel(node: node, model: model, depth: 0, selected: false)
-                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .padding(.horizontal, 10)
                 .frame(width: max(drag.sourceFrame.width, 1), alignment: .leading)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.1))
+                )
+                .shadow(color: .black.opacity(0.28), radius: 12, y: 5)
+                .scaleEffect(1.04)
                 .offset(
                     x: drag.sourceFrame.minX + drag.translation.width,
                     y: drag.sourceFrame.minY + drag.translation.height
