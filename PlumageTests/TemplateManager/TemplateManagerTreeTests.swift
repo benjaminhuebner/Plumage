@@ -70,6 +70,42 @@ struct TemplateManagerTreeTests {
         #expect(!ctx.model.aggregateNeedsWiring(docs))  // docs has no hooks
     }
 
+    @Test("An arbitrary file is created in the selected folder and keeps its literal name")
+    func addArbitraryFileInFolder() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        try ctx.model.overrides.writeOverride("# Guide", toRelative: "docs/guide.md")
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        let docs = try #require(
+            child(child(ctx.model.contentTree, named: ".claude")?.children ?? [], named: "docs"))
+        ctx.model.selectedFile = docs
+
+        let node = try #require(ctx.model.addUserFile(kind: .file, rawName: ".editorconfig"))
+        #expect(node.relativePath == "docs/.editorconfig")  // literal name, no .md appended
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/.editorconfig"))
+    }
+
+    @Test("An empty folder is created relative to the selection and appears in the tree")
+    func addEmptyFolder() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        try ctx.model.overrides.writeOverride("# Guide", toRelative: "docs/guide.md")
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        let docs = try #require(
+            child(child(ctx.model.contentTree, named: ".claude")?.children ?? [], named: "docs"))
+        ctx.model.selectedFile = docs
+
+        let node = try #require(ctx.model.addUserFile(kind: .folder, rawName: "drafts"))
+        #expect(node.isDirectory)
+        #expect(node.relativePath == ".claude/docs/drafts")
+        // The empty folder is enumerated and shows in the rebuilt tree.
+        let claude = try #require(child(ctx.model.contentTree, named: ".claude"))
+        let docsAfter = try #require(child(claude.children ?? [], named: "docs"))
+        #expect(child(docsAfter.children ?? [], named: "drafts") != nil)
+    }
+
     @Test("Flattened leaves cover every file and exclude directory nodes")
     func flattenedLeaves() throws {
         let ctx = try makeModel()

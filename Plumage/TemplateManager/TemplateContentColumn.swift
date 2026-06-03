@@ -134,16 +134,20 @@ struct TemplateContentColumn: View {
     }
 
     @ViewBuilder
-    private func addMenu() -> some View {
+    private func addMenu(into target: FileNode? = nil) -> some View {
         ForEach(model.addableKinds) { kind in
-            Button("Add \(kind.addNoun)…") { addKind = kind }
+            Button("Add \(kind.addNoun)…") {
+                // A row's menu targets that row; the toolbar menu uses the selection.
+                if let target { model.selectedFile = target }
+                addKind = kind
+            }
         }
     }
 
     @ViewBuilder
     private func rowMenu(_ node: FileNode) -> some View {
         if !model.addableKinds.isEmpty {
-            addMenu()
+            addMenu(into: node)
             Divider()
         }
         if !node.isDirectory {

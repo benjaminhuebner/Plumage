@@ -197,13 +197,13 @@ nonisolated struct ScaffoldOverrides: Sendable {
         let dir = overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
         guard
             let enumerator = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles])
+                at: dir, includingPropertiesForKeys: [.isRegularFileKey])
         else { return [] }
         let base = dir.standardizedFileURL.path + "/"
         var result: [String] = []
         for case let url as URL in enumerator {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                !Self.isNoise(url.lastPathComponent)
             else { continue }
             result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
         }
@@ -220,16 +220,34 @@ nonisolated struct ScaffoldOverrides: Sendable {
         return names.sorted()
     }
 
+    // All sub-directory relative paths in the override store (recursive, sorted), so
+    // the content tree can show user-created folders even when they are still empty.
+    func overrideDirectoryPaths() -> [String] {
+        guard let overrideRoot else { return [] }
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: overrideRoot, includingPropertiesForKeys: [.isDirectoryKey])
+        else { return [] }
+        let base = overrideRoot.standardizedFileURL.path + "/"
+        var result: [String] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            else { continue }
+            result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
+        }
+        return result.sorted()
+    }
+
     private static func regularFileNamesRecursive(in dir: URL) -> [String] {
         guard
             let enumerator = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles])
+                at: dir, includingPropertiesForKeys: [.isRegularFileKey])
         else { return [] }
         let base = dir.standardizedFileURL.path + "/"
         var result: [String] = []
         for case let url as URL in enumerator {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                !Self.isNoise(url.lastPathComponent)
             else { continue }
             result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
         }
@@ -237,13 +255,18 @@ nonisolated struct ScaffoldOverrides: Sendable {
     }
 
     private static func regularFileNames(in dir: URL) -> [String] {
+        // Hidden files are kept (dotfiles like `.editorconfig` are real project files)
+        // except the macOS `.DS_Store` noise file.
         let contents =
             (try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles])) ?? []
+                at: dir, includingPropertiesForKeys: [.isRegularFileKey])) ?? []
         return
             contents
             .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
             .map(\.lastPathComponent)
+            .filter { !Self.isNoise($0) }
     }
+
+    // macOS metadata that should never appear in the tree or scaffold output.
+    static func isNoise(_ fileName: String) -> Bool { fileName == ".DS_Store" }
 }

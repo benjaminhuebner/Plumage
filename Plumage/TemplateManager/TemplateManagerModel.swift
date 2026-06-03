@@ -428,51 +428,74 @@ final class TemplateManagerModel {
 
     // MARK: - Add
 
-    // The kinds the user can author under the current selection. Only Base offers an
-    // Add affordance: its surfaces (hooks, skills, docs, scripts, agents) are unioned
-    // by the scaffolder without manifest membership. A template's layers and a shared
-    // component's files are manifest membership — adding/removing those is #00069.
+    // The kinds the user can author. Offered on Base, where the content tree is a real
+    // file manager. Typed kinds (hook/skill/doc/script/agent) land in their canonical
+    // store directory; typeless `.file`/`.folder` land relative to the selected tree
+    // folder. Templates and shared components show membership-driven fragments, so
+    // they offer no free-form add (that is #00069's manifest membership).
     var addableKinds: [UserTemplateKind] {
-        selection == .base ? [.hook, .skill, .doc, .script, .agent] : []
+        selection == .base ? [.hook, .skill, .doc, .script, .agent, .file, .folder] : []
     }
 
-    // Author a new override file of `kind`, seeded with its starter, suffix-walking
-    // on collision and validating containment via `ClaudeProjectFiles`. The new file
-    // is selected for editing. Returns the created node (so a hook add can raise the
-    // wiring sheet), or nil on an invalid name / no override store / write failure.
+    // The override-store directory a new typeless item is created in: the selected
+    // folder, or the selected file's parent, or the store root when nothing is selected.
+    func addTargetStorageDir() -> String {
+        guard let selectedFile else { return "" }
+        if selectedFile.isDirectory { return Self.storageDir(forOutputFolder: selectedFile.relativePath) }
+        return (selectedFile.relativePath as NSString).deletingLastPathComponent
+    }
+
+    // Author a new override item of `kind`, seeded with its starter, suffix-walking on
+    // collision and validating containment via `ClaudeProjectFiles`. The new item is
+    // selected. Returns the created node (so a hook add can raise the wiring sheet), or
+    // nil on an invalid name / no override store / write failure.
     @discardableResult
     func addUserFile(kind: UserTemplateKind, rawName: String) -> FileNode? {
         guard let name = UserTemplateKind.sanitizedName(from: rawName),
             let overrideRoot = overrides.overrideRoot
         else { return nil }
-        let parent = overrideRoot.appending(path: kind.directory, directoryHint: .isDirectory)
+        let baseDir = kind.usesTargetDirectory ? addTargetStorageDir() : kind.directory
+        let parent =
+            baseDir.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: baseDir, directoryHint: .isDirectory)
+        func storagePath(_ leaf: String) -> String { baseDir.isEmpty ? leaf : "\(baseDir)/\(leaf)" }
         do {
-            let createdRelativePath: String
-            if kind.isFolder {
+            switch kind {
+            case .skill:
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
-                let skillMd = dir.appending(path: "SKILL.md")
-                try kind.starter(forLeaf: dir.lastPathComponent)
-                    .write(to: skillMd, atomically: true, encoding: .utf8)
-                createdRelativePath = "\(kind.directory)/\(dir.lastPathComponent)/SKILL.md"
-            } else {
-                let url = try ClaudeProjectFiles.createFileAt(
-                    parent: parent, name: kind.fileName(forSanitized: name))
-                try kind.starter(forLeaf: url.lastPathComponent)
-                    .write(to: url, atomically: true, encoding: .utf8)
-                createdRelativePath = "\(kind.directory)/\(url.lastPathComponent)"
-            }
-            refreshContent()
-            let node = contentFiles.first { $0.relativePath == createdRelativePath }
-            if let node {
+                try kind.starter(forLeaf: dir.lastPathComponent).write(
+                    to: dir.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+                return selectCreatedFile(storagePath: storagePath("\(dir.lastPathComponent)/SKILL.md"), kind: kind)
+            case .folder:
+                let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
+                refreshContent()
+                let node = Self.outputPath(forStorageDir: storagePath(dir.lastPathComponent))
+                    .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
                 selectedFile = node
                 beginEditing(node)
-                // Adding a hook raises the wiring sheet so it does not scaffold inert.
-                if kind == .hook { pendingHookWiring = node }
+                return node
+            default:
+                let url = try ClaudeProjectFiles.createFileAt(
+                    parent: parent, name: kind.fileName(forSanitized: name))
+                try kind.starter(forLeaf: url.lastPathComponent).write(
+                    to: url, atomically: true, encoding: .utf8)
+                return selectCreatedFile(storagePath: storagePath(url.lastPathComponent), kind: kind)
             }
-            return node
         } catch {
             return nil
         }
+    }
+
+    private func selectCreatedFile(storagePath: String, kind: UserTemplateKind) -> FileNode? {
+        refreshContent()
+        let node = contentFiles.first { $0.relativePath == storagePath }
+        if let node {
+            selectedFile = node
+            beginEditing(node)
+            // Adding a hook raises the wiring sheet so it does not scaffold inert.
+            if kind == .hook { pendingHookWiring = node }
+        }
+        return node
     }
 
     var selectionTitle: String {

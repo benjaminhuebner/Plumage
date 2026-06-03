@@ -23,10 +23,40 @@ extension TemplateManagerModel {
             }
             // Generated configs always show (even with no override yet).
             leaves += ManagerConfig.allCases.map { ($0.relativePath, configNode($0)) }
-            return Self.assembleTree(leaves: leaves, bundledRoot: overrides.bundledRoot)
+            // User-created (possibly empty) folders show at their output positions.
+            let directories = overrides.overrideDirectoryPaths().compactMap(Self.outputPath(forStorageDir:))
+            return Self.assembleTree(
+                leaves: leaves, directories: directories, bundledRoot: overrides.bundledRoot)
         case .sharedComponent, .template:
             return fileNodesForFragments(item)
         }
+    }
+
+    // MARK: - Output ⇄ override-store path mapping
+
+    // The override-store directory new items created/dropped in an output folder are
+    // written to. `.claude/<x>` and `.plumage/scripts` fold back to their store dirs;
+    // the project root and the bare `.claude`/`.plumage` nodes map to the store root.
+    static func storageDir(forOutputFolder output: String) -> String {
+        if output == ".plumage/scripts" { return "plumage" }
+        if output.hasPrefix(".plumage/scripts/") {
+            return "plumage/" + output.dropFirst(".plumage/scripts/".count)
+        }
+        if output.hasPrefix(".claude/") { return String(output.dropFirst(".claude/".count)) }
+        return ""
+    }
+
+    // The output position a stored directory shows at, or nil for store dirs that are
+    // not Base surfaces (template layers, gitignore fragments, imported images).
+    static func outputPath(forStorageDir storage: String) -> String? {
+        let first = storage.split(separator: "/").first.map(String.init) ?? storage
+        if ["templates", "template-images", "configs"].contains(first) { return nil }
+        if first == "plumage" {
+            return storage == "plumage"
+                ? ".plumage/scripts" : ".plumage/scripts/" + storage.dropFirst("plumage/".count)
+        }
+        if ["hooks", "docs", "skills", "agents", "issues"].contains(first) { return ".claude/\(storage)" }
+        return storage  // arbitrary store-root directory → project root
     }
 
     // The flat list of leaves the content column derives its selection from — every
@@ -37,6 +67,20 @@ extension TemplateManagerModel {
             if let children = node.children { return flattenLeaves(children) }
             return [node]
         }
+    }
+
+    // Depth-first search for a node by its `relativePath` (a leaf's store path or a
+    // folder's output path), used to re-select a freshly created item.
+    static func findNode(in nodes: [FileNode], relativePath: String) -> FileNode? {
+        for node in nodes {
+            if node.relativePath == relativePath { return node }
+            if let children = node.children,
+                let found = findNode(in: children, relativePath: relativePath)
+            {
+                return found
+            }
+        }
+        return nil
     }
 
     // MARK: - Folder marker aggregation
@@ -121,7 +165,9 @@ extension TemplateManagerModel {
     // (with its override-store `relativePath`) at its output position. Within a level,
     // files sort before folders, each alphabetically — so root configs sit above the
     // `.claude/` subtree (D2).
-    static func assembleTree(leaves: [(output: String, node: FileNode)], bundledRoot: URL) -> [FileNode] {
+    static func assembleTree(
+        leaves: [(output: String, node: FileNode)], directories: [String] = [], bundledRoot: URL
+    ) -> [FileNode] {
         final class Builder {
             var children: [String: Builder] = [:]
             var order: [String] = []
@@ -142,6 +188,13 @@ extension TemplateManagerModel {
             var cursor = root
             for component in components.dropLast() { cursor = cursor.child(component) }
             cursor.child(components[components.count - 1]).leaf = node
+        }
+        // Ensure user-created (possibly empty) folders exist even with no leaf inside.
+        for directory in directories {
+            var cursor = root
+            for component in directory.split(separator: "/").map(String.init) {
+                cursor = cursor.child(component)
+            }
         }
 
         func convert(_ builder: Builder, prefix: String) -> [FileNode] {

@@ -197,7 +197,7 @@ struct TemplateManagerModelTests {
         defer { ctx.cleanup() }
 
         ctx.model.selection = .base
-        #expect(ctx.model.addableKinds == [.hook, .skill, .doc, .script, .agent])
+        #expect(ctx.model.addableKinds == [.hook, .skill, .doc, .script, .agent, .file, .folder])
 
         ctx.model.selection = .template("anything")
         #expect(ctx.model.addableKinds.isEmpty)
