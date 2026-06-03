@@ -6,6 +6,9 @@ import SwiftUI
 struct TemplateContentColumn: View {
     @Bindable var model: TemplateManagerModel
     @State private var addKind: UserTemplateKind?
+    // The relativePath of the row a drag is currently hovering, so exactly one row
+    // shows the accent drop highlight (one shared bit beats per-row @State here).
+    @State private var targetedPath: String?
 
     var body: some View {
         List(selection: $model.selectedFile) {
@@ -13,8 +16,20 @@ struct TemplateContentColumn: View {
                 Section("Files") {
                     OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
                         fileRow(node)
+                            .contentShape(Rectangle())
+                            .dropHighlight(targetedPath == node.relativePath)
                             .tag(node)
                             .contextMenu { rowMenu(node) }
+                            .draggable(FileTreeDragPayload(url: node.url))
+                            .dropDestination(for: DroppableTreeItem.self) { items, _ in
+                                handleContentDrop(items, onto: node)
+                            } isTargeted: { targeted in
+                                if targeted {
+                                    targetedPath = node.relativePath
+                                } else if targetedPath == node.relativePath {
+                                    targetedPath = nil
+                                }
+                            }
                     }
                 }
             }
@@ -109,6 +124,25 @@ struct TemplateContentColumn: View {
         }
     }
 
+    // A drop onto a row: internal nodes move into the row's folder, Finder URLs import
+    // there. Mixed payloads are split (mirrors the Navigator's `handleDrop`). Drops on
+    // the empty list background fall through to the list-wide Finder import.
+    private func handleContentDrop(_ items: [DroppableTreeItem], onto node: FileNode) -> Bool {
+        guard !items.isEmpty else { return false }
+        var finderURLs: [URL] = []
+        var moveSources: [FileNode] = []
+        for item in items {
+            switch item {
+            case .finderURL(let url): finderURLs.append(url)
+            case .internalNode(let payload):
+                if let source = model.contentNode(forURL: payload.url) { moveSources.append(source) }
+            }
+        }
+        if !moveSources.isEmpty { model.moveNodes(moveSources, into: node) }
+        if !finderURLs.isEmpty { model.importDropped(urls: finderURLs, into: node) }
+        return !moveSources.isEmpty || !finderURLs.isEmpty
+    }
+
     private func fileRow(_ node: FileNode) -> some View {
         let needsWiring = node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
         let overridden = node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
@@ -166,6 +200,18 @@ struct TemplateContentColumn: View {
                 Divider()
                 Button("Delete", role: .destructive) { model.requestDelete(node) }
             }
+        }
+    }
+}
+
+extension View {
+    // Accent-tinted rounded background drawn while a drag hovers over a drop target,
+    // so the user sees exactly which row will receive the drop.
+    @ViewBuilder
+    fileprivate func dropHighlight(_ active: Bool) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.accentColor.opacity(active ? 0.20 : 0))
         }
     }
 }

@@ -383,12 +383,12 @@ final class TemplateManagerModel {
     // skill (routed to `skills/`) so it scaffolds correctly. A failed copy is surfaced
     // in a banner. Returns whether anything was imported.
     @discardableResult
-    func importDropped(urls: [URL]) -> Bool {
+    func importDropped(urls: [URL], into target: FileNode? = nil) -> Bool {
         guard let overrideRoot = overrides.overrideRoot else {
             showDropBanner("No override store is available.")
             return false
         }
-        let targetDir = addTargetStorageDir()
+        let targetDir = addTargetStorageDir(for: target)
         let fileManager = FileManager.default
         var first: (storage: String, isDirectory: Bool)?
         var importedStoragePaths: Set<String> = []
@@ -607,12 +607,27 @@ final class TemplateManagerModel {
         persist(updated)
     }
 
-    // The override-store directory a new typeless item is created in: the selected
-    // folder, or the selected file's parent, or the store root when nothing is selected.
-    func addTargetStorageDir() -> String {
-        guard let selectedFile else { return "" }
-        if selectedFile.isDirectory { return Self.storageDir(forOutputFolder: selectedFile.relativePath) }
-        return (selectedFile.relativePath as NSString).deletingLastPathComponent
+    // The override-store directory a new/dropped item lands in: the given node (a
+    // dropped-on row) or the current selection — a folder targets itself, a file its
+    // parent, and nothing selected the store root.
+    func addTargetStorageDir(for node: FileNode? = nil) -> String {
+        guard let ref = node ?? selectedFile else { return "" }
+        if ref.isDirectory { return Self.storageDir(forOutputFolder: ref.relativePath) }
+        return (ref.relativePath as NSString).deletingLastPathComponent
+    }
+
+    // The content-tree node carrying `url` (a folder's synthetic output URL or a file
+    // leaf's resolved override/bundled URL), used to map a drag payload back to its node.
+    func contentNode(forURL url: URL) -> FileNode? {
+        let target = url.standardizedFileURL.path
+        func search(_ nodes: [FileNode]) -> FileNode? {
+            for node in nodes {
+                if node.url.standardizedFileURL.path == target { return node }
+                if let children = node.children, let found = search(children) { return found }
+            }
+            return nil
+        }
+        return search(contentTree)
     }
 
     // Author a new override item of `kind`, seeded with its starter, suffix-walking on
