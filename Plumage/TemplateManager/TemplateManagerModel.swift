@@ -47,15 +47,28 @@ final class TemplateManagerModel {
     private(set) var editorReloadToken = 0
     private var pendingResetPath: String?
 
+    // A hook file the user just added/imported that has no wiring yet: presenting
+    // this raises the wiring sheet. Also set by the "Edit wiring…" action.
+    var pendingHookWiring: FileNode?
+
     private let store: TemplateCatalogStore
     let overrides: ScaffoldOverrides
 
+    // Trigger metadata for user-authored hooks, persisted so a later scaffold wires
+    // them into `settings.json`. Injectable for hermetic tests.
+    private let hookWiringStoreURL: URL?
+    private var hookWirings: HookWiringStore
+
     init(
         store: TemplateCatalogStore = TemplateCatalogStore(),
-        overrides: ScaffoldOverrides = .standard(bundledRoot: NewProjectAssets.bundledRoot)
+        overrides: ScaffoldOverrides = .standard(bundledRoot: NewProjectAssets.bundledRoot),
+        hookWiringStoreURL: URL? = nil
     ) {
         self.store = store
         self.overrides = overrides
+        let storeURL = hookWiringStoreURL ?? (try? HookWiringStore.standardURL())
+        self.hookWiringStoreURL = storeURL
+        self.hookWirings = storeURL.flatMap { try? HookWiringStore.load(from: $0) } ?? HookWiringStore()
     }
 
     func load() async {
@@ -150,9 +163,14 @@ final class TemplateManagerModel {
     }
 
     // Delete a user-authored file: remove its override and drop it from the tree. A
-    // no-op for bundled-backed files (those reset, they don't delete).
+    // user hook drops its wiring too, so the next scaffold removes it from
+    // settings.json as well. A no-op for bundled-backed files (those reset).
     func delete(_ file: FileNode) {
         guard isUserAuthored(file) else { return }
+        if let base = UserTemplateKind.hookBaseName(forRelativePath: file.relativePath) {
+            hookWirings.remove(named: base)
+            saveHookWirings()
+        }
         try? overrides.removeOverride(forRelative: file.relativePath)
         overriddenPaths.remove(file.relativePath)
         if selectedFile == file {
@@ -160,6 +178,43 @@ final class TemplateManagerModel {
             beginEditing(nil)
         }
         refreshContent()
+    }
+
+    // MARK: - Hook wiring
+
+    func isHook(_ file: FileNode) -> Bool {
+        UserTemplateKind.hookBaseName(forRelativePath: file.relativePath) != nil
+    }
+
+    func wiring(forHook file: FileNode) -> HookWiring? {
+        guard let base = UserTemplateKind.hookBaseName(forRelativePath: file.relativePath)
+        else { return nil }
+        return hookWirings.wiring(named: base)
+    }
+
+    // A hook authored or imported but not yet wired is inert; the row flags it so the
+    // user can wire it (e.g. after cancelling the sheet on add).
+    func needsWiring(_ file: FileNode) -> Bool {
+        isHook(file) && wiring(forHook: file) == nil
+    }
+
+    func saveWiring(forHook file: FileNode, event: HookEvent, matcher: String?) {
+        guard let base = UserTemplateKind.hookBaseName(forRelativePath: file.relativePath)
+        else { return }
+        let trimmed = matcher?.trimmingCharacters(in: .whitespacesAndNewlines)
+        hookWirings.upsert(
+            HookWiring(
+                name: base, event: event, matcher: (trimmed?.isEmpty ?? true) ? nil : trimmed))
+        saveHookWirings()
+    }
+
+    // Creates the store directory first so a save before any other write lands
+    // cleanly (mirrors `TemplatesSettingsModel`).
+    private func saveHookWirings() {
+        guard let url = hookWiringStoreURL else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? hookWirings.save(to: url)
     }
 
     private func refreshOverriddenPaths() {
@@ -200,6 +255,7 @@ final class TemplateManagerModel {
         }
         let fileManager = FileManager.default
         var firstRelativePath: String?
+        var importedPaths: Set<String> = []
         var rejected: [String] = []
         for url in urls {
             guard let plan = Self.dropPlan(for: url) else {
@@ -220,6 +276,7 @@ final class TemplateManagerModel {
                     plan.isSkill
                     ? "\(plan.directory)/\(target.lastPathComponent)/SKILL.md"
                     : "\(plan.directory)/\(target.lastPathComponent)"
+                importedPaths.insert(relativePath)
                 if firstRelativePath == nil { firstRelativePath = relativePath }
             } catch {
                 rejected.append(url.lastPathComponent)
@@ -231,6 +288,13 @@ final class TemplateManagerModel {
         {
             selectedFile = node
             beginEditing(node)
+        }
+        // An imported hook needs wiring too: raise the sheet for the first unwired one.
+        if let hookNode = contentFiles.first(where: { node in
+            node.relativePath.hasPrefix("hooks/") && importedPaths.contains(node.relativePath)
+                && needsWiring(node)
+        }) {
+            pendingHookWiring = hookNode
         }
         if !rejected.isEmpty {
             showDropBanner("Can't import: \(rejected.joined(separator: ", "))")
@@ -296,6 +360,8 @@ final class TemplateManagerModel {
             if let node {
                 selectedFile = node
                 beginEditing(node)
+                // Adding a hook raises the wiring sheet so it does not scaffold inert.
+                if kind == .hook { pendingHookWiring = node }
             }
             return node
         } catch {

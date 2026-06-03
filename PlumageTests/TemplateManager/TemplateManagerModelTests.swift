@@ -7,19 +7,21 @@ import Testing
 @Suite("TemplateManagerModel editing")
 struct TemplateManagerModelTests {
     private func makeModel() throws -> (
-        model: TemplateManagerModel, bundled: URL, override: URL, cleanup: () -> Void
+        model: TemplateManagerModel, bundled: URL, override: URL, hookStore: URL, cleanup: () -> Void
     ) {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appending(
             path: "TMModel-\(UUID().uuidString)", directoryHint: .isDirectory)
         let bundled = base.appending(path: "bundled", directoryHint: .isDirectory)
         let override = base.appending(path: "override", directoryHint: .isDirectory)
+        let hookStore = base.appending(path: "hook-wirings.json")
         try fm.createDirectory(at: bundled, withIntermediateDirectories: true)
         try fm.createDirectory(at: override, withIntermediateDirectories: true)
         let overrides = ScaffoldOverrides(bundledRoot: bundled, overrideRoot: override)
         let model = TemplateManagerModel(
-            store: TemplateCatalogStore(manifestURL: nil), overrides: overrides)
-        return (model, bundled, override, { try? fm.removeItem(at: base) })
+            store: TemplateCatalogStore(manifestURL: nil), overrides: overrides,
+            hookWiringStoreURL: hookStore)
+        return (model, bundled, override, hookStore, { try? fm.removeItem(at: base) })
     }
 
     private func writeBundled(_ contents: String, rel: String, root: URL) throws {
@@ -269,5 +271,61 @@ struct TemplateManagerModelTests {
         #expect(!imported)
         #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
         #expect(ctx.model.dropBanner != nil)
+    }
+
+    // MARK: - Hook wiring
+
+    @Test("Adding a hook raises the wiring sheet, persists, and scaffolds into settings.json")
+    func hookWiringScaffolds() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-hook"))
+        #expect(node.relativePath == "hooks/my-hook.sh")
+        // Adding a hook raises the wiring sheet and the hook reads as unwired.
+        #expect(ctx.model.pendingHookWiring == node)
+        #expect(ctx.model.needsWiring(node))
+
+        ctx.model.saveWiring(forHook: node, event: .postToolUse, matcher: "Edit|Write")
+        #expect(!ctx.model.needsWiring(node))
+
+        let store = try HookWiringStore.load(from: ctx.hookStore)
+        let withWiring = try SettingsComposer().settingsJSON(for: .macOS, userWirings: store.wirings)
+        // JSONEncoder escapes "/" as "\/", so match the hook file name slash-agnostically.
+        let json = String(decoding: withWiring, as: UTF8.self)
+        #expect(json.contains("my-hook.sh"))
+        #expect(json.contains("Edit|Write"))
+
+        // Without the wiring the command is absent — proving the wiring drives it.
+        let without = try SettingsComposer().settingsJSON(for: .macOS, userWirings: [])
+        #expect(!String(decoding: without, as: UTF8.self).contains("my-hook.sh"))
+    }
+
+    @Test("Edit wiring updates the persisted event and matcher")
+    func editWiring() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-hook"))
+
+        ctx.model.saveWiring(forHook: node, event: .postToolUse, matcher: "Edit|Write")
+        ctx.model.saveWiring(forHook: node, event: .userPromptSubmit, matcher: nil)
+
+        let wiring = try #require(ctx.model.wiring(forHook: node))
+        #expect(wiring.event == .userPromptSubmit)
+        #expect(wiring.matcher == nil)
+    }
+
+    @Test("Deleting a hook removes its file and its wiring")
+    func deleteHookRemovesWiring() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-hook"))
+        ctx.model.saveWiring(forHook: node, event: .postToolUse, matcher: "Edit|Write")
+
+        ctx.model.delete(node)
+
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "hooks/my-hook.sh"))
+        let store = try HookWiringStore.load(from: ctx.hookStore)
+        #expect(store.wiring(named: "my-hook") == nil)
     }
 }

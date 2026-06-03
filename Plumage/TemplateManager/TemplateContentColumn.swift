@@ -70,12 +70,24 @@ struct TemplateContentColumn: View {
                 model.addUserFile(kind: kind, rawName: name) != nil
             }
         }
+        .sheet(item: $model.pendingHookWiring) { hook in
+            HookWiringSheet(hookName: hook.name, initial: model.wiring(forHook: hook)) { event, matcher in
+                model.saveWiring(forHook: hook, event: event, matcher: matcher)
+            }
+        }
     }
 
     private func fileRow(_ node: FileNode) -> some View {
         HStack(spacing: 6) {
             Label(node.name, systemImage: "doc.text")
             Spacer(minLength: 0)
+            if model.needsWiring(node) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .help("This hook is not wired into settings.json yet")
+                    .accessibilityLabel("Needs wiring")
+            }
             if model.isOverridden(node) {
                 Image(systemName: "circle.fill")
                     .font(.system(size: 7))
@@ -100,6 +112,11 @@ struct TemplateContentColumn: View {
         }
         Button("Reveal in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([node.url])
+        }
+        if model.isHook(node) {
+            Button(model.needsWiring(node) ? "Set Wiring…" : "Edit Wiring…") {
+                model.pendingHookWiring = node
+            }
         }
         if model.isUserAuthored(node) {
             Divider()
