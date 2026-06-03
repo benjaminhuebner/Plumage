@@ -29,6 +29,13 @@ struct TemplateCatalogSidebar: View {
                 }
             }
 
+            // Hairline marking the structural boundary: everything above (Base + Shared
+            // Components) is protected — not a category, so not deletable — while the
+            // categories below are. A non-selectable separator row.
+            Divider()
+                .selectionDisabled()
+                .listRowSeparator(.hidden)
+
             ForEach(model.catalog.sortedCategories) { category in
                 categorySection(category)
             }
