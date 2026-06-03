@@ -51,6 +51,18 @@ final class TemplateManagerModel {
     // this raises the wiring sheet. Also set by the "Edit wiring…" action.
     var pendingHookWiring: FileNode?
 
+    // Transient sidebar editing state (mirrors `NavigatorModel.pendingCreate` /
+    // `renaming`). A non-nil `categoryRename` puts that category's header into an
+    // inline `TextField`; "New Category" creates the category then enters rename so
+    // the user types its name immediately (the Finder new-folder idiom).
+    var categoryRename: CategoryRename?
+
+    // A transient (~4 s) banner shown when a structural mutation fails to persist;
+    // the in-memory catalog is rolled back to the last saved state (no half-applied
+    // structure), and this explains why nothing changed.
+    private(set) var structuralError: String?
+    private var structuralErrorTask: Task<Void, Never>?
+
     private let store: TemplateCatalogStore
     let overrides: ScaffoldOverrides
 
@@ -515,6 +527,98 @@ final class TemplateManagerModel {
             CatalogMembership(
                 title: "Included shared components",
                 names: catalog.sharedComponents(forTemplate: id).map(\.name))
+        }
+    }
+}
+
+// Inline-rename session for a sidebar category header. `id` is the category id;
+// `name` is bound by the header's `TextField`.
+struct CategoryRename: Identifiable, Equatable {
+    let id: String
+    var name: String
+}
+
+// MARK: - Structural editing (categories)
+
+extension TemplateManagerModel {
+    // Creates a category, persists it, then enters inline rename so the user names
+    // it right away. A persist failure rolls back and skips rename.
+    func beginAddCategory() {
+        var updated = catalog
+        let created = updated.addCategory(name: "New Category")
+        guard persist(updated) else { return }
+        categoryRename = CategoryRename(id: created.id, name: created.name)
+    }
+
+    func beginRenameCategory(id: String) {
+        guard let category = catalog.category(id: id) else { return }
+        categoryRename = CategoryRename(id: id, name: category.name)
+    }
+
+    func cancelCategoryRename() { categoryRename = nil }
+
+    func commitCategoryRename() {
+        guard let rename = categoryRename else { return }
+        categoryRename = nil
+        var updated = catalog
+        updated.renameCategory(id: rename.id, to: rename.name)
+        guard updated != catalog else { return }
+        persist(updated)
+    }
+
+    // Block-until-empty: never silently orphan a category's templates (spec edge
+    // case default). The user moves or deletes them first.
+    func canDeleteCategory(id: String) -> Bool {
+        catalog.templates(inCategory: id).isEmpty
+    }
+
+    func deleteCategory(id: String) {
+        guard canDeleteCategory(id: id) else {
+            showStructuralError("Move or delete this category's templates before deleting it.")
+            return
+        }
+        var updated = catalog
+        updated.deleteCategory(id: id)
+        persist(updated)
+    }
+
+    func moveCategory(id: String, by offset: Int) {
+        var ids = catalog.sortedCategories.map(\.id)
+        guard let index = ids.firstIndex(of: id) else { return }
+        let target = index + offset
+        guard ids.indices.contains(target) else { return }
+        ids.swapAt(index, target)
+        var updated = catalog
+        updated.reorderCategories(ids)
+        persist(updated)
+    }
+
+    // MARK: - Persistence
+
+    // Applies `updated` in memory, then persists the derived overlay. On a write
+    // failure the in-memory catalog rolls back and a banner explains why — the
+    // window never shows structure that isn't on disk.
+    @discardableResult
+    func persist(_ updated: TemplateCatalog) -> Bool {
+        let previous = catalog
+        catalog = updated
+        do {
+            try store.save(updated)
+            return true
+        } catch {
+            catalog = previous
+            showStructuralError(error.localizedDescription)
+            return false
+        }
+    }
+
+    private func showStructuralError(_ message: String) {
+        structuralErrorTask?.cancel()
+        structuralError = message
+        structuralErrorTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.structuralError = nil
         }
     }
 }
