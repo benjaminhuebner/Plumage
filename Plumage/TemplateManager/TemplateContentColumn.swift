@@ -72,11 +72,14 @@ struct TemplateContentColumn: View {
         .navigationTitle(model.selectionTitle)
         .toolbar {
             if !model.addableKinds.isEmpty {
-                ToolbarItem {
-                    Menu {
-                        addMenu()
-                    } label: {
-                        Label("Add", systemImage: "plus")
+                ToolbarItemGroup {
+                    ForEach(model.addableKinds) { kind in
+                        Button {
+                            addKind = kind
+                        } label: {
+                            Label("Add \(kind.addNoun)", systemImage: kind.sfSymbolName)
+                        }
+                        .help("Add \(kind.addNoun) in the selected folder")
                     }
                 }
             }
