@@ -8,7 +8,9 @@ import Testing
     private func makeModel(
         folder: String = "MyFolder",
         detected: ProjectKind? = nil,
-        isRepo: Bool = false
+        isRepo: Bool = false,
+        // Hermetic by default: resolve to the bundled default, not the user's manifest.
+        store: TemplateCatalogStore = TemplateCatalogStore(manifestURL: nil)
     ) -> MigrateProjectModel {
         let url = URL(filePath: "/tmp/\(folder)", directoryHint: .isDirectory)
         return MigrateProjectModel(
@@ -17,8 +19,18 @@ import Testing
             repoStateReader: RepoStateReader(
                 fileManager: { _ in isRepo },
                 readFile: { _ in isRepo ? "ref: refs/heads/main\n" : nil }),
-            // Hermetic: resolve to the bundled default rather than the user's manifest.
-            store: TemplateCatalogStore(manifestURL: nil))
+            store: store)
+    }
+
+    // A store backed by a temp manifest in which `disabled` templates are turned off.
+    private func storeDisabling(_ disabled: [ProjectKind]) throws -> (TemplateCatalogStore, URL) {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "migrate-manifest-\(UUID().uuidString).json")
+        let store = TemplateCatalogStore(manifestURL: url)
+        var catalog = TemplateCatalog.bundledDefault
+        for kind in disabled { catalog.setTemplateEnabled(id: kind.rawValue, false) }
+        try store.save(catalog)
+        return (store, url)
     }
 
     @Test func nameDefaultsToFolderName() {
@@ -56,6 +68,30 @@ import Testing
         #expect(model.detectedKind == .iOS)
         #expect(model.selectedTemplateID == ProjectKind.iOS.rawValue)
         #expect(model.isGitRepo)
+    }
+
+    @Test func loadMapsDetectedKindToItsPredefinedTemplateID() async {
+        let model = makeModel(detected: .vapor)
+        await model.load()
+        #expect(model.selectedTemplateID == ProjectKind.vapor.rawValue)
+    }
+
+    @Test func loadWithNoDetectionLeavesSelectionEmpty() async {
+        let model = makeModel(detected: nil)
+        await model.load()
+        #expect(model.detectedKind == nil)
+        #expect(model.selectedTemplateID == nil)
+        #expect(model.isTypeStepValid == false)
+    }
+
+    @Test func loadDoesNotPreselectADisabledDetectedTemplate() async throws {
+        let (store, url) = try storeDisabling([.macOS])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let model = makeModel(detected: .macOS, store: store)
+        await model.load()
+        // Detection still records the kind, but a hidden template is never pre-selected.
+        #expect(model.detectedKind == .macOS)
+        #expect(model.selectedTemplateID == nil)
     }
 
     @Test func loadDoesNotOverrideUserChosenKind() async {
