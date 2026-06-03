@@ -271,6 +271,60 @@ struct TemplateCatalogMutationTests {
         #expect(catalog.sharedComponents.allSatisfy { !$0.isMember(template.id) })
     }
 
+    // MARK: - Restore
+
+    @Test("Deleting then restoring a predefined category round-trips")
+    func restoreCategory() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let victim = try #require(catalog.sortedCategories.first)
+
+        catalog.deleteCategory(id: victim.id)
+        #expect(catalog.deletedPredefinedItems().contains { $0.id == victim.id })
+
+        catalog.restore(.category, id: victim.id)
+        #expect(catalog.category(id: victim.id) != nil)
+        #expect(!catalog.deletedPredefinedItems().contains { $0.id == victim.id })
+    }
+
+    @Test("Restoring a template re-creates its deleted category (transitive)")
+    func restoreTemplateTransitive() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let template = try #require(catalog.template(id: "macOS"))
+        let categoryID = template.categoryID
+
+        catalog.deleteTemplate(id: template.id)
+        catalog.deleteCategory(id: categoryID)
+        #expect(catalog.category(id: categoryID) == nil)
+
+        catalog.restore(.template, id: template.id)
+        #expect(catalog.template(id: template.id) != nil)
+        #expect(catalog.category(id: categoryID) != nil)
+    }
+
+    @Test("Restoring a template rejoins its bundled shared components")
+    func restoreTemplateMemberships() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let template = try #require(catalog.template(id: "macOS"))
+        let before = Set(catalog.sharedComponents(forTemplate: template.id).map(\.id))
+
+        catalog.deleteTemplate(id: template.id)
+        catalog.restore(.template, id: template.id)
+
+        #expect(!before.isEmpty)
+        #expect(Set(catalog.sharedComponents(forTemplate: template.id).map(\.id)) == before)
+    }
+
+    @Test("Deleting a predefined shared component tombstones it; restore brings it back")
+    func restoreSharedComponent() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        catalog.deleteSharedComponent(id: "swift-shared")
+        let reloaded = TemplateCatalog(manifest: catalog.overlayManifest())
+        #expect(reloaded.sharedComponent(id: "swift-shared") == nil)
+
+        catalog.restore(.sharedComponent, id: "swift-shared")
+        #expect(catalog.sharedComponent(id: "swift-shared") != nil)
+    }
+
     // MARK: - Store persistence round-trip
 
     @Test("save then load round-trips a custom category through the overlay manifest")

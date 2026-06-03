@@ -67,6 +67,14 @@ final class TemplateManagerModel {
     // templates that currently include it).
     var pendingComponentDeletion: SharedComponent?
 
+    // A custom (irreversible) template awaiting a delete confirmation. Predefined
+    // templates delete straight away — they are restorable.
+    var pendingTemplateDeletion: TemplateDescriptor?
+
+    // Drives the "Restore Defaults" confirmation (resets structure to bundled,
+    // keeps file-content overrides).
+    var isConfirmingRestoreAll = false
+
     // A transient (~4 s) banner shown when a structural mutation fails to persist;
     // the in-memory catalog is rolled back to the last saved state (no half-applied
     // structure), and this explains why nothing changed.
@@ -548,6 +556,25 @@ struct CategoryRename: Identifiable, Equatable {
     var name: String
 }
 
+// A deleted predefined item offered in the Restore menu.
+struct RestorableItem: Identifiable, Hashable {
+    let kind: TombstoneKind
+    let itemID: String
+    let name: String
+
+    var id: String { "\(kind):\(itemID)" }
+
+    var menuLabel: String {
+        let noun =
+            switch kind {
+            case .category: "Category"
+            case .template: "Template"
+            case .sharedComponent: "Shared Component"
+            }
+        return "\(name) (\(noun))"
+    }
+}
+
 // MARK: - Structural editing (categories)
 
 extension TemplateManagerModel {
@@ -782,6 +809,82 @@ extension TemplateManagerModel {
         case .config: content = "{}\n"
         }
         _ = try? overrides.writeOverride(content, toRelative: relativePath)
+    }
+
+    // MARK: - Delete templates
+
+    func deleteTemplate(id: String) {
+        guard let template = catalog.template(id: id) else { return }
+        if catalog.isPredefinedTemplate(id) {
+            performDeleteTemplate(template)
+        } else {
+            pendingTemplateDeletion = template
+        }
+    }
+
+    func confirmDeleteTemplate() {
+        guard let template = pendingTemplateDeletion else { return }
+        pendingTemplateDeletion = nil
+        performDeleteTemplate(template)
+    }
+
+    private func performDeleteTemplate(_ template: TemplateDescriptor) {
+        var updated = catalog
+        updated.deleteTemplate(id: template.id)
+        if !catalog.isPredefinedTemplate(template.id) {
+            trashTemplateOverrides(template)
+        }
+        if selection == .template(template.id) { selection = .base }
+        persist(updated)
+        refreshContent()
+    }
+
+    // Trashes a custom template's own override files: its own layer (`templates/<id>.md`)
+    // and any imported image. Bundled-backed paths are left alone (predefined deletes
+    // tombstone instead, keeping content-overrides for restore).
+    private func trashTemplateOverrides(_ template: TemplateDescriptor) {
+        var paths = template.templateLayers.map { "templates/\($0).md" }
+        if case .file(let imagePath) = template.image { paths.append(imagePath) }
+        for relativePath in paths where !overrides.hasBundledOriginal(forRelative: relativePath) {
+            if let url = overrides.overrideURL(forRelative: relativePath) {
+                _ = try? ClaudeProjectFiles.trashFile(at: url)
+            }
+        }
+    }
+
+    // MARK: - Restore
+
+    // Bundled predefined items the user deleted, for the per-item Restore menu.
+    var restorableItems: [RestorableItem] {
+        catalog.deletedPredefinedItems().map {
+            RestorableItem(kind: $0.kind, itemID: $0.id, name: $0.name)
+        }
+    }
+
+    func restore(_ item: RestorableItem) {
+        var updated = catalog
+        updated.restore(item.kind, id: item.itemID)
+        guard persist(updated) else { return }
+        switch item.kind {
+        case .template: selection = .template(item.itemID)
+        case .sharedComponent: selection = .sharedComponent(item.itemID)
+        case .category: break
+        }
+        refreshContent()
+    }
+
+    // Resets the catalog structure to the bundled baseline (drops the overlay:
+    // tombstones, custom items, reorders, membership overrides). File-content
+    // overrides are a separate store and are deliberately kept.
+    func restoreAllDefaults() {
+        do {
+            try store.reset()
+            catalog = store.load()
+            selection = .base
+            refreshContent()
+        } catch {
+            showStructuralError(error.localizedDescription)
+        }
     }
 
     // MARK: - Persistence

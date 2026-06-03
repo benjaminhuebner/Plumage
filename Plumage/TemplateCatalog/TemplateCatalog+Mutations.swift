@@ -203,6 +203,56 @@ nonisolated extension TemplateCatalog {
         }
     }
 
+    // MARK: - Restore
+
+    // Bundled predefined items currently missing from the resolved catalog — i.e.
+    // the ones a user deleted, offered for per-item restore. Custom items never
+    // appear here (they have no bundled origin).
+    func deletedPredefinedItems() -> [(kind: TombstoneKind, id: String, name: String)] {
+        let bundled = TemplateCatalog.bundledDefault
+        var items: [(TombstoneKind, String, String)] = []
+        items += bundled.categories
+            .filter { category(id: $0.id) == nil }
+            .map { (.category, $0.id, $0.name) }
+        items += bundled.sharedComponents
+            .filter { sharedComponent(id: $0.id) == nil }
+            .map { (.sharedComponent, $0.id, $0.name) }
+        items += bundled.templates
+            .filter { template(id: $0.id) == nil }
+            .map { (.template, $0.id, $0.name) }
+        return items
+    }
+
+    // Re-inserts a deleted predefined item from the bundled default. Restore is
+    // transitive for a template's container: a restored template re-creates its
+    // category if that too was deleted, and rejoins the shared components the
+    // bundled default placed it in.
+    mutating func restore(_ kind: TombstoneKind, id: String) {
+        let bundled = TemplateCatalog.bundledDefault
+        switch kind {
+        case .category:
+            guard category(id: id) == nil, let category = bundled.category(id: id) else { return }
+            categories.append(category)
+        case .sharedComponent:
+            guard sharedComponent(id: id) == nil,
+                let component = bundled.sharedComponent(id: id)
+            else { return }
+            sharedComponents.append(component)
+        case .template:
+            guard template(id: id) == nil, let template = bundled.template(id: id) else { return }
+            templates.append(template)
+            if category(id: template.categoryID) == nil,
+                let category = bundled.category(id: template.categoryID)
+            {
+                categories.append(category)
+            }
+            for index in sharedComponents.indices
+            where bundled.sharedComponent(id: sharedComponents[index].id)?.isMember(id) == true {
+                sharedComponents[index].memberTemplateIDs.insert(id)
+            }
+        }
+    }
+
     // MARK: - Naming helpers
 
     private func uniqueCategoryID(_ base: String) -> String {
