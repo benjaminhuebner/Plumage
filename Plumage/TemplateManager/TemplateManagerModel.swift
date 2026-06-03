@@ -298,10 +298,11 @@ final class TemplateManagerModel {
         return hookWirings.wiring(named: base)
     }
 
-    // A hook authored or imported but not yet wired is inert; the row flags it so the
-    // user can wire it (e.g. after cancelling the sheet on add).
+    // A USER-authored hook with no wiring scaffolds inert — that is what the ⚠ flags.
+    // Bundled hooks (format-swift, lint-swift, the block-* safety hooks, …) are wired
+    // by `SettingsComposer`'s built-in table, so they are never flagged.
     func needsWiring(_ file: FileNode) -> Bool {
-        isHook(file) && wiring(forHook: file) == nil
+        isHook(file) && isUserAuthored(file) && wiring(forHook: file) == nil
     }
 
     func saveWiring(forHook file: FileNode, event: HookEvent, matcher: String?) {

@@ -11,7 +11,7 @@ struct TemplateContentColumn: View {
         List(selection: $model.selectedFile) {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
-                    OutlineGroup(model.contentTree, id: \.self, children: \.children) { node in
+                    OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
                         fileRow(node)
                             .tag(node)
                             .contextMenu { rowMenu(node) }

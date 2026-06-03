@@ -63,6 +63,20 @@ struct TemplateManagerSelectionTreeTests {
         #expect(find(ctx.model.contentTree, [".claude", "hooks"])?.isDirectory == true)
     }
 
+    @Test("A bundled hook is not flagged as needing wiring (it is wired by the composer)")
+    func bundledHookNotFlagged() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-tooling-hooks")
+        ctx.model.refreshContent()
+
+        let hook = try #require(find(ctx.model.contentTree, [".claude", "hooks", "format-swift.sh"]))
+        #expect(!ctx.model.needsWiring(hook))
+        // The containing folder therefore shows no aggregate warning either.
+        let hooksFolder = try #require(find(ctx.model.contentTree, [".claude", "hooks"]))
+        #expect(!ctx.model.aggregateNeedsWiring(hooksFolder))
+    }
+
     @Test("Adding a hook while a hook component is selected joins it and shows under .claude/hooks")
     func addHookJoinsComponent() throws {
         let ctx = makeModel()
