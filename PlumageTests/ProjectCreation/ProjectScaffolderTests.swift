@@ -333,6 +333,37 @@ struct ProjectScaffolderTests {
         #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/skills/my-skill").path))
     }
 
+    private struct NoopGitInit: GitInitializing {
+        func initRepo(at url: URL, defaultBranch: String) async throws {}
+    }
+
+    @Test("A saved config override wins over generation at scaffold")
+    func configOverrideWins() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "ConfigOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("CUSTOM-IGNORE\n", to: overrideRoot, rel: ".gitignore")
+        try write("{ \"mcpServers\": { \"x\": { \"command\": \"run\" } } }", to: overrideRoot, rel: ".mcp.json")
+        try write("{ \"custom\": true }", to: overrideRoot, rel: ".claude/settings.json")
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(git: NoopGitInit(), overrideRoot: overrideRoot).create(
+            spec: NewProjectSpec(
+                kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir, git: GitSetup()))
+
+        let gitignore = try String(contentsOf: dir.appending(path: ".gitignore"), encoding: .utf8)
+        #expect(gitignore == "CUSTOM-IGNORE\n")
+        let mcp = try String(contentsOf: dir.appending(path: ".mcp.json"), encoding: .utf8)
+        #expect(mcp.contains("\"command\": \"run\""))
+        let settings = try String(
+            contentsOf: dir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("\"custom\": true"))
+        // The minimal local settings file is still generated.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/settings.local.json").path))
+    }
+
     private func write(_ contents: String, to root: URL, rel: String) throws {
         let url = root.appending(path: rel)
         try FileManager.default.createDirectory(

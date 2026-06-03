@@ -246,9 +246,14 @@ nonisolated struct ProjectMigrator {
 
     private func writeSettings(templateID: String, claude: URL, into report: inout Report) throws {
         let composer = SettingsComposer(catalog: catalog)
+        // A user override wins over generation (B2), same as the scaffolder.
+        let settingsData =
+            overrides.hasOverride(forRelative: ".claude/settings.json")
+            ? try overrides.data(atRelative: ".claude/settings.json")
+            : try composer.settingsJSON(
+                forTemplate: templateID, toggles: toggles, userWirings: hookWirings)
         try writeIfMissing(
-            try composer.settingsJSON(
-                forTemplate: templateID, toggles: toggles, userWirings: hookWirings),
+            settingsData,
             to: claude.appending(path: "settings.json"),
             rel: ".claude/settings.json", into: &report)
         try writeIfMissing(
@@ -262,16 +267,21 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".mcp.json")
             return
         }
-        var servers: [String: Any] = [:]
-        for server in catalog.effectiveMCPServers(forTemplate: spec.templateID) {
-            var entry: [String: Any] = ["command": server.command]
-            if !server.args.isEmpty { entry["args"] = server.args }
-            if !server.env.isEmpty { entry["env"] = server.env }
-            servers[server.name] = entry
+        let data: Data
+        if overrides.hasOverride(forRelative: ".mcp.json") {
+            data = try overrides.data(atRelative: ".mcp.json")
+        } else {
+            var servers: [String: Any] = [:]
+            for server in catalog.effectiveMCPServers(forTemplate: spec.templateID) {
+                var entry: [String: Any] = ["command": server.command]
+                if !server.args.isEmpty { entry["args"] = server.args }
+                if !server.env.isEmpty { entry["env"] = server.env }
+                servers[server.name] = entry
+            }
+            data = try JSONSerialization.data(
+                withJSONObject: ["mcpServers": servers],
+                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         }
-        let data = try JSONSerialization.data(
-            withJSONObject: ["mcpServers": servers],
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try data.write(to: dest, options: .atomic)
         report.added.append(".mcp.json")
     }
@@ -293,8 +303,11 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".gitignore")
             return
         }
-        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog)
-            .compose(forTemplate: spec.templateID)
+        let contents =
+            overrides.hasOverride(forRelative: ".gitignore")
+            ? try overrides.string(atRelative: ".gitignore")
+            : try GitignoreComposer(overrides: overrides, catalog: catalog)
+                .compose(forTemplate: spec.templateID)
         try contents.write(to: dest, atomically: true, encoding: .utf8)
         report.added.append(".gitignore")
     }

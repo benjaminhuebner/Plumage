@@ -134,9 +134,22 @@ nonisolated struct ProjectScaffolder {
         try writeSkills(spec: spec, claude: claude, skillKeywords: claudeOutput.skillKeywords)
         try writeHooks(spec: spec, claude: claude)
         try writeAgents(claude: claude)
-        try SettingsComposer(catalog: catalog).write(
-            forTemplate: spec.templateID, toggles: toggles, userWirings: hookWirings,
-            toClaudeDir: claude)
+        try writeSettings(spec: spec, claude: claude)
+    }
+
+    // A user override of `.claude/settings.json` wins over generation (B2); the
+    // minimal local settings file is always generated.
+    private func writeSettings(spec: NewProjectSpec, claude: URL) throws {
+        let composer = SettingsComposer(catalog: catalog)
+        if overrides.hasOverride(forRelative: ".claude/settings.json") {
+            try overrides.data(atRelative: ".claude/settings.json").write(
+                to: claude.appending(path: "settings.json"))
+            try composer.localSettingsJSON().write(to: claude.appending(path: "settings.local.json"))
+        } else {
+            try composer.write(
+                forTemplate: spec.templateID, toggles: toggles, userWirings: hookWirings,
+                toClaudeDir: claude)
+        }
     }
 
     // The bundled skills plus any override-only (user-authored) skill directories.
@@ -193,6 +206,11 @@ nonisolated struct ProjectScaffolder {
     // MARK: - root-level files
 
     private func writeMCPConfig(spec: NewProjectSpec, root: URL) throws {
+        // A user override of `.mcp.json` wins over generation (B2).
+        if overrides.hasOverride(forRelative: ".mcp.json") {
+            try overrides.data(atRelative: ".mcp.json").write(to: root.appending(path: ".mcp.json"))
+            return
+        }
         var servers: [String: Any] = [:]
         for server in catalog.effectiveMCPServers(forTemplate: spec.templateID) {
             var entry: [String: Any] = ["command": server.command]
@@ -218,8 +236,13 @@ nonisolated struct ProjectScaffolder {
 
     private func writeGitignore(spec: NewProjectSpec, root: URL) throws {
         guard spec.git?.createGitignore == true else { return }
-        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog)
-            .compose(forTemplate: spec.templateID)
+        // A user override of `.gitignore` wins over generation (B2): the manager edits
+        // it as a global default, so a saved override is the user's chosen content.
+        let contents =
+            overrides.hasOverride(forRelative: ".gitignore")
+            ? try overrides.string(atRelative: ".gitignore")
+            : try GitignoreComposer(overrides: overrides, catalog: catalog)
+                .compose(forTemplate: spec.templateID)
         try contents.write(to: root.appending(path: ".gitignore"), atomically: true, encoding: .utf8)
     }
 
