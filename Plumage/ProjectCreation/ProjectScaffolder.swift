@@ -141,22 +141,19 @@ nonisolated struct ProjectScaffolder {
     // minimal local settings file is always generated.
     private func writeSettings(spec: NewProjectSpec, claude: URL) throws {
         let composer = SettingsComposer(catalog: catalog)
-        if overrides.hasOverride(forRelative: ".claude/settings.json") {
-            try overrides.data(atRelative: ".claude/settings.json").write(
-                to: claude.appending(path: "settings.json"))
-            try composer.localSettingsJSON().write(to: claude.appending(path: "settings.local.json"))
-        } else {
-            try composer.write(
-                forTemplate: spec.templateID, toggles: toggles, userWirings: hookWirings,
-                toClaudeDir: claude)
+        let data = try overrides.resolvedConfigData(forRelative: ".claude/settings.json") {
+            try composer.settingsJSON(
+                forTemplate: spec.templateID, toggles: toggles, userWirings: hookWirings)
         }
+        try data.write(to: claude.appending(path: "settings.json"))
+        try composer.localSettingsJSON().write(to: claude.appending(path: "settings.local.json"))
     }
 
     // The bundled skills plus any override-only (user-authored) skill directories.
-    private static let bundledSkills = ["plumage-plan", "plumage-implement", "plumage-review"]
     private var skillNames: [String] {
-        let userSkills = overrides.overrideSkillDirNames().filter { !Self.bundledSkills.contains($0) }
-        return Self.bundledSkills + userSkills
+        let bundled = ScaffoldOverrides.bundledSkillNames
+        let userSkills = overrides.overrideSkillDirNames().filter { !bundled.contains($0) }
+        return bundled + userSkills
     }
 
     private func writeSkills(spec: NewProjectSpec, claude: URL) throws {
@@ -165,8 +162,9 @@ nonisolated struct ProjectScaffolder {
         let skills = toggles.enabledNames(in: .skills, from: skillNames)
         for skill in skills {
             let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
-            try copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
-            try makeExecutable(scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
+            try overrides.copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
+            try ScaffoldOverrides.makeExecutable(
+                scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
         }
     }
 
@@ -199,22 +197,11 @@ nonisolated struct ProjectScaffolder {
 
     // MARK: - root-level files
 
+    // A user override of `.mcp.json` wins over generation (B2).
     private func writeMCPConfig(spec: NewProjectSpec, root: URL) throws {
-        // A user override of `.mcp.json` wins over generation (B2).
-        if overrides.hasOverride(forRelative: ".mcp.json") {
-            try overrides.data(atRelative: ".mcp.json").write(to: root.appending(path: ".mcp.json"))
-            return
+        let data = try overrides.resolvedConfigData(forRelative: ".mcp.json") {
+            try MCPConfigComposer(catalog: catalog).mcpJSON(forTemplate: spec.templateID)
         }
-        var servers: [String: Any] = [:]
-        for server in catalog.effectiveMCPServers(forTemplate: spec.templateID) {
-            var entry: [String: Any] = ["command": server.command]
-            if !server.args.isEmpty { entry["args"] = server.args }
-            if !server.env.isEmpty { entry["env"] = server.env }
-            servers[server.name] = entry
-        }
-        let data = try JSONSerialization.data(
-            withJSONObject: ["mcpServers": servers],
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try data.write(to: root.appending(path: ".mcp.json"))
     }
 
@@ -232,12 +219,12 @@ nonisolated struct ProjectScaffolder {
         guard spec.git?.createGitignore == true else { return }
         // A user override of `.gitignore` wins over generation (B2): the manager edits
         // it as a global default, so a saved override is the user's chosen content.
-        let contents =
-            overrides.hasOverride(forRelative: ".gitignore")
-            ? try overrides.string(atRelative: ".gitignore")
-            : try GitignoreComposer(overrides: overrides, catalog: catalog)
+        let data = try overrides.resolvedConfigData(forRelative: ".gitignore") {
+            let text = try GitignoreComposer(overrides: overrides, catalog: catalog)
                 .compose(forTemplate: spec.templateID)
-        try contents.write(to: root.appending(path: ".gitignore"), atomically: true, encoding: .utf8)
+            return Data(text.utf8)
+        }
+        try data.write(to: root.appending(path: ".gitignore"))
     }
 
     private func initGitIfRequested(spec: NewProjectSpec, root: URL) async throws {
@@ -256,46 +243,7 @@ nonisolated struct ProjectScaffolder {
 
     private func copy(from source: URL, to dest: URL, executable: Bool = false) throws {
         try fileManager.copyItem(at: source, to: dest)
-        if executable { try setExecutable(dest) }
-    }
-
-    // Copy a directory subtree into `dest`, resolving every regular file through the
-    // override layer. The source tree defines the set of files: the bundled dir for a
-    // bundled skill (an override replaces a file's content, never adds files), or the
-    // override dir for a user-authored skill that has no bundled baseline.
-    private func copyResolvedTree(relativeDir: String, to dest: URL) throws {
-        let bundledDir = assetsRoot.appending(path: relativeDir, directoryHint: .isDirectory)
-        let sourceDir =
-            fileManager.fileExists(atPath: bundledDir.path)
-            ? bundledDir : (overrides.overrideURL(forRelative: relativeDir) ?? bundledDir)
-        try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
-        guard
-            let enumerator = fileManager.enumerator(
-                at: sourceDir, includingPropertiesForKeys: [.isRegularFileKey])
-        else { return }
-        for case let url as URL in enumerator {
-            let isRegular = (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile ?? false
-            guard isRegular else { continue }
-            let suffix = url.standardizedFileURL.path
-                .replacingOccurrences(of: sourceDir.standardizedFileURL.path + "/", with: "")
-            let resolved = overrides.url(forRelative: "\(relativeDir)/\(suffix)")
-            let target = dest.appending(path: suffix)
-            try fileManager.createDirectory(
-                at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fileManager.copyItem(at: resolved, to: target)
-        }
-    }
-
-    private func setExecutable(_ url: URL) throws {
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-    }
-
-    private func makeExecutable(scriptsIn dir: URL) throws {
-        guard fileManager.fileExists(atPath: dir.path) else { return }
-        for entry in try fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-        where entry.pathExtension == "sh" || entry.pathExtension == "py" {
-            try setExecutable(entry)
-        }
+        if executable { try ScaffoldOverrides.setExecutable(dest) }
     }
 
     private func cleanup(root: URL, preExisted: Bool) {

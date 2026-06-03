@@ -19,47 +19,27 @@ extension TemplateManagerModel {
         ManagerConfig(rawValue: relativePath)
     }
 
-    // The generated content is a global, template-neutral baseline (the override it
-    // seeds is global and wins for every template at scaffold), so it is rendered for
-    // a representative template rather than any one selection.
-    private var representativeConfigTemplateID: String {
-        let other = ProjectKind.other.rawValue
-        if catalog.template(id: other) != nil { return other }
-        return catalog.templates.first?.id ?? other
-    }
+    // The override this baseline seeds is global, so it must be template-neutral.
+    // `ProjectKind.other` is the minimal profile, and the `effective*` resolvers fall
+    // back to base-only values for it even if its descriptor was deleted — so use the id
+    // directly rather than risk an arbitrary (possibly flavored) catalog template.
+    private var neutralBaselineTemplateID: String { ProjectKind.other.rawValue }
 
     func generatedConfigContent(_ config: ManagerConfig) -> String {
-        let templateID = representativeConfigTemplateID
+        let templateID = neutralBaselineTemplateID
         switch config {
         case .gitignore:
             return
                 (try? GitignoreComposer(overrides: overrides, catalog: catalog)
                 .compose(forTemplate: templateID)) ?? ""
         case .mcp:
-            return generatedMCPJSON(forTemplate: templateID)
+            let data = try? MCPConfigComposer(catalog: catalog).mcpJSON(forTemplate: templateID)
+            return data.map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         case .settings:
             let data = try? SettingsComposer(catalog: catalog).settingsJSON(
                 forTemplate: templateID, toggles: ScaffoldToggles(), userWirings: hookWirings.wirings)
             return data.map { String(decoding: $0, as: UTF8.self) } ?? ""
         }
-    }
-
-    // Mirrors `ProjectScaffolder.writeMCPConfig` so the preview matches the scaffolded
-    // file byte-for-byte.
-    private func generatedMCPJSON(forTemplate templateID: String) -> String {
-        var servers: [String: Any] = [:]
-        for server in catalog.effectiveMCPServers(forTemplate: templateID) {
-            var entry: [String: Any] = ["command": server.command]
-            if !server.args.isEmpty { entry["args"] = server.args }
-            if !server.env.isEmpty { entry["env"] = server.env }
-            servers[server.name] = entry
-        }
-        guard
-            let data = try? JSONSerialization.data(
-                withJSONObject: ["mcpServers": servers],
-                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        else { return "{}" }
-        return String(decoding: data, as: UTF8.self)
     }
 
     // A config always shows in the tree (even with no override yet); its node points

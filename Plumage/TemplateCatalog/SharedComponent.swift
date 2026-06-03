@@ -52,20 +52,21 @@ nonisolated struct SharedComponent: Codable, Hashable, Sendable, Identifiable {
         case id, name, kind, files, order, memberTemplateIDs
     }
 
-    // Decodes the typed-files shape and, for back-compatibility, the legacy shape that
-    // carried a single component-level `kind` plus `files: [String]`.
+    // Branch is shape-based (presence of the legacy top-level `kind` key), not
+    // decode-success-based: a `try?` on `files` would read an empty `[]` as the current
+    // shape and silently drop a legacy `kind`, and would mask a real decoding error.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         order = try container.decode(Int.self, forKey: .order)
         memberTemplateIDs = try container.decode(Set<String>.self, forKey: .memberTemplateIDs)
-        if let typed = try? container.decode([ComponentFile].self, forKey: .files) {
-            files = typed
-        } else {
+        if container.contains(.kind) {
             let kind = try container.decode(SharedComponentKind.self, forKey: .kind)
             let names = try container.decode([String].self, forKey: .files)
             files = names.map { ComponentFile(kind: kind, name: $0) }
+        } else {
+            files = try container.decode([ComponentFile].self, forKey: .files)
         }
     }
 

@@ -56,7 +56,7 @@ extension TemplateManagerModel {
             // fragment swapped in (its effective hooks include its components' hooks).
             let ownLayer = template.templateLayers.first
             let claudeMdStorage =
-                ownLayer.map { "templates/\($0)/CLAUDE.md" } ?? catalog.base.claudeMdRelativePath
+                ownLayer.map(ScaffoldOverrides.layerRelativePath) ?? catalog.base.claudeMdRelativePath
             return globalSurfaceSpecs(
                 hookNames: catalog.effectiveHooks(forTemplate: id) + overrideHookBaseNames(),
                 claudeMdStorage: claudeMdStorage)
@@ -72,13 +72,23 @@ extension TemplateManagerModel {
     // written to. `.claude/<x>` and `.plumage/scripts` fold back to their store dirs;
     // the project root and the bare `.claude`/`.plumage` nodes map to the store root.
     static func storageDir(forOutputFolder output: String) -> String {
+        if output.isEmpty || output == ".claude" || output == ".plumage" { return "" }
         if output == ".plumage/scripts" { return "plumage" }
         if output.hasPrefix(".plumage/scripts/") {
             return "plumage/" + output.dropFirst(".plumage/scripts/".count)
         }
         if output.hasPrefix(".claude/") { return String(output.dropFirst(".claude/".count)) }
-        return ""
+        // An arbitrary project-root folder maps to the same store path (the inverse of
+        // `outputPath(forStorageDir:)`), so adding into it lands inside it, not at root.
+        return output
     }
+
+    // Surfaced through their own typed walks (or internal), so the arbitrary-root-files
+    // scan must skip them to avoid showing the same file twice.
+    static let typedStoreTopLevel: Set<String> = [
+        "hooks", "docs", "skills", "agents", "plumage", "issues",
+        "templates", "template-images", "configs", ".claude",
+    ]
 
     // The output position a stored directory shows at, or nil for store dirs that are
     // not Base surfaces (template layers, gitignore fragments, imported images).
@@ -177,11 +187,13 @@ extension TemplateManagerModel {
         // Bundled Swift tooling configs land at the project root.
         add(output: ".swift-format", relative: "configs/swift-format")
         add(output: ".swiftlint.yml", relative: "configs/swiftlint.yml")
-        // Arbitrary user-authored files at the store root show at the project root
-        // (e.g. `.editorconfig`), minus the generated configs already shown as nodes.
+        // Arbitrary user-authored files anywhere outside the typed category dirs show at
+        // their store path (e.g. `.editorconfig` at root, or `myfolder/x.txt` inside a
+        // user-created folder), minus the generated configs already shown as nodes.
         let configPaths = Set(ManagerConfig.allCases.map(\.relativePath))
-        for name in overrides.overrideFileNames(inRelativeDir: "") where !configPaths.contains(name) {
-            add(output: name, relative: name)
+        let arbitrary = overrides.overrideRootArbitraryFiles(excludingTopLevel: Self.typedStoreTopLevel)
+        for path in arbitrary where !configPaths.contains(path) {
+            add(output: path, relative: path)
         }
         return specs
     }
@@ -197,7 +209,7 @@ extension TemplateManagerModel {
             case .layer:
                 specs.append(
                     LeafSpec(
-                        output: ".claude/CLAUDE.md", relative: "templates/\(name)/CLAUDE.md",
+                        output: ".claude/CLAUDE.md", relative: ScaffoldOverrides.layerRelativePath(name),
                         name: "CLAUDE.md"))
             case .hook:
                 specs.append(

@@ -130,7 +130,7 @@ struct TemplateContentColumn: View {
             if overridden {
                 Image(systemName: "circle.fill")
                     .font(.system(size: 7))
-                    .foregroundStyle(node.isDirectory ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                    .foregroundStyle(node.isDirectory ? Color.secondary : Color.accentColor)
                     .accessibilityLabel(node.isDirectory ? "Contains an override" : "Overridden")
             }
         }

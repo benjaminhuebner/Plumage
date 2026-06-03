@@ -38,6 +38,11 @@ final class TemplateManagerModel {
     // in `body`.
     private(set) var overriddenPaths: Set<String> = []
 
+    // Relative paths of user hooks that still need wiring. Mirrored as observed state
+    // (rebuilt on the event boundary, alongside `overriddenPaths`) so the ⚠ markers
+    // don't stat the filesystem on every `OutlineGroup` row re-evaluation.
+    private(set) var needsWiringPaths: Set<String> = []
+
     // Live dirty state of the embedded editor, so the header can offer Reset to
     // Default on the first keystroke (before any save creates an override).
     private(set) var isEditorDirty = false
@@ -127,8 +132,16 @@ final class TemplateManagerModel {
         contentTree = buildContentTree(for: selection)
         contentFiles = Self.flattenLeaves(contentTree)
         membership = membershipInfo(for: selection)
-        refreshOverriddenPaths()
-        if let current = selectedFile, contentFiles.contains(current) { return }
+        refreshDerivedMarkers()
+        // Retain the selection across a rebuild — including a selected *folder*, which
+        // is not in `contentFiles` (leaves only) but is a real, selectable tree node.
+        // Re-bind the fresh node instance so List selection keeps matching by value.
+        if let current = selectedFile,
+            let refreshed = Self.findNode(in: contentTree, relativePath: current.relativePath)
+        {
+            selectedFile = refreshed
+            return
+        }
         selectedFile = contentFiles.first
         beginEditing(selectedFile)
     }
@@ -298,10 +311,14 @@ final class TemplateManagerModel {
         return hookWirings.wiring(named: base)
     }
 
-    // A USER-authored hook with no wiring scaffolds inert — that is what the ⚠ flags.
-    // Bundled hooks (format-swift, lint-swift, the block-* safety hooks, …) are wired
-    // by `SettingsComposer`'s built-in table, so they are never flagged.
-    func needsWiring(_ file: FileNode) -> Bool {
+    // Only USER-authored hooks are flagged: bundled hooks are wired by `SettingsComposer`'s
+    // built-in table, so an unwired one there would be a real mistake. Reads the cached set
+    // so a row render never touches disk (see `refreshDerivedMarkers`).
+    func needsWiring(_ file: FileNode) -> Bool { needsWiringPaths.contains(file.relativePath) }
+
+    // Uncached (touches disk via `isUserAuthored`); only for building `needsWiringPaths`
+    // on an event boundary, never from `body`.
+    private func computeNeedsWiring(_ file: FileNode) -> Bool {
         isHook(file) && isUserAuthored(file) && wiring(forHook: file) == nil
     }
 
@@ -313,6 +330,8 @@ final class TemplateManagerModel {
             HookWiring(
                 name: base, event: event, matcher: (trimmed?.isEmpty ?? true) ? nil : trimmed))
         saveHookWirings()
+        // The hook is now wired — clear its ⚠ marker without a full disk rescan.
+        needsWiringPaths.remove(relativePath(for: .hook, file: base))
     }
 
     // Creates the store directory first so a save before any other write lands
@@ -324,11 +343,14 @@ final class TemplateManagerModel {
         try? hookWirings.save(to: url)
     }
 
-    private func refreshOverriddenPaths() {
+    // The only place that touches disk for marker state — runs on the event boundary
+    // (load, selection change, add/import/delete) so `body`/row renders stay disk-free.
+    private func refreshDerivedMarkers() {
         overriddenPaths = Set(
             contentFiles.map(\.relativePath).filter {
                 overrides.isContentOverridden(forRelative: $0)
             })
+        needsWiringPaths = Set(contentFiles.filter(computeNeedsWiring).map(\.relativePath))
     }
 
     // MARK: - Drag-and-drop import
@@ -369,9 +391,18 @@ final class TemplateManagerModel {
                 rejected.append(url.lastPathComponent)
                 continue
             }
+            // A standalone `.sh` dropped onto a Shared Component joins it as a hook,
+            // which the membership and the scaffolder both resolve at `hooks/<name>.sh`
+            // — so its bytes must land there, not in the component's selected folder.
+            // (Skills already route to `skills/` via `dropPlan`.) Outside a component a
+            // dropped file stays verbatim in the target folder.
+            let joinsComponentAsHook =
+                !plan.isDirectory && !plan.isSkill && plan.name.hasSuffix(".sh")
+                && membershipComponentID(forKind: .hook) != nil
+            let directory = joinsComponentAsHook ? "hooks" : plan.directory
             let parent =
-                plan.directory.isEmpty
-                ? overrideRoot : overrideRoot.appending(path: plan.directory, directoryHint: .isDirectory)
+                directory.isEmpty
+                ? overrideRoot : overrideRoot.appending(path: directory, directoryHint: .isDirectory)
             do {
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
                 let target = try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
@@ -382,14 +413,14 @@ final class TemplateManagerModel {
                 }
                 try fileManager.copyItem(at: url, to: target)
                 let leaf = target.lastPathComponent
-                let dir = plan.directory.isEmpty ? "" : "\(plan.directory)/"
+                let dir = directory.isEmpty ? "" : "\(directory)/"
                 let storage = plan.isSkill ? "\(dir)\(leaf)/SKILL.md" : "\(dir)\(leaf)"
                 importedStoragePaths.insert(storage)
                 if first == nil { first = (storage, plan.isDirectory && !plan.isSkill) }
                 // Dropping into a matching-kind component joins it (a `.sh` into a hook
                 // component, a skill folder into a skill component).
                 let importKind: UserTemplateKind? =
-                    plan.isSkill ? .skill : (!plan.isDirectory && leaf.hasSuffix(".sh") ? .hook : nil)
+                    plan.isSkill ? .skill : (joinsComponentAsHook ? .hook : nil)
                 if let importKind, let componentKind = Self.sharedComponentKind(for: importKind),
                     let componentID = membershipComponentID(forKind: importKind)
                 {
@@ -574,7 +605,7 @@ final class TemplateManagerModel {
     // The override relative path a shared component's file resolves to, by kind.
     func relativePath(for kind: SharedComponentKind, file: String) -> String {
         switch kind {
-        case .layer: "templates/\(file)/CLAUDE.md"
+        case .layer: ScaffoldOverrides.layerRelativePath(file)
         case .hook: "hooks/\(file).sh"
         case .skill: "skills/\(file)/SKILL.md"
         case .config: "configs/\(file)"
@@ -780,11 +811,11 @@ extension TemplateManagerModel {
     // concatenates the source template's own layer content so the user starts from
     // the same text and edits from there.
     private func writeOwnLayer(forTemplate descriptor: TemplateDescriptor, startingFrom: TemplateStartingPoint) {
-        let relativePath = "templates/\(descriptor.id)/CLAUDE.md"
+        let relativePath = ScaffoldOverrides.layerRelativePath(descriptor.id)
         var content = "# \(descriptor.name)\n"
         if case .copy(let sourceID) = startingFrom, let source = catalog.template(id: sourceID) {
             let copied = source.templateLayers
-                .compactMap { try? overrides.string(atRelative: "templates/\($0)/CLAUDE.md") }
+                .compactMap { try? overrides.string(atRelative: ScaffoldOverrides.layerRelativePath($0)) }
                 .joined(separator: "\n\n")
             if !copied.isEmpty { content = copied }
         }
@@ -898,11 +929,10 @@ extension TemplateManagerModel {
         refreshContent()
     }
 
-    // Trashes a custom template's own override files: its own layer (`templates/<id>.md`)
-    // and any imported image. Bundled-backed paths are left alone (predefined deletes
-    // tombstone instead, keeping content-overrides for restore).
+    // Bundled-backed paths are left alone — predefined deletes tombstone instead, so a
+    // content-override survives for restore. Only a custom template's own files go.
     private func trashTemplateOverrides(_ template: TemplateDescriptor) {
-        var paths = template.templateLayers.map { "templates/\($0)/CLAUDE.md" }
+        var paths = template.templateLayers.map(ScaffoldOverrides.layerRelativePath)
         if case .file(let imagePath) = template.image { paths.append(imagePath) }
         for relativePath in paths where !overrides.hasBundledOriginal(forRelative: relativePath) {
             if let url = overrides.overrideURL(forRelative: relativePath) {

@@ -260,6 +260,67 @@ struct TemplateManagerModelTests {
         #expect(ctx.model.dropBanner == nil)
     }
 
+    @Test("Dropping a .sh onto a Shared Component stores it under hooks/ and joins the component")
+    func dropHookOntoComponentRoutesToHooks() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appending(
+            path: "TMDrop-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let bundled = base.appending(path: "bundled", directoryHint: .isDirectory)
+        let override = base.appending(path: "override", directoryHint: .isDirectory)
+        try fm.createDirectory(at: bundled, withIntermediateDirectories: true)
+        try fm.createDirectory(at: override, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        // A real manifest URL so the membership join actually persists.
+        let model = TemplateManagerModel(
+            store: TemplateCatalogStore(manifestURL: base.appending(path: "manifest.json")),
+            overrides: ScaffoldOverrides(bundledRoot: bundled, overrideRoot: override),
+            hookWiringStoreURL: base.appending(path: "hooks.json"))
+        let src = try makeSourceTree()
+        defer { src.cleanup() }
+        model.selection = .sharedComponent("swift-shared")
+        model.refreshContent()
+
+        _ = model.importDropped(urls: [src.root.appending(path: "hook.sh")])
+
+        // The bytes land canonically under hooks/, not in the component's layer folder —
+        // so a later scaffold (which copies from hooks/<name>.sh) resolves them.
+        #expect(model.overrides.hasOverride(forRelative: "hooks/hook.sh"))
+        #expect(!model.overrides.hasOverride(forRelative: "templates/swift-shared/hook.sh"))
+        let component = try #require(model.catalog.sharedComponent(id: "swift-shared"))
+        #expect(component.files(ofKind: .hook).contains("hook"))
+    }
+
+    @Test("A selected folder is retained across a content refresh")
+    func folderSelectionRetained() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        _ = ctx.model.addUserFile(kind: .doc, rawName: "notes")  // materializes .claude/docs
+        let folder = try #require(
+            TemplateManagerModel.findNode(in: ctx.model.contentTree, relativePath: ".claude/docs"))
+        ctx.model.selectedFile = folder
+
+        ctx.model.refreshContent()
+
+        #expect(ctx.model.selectedFile?.relativePath == ".claude/docs")
+        #expect(ctx.model.selectedFile?.isDirectory == true)
+    }
+
+    @Test("A file added into a user-created root folder lands inside it and is shown")
+    func fileAddedIntoRootFolderIsContained() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let folder = try #require(ctx.model.addUserFile(kind: .folder, rawName: "myfolder"))
+        #expect(folder.relativePath == "myfolder")
+        ctx.model.selectedFile = folder
+
+        let file = try #require(ctx.model.addUserFile(kind: .file, rawName: "note.txt"))
+
+        #expect(file.relativePath == "myfolder/note.txt")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "myfolder/note.txt"))
+        #expect(
+            TemplateManagerModel.findNode(in: ctx.model.contentTree, relativePath: "myfolder/note.txt") != nil)
+    }
+
     @Test("Drop suffix-walks on collision in the target folder")
     func dropCollisionSuffixWalks() throws {
         let ctx = try makeModel()

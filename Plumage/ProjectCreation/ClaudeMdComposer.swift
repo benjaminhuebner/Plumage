@@ -27,7 +27,7 @@ nonisolated struct ClaudeMdComposer {
 
         var sections: [String: [String]] = [:]
         for layer in layers {
-            let layerContent = try overrides.string(atRelative: "templates/\(layer)/CLAUDE.md")
+            let layerContent = try overrides.string(atRelative: ScaffoldOverrides.layerRelativePath(layer))
             for parsed in Self.parseSections(layerContent) where !parsed.body.isEmpty {
                 sections[parsed.name, default: []].append(parsed.body)
             }

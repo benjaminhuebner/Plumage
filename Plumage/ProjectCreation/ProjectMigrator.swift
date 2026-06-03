@@ -190,10 +190,10 @@ nonisolated struct ProjectMigrator {
         try writeSettings(templateID: spec.templateID, claude: claude, into: &report)
     }
 
-    private static let bundledSkills = ["plumage-plan", "plumage-implement", "plumage-review"]
     private var skillNames: [String] {
-        let userSkills = overrides.overrideSkillDirNames().filter { !Self.bundledSkills.contains($0) }
-        return Self.bundledSkills + userSkills
+        let bundled = ScaffoldOverrides.bundledSkillNames
+        let userSkills = overrides.overrideSkillDirNames().filter { !bundled.contains($0) }
+        return bundled + userSkills
     }
 
     private func writeSkills(claude: URL, into report: inout Report) throws {
@@ -207,8 +207,9 @@ nonisolated struct ProjectMigrator {
                 report.skipped.append(rel)
                 continue
             }
-            try copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
-            try makeExecutable(scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
+            try overrides.copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
+            try ScaffoldOverrides.makeExecutable(
+                scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
             report.added.append(rel)
         }
     }
@@ -243,11 +244,10 @@ nonisolated struct ProjectMigrator {
     private func writeSettings(templateID: String, claude: URL, into report: inout Report) throws {
         let composer = SettingsComposer(catalog: catalog)
         // A user override wins over generation (B2), same as the scaffolder.
-        let settingsData =
-            overrides.hasOverride(forRelative: ".claude/settings.json")
-            ? try overrides.data(atRelative: ".claude/settings.json")
-            : try composer.settingsJSON(
+        let settingsData = try overrides.resolvedConfigData(forRelative: ".claude/settings.json") {
+            try composer.settingsJSON(
                 forTemplate: templateID, toggles: toggles, userWirings: hookWirings)
+        }
         try writeIfMissing(
             settingsData,
             to: claude.appending(path: "settings.json"),
@@ -263,20 +263,8 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".mcp.json")
             return
         }
-        let data: Data
-        if overrides.hasOverride(forRelative: ".mcp.json") {
-            data = try overrides.data(atRelative: ".mcp.json")
-        } else {
-            var servers: [String: Any] = [:]
-            for server in catalog.effectiveMCPServers(forTemplate: spec.templateID) {
-                var entry: [String: Any] = ["command": server.command]
-                if !server.args.isEmpty { entry["args"] = server.args }
-                if !server.env.isEmpty { entry["env"] = server.env }
-                servers[server.name] = entry
-            }
-            data = try JSONSerialization.data(
-                withJSONObject: ["mcpServers": servers],
-                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        let data = try overrides.resolvedConfigData(forRelative: ".mcp.json") {
+            try MCPConfigComposer(catalog: catalog).mcpJSON(forTemplate: spec.templateID)
         }
         try data.write(to: dest, options: .atomic)
         report.added.append(".mcp.json")
@@ -299,12 +287,12 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".gitignore")
             return
         }
-        let contents =
-            overrides.hasOverride(forRelative: ".gitignore")
-            ? try overrides.string(atRelative: ".gitignore")
-            : try GitignoreComposer(overrides: overrides, catalog: catalog)
+        let data = try overrides.resolvedConfigData(forRelative: ".gitignore") {
+            let text = try GitignoreComposer(overrides: overrides, catalog: catalog)
                 .compose(forTemplate: spec.templateID)
-        try contents.write(to: dest, atomically: true, encoding: .utf8)
+            return Data(text.utf8)
+        }
+        try data.write(to: dest, options: .atomic)
         report.added.append(".gitignore")
     }
 
@@ -348,32 +336,6 @@ nonisolated struct ProjectMigrator {
                 createGitignore: spec.git.createGitignore))
     }
 
-    // Copy a directory subtree into `dest`, resolving every regular file through the
-    // override layer. The source tree defines the set of files: the bundled dir for a
-    // bundled skill, or the override dir for a user-authored skill with no baseline.
-    private func copyResolvedTree(relativeDir: String, to dest: URL) throws {
-        let bundledDir = assetsRoot.appending(path: relativeDir, directoryHint: .isDirectory)
-        let sourceDir =
-            fileManager.fileExists(atPath: bundledDir.path)
-            ? bundledDir : (overrides.overrideURL(forRelative: relativeDir) ?? bundledDir)
-        try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
-        guard
-            let enumerator = fileManager.enumerator(
-                at: sourceDir, includingPropertiesForKeys: [.isRegularFileKey])
-        else { return }
-        for case let url as URL in enumerator {
-            let isRegular = (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile ?? false
-            guard isRegular else { continue }
-            let suffix = url.standardizedFileURL.path
-                .replacingOccurrences(of: sourceDir.standardizedFileURL.path + "/", with: "")
-            let resolved = overrides.url(forRelative: "\(relativeDir)/\(suffix)")
-            let target = dest.appending(path: suffix)
-            try fileManager.createDirectory(
-                at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fileManager.copyItem(at: resolved, to: target)
-        }
-    }
-
     private func copyIfMissing(
         from source: URL, to dest: URL, rel: String, executable: Bool = false, into report: inout Report
     ) throws {
@@ -382,7 +344,7 @@ nonisolated struct ProjectMigrator {
             return
         }
         try fileManager.copyItem(at: source, to: dest)
-        if executable { try setExecutable(dest) }
+        if executable { try ScaffoldOverrides.setExecutable(dest) }
         report.added.append(rel)
     }
 
@@ -405,17 +367,5 @@ nonisolated struct ProjectMigrator {
         throws
     {
         try writeIfMissing(Data(string.utf8), to: dest, rel: rel, into: &report)
-    }
-
-    private func setExecutable(_ url: URL) throws {
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-    }
-
-    private func makeExecutable(scriptsIn dir: URL) throws {
-        guard fileManager.fileExists(atPath: dir.path) else { return }
-        for entry in try fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-        where entry.pathExtension == "sh" || entry.pathExtension == "py" {
-            try setExecutable(entry)
-        }
     }
 }

@@ -179,4 +179,68 @@ struct ScaffoldOverridesTests {
             try overrides.writeOverride("X", toRelative: "../escape.md")
         }
     }
+
+    // MARK: - Noise filtering
+
+    @Test("Recursive file enumeration drops .DS_Store, AppleDouble and .git contents")
+    func recursiveWalkSkipsNoise() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("real", to: tree.override, rel: "skills/s/SKILL.md")
+        try write("ref", to: tree.override, rel: "skills/s/reference.md")
+        try write("junk", to: tree.override, rel: "skills/s/.DS_Store")
+        try write("apple", to: tree.override, rel: "skills/s/._SKILL.md")
+        try write("gitcfg", to: tree.override, rel: "skills/s/.git/config")
+
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        #expect(overrides.overrideFileNamesRecursive(inRelativeDir: "skills/s") == ["SKILL.md", "reference.md"])
+    }
+
+    @Test("Directory enumeration skips VCS/noise directories")
+    func directoryWalkSkipsNoise() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("x", to: tree.override, rel: "myfolder/keep.txt")
+        try write("cfg", to: tree.override, rel: "myfolder/.git/config")
+
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        let dirs = overrides.overrideDirectoryPaths()
+        #expect(dirs.contains("myfolder"))
+        #expect(!dirs.contains { $0.split(separator: "/").contains(".git") })
+    }
+
+    @Test("copyResolvedTree never copies macOS/VCS noise into the scaffold output")
+    func copyResolvedTreeSkipsNoise() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("# Skill", to: tree.bundled, rel: "skills/demo/SKILL.md")
+        try write("junk", to: tree.bundled, rel: "skills/demo/.DS_Store")
+        try write("cfg", to: tree.bundled, rel: "skills/demo/.git/config")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        let dest = tree.override.appending(path: "out", directoryHint: .isDirectory)
+
+        try overrides.copyResolvedTree(relativeDir: "skills/demo", to: dest)
+
+        let fm = FileManager.default
+        #expect(fm.fileExists(atPath: dest.appending(path: "SKILL.md").path))
+        #expect(!fm.fileExists(atPath: dest.appending(path: ".DS_Store").path))
+        #expect(!fm.fileExists(atPath: dest.appending(path: ".git/config").path))
+    }
+
+    @Test("Arbitrary-root-files scan skips typed dirs and surfaces nested user files")
+    func arbitraryRootFiles() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("h", to: tree.override, rel: "hooks/a.sh")  // typed dir → excluded
+        try write("e", to: tree.override, rel: ".editorconfig")  // root dotfile → kept
+        try write("n", to: tree.override, rel: "myfolder/note.txt")  // nested arbitrary → kept
+        try write("d", to: tree.override, rel: "myfolder/.DS_Store")  // noise → dropped
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let files = overrides.overrideRootArbitraryFiles(excludingTopLevel: ["hooks"])
+        #expect(files.contains(".editorconfig"))
+        #expect(files.contains("myfolder/note.txt"))
+        #expect(!files.contains { $0.hasPrefix("hooks/") })
+        #expect(!files.contains { $0.contains(".DS_Store") })
+    }
 }

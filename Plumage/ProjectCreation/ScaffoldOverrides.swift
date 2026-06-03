@@ -1,12 +1,9 @@
 import Foundation
 
-// Per-file override layer over the bundled `NewProjectAssets/` tree. Each relative
-// path resolves to the user's override copy under Application Support when present,
-// else the bundled original — so a user can override `templates/macos.md` without
-// touching `templates/swift-shared.md` (a per-directory layer would force
-// all-or-nothing). The override root mirrors the bundled tree flat. The store lives
-// under Application Support, never the user's Claude config directory, so the
-// ClaudeCodeIntegration boundary is untouched.
+// Per-file override layer: each path resolves to the user's override copy when present,
+// else the bundled original — per-file (not per-directory) so an override is never
+// all-or-nothing. The store lives under Application Support, never the Claude config
+// directory, so the ClaudeCodeIntegration boundary stays intact.
 nonisolated enum ScaffoldOverridesError: Error, Equatable {
     case noOverrideStore
     case escapesStore(String)
@@ -47,6 +44,10 @@ nonisolated struct ScaffoldOverrides: Sendable {
     ) -> ScaffoldOverrides {
         ScaffoldOverrides(bundledRoot: bundledRoot, overrideRoot: standardOverrideRoot())
     }
+
+    // Single source of truth for a layer's store path (folder-per-layer, #00071 D1) so
+    // the composer, manager, scaffolder and migration can't drift between read and write.
+    static func layerRelativePath(_ layer: String) -> String { "templates/\(layer)/CLAUDE.md" }
 
     func url(forRelative relativePath: String) -> URL {
         if let override = overrideURL(forRelative: relativePath),
@@ -91,9 +92,26 @@ nonisolated struct ScaffoldOverrides: Sendable {
             let overrideURL = overrideURL(forRelative: relativePath)
         else { return false }
         let bundled = bundledRoot.appending(path: relativePath)
+        guard FileManager.default.fileExists(atPath: bundled.path) else { return true }
+        // Cheap reject first: differing sizes can't be byte-identical, so skip reading.
+        if let bundledSize = Self.fileSize(bundled), let overrideSize = Self.fileSize(overrideURL),
+            bundledSize != overrideSize
+        {
+            return true
+        }
         guard let bundledData = try? Data(contentsOf: bundled) else { return true }
         let overrideData = (try? Data(contentsOf: overrideURL)) ?? Data()
         return overrideData != bundledData
+    }
+
+    private static func fileSize(_ url: URL) -> Int? {
+        try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    }
+
+    // User override wins over generation (B2). The single decision point both config
+    // writers share, so scaffold and migrate can't disagree on precedence.
+    func resolvedConfigData(forRelative relativePath: String, generate: () throws -> Data) throws -> Data {
+        hasOverride(forRelative: relativePath) ? try data(atRelative: relativePath) : try generate()
     }
 
     // MARK: - Write path
@@ -194,20 +212,19 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // override copy of `relativeDir`, sorted. Used to enumerate user skill trees.
     func overrideFileNamesRecursive(inRelativeDir relativeDir: String) -> [String] {
         guard let overrideRoot else { return [] }
-        let dir = overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
-        guard
-            let enumerator = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: [.isRegularFileKey])
-        else { return [] }
-        let base = dir.standardizedFileURL.path + "/"
-        var result: [String] = []
-        for case let url as URL in enumerator {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                !Self.isNoise(url.lastPathComponent)
-            else { continue }
-            result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
-        }
-        return result.sorted()
+        return Self.regularFileNamesRecursive(
+            in: overrideRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        ).sorted()
+    }
+
+    // Excludes the typed category dirs (surfaced through their own walks) and noise,
+    // leaving the arbitrary files a user authored or dropped anywhere in the tree.
+    func overrideRootArbitraryFiles(excludingTopLevel excluded: Set<String>) -> [String] {
+        guard let overrideRoot else { return [] }
+        return Self.regularFileNamesRecursive(in: overrideRoot).filter { relative in
+            let first = relative.split(separator: "/").first.map(String.init) ?? relative
+            return !excluded.contains(first)
+        }.sorted()
     }
 
     // Union of regular file sub-paths (relative to `relativeDir`) found recursively
@@ -220,8 +237,8 @@ nonisolated struct ScaffoldOverrides: Sendable {
         return names.sorted()
     }
 
-    // All sub-directory relative paths in the override store (recursive, sorted), so
-    // the content tree can show user-created folders even when they are still empty.
+    // So the content tree can show user-created folders even when still empty. Noise/VCS
+    // dirs (`.git`) are skipped, matching the file walks.
     func overrideDirectoryPaths() -> [String] {
         guard let overrideRoot else { return [] }
         guard
@@ -233,7 +250,9 @@ nonisolated struct ScaffoldOverrides: Sendable {
         for case let url as URL in enumerator {
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             else { continue }
-            result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
+            let relative = url.standardizedFileURL.path.replacingOccurrences(of: base, with: "")
+            guard !Self.pathHasNoiseComponent(relative) else { continue }
+            result.append(relative)
         }
         return result.sorted()
     }
@@ -246,17 +265,18 @@ nonisolated struct ScaffoldOverrides: Sendable {
         let base = dir.standardizedFileURL.path + "/"
         var result: [String] = []
         for case let url as URL in enumerator {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                !Self.isNoise(url.lastPathComponent)
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
             else { continue }
-            result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
+            let relative = url.standardizedFileURL.path.replacingOccurrences(of: base, with: "")
+            guard !Self.pathHasNoiseComponent(relative) else { continue }
+            result.append(relative)
         }
         return result
     }
 
     private static func regularFileNames(in dir: URL) -> [String] {
         // Hidden files are kept (dotfiles like `.editorconfig` are real project files)
-        // except the macOS `.DS_Store` noise file.
+        // except the macOS/VCS noise filtered by `isNoise`.
         let contents =
             (try? FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: [.isRegularFileKey])) ?? []
@@ -267,6 +287,62 @@ nonisolated struct ScaffoldOverrides: Sendable {
             .filter { !Self.isNoise($0) }
     }
 
-    // macOS metadata that should never appear in the tree or scaffold output.
-    static func isNoise(_ fileName: String) -> Bool { fileName == ".DS_Store" }
+    // MARK: - Resolved tree copy (shared by scaffolder + migrator)
+
+    static let bundledSkillNames = ["plumage-plan", "plumage-implement", "plumage-review"]
+
+    // The source tree defines the file set: the bundled dir for a bundled skill (an
+    // override replaces a file's content, never adds files), or the override dir for a
+    // user-authored skill with no bundled baseline. macOS/VCS noise is never copied out.
+    func copyResolvedTree(relativeDir: String, to dest: URL) throws {
+        let fileManager = FileManager.default
+        let bundledDir = bundledRoot.appending(path: relativeDir, directoryHint: .isDirectory)
+        let sourceDir =
+            fileManager.fileExists(atPath: bundledDir.path)
+            ? bundledDir : (overrideURL(forRelative: relativeDir) ?? bundledDir)
+        try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
+        guard
+            let enumerator = fileManager.enumerator(
+                at: sourceDir, includingPropertiesForKeys: [.isRegularFileKey])
+        else { return }
+        for case let entry as URL in enumerator {
+            let isRegular = (try entry.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile ?? false
+            guard isRegular else { continue }
+            let suffix = entry.standardizedFileURL.path
+                .replacingOccurrences(of: sourceDir.standardizedFileURL.path + "/", with: "")
+            guard !Self.pathHasNoiseComponent(suffix) else { continue }
+            let resolved = url(forRelative: "\(relativeDir)/\(suffix)")
+            let target = dest.appending(path: suffix)
+            try fileManager.createDirectory(
+                at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: resolved, to: target)
+        }
+    }
+
+    static func setExecutable(_ url: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    static func makeExecutable(scriptsIn dir: URL) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: dir.path) else { return }
+        for entry in try fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        where entry.pathExtension == "sh" || entry.pathExtension == "py" {
+            try setExecutable(entry)
+        }
+    }
+
+    // MARK: - Noise
+
+    // macOS/VCS metadata that must never reach the tree or scaffold output.
+    static func isNoise(_ fileName: String) -> Bool {
+        fileName == ".DS_Store" || fileName.hasPrefix("._")
+            || fileName == ".git" || fileName == ".svn" || fileName == ".hg"
+    }
+
+    // True when any path component is noise — so a file *inside* a `.git/` directory is
+    // excluded by its ancestor even though its own leaf name is innocuous.
+    static func pathHasNoiseComponent(_ relativePath: String) -> Bool {
+        relativePath.split(separator: "/").contains { isNoise(String($0)) }
+    }
 }
