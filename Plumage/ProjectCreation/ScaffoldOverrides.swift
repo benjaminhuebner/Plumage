@@ -82,6 +82,20 @@ nonisolated struct ScaffoldOverrides: Sendable {
         FileManager.default.fileExists(atPath: bundledRoot.appending(path: relativePath).path)
     }
 
+    // Whether the override at `relativePath` actually diverges from the bundled
+    // original. A user-authored file (no bundled baseline) counts as overridden
+    // whenever its override exists; an override byte-identical to bundled does not.
+    // Drives the ● "overridden" marker.
+    func isContentOverridden(forRelative relativePath: String) -> Bool {
+        guard hasOverride(forRelative: relativePath),
+            let overrideURL = overrideURL(forRelative: relativePath)
+        else { return false }
+        let bundled = bundledRoot.appending(path: relativePath)
+        guard let bundledData = try? Data(contentsOf: bundled) else { return true }
+        let overrideData = (try? Data(contentsOf: overrideURL)) ?? Data()
+        return overrideData != bundledData
+    }
+
     // MARK: - Write path
 
     // Materialize an override at `relativePath` with the given bytes, creating the

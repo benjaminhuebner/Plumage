@@ -1,7 +1,8 @@
 import SwiftUI
 
 // Middle column: the selected item's files (selectable, drive the right column)
-// plus a read-only membership section. Read-only browse — no add/edit/drag.
+// plus a read-only membership section. A ● marks a file whose override diverges
+// from the bundled original.
 struct TemplateContentColumn: View {
     @Bindable var model: TemplateManagerModel
 
@@ -10,7 +11,7 @@ struct TemplateContentColumn: View {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
                     ForEach(model.contentFiles) { node in
-                        Label(node.name, systemImage: "doc.text")
+                        fileRow(node)
                             .tag(node)
                     }
                 }
@@ -36,5 +37,18 @@ struct TemplateContentColumn: View {
             }
         }
         .navigationTitle(model.selectionTitle)
+    }
+
+    private func fileRow(_ node: FileNode) -> some View {
+        HStack(spacing: 6) {
+            Label(node.name, systemImage: "doc.text")
+            Spacer(minLength: 0)
+            if model.isOverridden(node) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 7))
+                    .foregroundStyle(Color.accentColor)
+                    .accessibilityLabel("Overridden")
+            }
+        }
     }
 }

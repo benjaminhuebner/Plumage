@@ -434,13 +434,7 @@ final class TemplatesSettingsModel {
     // bundled original. Files with no bundled baseline (user-authored agents)
     // count as overridden whenever an override file exists.
     private func overrideDiffers(_ relativePath: String) -> Bool {
-        guard overrides.hasOverride(forRelative: relativePath),
-            let overrideURL = overrides.overrideURL(forRelative: relativePath)
-        else { return false }
-        let bundled = overrides.bundledRoot.appending(path: relativePath)
-        guard let bundledData = try? Data(contentsOf: bundled) else { return true }
-        let overrideData = (try? Data(contentsOf: overrideURL)) ?? Data()
-        return overrideData != bundledData
+        overrides.isContentOverridden(forRelative: relativePath)
     }
 
     // MARK: - Preview
