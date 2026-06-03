@@ -124,6 +124,59 @@ nonisolated extension TemplateCatalog {
         uniqueValue(base, taken: Set(templates.map(\.name)), separator: " ")
     }
 
+    // MARK: - Shared components
+
+    // Adds a custom shared component with its own file named after its id (the model
+    // writes a starter to the override store). `.layer`/`.hook`/`.skill`/`.config`
+    // resolve to their own override path.
+    @discardableResult
+    mutating func addSharedComponent(
+        name: String, kind: SharedComponentKind, memberTemplateIDs: Set<String>
+    ) -> SharedComponent {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = uniqueComponentName(trimmed.isEmpty ? "New Component" : trimmed)
+        let id = uniqueComponentID(slug(displayName, fallback: "component"))
+        let order = (sharedComponents.map(\.order).max() ?? -1) + 1
+        let component = SharedComponent(
+            id: id, name: displayName, kind: kind, files: [id], order: order,
+            memberTemplateIDs: memberTemplateIDs)
+        sharedComponents.append(component)
+        return component
+    }
+
+    mutating func deleteSharedComponent(id: String) {
+        sharedComponents.removeAll { $0.id == id }
+    }
+
+    mutating func renameSharedComponent(id: String, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = sharedComponents.firstIndex(where: { $0.id == id }),
+            sharedComponents[index].name != trimmed
+        else { return }
+        sharedComponents[index].name = uniqueComponentName(trimmed, excludingID: id)
+    }
+
+    // Sets one template's membership in a component (the checklist toggle).
+    mutating func setMembership(componentID: String, templateID: String, isMember: Bool) {
+        guard let index = sharedComponents.firstIndex(where: { $0.id == componentID }) else { return }
+        if isMember {
+            sharedComponents[index].memberTemplateIDs.insert(templateID)
+        } else {
+            sharedComponents[index].memberTemplateIDs.remove(templateID)
+        }
+    }
+
+    private func uniqueComponentID(_ base: String) -> String {
+        let taken = Set(sharedComponents.map(\.id))
+            .union(TemplateCatalog.bundledDefault.sharedComponents.map(\.id))
+        return uniqueValue(base, taken: taken)
+    }
+
+    private func uniqueComponentName(_ base: String, excludingID: String? = nil) -> String {
+        let taken = Set(sharedComponents.filter { $0.id != excludingID }.map(\.name))
+        return uniqueValue(base, taken: taken, separator: " ")
+    }
+
     // MARK: - Template placement
 
     // Moves a template to another category, appended after that category's last

@@ -16,6 +16,7 @@ struct TemplateCatalogSidebar: View {
                 ForEach(model.catalog.sortedSharedComponents) { component in
                     Label(component.name, systemImage: component.kind.sfSymbolName)
                         .tag(TemplateCatalogItem.sharedComponent(component.id))
+                        .contextMenu { sharedComponentMenu(component) }
                 }
             }
 
@@ -57,6 +58,9 @@ struct TemplateCatalogSidebar: View {
                         model.isAddingTemplate = true
                     }
                     .disabled(model.catalog.categories.isEmpty)
+                    Button("New Shared Component", systemImage: "puzzlepiece") {
+                        model.isAddingSharedComponent = true
+                    }
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
@@ -66,6 +70,28 @@ struct TemplateCatalogSidebar: View {
             NewTemplateSheet(catalog: model.catalog) { request in
                 model.addTemplate(request)
             }
+        }
+        .sheet(isPresented: $model.isAddingSharedComponent) {
+            NewSharedComponentSheet(catalog: model.catalog) { request in
+                model.addSharedComponent(request)
+            }
+        }
+        .confirmationDialog(
+            model.pendingComponentDeletion.map { "Delete “\($0.name)”?" } ?? "",
+            isPresented: Binding(
+                get: { model.pendingComponentDeletion != nil },
+                set: { if !$0 { model.pendingComponentDeletion = nil } }),
+            titleVisibility: .visible,
+            presenting: model.pendingComponentDeletion
+        ) { _ in
+            Button("Delete", role: .destructive) { model.confirmDeleteSharedComponent() }
+            Button("Cancel", role: .cancel) { model.pendingComponentDeletion = nil }
+        } message: { component in
+            let names = model.catalog.templates(memberOf: component.id).map(\.name)
+            Text(
+                names.isEmpty
+                    ? "No templates include this component."
+                    : "These templates will stop including it: \(names.joined(separator: ", ")).")
         }
         .overlay(alignment: .bottom) { errorBanner }
     }
@@ -102,6 +128,15 @@ struct TemplateCatalogSidebar: View {
             model.deleteCategory(id: category.id)
         }
         .disabled(!model.canDeleteCategory(id: category.id))
+    }
+
+    @ViewBuilder
+    private func sharedComponentMenu(_ component: SharedComponent) -> some View {
+        if model.isUserAuthoredComponent(id: component.id) {
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                model.requestDeleteSharedComponent(id: component.id)
+            }
+        }
     }
 
     @ViewBuilder

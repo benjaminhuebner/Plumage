@@ -157,4 +157,54 @@ struct TemplateManagerStructureTests {
         #expect(image.hasPrefix("template-images/\(created.id)"))
         #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: image).path))
     }
+
+    // MARK: - Shared components & membership
+
+    @Test("Toggling membership persists and changes effective layers")
+    func setMembershipPersists() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        let other = try #require(ctx.model.catalog.template(id: "other"))
+
+        ctx.model.setMembership(componentID: "swift-shared", templateID: other.id, isMember: true)
+
+        #expect(ctx.model.catalog.effectiveLayers(forTemplate: other.id).contains("swift-shared"))
+        #expect(
+            TemplateCatalogStore(manifestURL: ctx.manifest)
+                .load().sharedComponent(id: "swift-shared")?.isMember(other.id) == true)
+    }
+
+    @Test("Authoring a shared component persists, writes its file, and selects it")
+    func addSharedComponentModel() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+
+        let ok = ctx.model.addSharedComponent(
+            NewSharedComponentRequest(name: "Extra Layer", kind: .layer, memberTemplateIDs: []))
+
+        #expect(ok)
+        let created = try #require(
+            ctx.model.catalog.sharedComponents.first { $0.name == "Extra Layer" })
+        #expect(ctx.model.selection == .sharedComponent(created.id))
+        let fileURL = ctx.override.appending(path: "templates/\(created.id).md")
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @Test("Deleting a user shared component removes it after confirmation")
+    func deleteSharedComponentModel() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        _ = ctx.model.addSharedComponent(
+            NewSharedComponentRequest(name: "Doomed", kind: .layer, memberTemplateIDs: []))
+        let created = try #require(ctx.model.catalog.sharedComponents.first { $0.name == "Doomed" })
+
+        ctx.model.requestDeleteSharedComponent(id: created.id)
+        #expect(ctx.model.pendingComponentDeletion?.id == created.id)
+        ctx.model.confirmDeleteSharedComponent()
+
+        #expect(ctx.model.catalog.sharedComponent(id: created.id) == nil)
+        #expect(
+            TemplateCatalogStore(manifestURL: ctx.manifest).load().sharedComponent(id: created.id)
+                == nil)
+    }
 }

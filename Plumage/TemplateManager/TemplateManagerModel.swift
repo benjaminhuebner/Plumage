@@ -60,6 +60,13 @@ final class TemplateManagerModel {
     // Drives the "New Template" sheet (name + image + starting point + category).
     var isAddingTemplate = false
 
+    // Drives the "New Shared Component" sheet (name + kind + membership).
+    var isAddingSharedComponent = false
+
+    // A shared component awaiting a delete confirmation (the dialog names the
+    // templates that currently include it).
+    var pendingComponentDeletion: SharedComponent?
+
     // A transient (~4 s) banner shown when a structural mutation fails to persist;
     // the in-memory catalog is rolled back to the last saved state (no half-applied
     // structure), and this explains why nothing changed.
@@ -694,6 +701,85 @@ extension TemplateManagerModel {
                 .compactMap { try? overrides.string(atRelative: "templates/\($0).md") }
                 .joined(separator: "\n\n")
             if !copied.isEmpty { content = copied }
+        }
+        _ = try? overrides.writeOverride(content, toRelative: relativePath)
+    }
+
+    // MARK: - Shared-component membership & authoring
+
+    // The component being edited, when a shared component is selected — drives the
+    // membership checklist in the middle column.
+    var editingComponentID: String? {
+        if case .sharedComponent(let id) = selection { return id }
+        return nil
+    }
+
+    func isUserAuthoredComponent(id: String) -> Bool {
+        !catalog.isPredefinedSharedComponent(id)
+    }
+
+    func isMember(componentID: String, templateID: String) -> Bool {
+        catalog.sharedComponent(id: componentID)?.isMember(templateID) ?? false
+    }
+
+    func setMembership(componentID: String, templateID: String, isMember: Bool) {
+        var updated = catalog
+        updated.setMembership(componentID: componentID, templateID: templateID, isMember: isMember)
+        guard updated != catalog else { return }
+        persist(updated)
+    }
+
+    @discardableResult
+    func addSharedComponent(_ request: NewSharedComponentRequest) -> Bool {
+        guard overrides.overrideRoot != nil else {
+            showStructuralError("No override store is available to author a component.")
+            return false
+        }
+        var updated = catalog
+        let component = updated.addSharedComponent(
+            name: request.name, kind: request.kind, memberTemplateIDs: request.memberTemplateIDs)
+        writeComponentStarter(for: component)
+        guard persist(updated) else { return false }
+        selection = .sharedComponent(component.id)
+        refreshContent()
+        return true
+    }
+
+    // The dialog always confirms (it names the affected templates); the actual
+    // delete drops the manifest record and trashes the component's own override
+    // files (predefined bundled files are never trashed).
+    func requestDeleteSharedComponent(id: String) {
+        guard let component = catalog.sharedComponent(id: id) else { return }
+        pendingComponentDeletion = component
+    }
+
+    func confirmDeleteSharedComponent() {
+        guard let component = pendingComponentDeletion else { return }
+        pendingComponentDeletion = nil
+        var updated = catalog
+        updated.deleteSharedComponent(id: component.id)
+        for file in component.files {
+            let relativePath = relativePath(for: component.kind, file: file)
+            if !overrides.hasBundledOriginal(forRelative: relativePath),
+                let url = overrides.overrideURL(forRelative: relativePath)
+            {
+                _ = try? ClaudeProjectFiles.trashFile(at: url)
+            }
+        }
+        if selection == .sharedComponent(component.id) { selection = .base }
+        persist(updated)
+        refreshContent()
+    }
+
+    private func writeComponentStarter(for component: SharedComponent) {
+        guard let file = component.files.first else { return }
+        let relativePath = relativePath(for: component.kind, file: file)
+        let content: String
+        switch component.kind {
+        case .layer: content = "# \(component.name)\n"
+        case .hook: content = "#!/bin/bash\n# \(component.name)\n"
+        case .skill: content = "# \(component.name)\n"
+        case .config: content = "{}\n"
         }
         _ = try? overrides.writeOverride(content, toRelative: relativePath)
     }

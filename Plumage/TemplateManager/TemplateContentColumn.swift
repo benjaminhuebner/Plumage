@@ -19,7 +19,23 @@ struct TemplateContentColumn: View {
                 }
             }
 
-            if let membership = model.membership {
+            if let componentID = model.editingComponentID {
+                Section("Included in templates") {
+                    ForEach(model.catalog.templates.sorted { $0.name < $1.name }) { template in
+                        Toggle(
+                            isOn: Binding(
+                                get: { model.isMember(componentID: componentID, templateID: template.id) },
+                                set: {
+                                    model.setMembership(
+                                        componentID: componentID, templateID: template.id, isMember: $0)
+                                })
+                        ) {
+                            Text(template.name)
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+            } else if let membership = model.membership {
                 Section(membership.title) {
                     if membership.names.isEmpty {
                         Text("None")
@@ -33,7 +49,7 @@ struct TemplateContentColumn: View {
                 }
             }
 
-            if model.contentFiles.isEmpty && model.membership == nil {
+            if model.contentFiles.isEmpty && model.membership == nil && model.editingComponentID == nil {
                 Text("No files")
                     .foregroundStyle(.secondary)
             }

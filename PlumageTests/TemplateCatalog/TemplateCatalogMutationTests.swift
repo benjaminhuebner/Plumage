@@ -122,6 +122,49 @@ struct TemplateCatalogMutationTests {
         }
     }
 
+    // MARK: - Shared components & membership
+
+    @Test("Toggling swift-shared membership changes a template's effective layers")
+    func toggleMembershipAffectsEffectiveLayers() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let other = try #require(catalog.template(id: "other"))
+        #expect(!catalog.effectiveLayers(forTemplate: other.id).contains("swift-shared"))
+
+        catalog.setMembership(componentID: "swift-shared", templateID: other.id, isMember: true)
+        #expect(catalog.effectiveLayers(forTemplate: other.id).contains("swift-shared"))
+
+        catalog.setMembership(componentID: "swift-shared", templateID: other.id, isMember: false)
+        #expect(!catalog.effectiveLayers(forTemplate: other.id).contains("swift-shared"))
+    }
+
+    @Test("addSharedComponent appends with its own id-named file")
+    func addSharedComponent() {
+        var catalog = TemplateCatalog.bundledDefault
+        let created = catalog.addSharedComponent(
+            name: "My Layer", kind: .layer, memberTemplateIDs: ["macOS"])
+        #expect(created.files == [created.id])
+        #expect(created.memberTemplateIDs == ["macOS"])
+        #expect(catalog.sharedComponent(id: created.id) != nil)
+    }
+
+    @Test("deleteSharedComponent removes it")
+    func deleteSharedComponent() {
+        var catalog = TemplateCatalog.bundledDefault
+        let created = catalog.addSharedComponent(name: "Temp", kind: .layer, memberTemplateIDs: [])
+        catalog.deleteSharedComponent(id: created.id)
+        #expect(catalog.sharedComponent(id: created.id) == nil)
+    }
+
+    @Test("Membership change survives the overlay round-trip")
+    func membershipRoundTrip() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let other = try #require(catalog.template(id: "other"))
+        catalog.setMembership(componentID: "swift-shared", templateID: other.id, isMember: true)
+
+        let reloaded = TemplateCatalog(manifest: catalog.overlayManifest())
+        #expect(reloaded.sharedComponent(id: "swift-shared")?.isMember(other.id) == true)
+    }
+
     // MARK: - Template placement
 
     @Test("moveTemplate changes the category and appends the template last")

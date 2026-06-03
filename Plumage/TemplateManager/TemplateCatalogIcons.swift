@@ -22,4 +22,13 @@ extension SharedComponentKind {
         case .config: "gearshape"
         }
     }
+
+    var displayName: String {
+        switch self {
+        case .layer: "Layer"
+        case .hook: "Hook"
+        case .skill: "Skill"
+        case .config: "Config"
+        }
+    }
 }
