@@ -71,7 +71,7 @@ extension TemplateManagerModel {
     // The override-store directory new items created/dropped in an output folder are
     // written to. `.claude/<x>` and `.plumage/scripts` fold back to their store dirs;
     // the project root and the bare `.claude`/`.plumage` nodes map to the store root.
-    static func storageDir(forOutputFolder output: String) -> String {
+    nonisolated static func storageDir(forOutputFolder output: String) -> String {
         if output.isEmpty || output == ".claude" || output == ".plumage" { return "" }
         if output == ".plumage/scripts" { return "plumage" }
         if output.hasPrefix(".plumage/scripts/") {
