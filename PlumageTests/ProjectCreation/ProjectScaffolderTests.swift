@@ -189,6 +189,36 @@ struct ProjectScaffolderTests {
             fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
     }
 
+    // #00070 reconciliation: the legacy `ScaffoldToggles` stays the artifact disable
+    // carrier even though Settings no longer exposes per-hook toggles. A hook the user
+    // disabled (persisted to scaffold-toggles.json) must stay absent — from the tree
+    // and from settings.json — through the catalog-driven path.
+    @Test("A previously-disabled hook (persisted toggles) stays absent after reconciliation")
+    func legacyDisabledHookStaysAbsent() async throws {
+        let fm = FileManager.default
+        let togglesURL = fm.temporaryDirectory
+            .appending(path: "scaffold-toggles-\(UUID().uuidString).json")
+        defer { try? fm.removeItem(at: togglesURL) }
+        // Simulate the legacy persisted state: a user who disabled lint-swift.
+        var seeded = ScaffoldToggles()
+        seeded.setEnabled(.hooks, "lint-swift", false)
+        try seeded.save(to: togglesURL)
+
+        let loaded = try ScaffoldToggles.load(from: togglesURL)
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(toggles: loaded).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/hooks/lint-swift.sh").path))
+        let settings = try String(
+            contentsOf: dir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(!settings.contains("lint-swift.sh"))
+        // A non-disabled sibling hook is still scaffolded and wired.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/hooks/format-swift.sh").path))
+        #expect(settings.contains("format-swift.sh"))
+    }
+
     @Test("No agents in the override store: no .claude/agents directory is created")
     func noAgentsNoDir() async throws {
         let fm = FileManager.default
