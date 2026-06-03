@@ -169,6 +169,59 @@ nonisolated struct ScaffoldOverrides: Sendable {
         }
     }
 
+    // MARK: - Tombstones (suppressed bundled files)
+
+    // A bundled file the user moves away can't be "deleted" the usual way —
+    // `removeOverride` only reverts to bundled, and the bytes live in the read-only app
+    // bundle. A tombstone records the bundled relativePath as suppressed so it stops
+    // surfacing at its original location. Persisted as a JSON string array in
+    // `tombstones.json` at the store root, read on demand to keep this struct stateless.
+    // (The tree walks exclude this file via `typedStoreTopLevel`.)
+    static let tombstonesFileName = "tombstones.json"
+
+    private var tombstonesURL: URL? {
+        overrideRoot?.appending(path: Self.tombstonesFileName)
+    }
+
+    func suppressedRelativePaths() -> Set<String> {
+        guard let tombstonesURL, let data = try? Data(contentsOf: tombstonesURL),
+            let list = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return Set(list)
+    }
+
+    func isSuppressed(relativePath: String) -> Bool {
+        suppressedRelativePaths().contains(relativePath)
+    }
+
+    func suppress(relativePath: String) throws {
+        guard let overrideRoot, let tombstonesURL else {
+            throw ScaffoldOverridesError.noOverrideStore
+        }
+        var set = suppressedRelativePaths()
+        guard set.insert(relativePath).inserted else { return }
+        try FileManager.default.createDirectory(at: overrideRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(set.sorted()).write(to: tombstonesURL, options: .atomic)
+    }
+
+    func unsuppress(relativePath: String) throws {
+        guard let tombstonesURL else { return }
+        var set = suppressedRelativePaths()
+        guard set.remove(relativePath) != nil else { return }
+        // Keep "no tombstones == byte-identical to a fresh store": drop the file when empty.
+        guard !set.isEmpty else {
+            try? FileManager.default.removeItem(at: tombstonesURL)
+            return
+        }
+        try JSONEncoder().encode(set.sorted()).write(to: tombstonesURL, options: .atomic)
+    }
+
+    // Lift every tombstone at once (Restore Defaults), removing the store file entirely.
+    func clearTombstones() {
+        guard let tombstonesURL else { return }
+        try? FileManager.default.removeItem(at: tombstonesURL)
+    }
+
     // File names directly inside the override `<relativeDir>` directory, sorted.
     // Used for catalogs that have no bundled baseline (user-authored agents):
     // the set of files is whatever the user created. Empty when there is no
