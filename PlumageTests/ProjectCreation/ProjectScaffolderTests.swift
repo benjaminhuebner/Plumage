@@ -333,6 +333,20 @@ struct ProjectScaffolderTests {
         #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/skills/my-skill").path))
     }
 
+    @Test("Scaffolded CLAUDE.md merges the folder-per-layer fragments with no leftover tokens")
+    func scaffoldedClaudeMdMerges() async throws {
+        let dir = tmpProjectDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder().create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let md = try String(contentsOf: dir.appending(path: ".claude/CLAUDE.md"), encoding: .utf8)
+        #expect(md.contains("Strict concurrency is on"))  // templates/swift-shared/CLAUDE.md
+        #expect(md.contains("@Observable"))  // templates/apple-shared/CLAUDE.md
+        #expect(md.contains("custom NSWindow chrome"))  // templates/macos/CLAUDE.md
+        #expect(!md.contains("<<<"))  // every token resolved, no duplicate skeleton markers
+    }
+
     private struct NoopGitInit: GitInitializing {
         func initRepo(at url: URL, defaultBranch: String) async throws {}
     }
