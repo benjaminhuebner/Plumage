@@ -652,20 +652,6 @@ final class TemplateManagerModel {
         return (ref.relativePath as NSString).deletingLastPathComponent
     }
 
-    // The content-tree node carrying `url` (a folder's synthetic output URL or a file
-    // leaf's resolved override/bundled URL), used to map a drag payload back to its node.
-    func contentNode(forURL url: URL) -> FileNode? {
-        let target = url.standardizedFileURL.path
-        func search(_ nodes: [FileNode]) -> FileNode? {
-            for node in nodes {
-                if node.url.standardizedFileURL.path == target { return node }
-                if let children = node.children, let found = search(children) { return found }
-            }
-            return nil
-        }
-        return search(contentTree)
-    }
-
     // Author a new override item of `kind`, seeded with its starter, suffix-walking on
     // collision and validating containment via `ClaudeProjectFiles`. The new item is
     // selected. Returns the created node (so a hook add can raise the wiring sheet), or

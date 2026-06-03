@@ -6,29 +6,35 @@ import SwiftUI
 struct TemplateContentColumn: View {
     @Bindable var model: TemplateManagerModel
     @State private var addKind: UserTemplateKind?
-    // The relativePath of the row a drag is currently hovering, so exactly one row
-    // shows the accent drop highlight (one shared bit beats per-row @State here).
-    @State private var targetedPath: String?
+    // Live drag: the grabbed row floats under the cursor (Kanban-card pattern) instead of
+    // the system `.draggable` preview. The registry tracks row frames so the drop resolves
+    // the row under the cursor.
+    @State private var drag = TemplateTreeDragController()
+    @State private var frames = TemplateTreeFrameRegistry()
 
     var body: some View {
+        ZStack(alignment: .topLeading) {
+            tree
+            floatingDragRow
+        }
+        .coordinateSpace(.named(TemplateTreeCoordinateSpace.name))
+    }
+
+    private var tree: some View {
         List(selection: $model.selectedFile) {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
                     OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
                         fileRow(node)
                             .contentShape(Rectangle())
-                            .listRowBackground(dropRowBackground(active: targetedPath == node.relativePath))
+                            .opacity(drag.sourceNode?.relativePath == node.relativePath ? 0.35 : 1)
+                            .reportTreeRowFrame(node.relativePath, registry: frames)
                             .tag(node)
                             .contextMenu { rowMenu(node) }
-                            .draggable(FileTreeDragPayload(url: node.url))
-                            .dropDestination(for: DroppableTreeItem.self) { items, _ in
-                                handleContentDrop(items, onto: node)
-                            } isTargeted: { targeted in
-                                if targeted {
-                                    targetedPath = node.relativePath
-                                } else if targetedPath == node.relativePath {
-                                    targetedPath = nil
-                                }
+                            .simultaneousGesture(rowDragGesture(node))
+                            .dropDestination(for: URL.self) { urls, _ in
+                                model.importDropped(urls: urls, into: node)
+                                return true
                             }
                     }
                 }
@@ -124,23 +130,53 @@ struct TemplateContentColumn: View {
         }
     }
 
-    // A drop onto a row: internal nodes move into the row's folder, Finder URLs import
-    // there. Mixed payloads are split (mirrors the Navigator's `handleDrop`). Drops on
-    // the empty list background fall through to the list-wide Finder import.
-    private func handleContentDrop(_ items: [DroppableTreeItem], onto node: FileNode) -> Bool {
-        guard !items.isEmpty else { return false }
-        var finderURLs: [URL] = []
-        var moveSources: [FileNode] = []
-        for item in items {
-            switch item {
-            case .finderURL(let url): finderURLs.append(url)
-            case .internalNode(let payload):
-                if let source = model.contentNode(forURL: payload.url) { moveSources.append(source) }
-            }
+    // The grabbed row rendered 1:1 under the cursor (Kanban `FloatingDragCard` pattern),
+    // offset from its lift frame by the live drag translation. A translucent chip with a
+    // shadow, like a Finder drag image.
+    @ViewBuilder
+    private var floatingDragRow: some View {
+        if drag.isActive, let node = drag.sourceNode {
+            fileRow(node)
+                .padding(.horizontal, 10)
+                .frame(
+                    width: max(drag.sourceFrame.width, 1), height: max(drag.sourceFrame.height, 1),
+                    alignment: .leading
+                )
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+                .offset(
+                    x: drag.sourceFrame.minX + drag.translation.width,
+                    y: drag.sourceFrame.minY + drag.translation.height
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
-        if !moveSources.isEmpty { model.moveNodes(moveSources, into: node) }
-        if !finderURLs.isEmpty { model.importDropped(urls: finderURLs, into: node) }
-        return !moveSources.isEmpty || !finderURLs.isEmpty
+    }
+
+    // A pure drag (no LongPress) like the Kanban cards; `simultaneousGesture` so the
+    // List's own click-to-select still fires. On drop, the row under the cursor is the
+    // move target (`moveNodes` maps a file row to its parent folder, rejects no-ops).
+    private func rowDragGesture(_ node: FileNode) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .named(TemplateTreeCoordinateSpace.name))
+            .onChanged { value in
+                if !drag.isActive {
+                    drag.startLift(node: node, frame: frames.rows[node.relativePath] ?? .zero)
+                }
+                drag.updateCursor(location: value.location, translation: value.translation)
+            }
+            .onEnded { value in
+                defer { drag.clear() }
+                guard let source = drag.sourceNode, let target = nodeAt(value.location),
+                    target.relativePath != source.relativePath
+                else { return }
+                model.moveNodes([source], into: target)
+            }
+    }
+
+    // The tree node whose row frame contains `point`, or nil over empty space.
+    private func nodeAt(_ point: CGPoint) -> FileNode? {
+        guard let path = frames.rows.first(where: { $0.value.contains(point) })?.key else { return nil }
+        return TemplateManagerModel.findNode(in: model.contentTree, relativePath: path)
     }
 
     private func fileRow(_ node: FileNode) -> some View {
@@ -201,19 +237,5 @@ struct TemplateContentColumn: View {
                 Button("Delete", role: .destructive) { model.requestDelete(node) }
             }
         }
-    }
-}
-
-extension TemplateContentColumn {
-    // The native AppKit "drop on a row" feedback (Finder list view): a rounded accent
-    // outline around the full row — not a fill — drawn via `listRowBackground` so it spans
-    // the list's row geometry. `nil` keeps the default row background.
-    fileprivate func dropRowBackground(active: Bool) -> AnyView? {
-        guard active else { return nil }
-        return AnyView(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.accentColor, lineWidth: 2)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1))
     }
 }
