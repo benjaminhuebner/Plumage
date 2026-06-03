@@ -198,8 +198,15 @@ final class TemplateManagerModel {
     // rather than Reset to Default. A generated config is never user-authored — it
     // has a generated baseline, so it resets (regenerates) rather than deletes.
     func isUserAuthored(_ file: FileNode) -> Bool {
-        if managerConfig(forRelative: file.relativePath) != nil { return false }
-        return !overrides.hasBundledOriginal(forRelative: file.relativePath)
+        isUserAuthoredStore(file.relativePath)
+    }
+
+    // Store-path variant: a folder node carries its *output* path in `relativePath`, so
+    // the move path resolves it to a store path first (`TemplateContentDropResolver`)
+    // and checks authorship against that — never the output path.
+    private func isUserAuthoredStore(_ storePath: String) -> Bool {
+        if managerConfig(forRelative: storePath) != nil { return false }
+        return !overrides.hasBundledOriginal(forRelative: storePath)
     }
 
     // Called after the editor saves: the override may now differ from bundled, so
@@ -226,6 +233,9 @@ final class TemplateManagerModel {
         guard let relativePath = pendingResetPath else { return }
         pendingResetPath = nil
         try? overrides.removeOverride(forRelative: relativePath)
+        // A per-file reset also lifts a tombstone on the same path, so resetting a file
+        // that was moved away brings its bundled original back at this location.
+        try? overrides.unsuppress(relativePath: relativePath)
         overriddenPaths.remove(relativePath)
         isEditorDirty = false
         editorReloadToken += 1
@@ -376,12 +386,12 @@ final class TemplateManagerModel {
     // skill (routed to `skills/`) so it scaffolds correctly. A failed copy is surfaced
     // in a banner. Returns whether anything was imported.
     @discardableResult
-    func importDropped(urls: [URL]) -> Bool {
+    func importDropped(urls: [URL], into target: FileNode? = nil) -> Bool {
         guard let overrideRoot = overrides.overrideRoot else {
             showDropBanner("No override store is available.")
             return false
         }
-        let targetDir = addTargetStorageDir()
+        let targetDir = addTargetStorageDir(for: target)
         let fileManager = FileManager.default
         var first: (storage: String, isDirectory: Bool)?
         var importedStoragePaths: Set<String> = []
@@ -479,6 +489,120 @@ final class TemplateManagerModel {
         return (targetDir, url.lastPathComponent, false, isDir.boolValue)
     }
 
+    // MARK: - Internal move (drag within the content tree)
+
+    // Move dropped tree nodes into `target`'s folder. A user-authored item is physically
+    // relocated inside the override store; a bundled / override-of-bundled item can't move
+    // in place and takes the tombstone path (Workstream B). Selection follows the first
+    // successfully moved item to its new path. A drop onto an item's own folder, or a
+    // folder into its own subtree, is skipped.
+    func moveNodes(_ sources: [FileNode], into target: FileNode) {
+        guard let overrideRoot = overrides.overrideRoot else {
+            showDropBanner("No override store is available.")
+            return
+        }
+        guard let targetDir = TemplateContentDropResolver.targetStoreDir(for: target) else {
+            showDropBanner("Can't move here.")
+            return
+        }
+        var movedSelection: (storage: String, isDirectory: Bool)?
+        var rejected: [String] = []
+        for source in sources {
+            let sourceStorePath = TemplateContentDropResolver.storePath(for: source)
+            guard
+                !TemplateContentDropResolver.rejectsMove(
+                    storePath: sourceStorePath, intoStoreDir: targetDir)
+            else { continue }
+            let moved =
+                isUserAuthoredStore(sourceStorePath)
+                ? moveUserAuthored(
+                    storePath: sourceStorePath, isDirectory: source.isDirectory,
+                    intoStoreDir: targetDir, overrideRoot: overrideRoot)
+                : moveBundled(
+                    storePath: sourceStorePath, isDirectory: source.isDirectory,
+                    intoStoreDir: targetDir, overrideRoot: overrideRoot)
+            if let moved {
+                if movedSelection == nil { movedSelection = moved }
+            } else {
+                rejected.append(source.name)
+            }
+        }
+        refreshContent()
+        selectImported(movedSelection)
+        if !rejected.isEmpty {
+            showDropBanner("Can't move: \(rejected.joined(separator: ", "))")
+        }
+    }
+
+    // Physically relocate a user-authored override file/folder to `targetDir`, returning
+    // its new store path (and directory-ness) for selection, or nil if it is missing on
+    // disk or the move fails. Suffix-walks on a name collision and carries hook wiring.
+    private func moveUserAuthored(
+        storePath: String, isDirectory: Bool, intoStoreDir targetDir: String, overrideRoot: URL
+    ) -> (storage: String, isDirectory: Bool)? {
+        let sourceURL = overrideRoot.appending(path: storePath)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else { return nil }
+        let targetFolderURL =
+            targetDir.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: targetDir, directoryHint: .isDirectory)
+        guard let movedURL = try? ClaudeProjectFiles.moveItem(at: sourceURL, to: targetFolderURL)
+        else { return nil }
+        let leaf = movedURL.lastPathComponent
+        let newStorePath = targetDir.isEmpty ? leaf : "\(targetDir)/\(leaf)"
+        followHookWiring(from: storePath, to: newStorePath)
+        overriddenPaths.remove(storePath)
+        return (newStorePath, isDirectory)
+    }
+
+    // Move a bundled (or override-of-bundled) file: it can't be relocated in place —
+    // its bytes live in the read-only app bundle — so its effective content is
+    // materialized as an override at the destination and the source path is tombstoned
+    // (suppressed) so it stops appearing at its old position. Any stale override and
+    // user wiring at the source are dropped. Bundled directories are out of scope.
+    private func moveBundled(
+        storePath: String, isDirectory: Bool, intoStoreDir targetDir: String, overrideRoot: URL
+    ) -> (storage: String, isDirectory: Bool)? {
+        guard !isDirectory else { return nil }
+        guard let data = try? Data(contentsOf: overrides.url(forRelative: storePath)) else {
+            return nil
+        }
+        let targetFolderURL =
+            targetDir.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: targetDir, directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: targetFolderURL, withIntermediateDirectories: true)
+        let baseName = (storePath as NSString).lastPathComponent
+        guard let freeURL = try? ClaudeProjectFiles.findFreeName(in: targetFolderURL, base: baseName)
+        else { return nil }
+        let leaf = freeURL.lastPathComponent
+        let newStorePath = targetDir.isEmpty ? leaf : "\(targetDir)/\(leaf)"
+        guard (try? overrides.writeOverride(data, toRelative: newStorePath)) != nil else { return nil }
+        try? overrides.suppress(relativePath: storePath)
+        try? overrides.removeOverride(forRelative: storePath)  // drop any stale override now at B
+        if let base = UserTemplateKind.hookBaseName(forRelativePath: storePath) {
+            hookWirings.remove(named: base)
+            saveHookWirings()
+        }
+        overriddenPaths.remove(storePath)
+        return (newStorePath, isDirectory)
+    }
+
+    // Keep hook wiring consistent after a move: a hook that leaves `hooks/` loses its
+    // function, so its wiring is dropped (as on delete); a collision-renamed hook keeps
+    // its wiring under the new base name.
+    private func followHookWiring(from oldStorePath: String, to newStorePath: String) {
+        guard let oldBase = UserTemplateKind.hookBaseName(forRelativePath: oldStorePath),
+            let existing = hookWirings.wiring(named: oldBase)
+        else { return }
+        let newBase = UserTemplateKind.hookBaseName(forRelativePath: newStorePath)
+        if newBase == oldBase { return }  // moved within hooks/, same name — wiring stands
+        hookWirings.remove(named: oldBase)
+        if let newBase {
+            hookWirings.upsert(
+                HookWiring(name: newBase, event: existing.event, matcher: existing.matcher))
+        }
+        saveHookWirings()
+    }
+
     // MARK: - Add
 
     // The kinds the user can author — available in every selection, since the content
@@ -519,12 +643,13 @@ final class TemplateManagerModel {
         persist(updated)
     }
 
-    // The override-store directory a new typeless item is created in: the selected
-    // folder, or the selected file's parent, or the store root when nothing is selected.
-    func addTargetStorageDir() -> String {
-        guard let selectedFile else { return "" }
-        if selectedFile.isDirectory { return Self.storageDir(forOutputFolder: selectedFile.relativePath) }
-        return (selectedFile.relativePath as NSString).deletingLastPathComponent
+    // The override-store directory a new/dropped item lands in: the given node (a
+    // dropped-on row) or the current selection — a folder targets itself, a file its
+    // parent, and nothing selected the store root.
+    func addTargetStorageDir(for node: FileNode? = nil) -> String {
+        guard let ref = node ?? selectedFile else { return "" }
+        if ref.isDirectory { return Self.storageDir(forOutputFolder: ref.relativePath) }
+        return (ref.relativePath as NSString).deletingLastPathComponent
     }
 
     // Author a new override item of `kind`, seeded with its starter, suffix-walking on
@@ -963,11 +1088,14 @@ extension TemplateManagerModel {
     }
 
     // Resets the catalog structure to the bundled baseline (drops the overlay:
-    // tombstones, custom items, reorders, membership overrides). File-content
-    // overrides are a separate store and are deliberately kept.
+    // catalog tombstones, custom items, reorders, membership overrides) and lifts every
+    // file tombstone, so a bundled file the user moved away reappears at its original
+    // path. File-content overrides are a separate store and are deliberately kept (so an
+    // edit — including the moved copy materialized at its new path — survives).
     func restoreAllDefaults() {
         do {
             try store.reset()
+            overrides.clearTombstones()
             catalog = store.load()
             selection = .base
             refreshContent()

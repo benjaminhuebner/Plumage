@@ -71,7 +71,7 @@ extension TemplateManagerModel {
     // The override-store directory new items created/dropped in an output folder are
     // written to. `.claude/<x>` and `.plumage/scripts` fold back to their store dirs;
     // the project root and the bare `.claude`/`.plumage` nodes map to the store root.
-    static func storageDir(forOutputFolder output: String) -> String {
+    nonisolated static func storageDir(forOutputFolder output: String) -> String {
         if output.isEmpty || output == ".claude" || output == ".plumage" { return "" }
         if output == ".plumage/scripts" { return "plumage" }
         if output.hasPrefix(".plumage/scripts/") {
@@ -161,7 +161,11 @@ extension TemplateManagerModel {
     private func globalSurfaceSpecs(hookNames: [String], claudeMdStorage: String) -> [LeafSpec] {
         var specs: [LeafSpec] = []
         var seen = Set<String>()
+        // A bundled file the user moved away (tombstoned) must vanish from its old
+        // position — skip any suppressed store path.
+        let suppressed = overrides.suppressedRelativePaths()
         func add(output: String, relative: String, name: String? = nil) {
+            guard !suppressed.contains(relative) else { return }
             guard seen.insert(output).inserted else { return }
             specs.append(
                 LeafSpec(
@@ -202,6 +206,7 @@ extension TemplateManagerModel {
     // `.claude/hooks`, its layer as `.claude/CLAUDE.md`, its skill subtree under
     // `.claude/skills/<name>/`). Same folder convention as everywhere else.
     private func componentLeafSpecs(_ component: SharedComponent) -> [LeafSpec] {
+        let suppressed = overrides.suppressedRelativePaths()
         var specs: [LeafSpec] = []
         for file in component.files {
             let name = file.name
@@ -230,7 +235,7 @@ extension TemplateManagerModel {
                     LeafSpec(output: ".claude/\(name)", relative: "configs/\(name)", name: name))
             }
         }
-        return specs
+        return specs.filter { !suppressed.contains($0.relative) }
     }
 
     // MARK: - Tree assembly

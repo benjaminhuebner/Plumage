@@ -2,7 +2,8 @@ import CoreTransferable
 import Foundation
 import UniformTypeIdentifiers
 
-// In-app drag payload for moving a node within the sidebar file tree.
+// In-app drag payload for moving a node within a file tree (the Navigator
+// sidebar and the Template Manager content column both reuse it).
 // `absolutePath` keeps the URL form so the receiving folder can call
 // `ClaudeProjectFiles.moveItem(at:to:)` with no further resolution. The
 // Transferable type is registered in Info.plist as
