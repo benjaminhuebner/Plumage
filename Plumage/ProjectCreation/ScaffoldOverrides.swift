@@ -7,6 +7,20 @@ import Foundation
 // all-or-nothing). The override root mirrors the bundled tree flat. The store lives
 // under Application Support, never the user's Claude config directory, so the
 // ClaudeCodeIntegration boundary is untouched.
+nonisolated enum ScaffoldOverridesError: Error, Equatable {
+    case noOverrideStore
+    case escapesStore(String)
+
+    var localizedDescription: String {
+        switch self {
+        case .noOverrideStore:
+            return "No override store is available."
+        case .escapesStore(let path):
+            return "The path \"\(path)\" escapes the override store."
+        }
+    }
+}
+
 nonisolated struct ScaffoldOverrides: Sendable {
     let bundledRoot: URL
     let overrideRoot: URL?
@@ -60,6 +74,81 @@ nonisolated struct ScaffoldOverrides: Sendable {
     func hasOverride(forRelative relativePath: String) -> Bool {
         guard let override = overrideURL(forRelative: relativePath) else { return false }
         return FileManager.default.fileExists(atPath: override.path)
+    }
+
+    // Whether a bundled original exists for this path. Drives the editor's
+    // "Reset to default" (bundled-backed) vs "Delete" (user-authored) choice.
+    func hasBundledOriginal(forRelative relativePath: String) -> Bool {
+        FileManager.default.fileExists(atPath: bundledRoot.appending(path: relativePath).path)
+    }
+
+    // Whether the override at `relativePath` actually diverges from the bundled
+    // original. A user-authored file (no bundled baseline) counts as overridden
+    // whenever its override exists; an override byte-identical to bundled does not.
+    // Drives the ● "overridden" marker.
+    func isContentOverridden(forRelative relativePath: String) -> Bool {
+        guard hasOverride(forRelative: relativePath),
+            let overrideURL = overrideURL(forRelative: relativePath)
+        else { return false }
+        let bundled = bundledRoot.appending(path: relativePath)
+        guard let bundledData = try? Data(contentsOf: bundled) else { return true }
+        let overrideData = (try? Data(contentsOf: overrideURL)) ?? Data()
+        return overrideData != bundledData
+    }
+
+    // MARK: - Write path
+
+    // Materialize an override at `relativePath` with the given bytes, creating the
+    // store and any intermediate directories. Atomic, so a concurrent scaffold reads
+    // either the old or the new file, never a partial one. The returned URL is the
+    // override slot (where the bytes now live).
+    @discardableResult
+    func writeOverride(_ data: Data, toRelative relativePath: String) throws -> URL {
+        let target = try overrideTarget(forRelative: relativePath)
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: target, options: .atomic)
+        return target
+    }
+
+    @discardableResult
+    func writeOverride(_ string: String, toRelative relativePath: String) throws -> URL {
+        try writeOverride(Data(string.utf8), toRelative: relativePath)
+    }
+
+    // Remove the override at `relativePath` (revert-to-bundled for a bundled-backed
+    // file, or outright delete for a user-authored one). Idempotent: a missing
+    // override is a no-op. Prunes now-empty ancestor directories up to the store
+    // root so the override tree stays byte-identical to "no override" when emptied.
+    func removeOverride(forRelative relativePath: String) throws {
+        guard let overrideRoot else { return }
+        let target = try overrideTarget(forRelative: relativePath)
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: target.path) else { return }
+        try fileManager.removeItem(at: target)
+        pruneEmptyDirectories(from: target.deletingLastPathComponent(), upTo: overrideRoot)
+    }
+
+    private func overrideTarget(forRelative relativePath: String) throws -> URL {
+        guard let overrideRoot else { throw ScaffoldOverridesError.noOverrideStore }
+        let target = overrideRoot.appending(path: relativePath)
+        let rootPath = overrideRoot.standardizedFileURL.path
+        guard target.standardizedFileURL.path.hasPrefix(rootPath + "/") else {
+            throw ScaffoldOverridesError.escapesStore(relativePath)
+        }
+        return target
+    }
+
+    private func pruneEmptyDirectories(from directory: URL, upTo root: URL) {
+        let fileManager = FileManager.default
+        let rootPath = root.standardizedFileURL.path
+        var dir = directory
+        while dir.standardizedFileURL.path.hasPrefix(rootPath + "/") {
+            let contents = (try? fileManager.contentsOfDirectory(atPath: dir.path)) ?? []
+            guard contents.isEmpty else { break }
+            try? fileManager.removeItem(at: dir)
+            dir = dir.deletingLastPathComponent()
+        }
     }
 
     // File names directly inside the override `<relativeDir>` directory, sorted.

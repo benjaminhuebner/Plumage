@@ -12,7 +12,7 @@ import Testing
         #expect(model.isTypeStepValid == false)
         #expect(model.canAdvance == false)
 
-        model.kind = .macOS
+        model.selectedTemplateID = ProjectKind.macOS.rawValue
         #expect(model.isTypeStepValid)
         #expect(model.canAdvance)
     }
@@ -51,7 +51,7 @@ import Testing
         #expect(model.isFirstStep)
         #expect(model.isLastStep == false)
 
-        model.kind = .iOS
+        model.selectedTemplateID = ProjectKind.iOS.rawValue
         model.advance()
         #expect(model.currentStep == .options)
         #expect(model.isLastStep)
@@ -77,7 +77,7 @@ import Testing
         // Template step invalid → no advance.
         #expect(model.canAdvance == false)
 
-        model.kind = .vapor
+        model.selectedTemplateID = ProjectKind.vapor.rawValue
         #expect(model.canAdvance)
     }
 
@@ -109,7 +109,7 @@ import Testing
 
     @Test func assembledSpecCarriesAllFields() throws {
         let model = NewProjectModel()
-        model.kind = .hummingbird
+        model.selectedTemplateID = ProjectKind.hummingbird.rawValue
         model.name = "ignored-field"
         model.tagline = "  fast server  "
 
@@ -129,7 +129,7 @@ import Testing
         model.name = "Thing"
         #expect(model.assembledSpec(projectDirectory: targetURL(name: "Thing")) == nil)
 
-        model.kind = .other
+        model.selectedTemplateID = ProjectKind.other.rawValue
         #expect(model.assembledSpec(projectDirectory: targetURL(name: "Thing")) != nil)
     }
 
@@ -139,7 +139,7 @@ import Testing
         let model = NewProjectModel()
         #expect(model.canCreate == false)
 
-        model.kind = .macOS
+        model.selectedTemplateID = ProjectKind.macOS.rawValue
         #expect(model.canCreate == false)  // still no name
 
         model.name = "MyApp"
@@ -172,7 +172,7 @@ import Testing
 
     private func makeValidModel() -> NewProjectModel {
         let model = NewProjectModel()
-        model.kind = .appleMultiplatform
+        model.selectedTemplateID = ProjectKind.appleMultiplatform.rawValue
         model.name = "MyApp"
         return model
     }

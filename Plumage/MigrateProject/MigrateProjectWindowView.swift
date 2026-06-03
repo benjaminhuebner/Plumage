@@ -96,7 +96,11 @@ private struct MigrateProjectFlowView: View {
     @ViewBuilder
     private var stepContent: some View {
         switch model.currentStep {
-        case .template: TemplateGridView(selectedKind: $model.kind)
+        case .template:
+            TemplateGridView(
+                catalog: model.catalog,
+                selectedTemplateID: $model.selectedTemplateID,
+                resolveImage: { model.imageURL(forRelative: $0) })
         case .options: MigrateOptionsView(model: model)
         }
     }

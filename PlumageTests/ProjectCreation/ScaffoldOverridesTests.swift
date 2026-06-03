@@ -87,4 +87,96 @@ struct ScaffoldOverridesTests {
         let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
         #expect(try overrides.data(atRelative: "configs/swift-format") == Data("xyz".utf8))
     }
+
+    // MARK: - Write path
+
+    @Test("writeOverride materializes the slot and wins over bundled")
+    func writeOverrideWins() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("BUNDLED", to: tree.bundled, rel: "templates/macos.md")
+
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        #expect(!overrides.hasOverride(forRelative: "templates/macos.md"))
+        let written = try overrides.writeOverride("MINE", toRelative: "templates/macos.md")
+
+        #expect(written == tree.override.appending(path: "templates/macos.md"))
+        #expect(overrides.hasOverride(forRelative: "templates/macos.md"))
+        #expect(try overrides.string(atRelative: "templates/macos.md") == "MINE")
+    }
+
+    @Test("removeOverride reverts a bundled-backed file to its bundled bytes")
+    func removeOverrideRevertsToBundled() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("BUNDLED", to: tree.bundled, rel: "templates/macos.md")
+
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        try overrides.writeOverride("MINE", toRelative: "templates/macos.md")
+        #expect(overrides.hasOverride(forRelative: "templates/macos.md"))
+
+        try overrides.removeOverride(forRelative: "templates/macos.md")
+        #expect(!overrides.hasOverride(forRelative: "templates/macos.md"))
+        #expect(try overrides.string(atRelative: "templates/macos.md") == "BUNDLED")
+    }
+
+    @Test("removeOverride on an absent override is a no-op")
+    func removeOverrideIdempotent() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        try overrides.removeOverride(forRelative: "templates/macos.md")
+        #expect(!overrides.hasOverride(forRelative: "templates/macos.md"))
+    }
+
+    @Test("removeOverride prunes the emptied store back to byte-identity")
+    func removeOverridePrunesEmptyDirectories() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        try overrides.writeOverride("X", toRelative: "skills/my-skill/SKILL.md")
+        #expect(FileManager.default.fileExists(atPath: tree.override.appending(path: "skills").path))
+
+        try overrides.removeOverride(forRelative: "skills/my-skill/SKILL.md")
+        // The whole "skills/my-skill" chain is gone; the store root survives.
+        #expect(!FileManager.default.fileExists(atPath: tree.override.appending(path: "skills").path))
+        #expect(FileManager.default.fileExists(atPath: tree.override.path))
+    }
+
+    @Test("hasBundledOriginal distinguishes bundled-backed from user-authored")
+    func bundledOriginalDetection() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("BUNDLED", to: tree.bundled, rel: "templates/macos.md")
+
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        try overrides.writeOverride("MINE", toRelative: "templates/macos.md")
+        try overrides.writeOverride("NEW", toRelative: "templates/authored.md")
+
+        #expect(overrides.hasBundledOriginal(forRelative: "templates/macos.md"))
+        #expect(!overrides.hasBundledOriginal(forRelative: "templates/authored.md"))
+    }
+
+    @Test("writeOverride without a store throws and stays bundled-identical")
+    func writeWithoutStoreThrows() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("BUNDLED", to: tree.bundled, rel: "templates/macos.md")
+
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: nil)
+        #expect(throws: ScaffoldOverridesError.noOverrideStore) {
+            try overrides.writeOverride("MINE", toRelative: "templates/macos.md")
+        }
+        #expect(try overrides.string(atRelative: "templates/macos.md") == "BUNDLED")
+    }
+
+    @Test("writeOverride rejects a path that escapes the store")
+    func writeRejectsEscape() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        #expect(throws: (any Error).self) {
+            try overrides.writeOverride("X", toRelative: "../escape.md")
+        }
+    }
 }

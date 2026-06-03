@@ -29,7 +29,14 @@ nonisolated struct SettingsComposer {
         for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(),
         userWirings: [HookWiring] = []
     ) throws -> Data {
-        let selected = Set(catalog.effectiveHooks(forTemplate: kind.rawValue))
+        try settingsJSON(forTemplate: kind.rawValue, toggles: toggles, userWirings: userWirings)
+    }
+
+    func settingsJSON(
+        forTemplate templateID: String, toggles: ScaffoldToggles = ScaffoldToggles(),
+        userWirings: [HookWiring] = []
+    ) throws -> Data {
+        let selected = Set(catalog.effectiveHooks(forTemplate: templateID))
         var groupsByEvent: [HookEvent: [Settings.HookGroup]] = [:]
 
         // Built-in wirings: filtered to the kind's profile and the hooks toggle, in
@@ -52,7 +59,7 @@ nonisolated struct SettingsComposer {
 
         let settings = Settings(
             hooks: Settings.Hooks(groupsByEvent: groupsByEvent),
-            permissions: .init(allow: permissions(for: kind)))
+            permissions: .init(allow: permissions(forTemplate: templateID)))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(settings)
@@ -66,14 +73,27 @@ nonisolated struct SettingsComposer {
         for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(),
         userWirings: [HookWiring] = [], toClaudeDir claudeDir: URL
     ) throws {
-        try settingsJSON(for: kind, toggles: toggles, userWirings: userWirings).write(
+        try write(
+            forTemplate: kind.rawValue, toggles: toggles, userWirings: userWirings,
+            toClaudeDir: claudeDir)
+    }
+
+    func write(
+        forTemplate templateID: String, toggles: ScaffoldToggles = ScaffoldToggles(),
+        userWirings: [HookWiring] = [], toClaudeDir claudeDir: URL
+    ) throws {
+        try settingsJSON(forTemplate: templateID, toggles: toggles, userWirings: userWirings).write(
             to: claudeDir.appending(path: "settings.json"))
         try localSettingsJSON().write(to: claudeDir.appending(path: "settings.local.json"))
     }
 
     func permissions(for kind: ProjectKind) -> [String] {
+        permissions(forTemplate: kind.rawValue)
+    }
+
+    func permissions(forTemplate templateID: String) -> [String] {
         var allow = Self.commonPermissions
-        let gate = catalog.effectiveGateCommands(forTemplate: kind.rawValue)
+        let gate = catalog.effectiveGateCommands(forTemplate: templateID)
         if let build = gate.build {
             if build.contains("xcodebuild") { allow.append("Bash(xcodebuild:*)") }
             if build.contains("swift build") {

@@ -10,7 +10,10 @@ final class NewProjectModel {
 
     var currentStep: Step = .template
 
-    var kind: ProjectKind?
+    // The selected template's id (a `TemplateDescriptor.ID`), not a `ProjectKind`:
+    // the grid is catalog-driven and custom templates have no kind. For a predefined
+    // template the id equals its `ProjectKind.rawValue`.
+    var selectedTemplateID: String?
 
     var name: String = ""
     var tagline: String = ""
@@ -22,6 +25,35 @@ final class NewProjectModel {
 
     var isCreating: Bool = false
     var errorMessage: String?
+
+    // The resolved catalog backing the grid (state-as-bridge). Defaults to the
+    // bundled catalog so the grid shows predefined templates instantly; `loadCatalog`
+    // refines it with the persisted overlay (custom templates, enabled flags).
+    private(set) var catalog: TemplateCatalog = .bundledDefault
+    private let store: TemplateCatalogStore
+    private let overrides: ScaffoldOverrides
+
+    init(
+        store: TemplateCatalogStore = TemplateCatalogStore(),
+        overrides: ScaffoldOverrides = .standard()
+    ) {
+        self.store = store
+        self.overrides = overrides
+    }
+
+    // Off-Main catalog load (the store does disk I/O). Idempotent enough to call from
+    // `.task`; a failed/absent manifest resolves to the bundled default.
+    func loadCatalog() async {
+        let store = self.store
+        catalog = await Task.detached(priority: .userInitiated) { store.load() }.value
+    }
+
+    // Resolves a `TemplateImage.file` relative path to its on-disk URL (override
+    // store), or nil when absent — the grid then falls back to a placeholder symbol.
+    func imageURL(forRelative relativePath: String) -> URL? {
+        let url = overrides.url(forRelative: relativePath)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
 
     // MARK: - Derived input
 
@@ -36,7 +68,7 @@ final class NewProjectModel {
     // MARK: - Per-step validation (pure)
 
     var isTypeStepValid: Bool {
-        kind != nil
+        selectedTemplateID != nil
     }
 
     var isMetadataStepValid: Bool {
@@ -99,7 +131,7 @@ final class NewProjectModel {
     // `projectDirectory.lastPathComponent`, not the options-field value (the
     // user may have edited the name inside the panel).
     func assembledSpec(projectDirectory: URL) -> NewProjectSpec? {
-        guard let kind else { return nil }
+        guard let templateID = selectedTemplateID else { return nil }
         let name = projectDirectory.lastPathComponent
         guard !name.isEmpty, name != ".", name != ".." else { return nil }
 
@@ -111,8 +143,13 @@ final class NewProjectModel {
                 createGitignore: createGitignore)
             : nil
 
+        // A predefined template's id is its `ProjectKind.rawValue`; a custom template
+        // maps to `.other` for the kind-gated bits (e.g. Swift configs) while its id
+        // drives the catalog content resolution.
+        let kind = ProjectKind(rawValue: templateID) ?? .other
         return NewProjectSpec(
             kind: kind,
+            templateID: templateID,
             name: name,
             tagline: trimmedTagline,
             projectDirectory: projectDirectory,

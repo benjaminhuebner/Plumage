@@ -22,7 +22,7 @@ nonisolated struct ClaudeMdComposer {
     ]
 
     func compose(spec: NewProjectSpec) throws -> Output {
-        let templateID = spec.kind.rawValue
+        let templateID = spec.templateID
         let layers = catalog.effectiveLayers(forTemplate: templateID)
         let base = try overrides.string(atRelative: "templates/CLAUDE.md")
 

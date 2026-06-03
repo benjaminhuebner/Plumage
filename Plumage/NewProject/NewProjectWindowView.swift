@@ -27,6 +27,9 @@ struct NewProjectWindowView: View {
             footer
         }
         .frame(minWidth: 640, idealWidth: 720, minHeight: 500, idealHeight: 560)
+        // Load the persisted catalog (custom templates, enabled flags) into the grid.
+        // Re-runs on reopen since the single-instance window's view reappears.
+        .task { await model.loadCatalog() }
         // Opening New Project closed Welcome, so a close that didn't create a
         // project must bring Welcome back or the app is left with no window. The
         // single-instance `Window` also keeps its `@State` across close/reopen,

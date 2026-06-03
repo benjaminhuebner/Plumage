@@ -1,29 +1,49 @@
 import SwiftUI
 
-// Shared project-kind picker grid. Extracted from `TypeStepView` so the New
-// Project and Migrate Project flows present an identical selection surface.
+// Shared template picker grid for the New Project and Migrate Project flows. Reads
+// the resolved catalog: sections are categories (in catalog order), tiles are the
+// category's enabled templates rendered with their `TemplateImage` (SF Symbol or
+// imported file). Selection is the chosen template's id. A category whose templates
+// are all disabled is hidden; when every template is disabled the grid shows a hint
+// pointing at the Template Manager rather than an empty surface.
 struct TemplateGridView: View {
-    @Binding var selectedKind: ProjectKind?
+    let catalog: TemplateCatalog
+    @Binding var selectedTemplateID: String?
+    let resolveImage: (String) -> URL?
+
+    @Environment(\.openWindow) private var openWindow
 
     private static let columns = [GridItem(.adaptive(minimum: 116), spacing: 12)]
 
+    private var visibleCategories: [(category: TemplateCategory, templates: [TemplateDescriptor])] {
+        catalog.sortedCategories.compactMap { category in
+            let templates = catalog.enabledTemplates(inCategory: category.id)
+            return templates.isEmpty ? nil : (category, templates)
+        }
+    }
+
     var body: some View {
+        if visibleCategories.isEmpty {
+            emptyState
+        } else {
+            grid
+        }
+    }
+
+    private var grid: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(ProjectKindGroup.allCases, id: \.self) { group in
-                    let kinds = kinds(in: group)
-                    if !kinds.isEmpty {
-                        Section {
-                            LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 12) {
-                                ForEach(kinds, id: \.self) { kind in
-                                    tile(for: kind)
-                                }
+                ForEach(visibleCategories, id: \.category.id) { entry in
+                    Section {
+                        LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 12) {
+                            ForEach(entry.templates) { template in
+                                tile(for: template)
                             }
-                        } header: {
-                            Text(group.displayName)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
                         }
+                    } header: {
+                        Text(entry.category.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -32,13 +52,34 @@ struct TemplateGridView: View {
         }
     }
 
-    private func tile(for kind: ProjectKind) -> some View {
-        let isSelected = selectedKind == kind
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text("No templates are enabled.")
+                .font(.headline)
+            Text("Enable a template in Settings, or add one in the Template Manager.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                openWindow(id: "template-manager")
+            } label: {
+                Label("Open Template Manager…", systemImage: "rectangle.3.group")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
+    }
+
+    private func tile(for template: TemplateDescriptor) -> some View {
+        let isSelected = selectedTemplateID == template.id
         return Button {
-            selectedKind = kind
+            selectedTemplateID = template.id
         } label: {
             VStack(spacing: 8) {
-                Image(systemName: Self.icon(for: kind))
+                TemplateImageView(image: template.image, resolve: resolveImage)
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                     .frame(width: 40, height: 40)
@@ -46,7 +87,7 @@ struct TemplateGridView: View {
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .fill(.quaternary.opacity(0.6))
                     )
-                Text(kind.displayName)
+                Text(template.name)
                     .font(.callout)
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
@@ -69,21 +110,5 @@ struct TemplateGridView: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func kinds(in group: ProjectKindGroup) -> [ProjectKind] {
-        ProjectKind.allCases.filter { $0.group == group }
-    }
-
-    private static func icon(for kind: ProjectKind) -> String {
-        switch kind {
-        case .appleMultiplatform: "apple.logo"
-        case .macOS: "macwindow"
-        case .iOS: "iphone"
-        case .vapor: "drop.fill"
-        case .hummingbird: "bird.fill"
-        case .swiftCLI: "terminal"
-        case .other: "shippingbox"
-        }
     }
 }
