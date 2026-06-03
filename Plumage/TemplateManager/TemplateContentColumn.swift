@@ -228,8 +228,10 @@ private struct TemplateTreeRow: View {
         .contentShape(Rectangle())
         .opacity(drag.sourceNode?.relativePath == node.relativePath ? 0.35 : 1)
         .reportTreeRowFrame(node.relativePath, registry: frames)
-        .onTapGesture { model.selectedFile = node }
-        .gesture(dragGesture)
+        // Drag wins past minimumDistance; a click without movement falls through to the
+        // tap and selects (the Kanban card pattern — `.onTapGesture` alongside a separate
+        // `.gesture` is flaky and swallows the drag).
+        .gesture(dragGesture.exclusively(before: TapGesture().onEnded { model.selectedFile = node }))
         .contextMenu { rowMenu }
         .dropDestination(for: URL.self) { urls, _ in
             model.importDropped(urls: urls, into: node)
