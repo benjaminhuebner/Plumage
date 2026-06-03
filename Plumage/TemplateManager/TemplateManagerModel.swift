@@ -510,14 +510,15 @@ final class TemplateManagerModel {
                 !TemplateContentDropResolver.rejectsMove(
                     storePath: sourceStorePath, intoStoreDir: targetDir)
             else { continue }
-            guard isUserAuthoredStore(sourceStorePath) else {
-                rejected.append(source.name)  // bundled — Workstream B fills this in
-                continue
-            }
-            if let moved = moveUserAuthored(
-                storePath: sourceStorePath, isDirectory: source.isDirectory,
-                intoStoreDir: targetDir, overrideRoot: overrideRoot)
-            {
+            let moved =
+                isUserAuthoredStore(sourceStorePath)
+                ? moveUserAuthored(
+                    storePath: sourceStorePath, isDirectory: source.isDirectory,
+                    intoStoreDir: targetDir, overrideRoot: overrideRoot)
+                : moveBundled(
+                    storePath: sourceStorePath, isDirectory: source.isDirectory,
+                    intoStoreDir: targetDir, overrideRoot: overrideRoot)
+            if let moved {
                 if movedSelection == nil { movedSelection = moved }
             } else {
                 rejected.append(source.name)
@@ -546,6 +547,38 @@ final class TemplateManagerModel {
         let leaf = movedURL.lastPathComponent
         let newStorePath = targetDir.isEmpty ? leaf : "\(targetDir)/\(leaf)"
         followHookWiring(from: storePath, to: newStorePath)
+        overriddenPaths.remove(storePath)
+        return (newStorePath, isDirectory)
+    }
+
+    // Move a bundled (or override-of-bundled) file: it can't be relocated in place —
+    // its bytes live in the read-only app bundle — so its effective content is
+    // materialized as an override at the destination and the source path is tombstoned
+    // (suppressed) so it stops appearing at its old position. Any stale override and
+    // user wiring at the source are dropped. Bundled directories are out of scope.
+    private func moveBundled(
+        storePath: String, isDirectory: Bool, intoStoreDir targetDir: String, overrideRoot: URL
+    ) -> (storage: String, isDirectory: Bool)? {
+        guard !isDirectory else { return nil }
+        guard let data = try? Data(contentsOf: overrides.url(forRelative: storePath)) else {
+            return nil
+        }
+        let targetFolderURL =
+            targetDir.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: targetDir, directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: targetFolderURL, withIntermediateDirectories: true)
+        let baseName = (storePath as NSString).lastPathComponent
+        guard let freeURL = try? ClaudeProjectFiles.findFreeName(in: targetFolderURL, base: baseName)
+        else { return nil }
+        let leaf = freeURL.lastPathComponent
+        let newStorePath = targetDir.isEmpty ? leaf : "\(targetDir)/\(leaf)"
+        guard (try? overrides.writeOverride(data, toRelative: newStorePath)) != nil else { return nil }
+        try? overrides.suppress(relativePath: storePath)
+        try? overrides.removeOverride(forRelative: storePath)  // drop any stale override now at B
+        if let base = UserTemplateKind.hookBaseName(forRelativePath: storePath) {
+            hookWirings.remove(named: base)
+            saveHookWirings()
+        }
         overriddenPaths.remove(storePath)
         return (newStorePath, isDirectory)
     }
