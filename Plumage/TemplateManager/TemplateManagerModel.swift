@@ -233,6 +233,9 @@ final class TemplateManagerModel {
         guard let relativePath = pendingResetPath else { return }
         pendingResetPath = nil
         try? overrides.removeOverride(forRelative: relativePath)
+        // A per-file reset also lifts a tombstone on the same path, so resetting a file
+        // that was moved away brings its bundled original back at this location.
+        try? overrides.unsuppress(relativePath: relativePath)
         overriddenPaths.remove(relativePath)
         isEditorDirty = false
         editorReloadToken += 1
@@ -1099,11 +1102,14 @@ extension TemplateManagerModel {
     }
 
     // Resets the catalog structure to the bundled baseline (drops the overlay:
-    // tombstones, custom items, reorders, membership overrides). File-content
-    // overrides are a separate store and are deliberately kept.
+    // catalog tombstones, custom items, reorders, membership overrides) and lifts every
+    // file tombstone, so a bundled file the user moved away reappears at its original
+    // path. File-content overrides are a separate store and are deliberately kept (so an
+    // edit — including the moved copy materialized at its new path — survives).
     func restoreAllDefaults() {
         do {
             try store.reset()
+            overrides.clearTombstones()
             catalog = store.load()
             selection = .base
             refreshContent()
