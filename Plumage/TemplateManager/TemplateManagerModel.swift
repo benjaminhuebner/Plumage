@@ -198,8 +198,15 @@ final class TemplateManagerModel {
     // rather than Reset to Default. A generated config is never user-authored — it
     // has a generated baseline, so it resets (regenerates) rather than deletes.
     func isUserAuthored(_ file: FileNode) -> Bool {
-        if managerConfig(forRelative: file.relativePath) != nil { return false }
-        return !overrides.hasBundledOriginal(forRelative: file.relativePath)
+        isUserAuthoredStore(file.relativePath)
+    }
+
+    // Store-path variant: a folder node carries its *output* path in `relativePath`, so
+    // the move path resolves it to a store path first (`TemplateContentDropResolver`)
+    // and checks authorship against that — never the output path.
+    private func isUserAuthoredStore(_ storePath: String) -> Bool {
+        if managerConfig(forRelative: storePath) != nil { return false }
+        return !overrides.hasBundledOriginal(forRelative: storePath)
     }
 
     // Called after the editor saves: the override may now differ from bundled, so
@@ -477,6 +484,87 @@ final class TemplateManagerModel {
             return ("skills", url.lastPathComponent, true, true)
         }
         return (targetDir, url.lastPathComponent, false, isDir.boolValue)
+    }
+
+    // MARK: - Internal move (drag within the content tree)
+
+    // Move dropped tree nodes into `target`'s folder. A user-authored item is physically
+    // relocated inside the override store; a bundled / override-of-bundled item can't move
+    // in place and takes the tombstone path (Workstream B). Selection follows the first
+    // successfully moved item to its new path. A drop onto an item's own folder, or a
+    // folder into its own subtree, is skipped.
+    func moveNodes(_ sources: [FileNode], into target: FileNode) {
+        guard let overrideRoot = overrides.overrideRoot else {
+            showDropBanner("No override store is available.")
+            return
+        }
+        guard let targetDir = TemplateContentDropResolver.targetStoreDir(for: target) else {
+            showDropBanner("Can't move here.")
+            return
+        }
+        var movedSelection: (storage: String, isDirectory: Bool)?
+        var rejected: [String] = []
+        for source in sources {
+            let sourceStorePath = TemplateContentDropResolver.storePath(for: source)
+            guard
+                !TemplateContentDropResolver.rejectsMove(
+                    storePath: sourceStorePath, intoStoreDir: targetDir)
+            else { continue }
+            guard isUserAuthoredStore(sourceStorePath) else {
+                rejected.append(source.name)  // bundled — Workstream B fills this in
+                continue
+            }
+            if let moved = moveUserAuthored(
+                storePath: sourceStorePath, isDirectory: source.isDirectory,
+                intoStoreDir: targetDir, overrideRoot: overrideRoot)
+            {
+                if movedSelection == nil { movedSelection = moved }
+            } else {
+                rejected.append(source.name)
+            }
+        }
+        refreshContent()
+        selectImported(movedSelection)
+        if !rejected.isEmpty {
+            showDropBanner("Can't move: \(rejected.joined(separator: ", "))")
+        }
+    }
+
+    // Physically relocate a user-authored override file/folder to `targetDir`, returning
+    // its new store path (and directory-ness) for selection, or nil if it is missing on
+    // disk or the move fails. Suffix-walks on a name collision and carries hook wiring.
+    private func moveUserAuthored(
+        storePath: String, isDirectory: Bool, intoStoreDir targetDir: String, overrideRoot: URL
+    ) -> (storage: String, isDirectory: Bool)? {
+        let sourceURL = overrideRoot.appending(path: storePath)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else { return nil }
+        let targetFolderURL =
+            targetDir.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: targetDir, directoryHint: .isDirectory)
+        guard let movedURL = try? ClaudeProjectFiles.moveItem(at: sourceURL, to: targetFolderURL)
+        else { return nil }
+        let leaf = movedURL.lastPathComponent
+        let newStorePath = targetDir.isEmpty ? leaf : "\(targetDir)/\(leaf)"
+        followHookWiring(from: storePath, to: newStorePath)
+        overriddenPaths.remove(storePath)
+        return (newStorePath, isDirectory)
+    }
+
+    // Keep hook wiring consistent after a move: a hook that leaves `hooks/` loses its
+    // function, so its wiring is dropped (as on delete); a collision-renamed hook keeps
+    // its wiring under the new base name.
+    private func followHookWiring(from oldStorePath: String, to newStorePath: String) {
+        guard let oldBase = UserTemplateKind.hookBaseName(forRelativePath: oldStorePath),
+            let existing = hookWirings.wiring(named: oldBase)
+        else { return }
+        let newBase = UserTemplateKind.hookBaseName(forRelativePath: newStorePath)
+        if newBase == oldBase { return }  // moved within hooks/, same name — wiring stands
+        hookWirings.remove(named: oldBase)
+        if let newBase {
+            hookWirings.upsert(
+                HookWiring(name: newBase, event: existing.event, matcher: existing.matcher))
+        }
+        saveHookWirings()
     }
 
     // MARK: - Add
