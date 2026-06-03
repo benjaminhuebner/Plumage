@@ -347,28 +347,30 @@ final class TemplateManagerModel {
         }
     }
 
-    // Import Finder files/folders dropped onto Base, copying them (the source stays)
-    // into the matching union directory with suffix-on-collision and containment
-    // validation. Supported: a skill folder (top-level SKILL.md), a `.sh` hook, a
-    // `.md` doc. Other extensions / non-skill folders are rejected with a banner.
-    // Other kinds (agents, scripts) are authored via the "+" affordance. Returns
-    // whether anything was imported.
+    // Import Finder files/folders into the selected tree folder, copying them (the
+    // source stays) with suffix-on-collision and containment validation. Any file or
+    // folder is accepted; a dropped folder with a top-level `SKILL.md` is treated as a
+    // skill (routed to `skills/`) so it scaffolds correctly. A failed copy is surfaced
+    // in a banner. Returns whether anything was imported.
     @discardableResult
     func importDropped(urls: [URL]) -> Bool {
-        guard selection == .base, let overrideRoot = overrides.overrideRoot else {
-            showDropBanner("Drop files onto Base to import them.")
+        guard let overrideRoot = overrides.overrideRoot else {
+            showDropBanner("No override store is available.")
             return false
         }
+        let targetDir = addTargetStorageDir()
         let fileManager = FileManager.default
-        var firstRelativePath: String?
-        var importedPaths: Set<String> = []
+        var first: (storage: String, isDirectory: Bool)?
+        var importedStoragePaths: Set<String> = []
         var rejected: [String] = []
         for url in urls {
-            guard let plan = Self.dropPlan(for: url) else {
+            guard let plan = Self.dropPlan(for: url, targetDir: targetDir) else {
                 rejected.append(url.lastPathComponent)
                 continue
             }
-            let parent = overrideRoot.appending(path: plan.directory, directoryHint: .isDirectory)
+            let parent =
+                plan.directory.isEmpty
+                ? overrideRoot : overrideRoot.appending(path: plan.directory, directoryHint: .isDirectory)
             do {
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
                 let target = try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
@@ -378,26 +380,20 @@ final class TemplateManagerModel {
                     continue
                 }
                 try fileManager.copyItem(at: url, to: target)
-                let relativePath =
-                    plan.isSkill
-                    ? "\(plan.directory)/\(target.lastPathComponent)/SKILL.md"
-                    : "\(plan.directory)/\(target.lastPathComponent)"
-                importedPaths.insert(relativePath)
-                if firstRelativePath == nil { firstRelativePath = relativePath }
+                let leaf = target.lastPathComponent
+                let dir = plan.directory.isEmpty ? "" : "\(plan.directory)/"
+                let storage = plan.isSkill ? "\(dir)\(leaf)/SKILL.md" : "\(dir)\(leaf)"
+                importedStoragePaths.insert(storage)
+                if first == nil { first = (storage, plan.isDirectory && !plan.isSkill) }
             } catch {
                 rejected.append(url.lastPathComponent)
             }
         }
         refreshContent()
-        if let firstRelativePath,
-            let node = contentFiles.first(where: { $0.relativePath == firstRelativePath })
-        {
-            selectedFile = node
-            beginEditing(node)
-        }
-        // An imported hook needs wiring too: raise the sheet for the first unwired one.
+        selectImported(first)
+        // An imported hook still needs wiring: raise the sheet for the first unwired one.
         if let hookNode = contentFiles.first(where: { node in
-            node.relativePath.hasPrefix("hooks/") && importedPaths.contains(node.relativePath)
+            node.relativePath.hasPrefix("hooks/") && importedStoragePaths.contains(node.relativePath)
                 && needsWiring(node)
         }) {
             pendingHookWiring = hookNode
@@ -405,25 +401,39 @@ final class TemplateManagerModel {
         if !rejected.isEmpty {
             showDropBanner("Can't import: \(rejected.joined(separator: ", "))")
         }
-        return firstRelativePath != nil
+        return first != nil
     }
 
-    // Maps a dropped URL to its target directory, or nil to reject. A folder counts
-    // as a skill only when it has a top-level SKILL.md.
-    private static func dropPlan(for url: URL) -> (directory: String, name: String, isSkill: Bool)? {
+    private func selectImported(_ first: (storage: String, isDirectory: Bool)?) {
+        guard let first else { return }
+        let node: FileNode?
+        if first.isDirectory {
+            node = Self.outputPath(forStorageDir: first.storage)
+                .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
+        } else {
+            node = contentFiles.first { $0.relativePath == first.storage }
+        }
+        if let node {
+            selectedFile = node
+            beginEditing(node)
+        }
+    }
+
+    // Plans a dropped URL: a folder with a top-level `SKILL.md` routes to `skills/`
+    // (so it is recognized as a skill); every other file or folder lands verbatim in
+    // the drop target directory. Returns nil only when the URL does not exist.
+    private static func dropPlan(
+        for url: URL, targetDir: String
+    )
+        -> (directory: String, name: String, isSkill: Bool, isDirectory: Bool)?
+    {
         let fileManager = FileManager.default
         var isDir: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
-        if isDir.boolValue {
-            let skillMd = url.appending(path: "SKILL.md")
-            guard fileManager.fileExists(atPath: skillMd.path) else { return nil }
-            return ("skills", url.lastPathComponent, true)
+        if isDir.boolValue, fileManager.fileExists(atPath: url.appending(path: "SKILL.md").path) {
+            return ("skills", url.lastPathComponent, true, true)
         }
-        switch url.pathExtension.lowercased() {
-        case "sh": return ("hooks", url.lastPathComponent, false)
-        case "md": return ("docs", url.lastPathComponent, false)
-        default: return nil
-        }
+        return (targetDir, url.lastPathComponent, false, isDir.boolValue)
     }
 
     // MARK: - Add

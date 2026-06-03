@@ -206,6 +206,17 @@ struct TemplateManagerModelTests {
         #expect(ctx.model.addableKinds.isEmpty)
     }
 
+    @Test("An arbitrary file name with separators is sanitized and stays contained")
+    func arbitraryFileNameContained() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        // Selection defaults to Base with no folder selected → store root.
+        let node = try #require(ctx.model.addUserFile(kind: .file, rawName: "../../escape.txt"))
+        // Separators collapse to hyphens, so the name can never traverse out of the store.
+        #expect(node.relativePath == "..-..-escape.txt")
+        #expect(ctx.model.overrides.hasOverride(forRelative: node.relativePath))
+    }
+
     // MARK: - Drag-and-drop import
 
     private func makeSourceTree() throws -> (root: URL, cleanup: () -> Void) {
@@ -222,55 +233,51 @@ struct TemplateManagerModelTests {
         return (root, { try? fm.removeItem(at: root) })
     }
 
-    @Test("Drop imports supported kinds (copy), leaves source, and rejects others")
-    func dropImportsAndRejects() throws {
+    @Test("Drop imports any file (incl. unknown types) into the selected folder; skills route to skills/")
+    func dropImportsAnyFileIntoSelectedFolder() throws {
         let ctx = try makeModel()
         defer { ctx.cleanup() }
         let src = try makeSourceTree()
         defer { src.cleanup() }
+        try ctx.model.overrides.writeOverride("# Guide", toRelative: "docs/guide.md")
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        // Drop target = the selected .claude/docs folder.
+        ctx.model.selectedFile = TemplateManagerModel.findNode(
+            in: ctx.model.contentTree, relativePath: ".claude/docs")
         let urls = ["hook.sh", "note.md", "myskill", "bad.txt"].map { src.root.appending(path: $0) }
 
         let imported = ctx.model.importDropped(urls: urls)
 
         #expect(imported)
-        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/hook.sh"))
+        // Everything lands in the selected folder — including the formerly-rejected .txt.
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/hook.sh"))
         #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/bad.txt"))
+        // A skill folder is still special-cased into skills/.
         #expect(ctx.model.overrides.hasOverride(forRelative: "skills/myskill/SKILL.md"))
-        // Copy semantics: the Finder source is untouched.
+        // Copy semantics: the Finder source is untouched; nothing rejected.
         #expect(FileManager.default.fileExists(atPath: src.root.appending(path: "hook.sh").path))
-        // The unsupported file is rejected and surfaced in the banner.
-        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/bad.txt"))
-        let banner = try #require(ctx.model.dropBanner)
-        #expect(banner.contains("bad.txt"))
+        #expect(ctx.model.dropBanner == nil)
     }
 
-    @Test("Drop suffix-walks on collision")
+    @Test("Drop suffix-walks on collision in the target folder")
     func dropCollisionSuffixWalks() throws {
         let ctx = try makeModel()
         defer { ctx.cleanup() }
         let src = try makeSourceTree()
         defer { src.cleanup() }
         try ctx.model.overrides.writeOverride("existing", toRelative: "docs/note.md")
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = TemplateManagerModel.findNode(
+            in: ctx.model.contentTree, relativePath: ".claude/docs")
 
         _ = ctx.model.importDropped(urls: [src.root.appending(path: "note.md")])
 
         #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
         #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note-1.md"))
         #expect(try ctx.model.overrides.string(atRelative: "docs/note.md") == "existing")
-    }
-
-    @Test("Drop is rejected when the selection is not Base")
-    func dropRejectedOutsideBase() throws {
-        let ctx = try makeModel()
-        defer { ctx.cleanup() }
-        let src = try makeSourceTree()
-        defer { src.cleanup() }
-        ctx.model.selection = .template("anything")
-
-        let imported = ctx.model.importDropped(urls: [src.root.appending(path: "note.md")])
-        #expect(!imported)
-        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
-        #expect(ctx.model.dropBanner != nil)
     }
 
     // MARK: - Hook wiring

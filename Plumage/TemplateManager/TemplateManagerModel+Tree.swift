@@ -136,6 +136,13 @@ extension TemplateManagerModel {
         add(output: ".swift-format", relative: "configs/swift-format")
         add(output: ".swiftlint.yml", relative: "configs/swiftlint.yml")
 
+        // Arbitrary user-authored files at the store root show at the project root
+        // (e.g. `.editorconfig`), minus the generated configs already shown as nodes.
+        let configPaths = Set(ManagerConfig.allCases.map(\.relativePath))
+        for name in overrides.overrideFileNames(inRelativeDir: "") where !configPaths.contains(name) {
+            add(output: name, relative: name)
+        }
+
         return specs
     }
 
