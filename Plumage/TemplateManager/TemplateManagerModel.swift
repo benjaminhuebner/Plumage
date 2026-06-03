@@ -22,8 +22,14 @@ final class TemplateManagerModel {
     private(set) var membership: CatalogMembership?
     var selectedFile: FileNode?
 
+    // Editing state for the right column. The editor saves to the override slot but
+    // seeds from the bundled fallback, so merely browsing a file writes nothing —
+    // only a real edit materializes an override (mirrors `TemplatesSettingsModel`).
+    private(set) var editingFileURL: URL?
+    private(set) var editingFallbackURL: URL?
+
     private let store: TemplateCatalogStore
-    private let overrides: ScaffoldOverrides
+    let overrides: ScaffoldOverrides
 
     init(
         store: TemplateCatalogStore = TemplateCatalogStore(),
@@ -48,12 +54,33 @@ final class TemplateManagerModel {
             contentFiles = []
             membership = nil
             selectedFile = nil
+            beginEditing(nil)
             return
         }
         contentFiles = fileNodes(for: selection)
         membership = membershipInfo(for: selection)
         if let current = selectedFile, contentFiles.contains(current) { return }
         selectedFile = contentFiles.first
+        beginEditing(selectedFile)
+    }
+
+    // MARK: - Editing
+
+    // No disk write: the editor reads via the bundled fallback and only a save creates
+    // an override, so opening a file never pins it to its current bundled content.
+    // Called on every right-column selection change (an event boundary, not `body`).
+    func beginEditing(_ file: FileNode?) {
+        guard let file, !file.isDirectory,
+            let overrideURL = overrides.overrideURL(forRelative: file.relativePath)
+        else {
+            editingFileURL = nil
+            editingFallbackURL = nil
+            return
+        }
+        editingFileURL = overrideURL
+        let bundled = overrides.bundledRoot.appending(path: file.relativePath)
+        editingFallbackURL =
+            FileManager.default.fileExists(atPath: bundled.path) ? bundled : nil
     }
 
     var selectionTitle: String {
