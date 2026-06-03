@@ -11,7 +11,7 @@ struct TemplateContentColumn: View {
         List(selection: $model.selectedFile) {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
-                    ForEach(model.contentFiles) { node in
+                    OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
                         fileRow(node)
                             .tag(node)
                             .contextMenu { rowMenu(node) }
@@ -72,11 +72,14 @@ struct TemplateContentColumn: View {
         .navigationTitle(model.selectionTitle)
         .toolbar {
             if !model.addableKinds.isEmpty {
-                ToolbarItem {
-                    Menu {
-                        addMenu()
-                    } label: {
-                        Label("Add", systemImage: "plus")
+                ToolbarItemGroup {
+                    ForEach(model.addableKinds) { kind in
+                        Button {
+                            addKind = kind
+                        } label: {
+                            Label("Add \(kind.addNoun)", systemImage: kind.sfSymbolName)
+                        }
+                        .help("Add \(kind.addNoun) in the selected folder")
                     }
                 }
             }
@@ -107,49 +110,62 @@ struct TemplateContentColumn: View {
     }
 
     private func fileRow(_ node: FileNode) -> some View {
-        HStack(spacing: 6) {
-            Label(node.name, systemImage: "doc.text")
+        let needsWiring = node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
+        let overridden = node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
+        return HStack(spacing: 6) {
+            Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
             Spacer(minLength: 0)
-            if model.needsWiring(node) {
+            if needsWiring {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
-                    .help("This hook is not wired into settings.json yet")
-                    .accessibilityLabel("Needs wiring")
+                    .opacity(node.isDirectory ? 0.6 : 1)
+                    .help(
+                        node.isDirectory
+                            ? "A hook inside is not wired into settings.json yet"
+                            : "This hook is not wired into settings.json yet"
+                    )
+                    .accessibilityLabel(node.isDirectory ? "Contains an unwired hook" : "Needs wiring")
             }
-            if model.isOverridden(node) {
+            if overridden {
                 Image(systemName: "circle.fill")
                     .font(.system(size: 7))
-                    .foregroundStyle(Color.accentColor)
-                    .accessibilityLabel("Overridden")
+                    .foregroundStyle(node.isDirectory ? Color.secondary : Color.accentColor)
+                    .accessibilityLabel(node.isDirectory ? "Contains an override" : "Overridden")
             }
         }
     }
 
     @ViewBuilder
-    private func addMenu() -> some View {
+    private func addMenu(into target: FileNode? = nil) -> some View {
         ForEach(model.addableKinds) { kind in
-            Button("Add \(kind.addNoun)…") { addKind = kind }
+            Button("Add \(kind.addNoun)…") {
+                // A row's menu targets that row; the toolbar menu uses the selection.
+                if let target { model.selectedFile = target }
+                addKind = kind
+            }
         }
     }
 
     @ViewBuilder
     private func rowMenu(_ node: FileNode) -> some View {
         if !model.addableKinds.isEmpty {
-            addMenu()
+            addMenu(into: node)
             Divider()
         }
-        Button("Reveal in Finder") {
-            NSWorkspace.shared.activateFileViewerSelecting([node.url])
-        }
-        if model.isHook(node) {
-            Button(model.needsWiring(node) ? "Set Wiring…" : "Edit Wiring…") {
-                model.pendingHookWiring = node
+        if !node.isDirectory {
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
             }
-        }
-        if model.isUserAuthored(node) {
-            Divider()
-            Button("Delete", role: .destructive) { model.requestDelete(node) }
+            if model.isHook(node) {
+                Button(model.needsWiring(node) ? "Set Wiring…" : "Edit Wiring…") {
+                    model.pendingHookWiring = node
+                }
+            }
+            if model.isUserAuthored(node) {
+                Divider()
+                Button("Delete", role: .destructive) { model.requestDelete(node) }
+            }
         }
     }
 }

@@ -5,6 +5,19 @@ import Testing
 
 @Suite("TemplateCatalog Codable round-trip")
 struct TemplateCatalogCodableTests {
+    @Test("A legacy component (kind + [String] files) decodes into typed files")
+    func legacyComponentDecodes() throws {
+        let json = """
+            {"id":"x","name":"X","kind":"hook","files":["a","b"],"order":0,"memberTemplateIDs":["macOS"]}
+            """
+        let component = try JSONDecoder().decode(SharedComponent.self, from: Data(json.utf8))
+        #expect(
+            component.files == [
+                ComponentFile(kind: .hook, name: "a"), ComponentFile(kind: .hook, name: "b"),
+            ])
+        #expect(component.files(ofKind: .hook) == ["a", "b"])
+    }
+
     private func sampleManifest() -> TemplateManifest {
         let base = BaseTemplate(
             id: "base",
@@ -16,8 +29,7 @@ struct TemplateCatalogCodableTests {
         let swiftShared = SharedComponent(
             id: "swift-shared",
             name: "Swift Shared",
-            kind: .layer,
-            files: ["swift-shared"],
+            files: [ComponentFile(kind: .layer, name: "swift-shared")],
             order: 0,
             memberTemplateIDs: ["macOS", "iOS", "vapor"]
         )

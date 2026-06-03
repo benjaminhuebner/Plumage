@@ -10,8 +10,7 @@ nonisolated extension TemplateCatalog {
     func effectiveLayers(forTemplate templateID: String) -> [String] {
         guard let descriptor = template(id: templateID) else { return [] }
         let sharedLayers = sharedComponents(forTemplate: templateID)
-            .filter { $0.kind == .layer }
-            .flatMap(\.files)
+            .flatMap { $0.files(ofKind: .layer) }
         return sharedLayers + descriptor.templateLayers
     }
 
@@ -19,8 +18,7 @@ nonisolated extension TemplateCatalog {
     // e.g. a Swift kind ⇒ workflow hooks + [format-swift, lint-swift, no-doc-comments].
     func effectiveHooks(forTemplate templateID: String) -> [String] {
         let sharedHooks = sharedComponents(forTemplate: templateID)
-            .filter { $0.kind == .hook }
-            .flatMap(\.files)
+            .flatMap { $0.files(ofKind: .hook) }
         return base.workflowHooks + sharedHooks
     }
 

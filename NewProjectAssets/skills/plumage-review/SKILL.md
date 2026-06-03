@@ -13,7 +13,7 @@ This skill works without the Plumage app: invoke `/plumage-review <slug>` direct
 
 ## Step 0: Find and activate matching skills and agents
 
-Identify the task surface — what domains and tooling this issue actually touches — from the spec, the user's request, or the issue description. Then scan installed skills and subagents and invoke every one whose description matches that surface, before any real work begins. The `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so the routing is manual. This project's primary domains and tooling are: <<<SKILL_KEYWORDS>>> — use these as the starting descriptions to match installed skills and agents against.
+Identify the task surface — what domains and tooling this issue actually touches — from the spec, the user's request, or the issue description. Then scan installed skills and subagents and invoke every one whose description matches that surface, before any real work begins. The `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so the routing is manual.
 
 - Skills via the Skill tool, subagents via the Task tool.
 - Match on description, not name. Invoke when the description covers the task surface; don't invoke speculatively because a name sounds related.

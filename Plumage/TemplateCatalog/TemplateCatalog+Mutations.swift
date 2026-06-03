@@ -68,7 +68,7 @@ nonisolated extension TemplateCatalog {
     // MARK: - Template authoring
 
     // Adds a custom (`predefined: false`) template with its own layer file named
-    // after its id (`templates/<id>.md`, written to the override store by the
+    // after its id (`templates/<id>/CLAUDE.md`, written to the override store by the
     // model). `.copy` seeds the descriptor's scaffold settings from the source and
     // replicates its shared-component memberships; `.empty` is a minimal template
     // (Base + its own layer). Returns the created descriptor (the model needs its id
@@ -146,7 +146,7 @@ nonisolated extension TemplateCatalog {
         let id = uniqueComponentID(slug(displayName, fallback: "component"))
         let order = (sharedComponents.map(\.order).max() ?? -1) + 1
         let component = SharedComponent(
-            id: id, name: displayName, kind: kind, files: [id], order: order,
+            id: id, name: displayName, files: [ComponentFile(kind: kind, name: id)], order: order,
             memberTemplateIDs: memberTemplateIDs)
         sharedComponents.append(component)
         return component
@@ -162,6 +162,16 @@ nonisolated extension TemplateCatalog {
             sharedComponents[index].name != trimmed
         else { return }
         sharedComponents[index].name = uniqueComponentName(trimmed, excludingID: id)
+    }
+
+    // Appends a typed file to a component's `files` (membership), so a file authored or
+    // dropped while a component is selected becomes part of that component. A no-op for
+    // a duplicate (same kind + name) or an unknown component.
+    mutating func addFile(toComponentID componentID: String, kind: SharedComponentKind, fileName: String) {
+        guard let index = sharedComponents.firstIndex(where: { $0.id == componentID }),
+            !sharedComponents[index].files.contains(where: { $0.kind == kind && $0.name == fileName })
+        else { return }
+        sharedComponents[index].files.append(ComponentFile(kind: kind, name: fileName))
     }
 
     // Sets one template's membership in a component (the checklist toggle).

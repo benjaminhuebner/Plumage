@@ -28,7 +28,9 @@ struct BundledAssetsConsistencyTests {
     func templateLayersExist() {
         for kind in ProjectKind.allCases {
             for layer in kind.profile.templateLayers {
-                #expect(exists("templates/\(layer).md"), "missing template \(layer).md for \(kind)")
+                #expect(
+                    exists("templates/\(layer)/CLAUDE.md"),
+                    "missing template \(layer)/CLAUDE.md for \(kind)")
             }
         }
         #expect(exists("templates/CLAUDE.md"))
@@ -40,15 +42,6 @@ struct BundledAssetsConsistencyTests {
             for tag in kind.profile.gitignoreTags + ["macos"] {
                 #expect(exists("templates/gitignore/\(tag).gitignore"), "missing gitignore \(tag) for \(kind)")
             }
-        }
-    }
-
-    @Test("Skill bodies carry the SKILL_KEYWORDS token")
-    func skillKeywordTokenPresent() throws {
-        for skill in ["plumage-plan", "plumage-implement", "plumage-review"] {
-            let body = try String(
-                contentsOf: root.appending(path: "skills/\(skill)/SKILL.md"), encoding: .utf8)
-            #expect(body.contains("<<<SKILL_KEYWORDS>>>"), "no SKILL_KEYWORDS token in \(skill)")
         }
     }
 }

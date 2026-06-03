@@ -8,8 +8,5 @@
 - <<<XCODE_MCP_LINE>>>
 - Accessibility: non-text controls need labels, Dynamic Type up to AX5, one VoiceOver pass before moving spec to `waiting-for-review`.
 
-%% SKILL_KEYWORDS %%
-iOS-specific UIKit, accessibility (VoiceOver, Dynamic Type), XcodeBuildMCP
-
 %% PROJECT_TYPE_DESCRIPTION %%
 iOS app

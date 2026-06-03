@@ -84,8 +84,9 @@ struct TemplateCatalogStoreTests {
         let expected = Set(ProjectKind.allCases.filter(\.isSwift).map(\.rawValue))
         #expect(swiftShared.memberTemplateIDs == expected)
         #expect(!swiftShared.isMember(ProjectKind.other.rawValue))
-        #expect(swiftShared.kind == .layer)
-        #expect(swiftShared.files == ["swift-shared"])
+        // Swift Shared now carries both the layer fragment and the tooling hooks.
+        #expect(swiftShared.files(ofKind: .layer) == ["swift-shared"])
+        #expect(swiftShared.files(ofKind: .hook) == ["format-swift", "lint-swift", "no-doc-comments"])
     }
 
     @Test("apple-shared ∈ exactly the three Apple kinds")
@@ -98,14 +99,12 @@ struct TemplateCatalogStoreTests {
         #expect(!appleShared.isMember(ProjectKind.vapor.rawValue))
     }
 
-    @Test("swift-tooling-hooks ∈ all Swift kinds, carries the three tooling hooks")
-    func swiftToolingHooksMembership() throws {
+    @Test("Swift tooling hooks are folded into swift-shared (no separate component)")
+    func swiftToolingHooksFolded() throws {
         let catalog = TemplateCatalog.bundledDefault
-        let hooks = try #require(catalog.sharedComponent(id: "swift-tooling-hooks"))
-        #expect(hooks.kind == .hook)
-        #expect(hooks.files == ["format-swift", "lint-swift", "no-doc-comments"])
-        #expect(hooks.memberTemplateIDs == Set(ProjectKind.allCases.filter(\.isSwift).map(\.rawValue)))
-        #expect(!hooks.isMember(ProjectKind.other.rawValue))
+        #expect(catalog.sharedComponent(id: "swift-tooling-hooks") == nil)
+        let swiftShared = try #require(catalog.sharedComponent(id: "swift-shared"))
+        #expect(swiftShared.files(ofKind: .hook) == ["format-swift", "lint-swift", "no-doc-comments"])
     }
 
     @Test("Bundled base carries the workflow hooks")

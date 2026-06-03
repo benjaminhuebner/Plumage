@@ -11,6 +11,11 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
     case doc
     case script
     case agent
+    // Typeless authoring: an arbitrary file (name taken literally, extension and all)
+    // or an empty folder, created relative to the selected tree folder rather than a
+    // fixed category directory.
+    case file
+    case folder
 
     var id: String { rawValue }
 
@@ -22,13 +27,20 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         case .doc: return "Doc"
         case .script: return "Script"
         case .agent: return "Agent"
+        case .file: return "File"
+        case .folder: return "Folder"
         }
     }
 
-    // A skill is a directory (`skills/<name>/SKILL.md`); the rest are single files.
-    var isFolder: Bool { self == .skill }
+    // A skill or a plain folder is a directory; the rest are single files.
+    var isFolder: Bool { self == .skill || self == .folder }
 
-    // The override directory this kind lives in.
+    // True when the item is created relative to the selected tree folder (no fixed
+    // category directory) — the typeless `.file` / `.folder` kinds.
+    var usesTargetDirectory: Bool { self == .file || self == .folder }
+
+    // The override directory a typed kind lives in. Typeless kinds carry no fixed
+    // directory — they are created under the caller-supplied target.
     var directory: String {
         switch self {
         case .hook: return "hooks"
@@ -36,21 +48,22 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         case .doc: return "docs"
         case .script: return "plumage"
         case .agent: return "agents"
+        case .file, .folder: return ""
         }
     }
 
-    // The leaf file name (or skill folder name) for a sanitized base name.
+    // The leaf file name (or skill/folder name) for a sanitized base name. A typeless
+    // file keeps the name verbatim (the user types the extension); a folder is named
+    // as typed.
     func fileName(forSanitized name: String) -> String {
         switch self {
         case .hook:
             let base = name.hasSuffix(".sh") ? String(name.dropLast(3)) : name
             return "\(base).sh"
-        case .skill:
+        case .skill, .script, .file, .folder:
             return name
         case .doc, .agent:
             return name.hasSuffix(".md") ? name : name + ".md"
-        case .script:
-            return name
         }
     }
 
@@ -78,6 +91,9 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
             return "# \(Self.stem(leafName))\n\nDescribe what this agent does.\n"
         case .skill:
             return Self.skillStarter(name: leafName)
+        case .file, .folder:
+            // An arbitrary file starts empty; a folder has no file content.
+            return ""
         }
     }
 

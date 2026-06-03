@@ -18,6 +18,11 @@ final class TemplateManagerModel {
     private(set) var catalog: TemplateCatalog = .bundledDefault
     var selection: TemplateCatalogItem? = .base
 
+    // The hierarchical content tree for the current selection (Base mirrors the
+    // scaffolded output layout; templates/shared show their fragment files). Drives
+    // the content column's outline. `contentFiles` is its flattened leaves, kept for
+    // selection retention, add/import lookups and the ● marker set.
+    private(set) var contentTree: [FileNode] = []
     private(set) var contentFiles: [FileNode] = []
     private(set) var membership: CatalogMembership?
     var selectedFile: FileNode?
@@ -32,6 +37,11 @@ final class TemplateManagerModel {
     // observed state so the ● markers react to seed/save/reset without polling disk
     // in `body`.
     private(set) var overriddenPaths: Set<String> = []
+
+    // Relative paths of user hooks that still need wiring. Mirrored as observed state
+    // (rebuilt on the event boundary, alongside `overriddenPaths`) so the ⚠ markers
+    // don't stat the filesystem on every `OutlineGroup` row re-evaluation.
+    private(set) var needsWiringPaths: Set<String> = []
 
     // Live dirty state of the embedded editor, so the header can offer Reset to
     // Default on the first keystroke (before any save creates an override).
@@ -87,7 +97,7 @@ final class TemplateManagerModel {
     // Trigger metadata for user-authored hooks, persisted so a later scaffold wires
     // them into `settings.json`. Injectable for hermetic tests.
     private let hookWiringStoreURL: URL?
-    private var hookWirings: HookWiringStore
+    private(set) var hookWirings: HookWiringStore
 
     init(
         store: TemplateCatalogStore = TemplateCatalogStore(),
@@ -119,10 +129,19 @@ final class TemplateManagerModel {
             beginEditing(nil)
             return
         }
-        contentFiles = fileNodes(for: selection)
+        contentTree = buildContentTree(for: selection)
+        contentFiles = Self.flattenLeaves(contentTree)
         membership = membershipInfo(for: selection)
-        refreshOverriddenPaths()
-        if let current = selectedFile, contentFiles.contains(current) { return }
+        refreshDerivedMarkers()
+        // Retain the selection across a rebuild — including a selected *folder*, which
+        // is not in `contentFiles` (leaves only) but is a real, selectable tree node.
+        // Re-bind the fresh node instance so List selection keeps matching by value.
+        if let current = selectedFile,
+            let refreshed = Self.findNode(in: contentTree, relativePath: current.relativePath)
+        {
+            selectedFile = refreshed
+            return
+        }
         selectedFile = contentFiles.first
         beginEditing(selectedFile)
     }
@@ -142,9 +161,27 @@ final class TemplateManagerModel {
             return
         }
         editingFileURL = overrideURL
+        // A generated config has no bundled file — its read-only baseline is the
+        // composer output, materialized to a temp file so the editor can seed from it.
+        if let config = managerConfig(forRelative: file.relativePath) {
+            editingFallbackURL = writeConfigPreview(generatedConfigContent(config), name: config.displayName)
+            return
+        }
         let bundled = overrides.bundledRoot.appending(path: file.relativePath)
         editingFallbackURL =
             FileManager.default.fileExists(atPath: bundled.path) ? bundled : nil
+    }
+
+    // Per-window scratch directory holding the generated-config baselines the editor
+    // seeds from. Cleared with the window's process; never the override store.
+    private let configPreviewRoot = FileManager.default.temporaryDirectory.appending(
+        path: "PlumageConfigPreview-\(UUID().uuidString)", directoryHint: .isDirectory)
+
+    private func writeConfigPreview(_ content: String, name: String) -> URL? {
+        try? FileManager.default.createDirectory(at: configPreviewRoot, withIntermediateDirectories: true)
+        let url = configPreviewRoot.appending(path: name)
+        guard (try? content.write(to: url, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return url
     }
 
     func setEditorDirty(_ dirty: Bool) {
@@ -158,9 +195,11 @@ final class TemplateManagerModel {
     }
 
     // A file with no bundled original is user-authored: its header offers Delete
-    // rather than Reset to Default.
+    // rather than Reset to Default. A generated config is never user-authored — it
+    // has a generated baseline, so it resets (regenerates) rather than deletes.
     func isUserAuthored(_ file: FileNode) -> Bool {
-        !overrides.hasBundledOriginal(forRelative: file.relativePath)
+        if managerConfig(forRelative: file.relativePath) != nil { return false }
+        return !overrides.hasBundledOriginal(forRelative: file.relativePath)
     }
 
     // Called after the editor saves: the override may now differ from bundled, so
@@ -272,10 +311,15 @@ final class TemplateManagerModel {
         return hookWirings.wiring(named: base)
     }
 
-    // A hook authored or imported but not yet wired is inert; the row flags it so the
-    // user can wire it (e.g. after cancelling the sheet on add).
-    func needsWiring(_ file: FileNode) -> Bool {
-        isHook(file) && wiring(forHook: file) == nil
+    // Only USER-authored hooks are flagged: bundled hooks are wired by `SettingsComposer`'s
+    // built-in table, so an unwired one there would be a real mistake. Reads the cached set
+    // so a row render never touches disk (see `refreshDerivedMarkers`).
+    func needsWiring(_ file: FileNode) -> Bool { needsWiringPaths.contains(file.relativePath) }
+
+    // Uncached (touches disk via `isUserAuthored`); only for building `needsWiringPaths`
+    // on an event boundary, never from `body`.
+    private func computeNeedsWiring(_ file: FileNode) -> Bool {
+        isHook(file) && isUserAuthored(file) && wiring(forHook: file) == nil
     }
 
     func saveWiring(forHook file: FileNode, event: HookEvent, matcher: String?) {
@@ -286,6 +330,8 @@ final class TemplateManagerModel {
             HookWiring(
                 name: base, event: event, matcher: (trimmed?.isEmpty ?? true) ? nil : trimmed))
         saveHookWirings()
+        // The hook is now wired — clear its ⚠ marker without a full disk rescan.
+        needsWiringPaths.remove(relativePath(for: .hook, file: base))
     }
 
     // Creates the store directory first so a save before any other write lands
@@ -297,11 +343,14 @@ final class TemplateManagerModel {
         try? hookWirings.save(to: url)
     }
 
-    private func refreshOverriddenPaths() {
+    // The only place that touches disk for marker state — runs on the event boundary
+    // (load, selection change, add/import/delete) so `body`/row renders stay disk-free.
+    private func refreshDerivedMarkers() {
         overriddenPaths = Set(
             contentFiles.map(\.relativePath).filter {
                 overrides.isContentOverridden(forRelative: $0)
             })
+        needsWiringPaths = Set(contentFiles.filter(computeNeedsWiring).map(\.relativePath))
     }
 
     // MARK: - Drag-and-drop import
@@ -321,28 +370,39 @@ final class TemplateManagerModel {
         }
     }
 
-    // Import Finder files/folders dropped onto Base, copying them (the source stays)
-    // into the matching union directory with suffix-on-collision and containment
-    // validation. Supported: a skill folder (top-level SKILL.md), a `.sh` hook, a
-    // `.md` doc. Other extensions / non-skill folders are rejected with a banner.
-    // Other kinds (agents, scripts) are authored via the "+" affordance. Returns
-    // whether anything was imported.
+    // Import Finder files/folders into the selected tree folder, copying them (the
+    // source stays) with suffix-on-collision and containment validation. Any file or
+    // folder is accepted; a dropped folder with a top-level `SKILL.md` is treated as a
+    // skill (routed to `skills/`) so it scaffolds correctly. A failed copy is surfaced
+    // in a banner. Returns whether anything was imported.
     @discardableResult
     func importDropped(urls: [URL]) -> Bool {
-        guard selection == .base, let overrideRoot = overrides.overrideRoot else {
-            showDropBanner("Drop files onto Base to import them.")
+        guard let overrideRoot = overrides.overrideRoot else {
+            showDropBanner("No override store is available.")
             return false
         }
+        let targetDir = addTargetStorageDir()
         let fileManager = FileManager.default
-        var firstRelativePath: String?
-        var importedPaths: Set<String> = []
+        var first: (storage: String, isDirectory: Bool)?
+        var importedStoragePaths: Set<String> = []
         var rejected: [String] = []
         for url in urls {
-            guard let plan = Self.dropPlan(for: url) else {
+            guard let plan = Self.dropPlan(for: url, targetDir: targetDir) else {
                 rejected.append(url.lastPathComponent)
                 continue
             }
-            let parent = overrideRoot.appending(path: plan.directory, directoryHint: .isDirectory)
+            // A standalone `.sh` dropped onto a Shared Component joins it as a hook,
+            // which the membership and the scaffolder both resolve at `hooks/<name>.sh`
+            // — so its bytes must land there, not in the component's selected folder.
+            // (Skills already route to `skills/` via `dropPlan`.) Outside a component a
+            // dropped file stays verbatim in the target folder.
+            let joinsComponentAsHook =
+                !plan.isDirectory && !plan.isSkill && plan.name.hasSuffix(".sh")
+                && membershipComponentID(forKind: .hook) != nil
+            let directory = joinsComponentAsHook ? "hooks" : plan.directory
+            let parent =
+                directory.isEmpty
+                ? overrideRoot : overrideRoot.appending(path: directory, directoryHint: .isDirectory)
             do {
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
                 let target = try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
@@ -352,26 +412,31 @@ final class TemplateManagerModel {
                     continue
                 }
                 try fileManager.copyItem(at: url, to: target)
-                let relativePath =
-                    plan.isSkill
-                    ? "\(plan.directory)/\(target.lastPathComponent)/SKILL.md"
-                    : "\(plan.directory)/\(target.lastPathComponent)"
-                importedPaths.insert(relativePath)
-                if firstRelativePath == nil { firstRelativePath = relativePath }
+                let leaf = target.lastPathComponent
+                let dir = directory.isEmpty ? "" : "\(directory)/"
+                let storage = plan.isSkill ? "\(dir)\(leaf)/SKILL.md" : "\(dir)\(leaf)"
+                importedStoragePaths.insert(storage)
+                if first == nil { first = (storage, plan.isDirectory && !plan.isSkill) }
+                // Dropping into a matching-kind component joins it (a `.sh` into a hook
+                // component, a skill folder into a skill component).
+                let importKind: UserTemplateKind? =
+                    plan.isSkill ? .skill : (joinsComponentAsHook ? .hook : nil)
+                if let importKind, let componentKind = Self.sharedComponentKind(for: importKind),
+                    let componentID = membershipComponentID(forKind: importKind)
+                {
+                    registerMembership(
+                        componentID, kind: componentKind,
+                        fileName: importKind == .hook ? String(leaf.dropLast(3)) : leaf)
+                }
             } catch {
                 rejected.append(url.lastPathComponent)
             }
         }
         refreshContent()
-        if let firstRelativePath,
-            let node = contentFiles.first(where: { $0.relativePath == firstRelativePath })
-        {
-            selectedFile = node
-            beginEditing(node)
-        }
-        // An imported hook needs wiring too: raise the sheet for the first unwired one.
+        selectImported(first)
+        // An imported hook still needs wiring: raise the sheet for the first unwired one.
         if let hookNode = contentFiles.first(where: { node in
-            node.relativePath.hasPrefix("hooks/") && importedPaths.contains(node.relativePath)
+            node.relativePath.hasPrefix("hooks/") && importedStoragePaths.contains(node.relativePath)
                 && needsWiring(node)
         }) {
             pendingHookWiring = hookNode
@@ -379,74 +444,151 @@ final class TemplateManagerModel {
         if !rejected.isEmpty {
             showDropBanner("Can't import: \(rejected.joined(separator: ", "))")
         }
-        return firstRelativePath != nil
+        return first != nil
     }
 
-    // Maps a dropped URL to its target directory, or nil to reject. A folder counts
-    // as a skill only when it has a top-level SKILL.md.
-    private static func dropPlan(for url: URL) -> (directory: String, name: String, isSkill: Bool)? {
+    private func selectImported(_ first: (storage: String, isDirectory: Bool)?) {
+        guard let first else { return }
+        let node: FileNode?
+        if first.isDirectory {
+            node = Self.outputPath(forStorageDir: first.storage)
+                .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
+        } else {
+            node = contentFiles.first { $0.relativePath == first.storage }
+        }
+        if let node {
+            selectedFile = node
+            beginEditing(node)
+        }
+    }
+
+    // Plans a dropped URL: a folder with a top-level `SKILL.md` routes to `skills/`
+    // (so it is recognized as a skill); every other file or folder lands verbatim in
+    // the drop target directory. Returns nil only when the URL does not exist.
+    private static func dropPlan(
+        for url: URL, targetDir: String
+    )
+        -> (directory: String, name: String, isSkill: Bool, isDirectory: Bool)?
+    {
         let fileManager = FileManager.default
         var isDir: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
-        if isDir.boolValue {
-            let skillMd = url.appending(path: "SKILL.md")
-            guard fileManager.fileExists(atPath: skillMd.path) else { return nil }
-            return ("skills", url.lastPathComponent, true)
+        if isDir.boolValue, fileManager.fileExists(atPath: url.appending(path: "SKILL.md").path) {
+            return ("skills", url.lastPathComponent, true, true)
         }
-        switch url.pathExtension.lowercased() {
-        case "sh": return ("hooks", url.lastPathComponent, false)
-        case "md": return ("docs", url.lastPathComponent, false)
-        default: return nil
-        }
+        return (targetDir, url.lastPathComponent, false, isDir.boolValue)
     }
 
     // MARK: - Add
 
-    // The kinds the user can author under the current selection. Only Base offers an
-    // Add affordance: its surfaces (hooks, skills, docs, scripts, agents) are unioned
-    // by the scaffolder without manifest membership. A template's layers and a shared
-    // component's files are manifest membership — adding/removing those is #00069.
+    // The kinds the user can author — available in every selection, since the content
+    // tree is a file manager for Base, Templates and Shared Components alike. A
+    // matching-kind add while a Shared Component is selected joins that component's
+    // membership; everything else lands in the global store. Typed kinds land in their
+    // canonical directory; typeless `.file`/`.folder` land relative to the selection.
     var addableKinds: [UserTemplateKind] {
-        selection == .base ? [.hook, .skill, .doc, .script, .agent] : []
+        [.hook, .skill, .doc, .script, .agent, .file, .folder]
     }
 
-    // Author a new override file of `kind`, seeded with its starter, suffix-walking
-    // on collision and validating containment via `ClaudeProjectFiles`. The new file
-    // is selected for editing. Returns the created node (so a hook add can raise the
-    // wiring sheet), or nil on an invalid name / no override store / write failure.
+    // The component kind a `UserTemplateKind` contributes to (so adding it while that
+    // component is selected joins it), or nil for kinds with no component counterpart.
+    static func sharedComponentKind(for kind: UserTemplateKind) -> SharedComponentKind? {
+        switch kind {
+        case .hook: return .hook
+        case .skill: return .skill
+        default: return nil
+        }
+    }
+
+    // The selected component a hook/skill add or drop should join (a component now
+    // mixes kinds, so any component accepts a hook or skill file).
+    private func membershipComponentID(forKind kind: UserTemplateKind) -> String? {
+        guard case .sharedComponent(let id) = selection,
+            catalog.sharedComponent(id: id) != nil,
+            Self.sharedComponentKind(for: kind) != nil
+        else { return nil }
+        return id
+    }
+
+    private func registerMembership(
+        _ componentID: String?, kind: SharedComponentKind, fileName: String
+    ) {
+        guard let componentID else { return }
+        var updated = catalog
+        updated.addFile(toComponentID: componentID, kind: kind, fileName: fileName)
+        persist(updated)
+    }
+
+    // The override-store directory a new typeless item is created in: the selected
+    // folder, or the selected file's parent, or the store root when nothing is selected.
+    func addTargetStorageDir() -> String {
+        guard let selectedFile else { return "" }
+        if selectedFile.isDirectory { return Self.storageDir(forOutputFolder: selectedFile.relativePath) }
+        return (selectedFile.relativePath as NSString).deletingLastPathComponent
+    }
+
+    // Author a new override item of `kind`, seeded with its starter, suffix-walking on
+    // collision and validating containment via `ClaudeProjectFiles`. The new item is
+    // selected. Returns the created node (so a hook add can raise the wiring sheet), or
+    // nil on an invalid name / no override store / write failure.
     @discardableResult
     func addUserFile(kind: UserTemplateKind, rawName: String) -> FileNode? {
         guard let name = UserTemplateKind.sanitizedName(from: rawName),
             let overrideRoot = overrides.overrideRoot
         else { return nil }
-        let parent = overrideRoot.appending(path: kind.directory, directoryHint: .isDirectory)
+        // A matching-kind add joins the selected component and lands in its canonical
+        // directory; otherwise it follows the selected folder / canonical directory.
+        let componentID = membershipComponentID(forKind: kind)
+        let baseDir =
+            componentID != nil
+            ? kind.directory : (kind.usesTargetDirectory ? addTargetStorageDir() : kind.directory)
+        let parent =
+            baseDir.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: baseDir, directoryHint: .isDirectory)
+        func storagePath(_ leaf: String) -> String { baseDir.isEmpty ? leaf : "\(baseDir)/\(leaf)" }
         do {
-            let createdRelativePath: String
-            if kind.isFolder {
+            switch kind {
+            case .skill:
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
-                let skillMd = dir.appending(path: "SKILL.md")
-                try kind.starter(forLeaf: dir.lastPathComponent)
-                    .write(to: skillMd, atomically: true, encoding: .utf8)
-                createdRelativePath = "\(kind.directory)/\(dir.lastPathComponent)/SKILL.md"
-            } else {
-                let url = try ClaudeProjectFiles.createFileAt(
-                    parent: parent, name: kind.fileName(forSanitized: name))
-                try kind.starter(forLeaf: url.lastPathComponent)
-                    .write(to: url, atomically: true, encoding: .utf8)
-                createdRelativePath = "\(kind.directory)/\(url.lastPathComponent)"
-            }
-            refreshContent()
-            let node = contentFiles.first { $0.relativePath == createdRelativePath }
-            if let node {
+                try kind.starter(forLeaf: dir.lastPathComponent).write(
+                    to: dir.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+                registerMembership(componentID, kind: .skill, fileName: dir.lastPathComponent)
+                return selectCreatedFile(storagePath: storagePath("\(dir.lastPathComponent)/SKILL.md"), kind: kind)
+            case .folder:
+                let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
+                refreshContent()
+                let node = Self.outputPath(forStorageDir: storagePath(dir.lastPathComponent))
+                    .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
                 selectedFile = node
                 beginEditing(node)
-                // Adding a hook raises the wiring sheet so it does not scaffold inert.
-                if kind == .hook { pendingHookWiring = node }
+                return node
+            default:
+                let url = try ClaudeProjectFiles.createFileAt(
+                    parent: parent, name: kind.fileName(forSanitized: name))
+                try kind.starter(forLeaf: url.lastPathComponent).write(
+                    to: url, atomically: true, encoding: .utf8)
+                // A hook joining a component is registered by its base name (no `.sh`).
+                if kind == .hook {
+                    registerMembership(
+                        componentID, kind: .hook, fileName: String(url.lastPathComponent.dropLast(3)))
+                }
+                return selectCreatedFile(storagePath: storagePath(url.lastPathComponent), kind: kind)
             }
-            return node
         } catch {
             return nil
         }
+    }
+
+    private func selectCreatedFile(storagePath: String, kind: UserTemplateKind) -> FileNode? {
+        refreshContent()
+        let node = contentFiles.first { $0.relativePath == storagePath }
+        if let node {
+            selectedFile = node
+            beginEditing(node)
+            // Adding a hook raises the wiring sheet so it does not scaffold inert.
+            if kind == .hook { pendingHookWiring = node }
+        }
+        return node
     }
 
     var selectionTitle: String {
@@ -460,50 +602,10 @@ final class TemplateManagerModel {
 
     // MARK: - Content derivation
 
-    private func fileNodes(for item: TemplateCatalogItem) -> [FileNode] {
-        switch item {
-        case .base: return baseFileNodes()
-        case .sharedComponent(let id):
-            guard let component = catalog.sharedComponent(id: id) else { return [] }
-            return component.files.compactMap {
-                fileNode(relative: relativePath(for: component.kind, file: $0))
-            }
-        case .template(let id):
-            guard let template = catalog.template(id: id) else { return [] }
-            return template.templateLayers.compactMap { fileNode(relative: "templates/\($0).md") }
-        }
-    }
-
-    // Base contributes the global scaffold surfaces. Beyond the bundled CLAUDE.md,
-    // workflow hooks and issue template, it unions the user-authorable directories
-    // (the scaffolder unions these too), so a file added here shows up immediately.
-    private func baseFileNodes() -> [FileNode] {
-        var nodes: [FileNode] = []
-        var seen = Set<String>()
-        func add(_ relative: String, displayName: String? = nil) {
-            guard !seen.contains(relative),
-                let node = fileNode(relative: relative, displayName: displayName)
-            else { return }
-            seen.insert(relative)
-            nodes.append(node)
-        }
-        add(catalog.base.claudeMdRelativePath)
-        for hook in catalog.base.workflowHooks { add("hooks/\(hook).sh") }
-        for name in overrides.overrideFileNames(inRelativeDir: "hooks") where name.hasSuffix(".sh") {
-            add("hooks/\(name)")
-        }
-        add("issues/_TEMPLATE.md")
-        for script in overrides.unionFileNames(inRelativeDir: "plumage") { add("plumage/\(script)") }
-        for doc in overrides.unionFileNames(inRelativeDir: "docs") { add("docs/\(doc)") }
-        let skillNames = bundledSkillNames() + overrides.overrideSkillDirNames()
-        for skill in skillNames { add("skills/\(skill)/SKILL.md", displayName: skill) }
-        for agent in overrides.overrideFileNames(inRelativeDir: "agents") { add("agents/\(agent)") }
-        return nodes
-    }
-
-    private func relativePath(for kind: SharedComponentKind, file: String) -> String {
+    // The override relative path a shared component's file resolves to, by kind.
+    func relativePath(for kind: SharedComponentKind, file: String) -> String {
         switch kind {
-        case .layer: "templates/\(file).md"
+        case .layer: ScaffoldOverrides.layerRelativePath(file)
         case .hook: "hooks/\(file).sh"
         case .skill: "skills/\(file)/SKILL.md"
         case .config: "configs/\(file)"
@@ -512,25 +614,13 @@ final class TemplateManagerModel {
 
     // A referenced file missing on disk is omitted from the tree (the code view
     // then shows a placeholder rather than crashing — see the edge cases).
-    private func fileNode(relative: String, displayName: String? = nil) -> FileNode? {
+    func fileNode(relative: String, displayName: String? = nil) -> FileNode? {
         let url = overrides.url(forRelative: relative)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return FileNode(
             url: url, relativePath: relative,
             name: displayName ?? (relative as NSString).lastPathComponent,
             isDirectory: false, children: nil)
-    }
-
-    private func bundledSkillNames() -> [String] {
-        let dir = overrides.bundledRoot.appending(path: "skills", directoryHint: .isDirectory)
-        let contents =
-            (try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        return
-            contents
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .map(\.lastPathComponent)
-            .sorted()
     }
 
     private func membershipInfo(for item: TemplateCatalogItem) -> CatalogMembership? {
@@ -721,11 +811,11 @@ extension TemplateManagerModel {
     // concatenates the source template's own layer content so the user starts from
     // the same text and edits from there.
     private func writeOwnLayer(forTemplate descriptor: TemplateDescriptor, startingFrom: TemplateStartingPoint) {
-        let relativePath = "templates/\(descriptor.id).md"
+        let relativePath = ScaffoldOverrides.layerRelativePath(descriptor.id)
         var content = "# \(descriptor.name)\n"
         if case .copy(let sourceID) = startingFrom, let source = catalog.template(id: sourceID) {
             let copied = source.templateLayers
-                .compactMap { try? overrides.string(atRelative: "templates/\($0).md") }
+                .compactMap { try? overrides.string(atRelative: ScaffoldOverrides.layerRelativePath($0)) }
                 .joined(separator: "\n\n")
             if !copied.isEmpty { content = copied }
         }
@@ -786,7 +876,7 @@ extension TemplateManagerModel {
         var updated = catalog
         updated.deleteSharedComponent(id: component.id)
         for file in component.files {
-            let relativePath = relativePath(for: component.kind, file: file)
+            let relativePath = relativePath(for: file.kind, file: file.name)
             if !overrides.hasBundledOriginal(forRelative: relativePath),
                 let url = overrides.overrideURL(forRelative: relativePath)
             {
@@ -800,9 +890,9 @@ extension TemplateManagerModel {
 
     private func writeComponentStarter(for component: SharedComponent) {
         guard let file = component.files.first else { return }
-        let relativePath = relativePath(for: component.kind, file: file)
+        let relativePath = relativePath(for: file.kind, file: file.name)
         let content: String
-        switch component.kind {
+        switch file.kind {
         case .layer: content = "# \(component.name)\n"
         case .hook: content = "#!/bin/bash\n# \(component.name)\n"
         case .skill: content = "# \(component.name)\n"
@@ -839,11 +929,10 @@ extension TemplateManagerModel {
         refreshContent()
     }
 
-    // Trashes a custom template's own override files: its own layer (`templates/<id>.md`)
-    // and any imported image. Bundled-backed paths are left alone (predefined deletes
-    // tombstone instead, keeping content-overrides for restore).
+    // Bundled-backed paths are left alone — predefined deletes tombstone instead, so a
+    // content-override survives for restore. Only a custom template's own files go.
     private func trashTemplateOverrides(_ template: TemplateDescriptor) {
-        var paths = template.templateLayers.map { "templates/\($0).md" }
+        var paths = template.templateLayers.map(ScaffoldOverrides.layerRelativePath)
         if case .file(let imagePath) = template.image { paths.append(imagePath) }
         for relativePath in paths where !overrides.hasBundledOriginal(forRelative: relativePath) {
             if let url = overrides.overrideURL(forRelative: relativePath) {

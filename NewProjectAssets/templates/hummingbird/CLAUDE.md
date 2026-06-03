@@ -21,8 +21,5 @@
 - Forgetting to call `next(request, context)` in middleware drops the request silently.
 - Detached `Task { }` for long-running work bypasses service-lifecycle's graceful shutdown.
 
-%% SKILL_KEYWORDS %%
-Hummingbird routing, RequestContext, swift-service-lifecycle, middleware, safari-mcp endpoint testing
-
 %% PROJECT_TYPE_DESCRIPTION %%
 Hummingbird server-side Swift backend

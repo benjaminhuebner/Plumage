@@ -11,7 +11,6 @@ nonisolated struct ClaudeMdComposer {
 
     nonisolated struct Output: Hashable, Sendable {
         let claudeMd: String
-        let skillKeywords: String
     }
 
     private static let sectionTokens: [(token: String, section: String)] = [
@@ -28,7 +27,7 @@ nonisolated struct ClaudeMdComposer {
 
         var sections: [String: [String]] = [:]
         for layer in layers {
-            let layerContent = try overrides.string(atRelative: "templates/\(layer).md")
+            let layerContent = try overrides.string(atRelative: ScaffoldOverrides.layerRelativePath(layer))
             for parsed in Self.parseSections(layerContent) where !parsed.body.isEmpty {
                 sections[parsed.name, default: []].append(parsed.body)
             }
@@ -53,8 +52,7 @@ nonisolated struct ClaudeMdComposer {
                 with: catalog.effectiveXcodeMcpLine(forTemplate: templateID)
             )
 
-        let skillKeywords = (sections["SKILL_KEYWORDS"] ?? []).joined(separator: ", ")
-        return Output(claudeMd: result, skillKeywords: skillKeywords)
+        return Output(claudeMd: result)
     }
 
     // Parse `%% SECTION %%` blocks in source order. A block runs from its header

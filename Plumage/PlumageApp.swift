@@ -140,5 +140,10 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         Task.detached(priority: .utility) {
             ClaudeThemeInstaller.installIfNeeded()
         }
+        // One-time, idempotent move of flat layer overrides to the folder-per-layer
+        // layout (#00071 D1), so an upgrading user's saved layer edits keep applying.
+        Task.detached(priority: .utility) {
+            TemplateOverrideMigration.migrateStandard()
+        }
     }
 }

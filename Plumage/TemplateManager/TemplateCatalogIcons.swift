@@ -13,6 +13,26 @@ extension TemplateImage {
     }
 }
 
+extension UserTemplateKind {
+    // The icon for this kind's "Add" affordance (toolbar buttons + menu).
+    var sfSymbolName: String {
+        switch self {
+        case .hook: "bolt"
+        case .skill: "star"
+        case .doc: "doc.text"
+        case .script: "terminal"
+        case .agent: "person"
+        case .file: "doc.badge.plus"
+        case .folder: "folder.badge.plus"
+        }
+    }
+}
+
+extension SharedComponent {
+    // Components can mix kinds, so the sidebar uses a single bundle icon.
+    var sfSymbolName: String { "shippingbox" }
+}
+
 extension SharedComponentKind {
     var sfSymbolName: String {
         switch self {
