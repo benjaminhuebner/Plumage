@@ -44,7 +44,7 @@ struct TemplateEditorColumn: View {
                 .truncationMode(.middle)
             Spacer()
             if model.isUserAuthored(file) {
-                Button("Delete", role: .destructive) { model.delete(file) }
+                Button("Delete", role: .destructive) { model.requestDelete(file) }
             } else if model.isOverridden(file) || model.isEditorDirty {
                 // Reset appears the moment the bundled file is edited (dirty), not
                 // only after a save has created an override on disk.

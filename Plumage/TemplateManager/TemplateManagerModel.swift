@@ -162,22 +162,72 @@ final class TemplateManagerModel {
         editorReloadToken += 1
     }
 
-    // Delete a user-authored file: remove its override and drop it from the tree. A
-    // user hook drops its wiring too, so the next scaffold removes it from
-    // settings.json as well. A no-op for bundled-backed files (those reset).
+    // A user-authored file pending a delete confirmation (a non-empty folder); the
+    // view raises a confirmation dialog when this is set.
+    var pendingDeleteConfirmation: FileNode?
+
+    // Entry point for the Delete affordance: confirm first when the target is a
+    // non-empty folder (e.g. a multi-file skill), otherwise delete straight away.
+    func requestDelete(_ file: FileNode) {
+        guard isUserAuthored(file) else { return }
+        if requiresDeleteConfirmation(file) {
+            pendingDeleteConfirmation = file
+        } else {
+            delete(file)
+        }
+    }
+
+    func confirmPendingDelete() {
+        guard let file = pendingDeleteConfirmation else { return }
+        pendingDeleteConfirmation = nil
+        delete(file)
+    }
+
+    // Trashing the whole skill tree (not just its SKILL.md) when the target is a
+    // user skill directory warrants a confirmation. Flat single files don't.
+    func requiresDeleteConfirmation(_ file: FileNode) -> Bool {
+        guard isUserAuthored(file) else { return false }
+        let target = deleteTarget(for: file)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir),
+            isDir.boolValue
+        else { return false }
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: target.path)) ?? []
+        return contents.count > 1
+    }
+
+    // Delete a user-authored file: move its override to the Trash (recoverable) and
+    // drop it from the tree. A user skill is a directory — trash the whole
+    // `skills/<name>` tree, not just the selected file. A user hook drops its wiring
+    // too, so the next scaffold removes it from settings.json as well. A no-op for
+    // bundled-backed files (those reset, they don't delete).
     func delete(_ file: FileNode) {
         guard isUserAuthored(file) else { return }
+        let target = deleteTarget(for: file)
         if let base = UserTemplateKind.hookBaseName(forRelativePath: file.relativePath) {
             hookWirings.remove(named: base)
             saveHookWirings()
         }
-        try? overrides.removeOverride(forRelative: file.relativePath)
+        _ = try? ClaudeProjectFiles.trashFile(at: target)
         overriddenPaths.remove(file.relativePath)
         if selectedFile == file {
             selectedFile = nil
             beginEditing(nil)
         }
         refreshContent()
+    }
+
+    // The override URL to trash for a file: a user skill is its whole `skills/<name>`
+    // directory; everything else is the single override file.
+    private func deleteTarget(for file: FileNode) -> URL {
+        let fallback = overrides.overrideURL(forRelative: file.relativePath) ?? file.url
+        guard let overrideRoot = overrides.overrideRoot else { return fallback }
+        let components = file.relativePath.split(separator: "/")
+        if components.count >= 2, components[0] == "skills" {
+            return overrideRoot.appending(
+                path: "skills/\(components[1])", directoryHint: .isDirectory)
+        }
+        return fallback
     }
 
     // MARK: - Hook wiring

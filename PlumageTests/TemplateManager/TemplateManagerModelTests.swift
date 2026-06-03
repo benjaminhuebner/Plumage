@@ -328,4 +328,53 @@ struct TemplateManagerModelTests {
         let store = try HookWiringStore.load(from: ctx.hookStore)
         #expect(store.wiring(named: "my-hook") == nil)
     }
+
+    // MARK: - Delete (trash + folder confirmation)
+
+    @Test("Deleting a single file needs no confirmation and deletes immediately")
+    func deleteSingleFileNoConfirmation() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let node = try #require(ctx.model.addUserFile(kind: .doc, rawName: "notes"))
+
+        #expect(!ctx.model.requiresDeleteConfirmation(node))
+        ctx.model.requestDelete(node)
+        #expect(ctx.model.pendingDeleteConfirmation == nil)
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/notes.md"))
+    }
+
+    @Test("Deleting a non-empty skill folder confirms, then trashes the whole tree")
+    func deleteSkillFolderConfirms() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let node = try #require(ctx.model.addUserFile(kind: .skill, rawName: "my-skill"))
+        // A second file makes the skill directory non-empty beyond SKILL.md.
+        try ctx.model.overrides.writeOverride("ref\n", toRelative: "skills/my-skill/reference.md")
+
+        #expect(ctx.model.requiresDeleteConfirmation(node))
+        ctx.model.requestDelete(node)
+        // Not deleted yet — awaiting confirmation.
+        #expect(ctx.model.pendingDeleteConfirmation == node)
+        #expect(ctx.model.overrides.hasOverride(forRelative: "skills/my-skill/SKILL.md"))
+
+        ctx.model.confirmPendingDelete()
+        #expect(ctx.model.pendingDeleteConfirmation == nil)
+        // The whole skill tree is gone, not just SKILL.md.
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "skills/my-skill/SKILL.md"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "skills/my-skill/reference.md"))
+    }
+
+    @Test("Delete is a no-op for a bundled-backed file (it resets instead)")
+    func deleteIgnoresBundledBacked() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        try writeBundled("A", rel: "templates/CLAUDE.md", root: ctx.bundled)
+        try ctx.model.overrides.writeOverride("B", toRelative: "templates/CLAUDE.md")
+        let node = node(rel: "templates/CLAUDE.md", root: ctx.bundled)
+
+        ctx.model.requestDelete(node)
+        #expect(ctx.model.pendingDeleteConfirmation == nil)
+        // Still overridden — Delete does not touch a bundled-backed file.
+        #expect(ctx.model.overrides.hasOverride(forRelative: "templates/CLAUDE.md"))
+    }
 }

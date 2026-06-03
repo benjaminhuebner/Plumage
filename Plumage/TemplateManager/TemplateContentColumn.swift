@@ -75,6 +75,19 @@ struct TemplateContentColumn: View {
                 model.saveWiring(forHook: hook, event: event, matcher: matcher)
             }
         }
+        .confirmationDialog(
+            model.pendingDeleteConfirmation.map { "Delete “\($0.name)” and its contents?" } ?? "",
+            isPresented: Binding(
+                get: { model.pendingDeleteConfirmation != nil },
+                set: { if !$0 { model.pendingDeleteConfirmation = nil } }),
+            titleVisibility: .visible,
+            presenting: model.pendingDeleteConfirmation
+        ) { _ in
+            Button("Move to Trash", role: .destructive) { model.confirmPendingDelete() }
+            Button("Cancel", role: .cancel) { model.pendingDeleteConfirmation = nil }
+        } message: { _ in
+            Text("This folder and everything in it will be moved to the Trash.")
+        }
     }
 
     private func fileRow(_ node: FileNode) -> some View {
@@ -120,7 +133,7 @@ struct TemplateContentColumn: View {
         }
         if model.isUserAuthored(node) {
             Divider()
-            Button("Delete", role: .destructive) { model.delete(node) }
+            Button("Delete", role: .destructive) { model.requestDelete(node) }
         }
     }
 }
