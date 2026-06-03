@@ -58,7 +58,14 @@ struct TemplateCatalogSidebar: View {
             categoryHeader(category)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .dropHighlight(dropTargetCategoryID == category.id)
+                .background {
+                    // A section header isn't a list row (no `listRowBackground`), so the
+                    // empty-category drop target keeps a matching rounded accent fill.
+                    if dropTargetCategoryID == category.id {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.15))
+                    }
+                }
                 .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
                     handleCategoryDrop(payloads, to: category.id)
                 } isTargeted: {
@@ -79,7 +86,7 @@ struct TemplateCatalogSidebar: View {
         }
         .tag(TemplateCatalogItem.template(template.id))
         .contentShape(Rectangle())
-        .dropHighlight(dropTargetCategoryID == template.categoryID)
+        .listRowBackground(dropRowBackground(active: dropTargetCategoryID == template.categoryID))
         .draggable(TemplateDragPayload(templateID: template.id))
         .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
             handleCategoryDrop(payloads, to: template.categoryID)
@@ -233,15 +240,16 @@ struct TemplateCatalogSidebar: View {
     }
 }
 
-extension View {
-    // Accent-tinted rounded background drawn while a template drag hovers a category,
-    // so the user sees which category will receive the drop.
-    @ViewBuilder
-    fileprivate func dropHighlight(_ active: Bool) -> some View {
-        background {
-            RoundedRectangle(cornerRadius: 5)
-                .fill(Color.accentColor.opacity(active ? 0.20 : 0))
-        }
+extension TemplateCatalogSidebar {
+    // The native source-list drop highlight: a full-row, rounded-inset selection-style
+    // fill via `listRowBackground`, matching the macOS list selection shape. `nil` keeps
+    // the default row background.
+    fileprivate func dropRowBackground(active: Bool) -> AnyView? {
+        guard active else { return nil }
+        return AnyView(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.15))
+                .padding(.horizontal, 8))
     }
 }
 

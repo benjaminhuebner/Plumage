@@ -17,7 +17,7 @@ struct TemplateContentColumn: View {
                     OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
                         fileRow(node)
                             .contentShape(Rectangle())
-                            .dropHighlight(targetedPath == node.relativePath)
+                            .listRowBackground(dropRowBackground(active: targetedPath == node.relativePath))
                             .tag(node)
                             .contextMenu { rowMenu(node) }
                             .draggable(FileTreeDragPayload(url: node.url))
@@ -204,14 +204,15 @@ struct TemplateContentColumn: View {
     }
 }
 
-extension View {
-    // Accent-tinted rounded background drawn while a drag hovers over a drop target,
-    // so the user sees exactly which row will receive the drop.
-    @ViewBuilder
-    fileprivate func dropHighlight(_ active: Bool) -> some View {
-        background {
-            RoundedRectangle(cornerRadius: 5)
-                .fill(Color.accentColor.opacity(active ? 0.20 : 0))
-        }
+extension TemplateContentColumn {
+    // The native source-list drop highlight: a full-row, rounded-inset selection-style
+    // fill via `listRowBackground`, matching the macOS list selection shape instead of a
+    // hand-drawn inner box. `nil` keeps the default row background.
+    fileprivate func dropRowBackground(active: Bool) -> AnyView? {
+        guard active else { return nil }
+        return AnyView(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.15))
+                .padding(.horizontal, 8))
     }
 }
