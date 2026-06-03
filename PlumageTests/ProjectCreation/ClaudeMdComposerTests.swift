@@ -75,7 +75,7 @@ struct ClaudeMdComposerTests {
         let overrideRoot = fm.temporaryDirectory.appending(
             path: "ComposerOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fm.removeItem(at: overrideRoot) }
-        let macosOverride = overrideRoot.appending(path: "templates/macos.md")
+        let macosOverride = overrideRoot.appending(path: "templates/macos/CLAUDE.md")
         try fm.createDirectory(
             at: macosOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "%% CONVENTIONS %%\nOVERRIDE_MARKER_XYZ\n".write(

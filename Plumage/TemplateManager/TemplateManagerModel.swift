@@ -465,12 +465,16 @@ final class TemplateManagerModel {
         case .base: return baseFileNodes()
         case .sharedComponent(let id):
             guard let component = catalog.sharedComponent(id: id) else { return [] }
-            return component.files.compactMap {
-                fileNode(relative: relativePath(for: component.kind, file: $0))
+            return component.files.compactMap { file in
+                fileNode(
+                    relative: relativePath(for: component.kind, file: file),
+                    displayName: component.kind == .layer ? file : nil)
             }
         case .template(let id):
             guard let template = catalog.template(id: id) else { return [] }
-            return template.templateLayers.compactMap { fileNode(relative: "templates/\($0).md") }
+            return template.templateLayers.compactMap {
+                fileNode(relative: "templates/\($0)/CLAUDE.md", displayName: $0)
+            }
         }
     }
 
@@ -503,7 +507,7 @@ final class TemplateManagerModel {
 
     private func relativePath(for kind: SharedComponentKind, file: String) -> String {
         switch kind {
-        case .layer: "templates/\(file).md"
+        case .layer: "templates/\(file)/CLAUDE.md"
         case .hook: "hooks/\(file).sh"
         case .skill: "skills/\(file)/SKILL.md"
         case .config: "configs/\(file)"
@@ -721,11 +725,11 @@ extension TemplateManagerModel {
     // concatenates the source template's own layer content so the user starts from
     // the same text and edits from there.
     private func writeOwnLayer(forTemplate descriptor: TemplateDescriptor, startingFrom: TemplateStartingPoint) {
-        let relativePath = "templates/\(descriptor.id).md"
+        let relativePath = "templates/\(descriptor.id)/CLAUDE.md"
         var content = "# \(descriptor.name)\n"
         if case .copy(let sourceID) = startingFrom, let source = catalog.template(id: sourceID) {
             let copied = source.templateLayers
-                .compactMap { try? overrides.string(atRelative: "templates/\($0).md") }
+                .compactMap { try? overrides.string(atRelative: "templates/\($0)/CLAUDE.md") }
                 .joined(separator: "\n\n")
             if !copied.isEmpty { content = copied }
         }
@@ -843,7 +847,7 @@ extension TemplateManagerModel {
     // and any imported image. Bundled-backed paths are left alone (predefined deletes
     // tombstone instead, keeping content-overrides for restore).
     private func trashTemplateOverrides(_ template: TemplateDescriptor) {
-        var paths = template.templateLayers.map { "templates/\($0).md" }
+        var paths = template.templateLayers.map { "templates/\($0)/CLAUDE.md" }
         if case .file(let imagePath) = template.image { paths.append(imagePath) }
         for relativePath in paths where !overrides.hasBundledOriginal(forRelative: relativePath) {
             if let url = overrides.overrideURL(forRelative: relativePath) {

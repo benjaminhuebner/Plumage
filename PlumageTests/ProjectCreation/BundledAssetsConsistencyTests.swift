@@ -28,7 +28,9 @@ struct BundledAssetsConsistencyTests {
     func templateLayersExist() {
         for kind in ProjectKind.allCases {
             for layer in kind.profile.templateLayers {
-                #expect(exists("templates/\(layer).md"), "missing template \(layer).md for \(kind)")
+                #expect(
+                    exists("templates/\(layer)/CLAUDE.md"),
+                    "missing template \(layer)/CLAUDE.md for \(kind)")
             }
         }
         #expect(exists("templates/CLAUDE.md"))

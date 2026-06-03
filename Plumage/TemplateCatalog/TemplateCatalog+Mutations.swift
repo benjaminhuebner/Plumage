@@ -68,7 +68,7 @@ nonisolated extension TemplateCatalog {
     // MARK: - Template authoring
 
     // Adds a custom (`predefined: false`) template with its own layer file named
-    // after its id (`templates/<id>.md`, written to the override store by the
+    // after its id (`templates/<id>/CLAUDE.md`, written to the override store by the
     // model). `.copy` seeds the descriptor's scaffold settings from the source and
     // replicates its shared-component memberships; `.empty` is a minimal template
     // (Base + its own layer). Returns the created descriptor (the model needs its id

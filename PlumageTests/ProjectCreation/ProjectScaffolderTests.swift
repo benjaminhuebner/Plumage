@@ -62,7 +62,7 @@ struct ProjectScaffolderTests {
         defer { try? fm.removeItem(at: overrideRoot) }
         try write(
             "%% LAYOUT %%\nCUSTOM_TEMPLATE_MARKER\n", to: overrideRoot,
-            rel: "templates/\(descriptor.id).md")
+            rel: "templates/\(descriptor.id)/CLAUDE.md")
 
         let dir = tmpProjectDir()
         defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }

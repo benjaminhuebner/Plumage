@@ -127,7 +127,7 @@ struct TemplateManagerStructureTests {
         #expect(ok)
         let created = try #require(ctx.model.catalog.templates.first { $0.name == "Authored" })
         #expect(ctx.model.selection == .template(created.id))
-        let layerURL = ctx.override.appending(path: "templates/\(created.id).md")
+        let layerURL = ctx.override.appending(path: "templates/\(created.id)/CLAUDE.md")
         #expect(FileManager.default.fileExists(atPath: layerURL.path))
         #expect(TemplateCatalogStore(manifestURL: ctx.manifest).load().template(id: created.id) != nil)
     }
@@ -186,7 +186,7 @@ struct TemplateManagerStructureTests {
         let created = try #require(
             ctx.model.catalog.sharedComponents.first { $0.name == "Extra Layer" })
         #expect(ctx.model.selection == .sharedComponent(created.id))
-        let fileURL = ctx.override.appending(path: "templates/\(created.id).md")
+        let fileURL = ctx.override.appending(path: "templates/\(created.id)/CLAUDE.md")
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
