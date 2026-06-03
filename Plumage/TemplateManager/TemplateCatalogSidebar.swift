@@ -6,6 +6,9 @@ import SwiftUI
 // deletes, and an inline `TextField` commits on Enter/blur (Escape cancels).
 struct TemplateCatalogSidebar: View {
     @Bindable var model: TemplateManagerModel
+    // The category a template drag is hovering, so its whole section (header + rows)
+    // shows the accent drop highlight. One shared bit beats per-row @State here.
+    @State private var dropTargetCategoryID: String?
 
     var body: some View {
         catalogList
@@ -48,12 +51,18 @@ struct TemplateCatalogSidebar: View {
                 templateRow(template)
             }
         } header: {
+            // The drop target spans the full header width (an empty category has no rows,
+            // so the header is its only target) and every row of the category (a macOS
+            // List section header alone is an unreliable, tiny drop target — the original
+            // bug). Both route to `moveTemplate`.
             categoryHeader(category)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .dropHighlight(dropTargetCategoryID == category.id)
                 .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
-                    for payload in payloads {
-                        model.moveTemplate(id: payload.templateID, toCategory: category.id)
-                    }
-                    return !payloads.isEmpty
+                    handleCategoryDrop(payloads, to: category.id)
+                } isTargeted: {
+                    setDropTarget(category.id, $0)
                 }
         }
     }
@@ -69,8 +78,32 @@ struct TemplateCatalogSidebar: View {
             .frame(width: 18, height: 18)
         }
         .tag(TemplateCatalogItem.template(template.id))
+        .contentShape(Rectangle())
+        .dropHighlight(dropTargetCategoryID == template.categoryID)
         .draggable(TemplateDragPayload(templateID: template.id))
+        .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
+            handleCategoryDrop(payloads, to: template.categoryID)
+        } isTargeted: {
+            setDropTarget(template.categoryID, $0)
+        }
         .contextMenu { templateMenu(template) }
+    }
+
+    // Drop onto any row or the header of a category moves the dragged template there.
+    private func handleCategoryDrop(_ payloads: [TemplateDragPayload], to categoryID: String) -> Bool {
+        for payload in payloads {
+            model.moveTemplate(id: payload.templateID, toCategory: categoryID)
+        }
+        dropTargetCategoryID = nil
+        return !payloads.isEmpty
+    }
+
+    private func setDropTarget(_ categoryID: String, _ targeted: Bool) {
+        if targeted {
+            dropTargetCategoryID = categoryID
+        } else if dropTargetCategoryID == categoryID {
+            dropTargetCategoryID = nil
+        }
     }
 
     @ToolbarContentBuilder
@@ -197,6 +230,18 @@ struct TemplateCatalogSidebar: View {
                 model.categoryRename?.name = newValue
             }
         )
+    }
+}
+
+extension View {
+    // Accent-tinted rounded background drawn while a template drag hovers a category,
+    // so the user sees which category will receive the drop.
+    @ViewBuilder
+    fileprivate func dropHighlight(_ active: Bool) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.accentColor.opacity(active ? 0.20 : 0))
+        }
     }
 }
 
