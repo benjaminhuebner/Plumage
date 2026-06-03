@@ -6,8 +6,8 @@ nonisolated struct GitignoreComposer {
     let overrides: ScaffoldOverrides
     var catalog: TemplateCatalog = .bundledDefault
 
-    func compose(for kind: ProjectKind) throws -> String {
-        var tags = catalog.effectiveGitignoreTags(forTemplate: kind.rawValue)
+    func compose(forTemplate templateID: String) throws -> String {
+        var tags = catalog.effectiveGitignoreTags(forTemplate: templateID)
         if !tags.contains("macos") {
             tags.append("macos")
         }
@@ -16,5 +16,9 @@ nonisolated struct GitignoreComposer {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return fragments.joined(separator: "\n\n") + "\n"
+    }
+
+    func compose(for kind: ProjectKind) throws -> String {
+        try compose(forTemplate: kind.rawValue)
     }
 }

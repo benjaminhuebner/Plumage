@@ -88,10 +88,10 @@ nonisolated struct ProjectMigrator {
         self.catalog = catalog
     }
 
-    // The bundled-or-user hooks enabled for a kind: effective hooks plus override-only
-    // `.sh` files, minus any disabled by the toggles.
-    private func enabledHookNames(for kind: ProjectKind) -> [String] {
-        let effective = catalog.effectiveHooks(forTemplate: kind.rawValue)
+    // The bundled-or-user hooks enabled for a template: effective hooks plus
+    // override-only `.sh` files, minus any disabled by the toggles.
+    private func enabledHookNames(forTemplate templateID: String) -> [String] {
+        let effective = catalog.effectiveHooks(forTemplate: templateID)
         let userHooks = overrides.overrideFileNames(inRelativeDir: "hooks")
             .filter { $0.hasSuffix(".sh") }
             .map { String($0.dropLast(3)) }
@@ -187,7 +187,7 @@ nonisolated struct ProjectMigrator {
         try writeSkills(claude: claude, skillKeywords: claudeOutput.skillKeywords, into: &report)
         try writeHooks(spec: spec, claude: claude, into: &report)
         try writeAgents(claude: claude, into: &report)
-        try writeSettings(kind: spec.kind, claude: claude, into: &report)
+        try writeSettings(templateID: spec.templateID, claude: claude, into: &report)
     }
 
     private static let bundledSkills = ["plumage-plan", "plumage-implement", "plumage-review"]
@@ -220,7 +220,7 @@ nonisolated struct ProjectMigrator {
     private func writeHooks(spec: NewProjectSpec, claude: URL, into report: inout Report) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in enabledHookNames(for: spec.kind) {
+        for hook in enabledHookNames(forTemplate: spec.templateID) {
             try copyIfMissing(
                 from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
@@ -244,10 +244,11 @@ nonisolated struct ProjectMigrator {
         }
     }
 
-    private func writeSettings(kind: ProjectKind, claude: URL, into report: inout Report) throws {
+    private func writeSettings(templateID: String, claude: URL, into report: inout Report) throws {
         let composer = SettingsComposer(catalog: catalog)
         try writeIfMissing(
-            try composer.settingsJSON(for: kind, toggles: toggles, userWirings: hookWirings),
+            try composer.settingsJSON(
+                forTemplate: templateID, toggles: toggles, userWirings: hookWirings),
             to: claude.appending(path: "settings.json"),
             rel: ".claude/settings.json", into: &report)
         try writeIfMissing(
@@ -262,7 +263,7 @@ nonisolated struct ProjectMigrator {
             return
         }
         var servers: [String: Any] = [:]
-        for server in catalog.effectiveMCPServers(forTemplate: spec.kind.rawValue) {
+        for server in catalog.effectiveMCPServers(forTemplate: spec.templateID) {
             var entry: [String: Any] = ["command": server.command]
             if !server.args.isEmpty { entry["args"] = server.args }
             if !server.env.isEmpty { entry["env"] = server.env }
@@ -292,7 +293,8 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(".gitignore")
             return
         }
-        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog).compose(for: spec.kind)
+        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog)
+            .compose(forTemplate: spec.templateID)
         try contents.write(to: dest, atomically: true, encoding: .utf8)
         report.added.append(".gitignore")
     }
@@ -329,7 +331,7 @@ nonisolated struct ProjectMigrator {
 
     private func newProjectSpec(from spec: MigrationSpec) -> NewProjectSpec {
         NewProjectSpec(
-            kind: spec.kind, name: spec.name, tagline: spec.tagline,
+            kind: spec.kind, templateID: spec.templateID, name: spec.name, tagline: spec.tagline,
             projectDirectory: spec.projectDirectory,
             git: GitSetup(
                 plumageInGit: spec.git.plumageInGit,

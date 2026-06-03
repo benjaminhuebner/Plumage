@@ -46,6 +46,46 @@ struct ProjectScaffolderTests {
         #expect(((perms ?? 0) & 0o111) != 0)
     }
 
+    @Test("A custom template scaffolds its own effective content by template id")
+    func customTemplateScaffoldsOwnContent() async throws {
+        let fm = FileManager.default
+        var catalog = TemplateCatalog.bundledDefault
+        let descriptor = catalog.addTemplate(
+            name: "My Custom", image: .symbol("doc"),
+            categoryID: ProjectKindGroup.other.rawValue, startingFrom: .empty)
+
+        // The custom template's own layer lives in the override store; its content
+        // must surface in the composed CLAUDE.md (proving resolution by template id,
+        // not by the `.other` kind it falls back to for the Swift-config gate).
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "CustomTemplate-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write(
+            "%% LAYOUT %%\nCUSTOM_TEMPLATE_MARKER\n", to: overrideRoot,
+            rel: "templates/\(descriptor.id).md")
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        let scaffolder = ProjectScaffolder(
+            assetsRoot: RepoAssets.root, overrideRoot: overrideRoot,
+            toggles: ScaffoldToggles(), hookWirings: [],
+            configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
+            gitInitRunner: GitInitRunner(), catalog: catalog)
+        _ = try await scaffolder.create(
+            spec: NewProjectSpec(
+                kind: .other, templateID: descriptor.id, name: "MyApp", tagline: "tl",
+                projectDirectory: dir))
+
+        let claudeMd = try String(
+            contentsOf: dir.appending(path: ".claude/CLAUDE.md"), encoding: .utf8)
+        #expect(claudeMd.contains("CUSTOM_TEMPLATE_MARKER"))
+        // Still a valid project.
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/settings.json").path))
+        #expect(fm.fileExists(atPath: dir.appending(path: "MyApp.plumage/config.json").path))
+        // A custom template maps to `.other` ⇒ no Swift configs (minimal but valid).
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".swift-format").path))
+    }
+
     @Test(".other omits the Swift config files")
     func otherNoSwiftConfigs() async throws {
         let dir = tmpProjectDir()

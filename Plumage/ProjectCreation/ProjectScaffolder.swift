@@ -39,10 +39,10 @@ nonisolated struct ProjectScaffolder {
         self.catalog = catalog
     }
 
-    // The bundled-or-user hooks enabled for a kind: effective hooks plus override-only
-    // `.sh` files, minus any disabled by the toggles.
-    private func enabledHookNames(for kind: ProjectKind) -> [String] {
-        let effective = catalog.effectiveHooks(forTemplate: kind.rawValue)
+    // The bundled-or-user hooks enabled for a template: effective hooks plus
+    // override-only `.sh` files, minus any disabled by the toggles.
+    private func enabledHookNames(forTemplate templateID: String) -> [String] {
+        let effective = catalog.effectiveHooks(forTemplate: templateID)
         let userHooks = overrides.overrideFileNames(inRelativeDir: "hooks")
             .filter { $0.hasSuffix(".sh") }
             .map { String($0.dropLast(3)) }
@@ -135,7 +135,8 @@ nonisolated struct ProjectScaffolder {
         try writeHooks(spec: spec, claude: claude)
         try writeAgents(claude: claude)
         try SettingsComposer(catalog: catalog).write(
-            for: spec.kind, toggles: toggles, userWirings: hookWirings, toClaudeDir: claude)
+            forTemplate: spec.templateID, toggles: toggles, userWirings: hookWirings,
+            toClaudeDir: claude)
     }
 
     // The bundled skills plus any override-only (user-authored) skill directories.
@@ -181,7 +182,7 @@ nonisolated struct ProjectScaffolder {
     private func writeHooks(spec: NewProjectSpec, claude: URL) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in enabledHookNames(for: spec.kind) {
+        for hook in enabledHookNames(forTemplate: spec.templateID) {
             try copy(
                 from: overrides.url(forRelative: "hooks/\(hook).sh"),
                 to: hooksDir.appending(path: "\(hook).sh"),
@@ -193,7 +194,7 @@ nonisolated struct ProjectScaffolder {
 
     private func writeMCPConfig(spec: NewProjectSpec, root: URL) throws {
         var servers: [String: Any] = [:]
-        for server in catalog.effectiveMCPServers(forTemplate: spec.kind.rawValue) {
+        for server in catalog.effectiveMCPServers(forTemplate: spec.templateID) {
             var entry: [String: Any] = ["command": server.command]
             if !server.args.isEmpty { entry["args"] = server.args }
             if !server.env.isEmpty { entry["env"] = server.env }
@@ -217,7 +218,8 @@ nonisolated struct ProjectScaffolder {
 
     private func writeGitignore(spec: NewProjectSpec, root: URL) throws {
         guard spec.git?.createGitignore == true else { return }
-        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog).compose(for: spec.kind)
+        let contents = try GitignoreComposer(overrides: overrides, catalog: catalog)
+            .compose(forTemplate: spec.templateID)
         try contents.write(to: root.appending(path: ".gitignore"), atomically: true, encoding: .utf8)
     }
 
