@@ -38,6 +38,21 @@ struct TemplateContentColumn: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .dropDestination(for: URL.self) { urls, _ in
+            model.importDropped(urls: urls)
+        }
+        .overlay(alignment: .bottom) {
+            if let banner = model.dropBanner {
+                Text(banner)
+                    .font(.callout)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.default, value: model.dropBanner)
         .navigationTitle(model.selectionTitle)
         .toolbar {
             if !model.addableKinds.isEmpty {

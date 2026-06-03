@@ -169,6 +169,93 @@ final class TemplateManagerModel {
             })
     }
 
+    // MARK: - Drag-and-drop import
+
+    // A transient (~3 s) banner for a rejected or partial Finder drop, mirroring the
+    // Navigator's drop-reject feedback.
+    private(set) var dropBanner: String?
+    private var dropBannerTask: Task<Void, Never>?
+
+    private func showDropBanner(_ message: String) {
+        dropBannerTask?.cancel()
+        dropBanner = message
+        dropBannerTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.dropBanner = nil
+        }
+    }
+
+    // Import Finder files/folders dropped onto Base, copying them (the source stays)
+    // into the matching union directory with suffix-on-collision and containment
+    // validation. Supported: a skill folder (top-level SKILL.md), a `.sh` hook, a
+    // `.md` doc. Other extensions / non-skill folders are rejected with a banner.
+    // Other kinds (agents, scripts) are authored via the "+" affordance. Returns
+    // whether anything was imported.
+    @discardableResult
+    func importDropped(urls: [URL]) -> Bool {
+        guard selection == .base, let overrideRoot = overrides.overrideRoot else {
+            showDropBanner("Drop files onto Base to import them.")
+            return false
+        }
+        let fileManager = FileManager.default
+        var firstRelativePath: String?
+        var rejected: [String] = []
+        for url in urls {
+            guard let plan = Self.dropPlan(for: url) else {
+                rejected.append(url.lastPathComponent)
+                continue
+            }
+            let parent = overrideRoot.appending(path: plan.directory, directoryHint: .isDirectory)
+            do {
+                try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+                let target = try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
+                guard target.standardizedFileURL.path.hasPrefix(parent.standardizedFileURL.path + "/")
+                else {
+                    rejected.append(url.lastPathComponent)
+                    continue
+                }
+                try fileManager.copyItem(at: url, to: target)
+                let relativePath =
+                    plan.isSkill
+                    ? "\(plan.directory)/\(target.lastPathComponent)/SKILL.md"
+                    : "\(plan.directory)/\(target.lastPathComponent)"
+                if firstRelativePath == nil { firstRelativePath = relativePath }
+            } catch {
+                rejected.append(url.lastPathComponent)
+            }
+        }
+        refreshContent()
+        if let firstRelativePath,
+            let node = contentFiles.first(where: { $0.relativePath == firstRelativePath })
+        {
+            selectedFile = node
+            beginEditing(node)
+        }
+        if !rejected.isEmpty {
+            showDropBanner("Can't import: \(rejected.joined(separator: ", "))")
+        }
+        return firstRelativePath != nil
+    }
+
+    // Maps a dropped URL to its target directory, or nil to reject. A folder counts
+    // as a skill only when it has a top-level SKILL.md.
+    private static func dropPlan(for url: URL) -> (directory: String, name: String, isSkill: Bool)? {
+        let fileManager = FileManager.default
+        var isDir: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
+        if isDir.boolValue {
+            let skillMd = url.appending(path: "SKILL.md")
+            guard fileManager.fileExists(atPath: skillMd.path) else { return nil }
+            return ("skills", url.lastPathComponent, true)
+        }
+        switch url.pathExtension.lowercased() {
+        case "sh": return ("hooks", url.lastPathComponent, false)
+        case "md": return ("docs", url.lastPathComponent, false)
+        default: return nil
+        }
+    }
+
     // MARK: - Add
 
     // The kinds the user can author under the current selection. Only Base offers an

@@ -203,4 +203,71 @@ struct TemplateManagerModelTests {
         ctx.model.selection = .sharedComponent("anything")
         #expect(ctx.model.addableKinds.isEmpty)
     }
+
+    // MARK: - Drag-and-drop import
+
+    private func makeSourceTree() throws -> (root: URL, cleanup: () -> Void) {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appending(
+            path: "DropSrc-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: root.appending(path: "hook.sh"), atomically: true, encoding: .utf8)
+        try "# Note\n".write(to: root.appending(path: "note.md"), atomically: true, encoding: .utf8)
+        try "ignore\n".write(to: root.appending(path: "bad.txt"), atomically: true, encoding: .utf8)
+        let skill = root.appending(path: "myskill", directoryHint: .isDirectory)
+        try fm.createDirectory(at: skill, withIntermediateDirectories: true)
+        try "x\n".write(to: skill.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+        return (root, { try? fm.removeItem(at: root) })
+    }
+
+    @Test("Drop imports supported kinds (copy), leaves source, and rejects others")
+    func dropImportsAndRejects() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let src = try makeSourceTree()
+        defer { src.cleanup() }
+        let urls = ["hook.sh", "note.md", "myskill", "bad.txt"].map { src.root.appending(path: $0) }
+
+        let imported = ctx.model.importDropped(urls: urls)
+
+        #expect(imported)
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/hook.sh"))
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
+        #expect(ctx.model.overrides.hasOverride(forRelative: "skills/myskill/SKILL.md"))
+        // Copy semantics: the Finder source is untouched.
+        #expect(FileManager.default.fileExists(atPath: src.root.appending(path: "hook.sh").path))
+        // The unsupported file is rejected and surfaced in the banner.
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/bad.txt"))
+        let banner = try #require(ctx.model.dropBanner)
+        #expect(banner.contains("bad.txt"))
+    }
+
+    @Test("Drop suffix-walks on collision")
+    func dropCollisionSuffixWalks() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let src = try makeSourceTree()
+        defer { src.cleanup() }
+        try ctx.model.overrides.writeOverride("existing", toRelative: "docs/note.md")
+
+        _ = ctx.model.importDropped(urls: [src.root.appending(path: "note.md")])
+
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note-1.md"))
+        #expect(try ctx.model.overrides.string(atRelative: "docs/note.md") == "existing")
+    }
+
+    @Test("Drop is rejected when the selection is not Base")
+    func dropRejectedOutsideBase() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let src = try makeSourceTree()
+        defer { src.cleanup() }
+        ctx.model.selection = .template("anything")
+
+        let imported = ctx.model.importDropped(urls: [src.root.appending(path: "note.md")])
+        #expect(!imported)
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
+        #expect(ctx.model.dropBanner != nil)
+    }
 }
