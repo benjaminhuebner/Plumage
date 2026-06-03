@@ -1,0 +1,116 @@
+import Foundation
+import Testing
+
+@testable import Plumage
+
+// Internal move-drag in the content tree: user-authored files relocate physically in
+// the override store; bundled files can't move in place, so they materialize at the
+// target and tombstone the source. Restore Defaults lifts the tombstones.
+@MainActor
+@Suite("TemplateManager content-tree move and tombstones")
+struct TemplateContentMoveTests {
+    private func makeModel() -> (model: TemplateManagerModel, override: URL, cleanup: () -> Void) {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appending(
+            path: "TMMove-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let override = base.appending(path: "override", directoryHint: .isDirectory)
+        try? fm.createDirectory(at: override, withIntermediateDirectories: true)
+        let model = TemplateManagerModel(
+            store: TemplateCatalogStore(manifestURL: base.appending(path: "manifest.json")),
+            overrides: ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: override),
+            hookWiringStoreURL: base.appending(path: "hooks.json"))
+        return (model, override, { try? fm.removeItem(at: base) })
+    }
+
+    private func find(_ nodes: [FileNode], _ path: [String]) -> FileNode? {
+        guard let head = path.first, let node = nodes.first(where: { $0.name == head }) else { return nil }
+        return path.count == 1 ? node : find(node.children ?? [], Array(path.dropFirst()))
+    }
+
+    @Test("moving a user-authored file between two folders remaps its path and keeps selection")
+    func userAuthoredMoveRemaps() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+
+        // Two user-created folders at the project root (typeless adds land relative to
+        // the selection, so clear it first), and a file inside the first.
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "alpha")
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "beta")
+        let alpha = try #require(find(ctx.model.contentTree, ["alpha"]))
+        ctx.model.selectedFile = alpha
+        let created = try #require(ctx.model.addUserFile(kind: .file, rawName: "note"))
+        let source = created.relativePath
+        #expect(source.hasPrefix("alpha/"))
+
+        let beta = try #require(find(ctx.model.contentTree, ["beta"]))
+        ctx.model.moveNodes([created], into: beta)
+
+        let leaf = (source as NSString).lastPathComponent
+        let newPath = "beta/\(leaf)"
+        #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: newPath).path))
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: source).path))
+        #expect(find(ctx.model.contentTree, ["beta", leaf]) != nil)
+        #expect(ctx.model.selectedFile?.relativePath == newPath)
+    }
+
+    @Test("moving a user hook out of hooks/ drops its wiring")
+    func userHookMoveDropsWiring() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+
+        let hook = try #require(ctx.model.addUserFile(kind: .hook, rawName: "myhook"))
+        ctx.model.saveWiring(forHook: hook, event: .preToolUse, matcher: "Edit")
+        #expect(ctx.model.hookWirings.wiring(named: "myhook") != nil)
+
+        let docs = try #require(find(ctx.model.contentTree, [".claude", "docs"]))
+        ctx.model.moveNodes([hook], into: docs)
+
+        #expect(ctx.model.hookWirings.wiring(named: "myhook") == nil)
+    }
+
+    @Test("moving a bundled file suppresses the source and materializes it at the target")
+    func bundledMoveSuppressesAndMaterializes() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+
+        let bundled = try #require(
+            find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]))
+        #expect(!ctx.model.isUserAuthored(bundled))  // genuinely bundled, not an override
+
+        let docs = try #require(find(ctx.model.contentTree, [".claude", "docs"]))
+        ctx.model.moveNodes([bundled], into: docs)
+
+        #expect(find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]) == nil)
+        #expect(find(ctx.model.contentTree, [".claude", "docs", "block-git-commit.sh"]) != nil)
+        #expect(ctx.model.overrides.isSuppressed(relativePath: "hooks/block-git-commit.sh"))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "docs/block-git-commit.sh").path))
+    }
+
+    @Test("Restore Defaults lifts file tombstones so the bundled original reappears")
+    func restoreLiftsTombstone() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        let bundled = try #require(
+            find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]))
+        let docs = try #require(find(ctx.model.contentTree, [".claude", "docs"]))
+        ctx.model.moveNodes([bundled], into: docs)
+        #expect(ctx.model.overrides.isSuppressed(relativePath: "hooks/block-git-commit.sh"))
+
+        ctx.model.restoreAllDefaults()
+
+        #expect(!ctx.model.overrides.isSuppressed(relativePath: "hooks/block-git-commit.sh"))
+        #expect(find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]) != nil)
+    }
+}
