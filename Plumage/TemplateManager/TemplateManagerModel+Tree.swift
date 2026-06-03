@@ -15,20 +15,54 @@ extension TemplateManagerModel {
         let name: String
     }
 
+    // Every selection renders the same `.claude/`-mirroring output structure (D2), so
+    // a hook is always shown under `.claude/hooks` and a CLAUDE.md fragment as
+    // `.claude/CLAUDE.md`, never a flat layer name. What populates it differs:
+    // Base and a Template show the full project surfaces (a Template swaps in its own
+    // CLAUDE.md fragment); a Shared Component shows just its own files.
     func buildContentTree(for item: TemplateCatalogItem) -> [FileNode] {
-        switch item {
-        case .base:
-            var leaves = baseLeafSpecs().compactMap { spec in
-                fileNode(relative: spec.relative, displayName: spec.name).map { (spec.output, $0) }
-            }
+        var leaves = leafSpecs(for: item).compactMap { spec in
+            fileNode(relative: spec.relative, displayName: spec.name).map { (spec.output, $0) }
+        }
+        if showsProjectSurfaces(item) {
             // Generated configs always show (even with no override yet).
             leaves += ManagerConfig.allCases.map { ($0.relativePath, configNode($0)) }
-            // User-created (possibly empty) folders show at their output positions.
-            let directories = overrides.overrideDirectoryPaths().compactMap(Self.outputPath(forStorageDir:))
-            return Self.assembleTree(
-                leaves: leaves, directories: directories, bundledRoot: overrides.bundledRoot)
-        case .sharedComponent, .template:
-            return fileNodesForFragments(item)
+        }
+        // User-created (possibly empty) folders show at their output positions.
+        let directories =
+            showsProjectSurfaces(item)
+            ? overrides.overrideDirectoryPaths().compactMap(Self.outputPath(forStorageDir:)) : []
+        return Self.assembleTree(
+            leaves: leaves, directories: directories, bundledRoot: overrides.bundledRoot)
+    }
+
+    // Base and Templates are full project profiles (configs + arbitrary global files);
+    // a Shared Component is a focused sub-bundle showing only its own files.
+    private func showsProjectSurfaces(_ item: TemplateCatalogItem) -> Bool {
+        switch item {
+        case .base, .template: return true
+        case .sharedComponent: return false
+        }
+    }
+
+    private func leafSpecs(for item: TemplateCatalogItem) -> [LeafSpec] {
+        switch item {
+        case .base:
+            return globalSurfaceSpecs(
+                hookNames: baseHookNames(), claudeMdStorage: catalog.base.claudeMdRelativePath)
+        case .template(let id):
+            guard let template = catalog.template(id: id) else { return [] }
+            // A Template shows the merged project surfaces with its own CLAUDE.md
+            // fragment swapped in (its effective hooks include its components' hooks).
+            let ownLayer = template.templateLayers.first
+            let claudeMdStorage =
+                ownLayer.map { "templates/\($0)/CLAUDE.md" } ?? catalog.base.claudeMdRelativePath
+            return globalSurfaceSpecs(
+                hookNames: catalog.effectiveHooks(forTemplate: id) + overrideHookBaseNames(),
+                claudeMdStorage: claudeMdStorage)
+        case .sharedComponent(let id):
+            guard let component = catalog.sharedComponent(id: id) else { return [] }
+            return componentLeafSpecs(component)
         }
     }
 
@@ -98,26 +132,36 @@ extension TemplateManagerModel {
         return children.contains { $0.isDirectory ? aggregateNeedsWiring($0) : needsWiring($0) }
     }
 
-    // MARK: - Base output tree
+    // MARK: - Leaf specs
 
-    private func baseLeafSpecs() -> [LeafSpec] {
+    // Base names of the workflow hooks plus any user override-only hooks.
+    private func baseHookNames() -> [String] {
+        catalog.base.workflowHooks + overrideHookBaseNames()
+    }
+
+    private func overrideHookBaseNames() -> [String] {
+        overrides.overrideFileNames(inRelativeDir: "hooks")
+            .filter { $0.hasSuffix(".sh") }
+            .map { String($0.dropLast(3)) }
+    }
+
+    // The full project surfaces in their output positions, with the CLAUDE.md slot
+    // pointed at `claudeMdStorage` (the base skeleton for Base, a template's own layer
+    // for a Template). De-duplicates by output path so a hook listed twice collapses.
+    private func globalSurfaceSpecs(hookNames: [String], claudeMdStorage: String) -> [LeafSpec] {
         var specs: [LeafSpec] = []
+        var seen = Set<String>()
         func add(output: String, relative: String, name: String? = nil) {
+            guard seen.insert(output).inserted else { return }
             specs.append(
-                LeafSpec(output: output, relative: relative, name: name ?? (output as NSString).lastPathComponent))
+                LeafSpec(
+                    output: output, relative: relative,
+                    name: name ?? (output as NSString).lastPathComponent))
         }
 
-        add(output: ".claude/CLAUDE.md", relative: catalog.base.claudeMdRelativePath)
-
-        for hook in catalog.base.workflowHooks {
-            add(output: ".claude/hooks/\(hook).sh", relative: "hooks/\(hook).sh")
-        }
-        for name in overrides.overrideFileNames(inRelativeDir: "hooks") where name.hasSuffix(".sh") {
-            add(output: ".claude/hooks/\(name)", relative: "hooks/\(name)")
-        }
-
+        add(output: ".claude/CLAUDE.md", relative: claudeMdStorage, name: "CLAUDE.md")
+        for hook in hookNames { add(output: ".claude/hooks/\(hook).sh", relative: "hooks/\(hook).sh") }
         add(output: ".claude/issues/_TEMPLATE.md", relative: "issues/_TEMPLATE.md")
-
         for doc in overrides.unionFileNames(inRelativeDir: "docs") {
             add(output: ".claude/docs/\(doc)", relative: "docs/\(doc)")
         }
@@ -127,42 +171,53 @@ extension TemplateManagerModel {
         for agent in overrides.overrideFileNames(inRelativeDir: "agents") {
             add(output: ".claude/agents/\(agent)", relative: "agents/\(agent)")
         }
-
         for script in overrides.unionFileNames(inRelativeDir: "plumage") {
             add(output: ".plumage/scripts/\(script)", relative: "plumage/\(script)")
         }
-
         // Bundled Swift tooling configs land at the project root.
         add(output: ".swift-format", relative: "configs/swift-format")
         add(output: ".swiftlint.yml", relative: "configs/swiftlint.yml")
-
         // Arbitrary user-authored files at the store root show at the project root
         // (e.g. `.editorconfig`), minus the generated configs already shown as nodes.
         let configPaths = Set(ManagerConfig.allCases.map(\.relativePath))
         for name in overrides.overrideFileNames(inRelativeDir: "") where !configPaths.contains(name) {
             add(output: name, relative: name)
         }
-
         return specs
     }
 
-    // Template / shared component: the contributing fragment files as flat roots.
-    private func fileNodesForFragments(_ item: TemplateCatalogItem) -> [FileNode] {
-        switch item {
-        case .base: return []
-        case .sharedComponent(let id):
-            guard let component = catalog.sharedComponent(id: id) else { return [] }
-            return component.files.compactMap { file in
-                fileNode(
-                    relative: relativePath(for: component.kind, file: file),
-                    displayName: component.kind == .layer ? file : nil)
-            }
-        case .template(let id):
-            guard let template = catalog.template(id: id) else { return [] }
-            return template.templateLayers.compactMap {
-                fileNode(relative: "templates/\($0)/CLAUDE.md", displayName: $0)
+    // A Shared Component's own files, placed in the output structure (its hooks under
+    // `.claude/hooks`, its layer as `.claude/CLAUDE.md`, its skill subtree under
+    // `.claude/skills/<name>/`). Same folder convention as everywhere else.
+    private func componentLeafSpecs(_ component: SharedComponent) -> [LeafSpec] {
+        var specs: [LeafSpec] = []
+        for file in component.files {
+            switch component.kind {
+            case .layer:
+                specs.append(
+                    LeafSpec(
+                        output: ".claude/CLAUDE.md", relative: "templates/\(file)/CLAUDE.md",
+                        name: "CLAUDE.md"))
+            case .hook:
+                specs.append(
+                    LeafSpec(
+                        output: ".claude/hooks/\(file).sh", relative: "hooks/\(file).sh",
+                        name: "\(file).sh"))
+            case .skill:
+                let subs = overrides.unionFileNamesRecursive(inRelativeDir: "skills/\(file)")
+                let entries = subs.isEmpty ? ["SKILL.md"] : subs
+                for sub in entries {
+                    specs.append(
+                        LeafSpec(
+                            output: ".claude/skills/\(file)/\(sub)",
+                            relative: "skills/\(file)/\(sub)", name: (sub as NSString).lastPathComponent))
+                }
+            case .config:
+                specs.append(
+                    LeafSpec(output: ".claude/\(file)", relative: "configs/\(file)", name: file))
             }
         }
+        return specs
     }
 
     // MARK: - Tree assembly

@@ -191,19 +191,18 @@ struct TemplateManagerModelTests {
         #expect(slashy.relativePath == "docs/a-b.md")
     }
 
-    @Test("Add is offered only on Base, not templates or shared components")
-    func addableKindsGating() throws {
+    @Test("Add is offered in every selection (Base, templates, shared components)")
+    func addableKindsEverywhere() throws {
         let ctx = try makeModel()
         defer { ctx.cleanup() }
+        let expected: [UserTemplateKind] = [.hook, .skill, .doc, .script, .agent, .file, .folder]
 
         ctx.model.selection = .base
-        #expect(ctx.model.addableKinds == [.hook, .skill, .doc, .script, .agent, .file, .folder])
-
+        #expect(ctx.model.addableKinds == expected)
         ctx.model.selection = .template("anything")
-        #expect(ctx.model.addableKinds.isEmpty)
-
+        #expect(ctx.model.addableKinds == expected)
         ctx.model.selection = .sharedComponent("anything")
-        #expect(ctx.model.addableKinds.isEmpty)
+        #expect(ctx.model.addableKinds == expected)
     }
 
     @Test("An arbitrary file name with separators is sanitized and stays contained")

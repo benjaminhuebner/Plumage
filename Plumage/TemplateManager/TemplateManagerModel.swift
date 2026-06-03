@@ -385,6 +385,14 @@ final class TemplateManagerModel {
                 let storage = plan.isSkill ? "\(dir)\(leaf)/SKILL.md" : "\(dir)\(leaf)"
                 importedStoragePaths.insert(storage)
                 if first == nil { first = (storage, plan.isDirectory && !plan.isSkill) }
+                // Dropping into a matching-kind component joins it (a `.sh` into a hook
+                // component, a skill folder into a skill component).
+                let importKind: UserTemplateKind? =
+                    plan.isSkill ? .skill : (!plan.isDirectory && leaf.hasSuffix(".sh") ? .hook : nil)
+                if let importKind, let componentID = membershipComponentID(forKind: importKind) {
+                    registerMembership(
+                        componentID, fileName: importKind == .hook ? String(leaf.dropLast(3)) : leaf)
+                }
             } catch {
                 rejected.append(url.lastPathComponent)
             }
@@ -438,13 +446,39 @@ final class TemplateManagerModel {
 
     // MARK: - Add
 
-    // The kinds the user can author. Offered on Base, where the content tree is a real
-    // file manager. Typed kinds (hook/skill/doc/script/agent) land in their canonical
-    // store directory; typeless `.file`/`.folder` land relative to the selected tree
-    // folder. Templates and shared components show membership-driven fragments, so
-    // they offer no free-form add (that is #00069's manifest membership).
+    // The kinds the user can author — available in every selection, since the content
+    // tree is a file manager for Base, Templates and Shared Components alike. A
+    // matching-kind add while a Shared Component is selected joins that component's
+    // membership; everything else lands in the global store. Typed kinds land in their
+    // canonical directory; typeless `.file`/`.folder` land relative to the selection.
     var addableKinds: [UserTemplateKind] {
-        selection == .base ? [.hook, .skill, .doc, .script, .agent, .file, .folder] : []
+        [.hook, .skill, .doc, .script, .agent, .file, .folder]
+    }
+
+    // The component kind a `UserTemplateKind` contributes to (so adding it while that
+    // component is selected joins it), or nil for kinds with no component counterpart.
+    static func sharedComponentKind(for kind: UserTemplateKind) -> SharedComponentKind? {
+        switch kind {
+        case .hook: return .hook
+        case .skill: return .skill
+        default: return nil
+        }
+    }
+
+    // The selected component this add/drop should join, if the kind matches it.
+    private func membershipComponentID(forKind kind: UserTemplateKind) -> String? {
+        guard case .sharedComponent(let id) = selection,
+            let component = catalog.sharedComponent(id: id),
+            Self.sharedComponentKind(for: kind) == component.kind
+        else { return nil }
+        return id
+    }
+
+    private func registerMembership(_ componentID: String?, fileName: String) {
+        guard let componentID else { return }
+        var updated = catalog
+        updated.addFile(toComponentID: componentID, fileName: fileName)
+        persist(updated)
     }
 
     // The override-store directory a new typeless item is created in: the selected
@@ -464,7 +498,12 @@ final class TemplateManagerModel {
         guard let name = UserTemplateKind.sanitizedName(from: rawName),
             let overrideRoot = overrides.overrideRoot
         else { return nil }
-        let baseDir = kind.usesTargetDirectory ? addTargetStorageDir() : kind.directory
+        // A matching-kind add joins the selected component and lands in its canonical
+        // directory; otherwise it follows the selected folder / canonical directory.
+        let componentID = membershipComponentID(forKind: kind)
+        let baseDir =
+            componentID != nil
+            ? kind.directory : (kind.usesTargetDirectory ? addTargetStorageDir() : kind.directory)
         let parent =
             baseDir.isEmpty
             ? overrideRoot : overrideRoot.appending(path: baseDir, directoryHint: .isDirectory)
@@ -475,6 +514,7 @@ final class TemplateManagerModel {
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
                 try kind.starter(forLeaf: dir.lastPathComponent).write(
                     to: dir.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+                registerMembership(componentID, fileName: dir.lastPathComponent)
                 return selectCreatedFile(storagePath: storagePath("\(dir.lastPathComponent)/SKILL.md"), kind: kind)
             case .folder:
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
@@ -489,6 +529,10 @@ final class TemplateManagerModel {
                     parent: parent, name: kind.fileName(forSanitized: name))
                 try kind.starter(forLeaf: url.lastPathComponent).write(
                     to: url, atomically: true, encoding: .utf8)
+                // A hook joining a component is registered by its base name (no `.sh`).
+                if kind == .hook {
+                    registerMembership(componentID, fileName: String(url.lastPathComponent.dropLast(3)))
+                }
                 return selectCreatedFile(storagePath: storagePath(url.lastPathComponent), kind: kind)
             }
         } catch {

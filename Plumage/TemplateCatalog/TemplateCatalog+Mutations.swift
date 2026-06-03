@@ -164,6 +164,16 @@ nonisolated extension TemplateCatalog {
         sharedComponents[index].name = uniqueComponentName(trimmed, excludingID: id)
     }
 
+    // Appends a file to a component's `files` (membership), so a file authored or
+    // dropped while a component is selected becomes part of that component. A no-op
+    // for a duplicate name or an unknown component.
+    mutating func addFile(toComponentID componentID: String, fileName: String) {
+        guard let index = sharedComponents.firstIndex(where: { $0.id == componentID }),
+            !sharedComponents[index].files.contains(fileName)
+        else { return }
+        sharedComponents[index].files.append(fileName)
+    }
+
     // Sets one template's membership in a component (the checklist toggle).
     mutating func setMembership(componentID: String, templateID: String, isMember: Bool) {
         guard let index = sharedComponents.firstIndex(where: { $0.id == componentID }) else { return }
