@@ -5,52 +5,47 @@ import SwiftUI
 // and preview live in the Template Manager window now. A disabled template is hidden
 // from the New Project and Migrate grids but stays in the Manager, where it is
 // re-enabled. The enable state is owned by `TemplatesSettingsModel`.
+//
+// macOS idiom: a grouped `Form` with checkbox toggles (matching `GeneralSettingsTab`
+// and the project's prior per-artifact toggle list) — not iOS-style switches in a
+// plain List.
 struct TemplatesSettingsTab: View {
     @State private var model = TemplatesSettingsModel()
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(spacing: 0) {
-            List {
-                ForEach(model.groupedTemplates, id: \.category.id) { group in
-                    Section(group.category.name) {
-                        ForEach(group.templates) { template in
-                            row(template)
+        Form {
+            ForEach(model.groupedTemplates, id: \.category.id) { group in
+                Section(group.category.name) {
+                    ForEach(group.templates) { template in
+                        Toggle(
+                            isOn: Binding(
+                                get: { model.isEnabled(template) },
+                                set: { model.setEnabled(template.id, $0) })
+                        ) {
+                            Label {
+                                Text(template.name)
+                            } icon: {
+                                TemplateImageView(image: template.image) {
+                                    model.imageURL(forRelative: $0)
+                                }
+                                .frame(width: 16, height: 16)
+                            }
                         }
+                        .toggleStyle(.checkbox)
                     }
                 }
             }
-            Divider()
-            Button {
-                openWindow(id: "template-manager")
-            } label: {
-                Label("Open Template Manager…", systemImage: "rectangle.3.group")
-                    .frame(maxWidth: .infinity, alignment: .center)
+            Section {
+                Button {
+                    openWindow(id: "template-manager")
+                } label: {
+                    Label("Open Template Manager…", systemImage: "rectangle.3.group")
+                }
             }
-            .padding(8)
         }
-        .frame(
-            minWidth: 440, idealWidth: 520, maxWidth: .infinity,
-            minHeight: 360, idealHeight: 460, maxHeight: .infinity
-        )
+        .formStyle(.grouped)
+        .frame(width: 480, height: 460)
         .onAppear { model.reload() }
-    }
-
-    private func row(_ template: TemplateDescriptor) -> some View {
-        Toggle(
-            isOn: Binding(
-                get: { model.isEnabled(template) },
-                set: { model.setEnabled(template.id, $0) })
-        ) {
-            HStack(spacing: 8) {
-                TemplateImageView(image: template.image) { model.imageURL(forRelative: $0) }
-                    .frame(width: 18, height: 18)
-                Text(template.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .toggleStyle(.switch)
-        .controlSize(.small)
     }
 }
