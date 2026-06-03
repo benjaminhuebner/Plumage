@@ -49,7 +49,6 @@ struct CatalogByteIdentityTests {
         let viaProfile = try ClaudeMdComposer(overrides: overrides, catalog: flatProfileCatalog(for: kind))
             .compose(spec: spec(kind))
         #expect(viaBundled.claudeMd == viaProfile.claudeMd)
-        #expect(viaBundled.skillKeywords == viaProfile.skillKeywords)
     }
 
     @Test("Composed .gitignore is identical", arguments: ProjectKind.allCases)

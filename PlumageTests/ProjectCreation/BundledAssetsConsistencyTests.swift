@@ -44,13 +44,4 @@ struct BundledAssetsConsistencyTests {
             }
         }
     }
-
-    @Test("Skill bodies carry the SKILL_KEYWORDS token")
-    func skillKeywordTokenPresent() throws {
-        for skill in ["plumage-plan", "plumage-implement", "plumage-review"] {
-            let body = try String(
-                contentsOf: root.appending(path: "skills/\(skill)/SKILL.md"), encoding: .utf8)
-            #expect(body.contains("<<<SKILL_KEYWORDS>>>"), "no SKILL_KEYWORDS token in \(skill)")
-        }
-    }
 }

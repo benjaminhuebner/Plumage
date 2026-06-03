@@ -131,7 +131,7 @@ nonisolated struct ProjectScaffolder {
             from: overrides.url(forRelative: "issues/_TEMPLATE.md"),
             to: issues.appending(path: "_TEMPLATE.md"))
 
-        try writeSkills(spec: spec, claude: claude, skillKeywords: claudeOutput.skillKeywords)
+        try writeSkills(spec: spec, claude: claude)
         try writeHooks(spec: spec, claude: claude)
         try writeAgents(claude: claude)
         try writeSettings(spec: spec, claude: claude)
@@ -159,19 +159,13 @@ nonisolated struct ProjectScaffolder {
         return Self.bundledSkills + userSkills
     }
 
-    private func writeSkills(spec: NewProjectSpec, claude: URL, skillKeywords: String) throws {
+    private func writeSkills(spec: NewProjectSpec, claude: URL) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
         let skills = toggles.enabledNames(in: .skills, from: skillNames)
         for skill in skills {
             let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
             try copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
-
-            let skillMd = dest.appending(path: "SKILL.md")
-            let body = try String(contentsOf: skillMd, encoding: .utf8)
-                .replacingOccurrences(of: "<<<SKILL_KEYWORDS>>>", with: skillKeywords)
-            try body.write(to: skillMd, atomically: true, encoding: .utf8)
-
             try makeExecutable(scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
         }
     }

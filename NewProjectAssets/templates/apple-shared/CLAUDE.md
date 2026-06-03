@@ -8,6 +8,3 @@
 - Don't stack glass on glass — wrap close elements in `GlassEffectContainer`.
 - `.glassEffect()` variants: `.regular`, `.clear`, `.identity`. There is no `.prominent` — for a prominent button use `.buttonStyle(.glassProminent)`.
 - Toolbars and `NavigationSplitView` sidebars get glass automatically. Don't apply it manually there.
-
-%% SKILL_KEYWORDS %%
-SwiftUI architecture, @Observable view models, NavigationStack routing, Liquid Glass

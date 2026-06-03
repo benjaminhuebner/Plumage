@@ -13,8 +13,5 @@
 - Sandboxed apps cannot access arbitrary file paths. Use document API or security-scoped bookmarks. Plan in spec, not at the end.
 - Keyboard shortcuts: `.keyboardShortcut(...)` on commands, not on views. `Commands` builder in the App scene.
 
-%% SKILL_KEYWORDS %%
-AppKit-SwiftUI bridging, NSWindow chrome, sandboxing, scriptable apps automation
-
 %% PROJECT_TYPE_DESCRIPTION %%
 macOS app

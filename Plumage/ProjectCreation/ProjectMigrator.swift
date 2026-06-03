@@ -184,7 +184,7 @@ nonisolated struct ProjectMigrator {
             to: issues.appending(path: "_TEMPLATE.md"),
             rel: ".claude/issues/_TEMPLATE.md", into: &report)
 
-        try writeSkills(claude: claude, skillKeywords: claudeOutput.skillKeywords, into: &report)
+        try writeSkills(claude: claude, into: &report)
         try writeHooks(spec: spec, claude: claude, into: &report)
         try writeAgents(claude: claude, into: &report)
         try writeSettings(templateID: spec.templateID, claude: claude, into: &report)
@@ -196,7 +196,7 @@ nonisolated struct ProjectMigrator {
         return Self.bundledSkills + userSkills
     }
 
-    private func writeSkills(claude: URL, skillKeywords: String, into report: inout Report) throws {
+    private func writeSkills(claude: URL, into report: inout Report) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
         let skills = toggles.enabledNames(in: .skills, from: skillNames)
@@ -208,10 +208,6 @@ nonisolated struct ProjectMigrator {
                 continue
             }
             try copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
-            let skillMd = dest.appending(path: "SKILL.md")
-            let body = try String(contentsOf: skillMd, encoding: .utf8)
-                .replacingOccurrences(of: "<<<SKILL_KEYWORDS>>>", with: skillKeywords)
-            try body.write(to: skillMd, atomically: true, encoding: .utf8)
             try makeExecutable(scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
             report.added.append(rel)
         }

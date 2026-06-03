@@ -30,8 +30,6 @@ struct ClaudeMdComposerTests {
         #expect(md.contains("Swift Testing"))  // swift-shared BUILD AND TEST
         #expect(md.contains("xcrun mcpbridge"))  // nested <<<XCODE_MCP_LINE>>> resolved
         #expect(!md.contains("<<<"))  // no unresolved tokens
-        #expect(out.skillKeywords.contains("Sendable"))
-        #expect(out.skillKeywords.contains("Liquid Glass"))
     }
 
     @Test("Vapor composes server sections, no Apple content")
@@ -42,7 +40,6 @@ struct ClaudeMdComposerTests {
         #expect(md.contains("Fluent"))  // vapor CONVENTIONS
         #expect(!md.contains("Liquid Glass"))
         #expect(!md.contains("<<<"))
-        #expect(out.skillKeywords.contains("Vapor"))
     }
 
     @Test(".other has no layers: no Swift/Apple content, empty section headings dropped")
@@ -54,7 +51,6 @@ struct ClaudeMdComposerTests {
         #expect(!md.contains("@Observable"))
         #expect(!md.contains("<<<"))
         #expect(md.contains("Describe your stack"))  // stack summary placeholder present
-        #expect(out.skillKeywords.isEmpty)
         #expect(!md.contains("## Conventions"))  // empty section heading dropped
         #expect(!md.contains("## Common pitfalls"))
         #expect(md.contains("## Coding defaults"))  // static section survives

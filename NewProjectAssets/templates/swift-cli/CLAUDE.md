@@ -18,8 +18,5 @@
 - Piping stdin/stdout in-process for tests leaks state. Always exec the actual binary.
 - Exit via `throw ExitCode(...)`, not `Foundation.exit(...)`. `exit()` bypasses Swift's cleanup (defers, actor isolation, task cancellation).
 
-%% SKILL_KEYWORDS %%
-swift-argument-parser, CLI command patterns, signal handling, subprocess testing
-
 %% PROJECT_TYPE_DESCRIPTION %%
 Swift command-line tool
