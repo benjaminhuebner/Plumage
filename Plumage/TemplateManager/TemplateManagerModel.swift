@@ -92,7 +92,7 @@ final class TemplateManagerModel {
     // Trigger metadata for user-authored hooks, persisted so a later scaffold wires
     // them into `settings.json`. Injectable for hermetic tests.
     private let hookWiringStoreURL: URL?
-    private var hookWirings: HookWiringStore
+    private(set) var hookWirings: HookWiringStore
 
     init(
         store: TemplateCatalogStore = TemplateCatalogStore(),
@@ -148,9 +148,27 @@ final class TemplateManagerModel {
             return
         }
         editingFileURL = overrideURL
+        // A generated config has no bundled file — its read-only baseline is the
+        // composer output, materialized to a temp file so the editor can seed from it.
+        if let config = managerConfig(forRelative: file.relativePath) {
+            editingFallbackURL = writeConfigPreview(generatedConfigContent(config), name: config.displayName)
+            return
+        }
         let bundled = overrides.bundledRoot.appending(path: file.relativePath)
         editingFallbackURL =
             FileManager.default.fileExists(atPath: bundled.path) ? bundled : nil
+    }
+
+    // Per-window scratch directory holding the generated-config baselines the editor
+    // seeds from. Cleared with the window's process; never the override store.
+    private let configPreviewRoot = FileManager.default.temporaryDirectory.appending(
+        path: "PlumageConfigPreview-\(UUID().uuidString)", directoryHint: .isDirectory)
+
+    private func writeConfigPreview(_ content: String, name: String) -> URL? {
+        try? FileManager.default.createDirectory(at: configPreviewRoot, withIntermediateDirectories: true)
+        let url = configPreviewRoot.appending(path: name)
+        guard (try? content.write(to: url, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return url
     }
 
     func setEditorDirty(_ dirty: Bool) {
@@ -164,9 +182,11 @@ final class TemplateManagerModel {
     }
 
     // A file with no bundled original is user-authored: its header offers Delete
-    // rather than Reset to Default.
+    // rather than Reset to Default. A generated config is never user-authored — it
+    // has a generated baseline, so it resets (regenerates) rather than deletes.
     func isUserAuthored(_ file: FileNode) -> Bool {
-        !overrides.hasBundledOriginal(forRelative: file.relativePath)
+        if managerConfig(forRelative: file.relativePath) != nil { return false }
+        return !overrides.hasBundledOriginal(forRelative: file.relativePath)
     }
 
     // Called after the editor saves: the override may now differ from bundled, so

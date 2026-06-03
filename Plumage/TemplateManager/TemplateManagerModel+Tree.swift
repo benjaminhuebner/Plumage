@@ -18,11 +18,12 @@ extension TemplateManagerModel {
     func buildContentTree(for item: TemplateCatalogItem) -> [FileNode] {
         switch item {
         case .base:
-            return Self.assembleTree(
-                leaves: baseLeafSpecs().compactMap { spec in
-                    fileNode(relative: spec.relative, displayName: spec.name).map { (spec.output, $0) }
-                },
-                bundledRoot: overrides.bundledRoot)
+            var leaves = baseLeafSpecs().compactMap { spec in
+                fileNode(relative: spec.relative, displayName: spec.name).map { (spec.output, $0) }
+            }
+            // Generated configs always show (even with no override yet).
+            leaves += ManagerConfig.allCases.map { ($0.relativePath, configNode($0)) }
+            return Self.assembleTree(leaves: leaves, bundledRoot: overrides.bundledRoot)
         case .sharedComponent, .template:
             return fileNodesForFragments(item)
         }
