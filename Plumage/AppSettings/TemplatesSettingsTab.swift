@@ -14,38 +14,44 @@ struct TemplatesSettingsTab: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Form {
-            ForEach(model.groupedTemplates, id: \.category.id) { group in
-                Section(group.category.name) {
-                    ForEach(group.templates) { template in
-                        Toggle(
-                            isOn: Binding(
-                                get: { model.isEnabled(template) },
-                                set: { model.setEnabled(template.id, $0) })
-                        ) {
-                            Label {
-                                Text(template.name)
-                            } icon: {
-                                TemplateImageView(image: template.image) {
-                                    model.imageURL(forRelative: $0)
+        // The template list scrolls inside the grouped Form; the Manager button is
+        // pinned below so it is always visible regardless of how many templates exist
+        // (no clipping, and the window size stays fixed — set by `AppSettingsView`).
+        VStack(spacing: 0) {
+            Form {
+                ForEach(model.groupedTemplates, id: \.category.id) { group in
+                    Section(group.category.name) {
+                        ForEach(group.templates) { template in
+                            Toggle(
+                                isOn: Binding(
+                                    get: { model.isEnabled(template) },
+                                    set: { model.setEnabled(template.id, $0) })
+                            ) {
+                                Label {
+                                    Text(template.name)
+                                } icon: {
+                                    TemplateImageView(image: template.image) {
+                                        model.imageURL(forRelative: $0)
+                                    }
+                                    .frame(width: 16, height: 16)
                                 }
-                                .frame(width: 16, height: 16)
                             }
+                            .toggleStyle(.checkbox)
                         }
-                        .toggleStyle(.checkbox)
                     }
                 }
             }
-            Section {
-                Button {
-                    openWindow(id: "template-manager")
-                } label: {
-                    Label("Open Template Manager…", systemImage: "rectangle.3.group")
-                }
+            .formStyle(.grouped)
+            Divider()
+            Button {
+                openWindow(id: "template-manager")
+            } label: {
+                Label("Open Template Manager…", systemImage: "rectangle.3.group")
+                    .frame(maxWidth: .infinity)
             }
+            .controlSize(.large)
+            .padding(12)
         }
-        .formStyle(.grouped)
-        .frame(width: 480, height: 460)
         .onAppear { model.reload() }
     }
 }
