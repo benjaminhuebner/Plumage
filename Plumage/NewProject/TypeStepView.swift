@@ -4,6 +4,9 @@ struct TypeStepView: View {
     @Bindable var model: NewProjectModel
 
     var body: some View {
-        TemplateGridView(selectedKind: $model.kind)
+        TemplateGridView(
+            catalog: model.catalog,
+            selectedTemplateID: $model.selectedTemplateID,
+            resolveImage: { model.imageURL(forRelative: $0) })
     }
 }

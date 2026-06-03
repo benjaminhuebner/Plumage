@@ -12,8 +12,14 @@ final class MigrateProjectModel {
 
     var currentStep: Step = .template
 
+    // `detectedKind` is the auto-detected `ProjectKind` (detection vocabulary stays
+    // ProjectKind); `selectedTemplateID` is the user's chosen template id (catalog-
+    // driven). For a predefined template the id equals its `ProjectKind.rawValue`.
     var detectedKind: ProjectKind?
-    var kind: ProjectKind?
+    var selectedTemplateID: String?
+
+    // The resolved catalog backing the grid (state-as-bridge), refined by `load`.
+    private(set) var catalog: TemplateCatalog = .bundledDefault
 
     var name: String
     var tagline: String = ""
@@ -36,16 +42,29 @@ final class MigrateProjectModel {
     private var didLoad = false
     private let detector: @Sendable (URL) -> ProjectKind?
     private let repoStateReader: RepoStateReader
+    private let store: TemplateCatalogStore
+    private let overrides: ScaffoldOverrides
 
     init(
         folderURL: URL,
         detector: @escaping @Sendable (URL) -> ProjectKind? = { ProjectKindDetector.detect(in: $0) },
-        repoStateReader: RepoStateReader = RepoStateReader()
+        repoStateReader: RepoStateReader = RepoStateReader(),
+        store: TemplateCatalogStore = TemplateCatalogStore(),
+        overrides: ScaffoldOverrides = .standard()
     ) {
         self.folderURL = folderURL
         self.name = folderURL.lastPathComponent
         self.detector = detector
         self.repoStateReader = repoStateReader
+        self.store = store
+        self.overrides = overrides
+    }
+
+    // Resolves a `TemplateImage.file` relative path to its on-disk URL, or nil when
+    // absent — the grid then falls back to a placeholder symbol.
+    func imageURL(forRelative relativePath: String) -> URL? {
+        let url = overrides.url(forRelative: relativePath)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     // MARK: - Setup detection
@@ -59,8 +78,10 @@ final class MigrateProjectModel {
         let url = folderURL
         let detect = detector
         let reader = repoStateReader
-        let result = await Task.detached(priority: .userInitiated) { () -> (ProjectKind?, Bool) in
-            (detect(url), reader.read(repoURL: url).isGitRepo)
+        let store = self.store
+        let result = await Task.detached(priority: .userInitiated) {
+            () -> (ProjectKind?, Bool, TemplateCatalog) in
+            (detect(url), reader.read(repoURL: url).isGitRepo, store.load())
         }.value
 
         // A cancelled `.task(id:)` (folder changed mid-detection) must neither
@@ -68,8 +89,21 @@ final class MigrateProjectModel {
         guard !Task.isCancelled else { return }
         didLoad = true
         detectedKind = result.0
-        if kind == nil { kind = result.0 }
+        catalog = result.2
+        // Pre-select the detected kind's predefined template (its id == rawValue),
+        // unless the user already picked one. A custom template is never auto-detected.
+        if selectedTemplateID == nil { selectedTemplateID = preselectedTemplateID(for: result.0) }
         isGitRepo = result.1
+    }
+
+    // The template id to pre-select for a detected kind: the matching predefined
+    // template when it is present and enabled, otherwise none (the user picks
+    // manually — a disabled or absent template is never silently selected).
+    private func preselectedTemplateID(for detected: ProjectKind?) -> String? {
+        guard let detected, let template = catalog.template(id: detected.rawValue),
+            template.enabled
+        else { return nil }
+        return template.id
     }
 
     // MARK: - Derived input
@@ -85,7 +119,7 @@ final class MigrateProjectModel {
     // MARK: - Per-step validation (pure)
 
     var isTypeStepValid: Bool {
-        kind != nil
+        selectedTemplateID != nil
     }
 
     static func isValidName(_ value: String) -> Bool {
@@ -138,13 +172,17 @@ final class MigrateProjectModel {
     // MARK: - Spec assembly
 
     func assembledSpec() -> MigrationSpec? {
-        guard let kind else { return nil }
+        guard let templateID = selectedTemplateID else { return nil }
         let name = trimmedName
         guard Self.isValidName(name) else { return nil }
 
+        // Predefined id == ProjectKind.rawValue; a custom template maps to `.other`
+        // for the kind-gated bits while its id drives catalog content resolution.
+        let kind = ProjectKind(rawValue: templateID) ?? .other
         return MigrationSpec(
             projectDirectory: folderURL,
             kind: kind,
+            templateID: templateID,
             name: name,
             tagline: trimmedTagline,
             git: MigrationGitSetup(

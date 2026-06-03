@@ -22,9 +22,24 @@ nonisolated struct MigrationGitSetup: Hashable, Sendable {
 nonisolated struct MigrationSpec: Hashable, Sendable {
     let projectDirectory: URL
     let kind: ProjectKind
+    // The catalog template to scaffold. Predefined ⇒ `kind.rawValue`; a custom
+    // template carries its own id (and `kind` is `.other`). See `NewProjectSpec`.
+    let templateID: String
     let name: String
     let tagline: String
     let git: MigrationGitSetup
+
+    init(
+        projectDirectory: URL, kind: ProjectKind, templateID: String? = nil,
+        name: String, tagline: String, git: MigrationGitSetup
+    ) {
+        self.projectDirectory = projectDirectory
+        self.kind = kind
+        self.templateID = templateID ?? kind.rawValue
+        self.name = name
+        self.tagline = tagline
+        self.git = git
+    }
 }
 
 nonisolated struct MigrationReport: Hashable, Sendable {

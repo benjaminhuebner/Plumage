@@ -16,7 +16,9 @@ import Testing
             detector: { _ in detected },
             repoStateReader: RepoStateReader(
                 fileManager: { _ in isRepo },
-                readFile: { _ in isRepo ? "ref: refs/heads/main\n" : nil }))
+                readFile: { _ in isRepo ? "ref: refs/heads/main\n" : nil }),
+            // Hermetic: resolve to the bundled default rather than the user's manifest.
+            store: TemplateCatalogStore(manifestURL: nil))
     }
 
     @Test func nameDefaultsToFolderName() {
@@ -27,7 +29,7 @@ import Testing
         let model = makeModel()
         #expect(model.isTypeStepValid == false)
         #expect(model.canAdvance == false)
-        model.kind = .macOS
+        model.selectedTemplateID = ProjectKind.macOS.rawValue
         #expect(model.isTypeStepValid)
         #expect(model.canAdvance)
     }
@@ -52,22 +54,22 @@ import Testing
         let model = makeModel(detected: .iOS, isRepo: true)
         await model.load()
         #expect(model.detectedKind == .iOS)
-        #expect(model.kind == .iOS)
+        #expect(model.selectedTemplateID == ProjectKind.iOS.rawValue)
         #expect(model.isGitRepo)
     }
 
     @Test func loadDoesNotOverrideUserChosenKind() async {
         let model = makeModel(detected: .iOS, isRepo: false)
-        model.kind = .macOS
+        model.selectedTemplateID = ProjectKind.macOS.rawValue
         await model.load()
         #expect(model.detectedKind == .iOS)
-        #expect(model.kind == .macOS)
+        #expect(model.selectedTemplateID == ProjectKind.macOS.rawValue)
         #expect(model.isGitRepo == false)
     }
 
     @Test func assembledSpecMapsFields() {
         let model = makeModel(folder: "Acme")
-        model.kind = .swiftCLI
+        model.selectedTemplateID = ProjectKind.swiftCLI.rawValue
         model.tagline = "  A tool  "
         model.initGit = false
         model.plumageInGit = false
@@ -93,7 +95,7 @@ import Testing
         let model = makeModel()
         model.name = ""
         #expect(model.canMigrate == false)
-        model.kind = .macOS
+        model.selectedTemplateID = ProjectKind.macOS.rawValue
         #expect(model.canMigrate == false)
         model.name = "Acme"
         #expect(model.canMigrate)
