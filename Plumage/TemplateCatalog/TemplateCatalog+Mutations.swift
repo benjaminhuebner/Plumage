@@ -1,5 +1,12 @@
 import Foundation
 
+// The seed for a new custom template: a minimal template (Base + its own empty
+// layer) or a copy of an existing one (its scaffold settings + memberships).
+nonisolated enum TemplateStartingPoint: Hashable, Sendable {
+    case empty
+    case copy(String)
+}
+
 // Structural mutations on the resolved catalog. They are plain value edits — no
 // tombstone bookkeeping here; the persisted overlay derives additions, overrides
 // and tombstones by diffing against the bundled default at save time
@@ -56,6 +63,65 @@ nonisolated extension TemplateCatalog {
         renumber(&categories, orderedIDs: orderedIDs, id: \.id) { item, order in
             TemplateCategory(id: item.id, name: item.name, order: order)
         }
+    }
+
+    // MARK: - Template authoring
+
+    // Adds a custom (`predefined: false`) template with its own layer file named
+    // after its id (`templates/<id>.md`, written to the override store by the
+    // model). `.copy` seeds the descriptor's scaffold settings from the source and
+    // replicates its shared-component memberships; `.empty` is a minimal template
+    // (Base + its own layer). Returns the created descriptor (the model needs its id
+    // to write the layer file and any imported image).
+    @discardableResult
+    mutating func addTemplate(
+        name: String, image: TemplateImage, categoryID: String,
+        startingFrom: TemplateStartingPoint
+    ) -> TemplateDescriptor {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = uniqueTemplateName(trimmed.isEmpty ? "New Template" : trimmed)
+        let id = uniqueTemplateID(slug(displayName, fallback: "template"))
+        let order = (templates.filter { $0.categoryID == categoryID }.map(\.order).max() ?? -1) + 1
+        let source: TemplateDescriptor? = {
+            if case .copy(let sourceID) = startingFrom { return template(id: sourceID) }
+            return nil
+        }()
+        let descriptor = TemplateDescriptor(
+            id: id, name: displayName, image: image, categoryID: categoryID,
+            predefined: false, order: order,
+            templateLayers: [id],
+            gitignoreTags: source?.gitignoreTags ?? [],
+            mcpServers: source?.mcpServers ?? [],
+            gateCommands: source?.gateCommands ?? .none,
+            stackSummary: source?.stackSummary ?? "",
+            xcodeMcpLine: source?.xcodeMcpLine ?? ""
+        )
+        templates.append(descriptor)
+        if let source {
+            for index in sharedComponents.indices where sharedComponents[index].isMember(source.id) {
+                sharedComponents[index].memberTemplateIDs.insert(id)
+            }
+        }
+        return descriptor
+    }
+
+    // Removes a template and drops it from every shared component's membership.
+    // (A predefined removal becomes a tombstone via the overlay diff; a custom one
+    // vanishes outright — the model also trashes its override files.)
+    mutating func deleteTemplate(id: String) {
+        templates.removeAll { $0.id == id }
+        for index in sharedComponents.indices {
+            sharedComponents[index].memberTemplateIDs.remove(id)
+        }
+    }
+
+    private func uniqueTemplateID(_ base: String) -> String {
+        let taken = Set(templates.map(\.id)).union(TemplateCatalog.bundledDefault.templates.map(\.id))
+        return uniqueValue(base, taken: taken)
+    }
+
+    private func uniqueTemplateName(_ base: String) -> String {
+        uniqueValue(base, taken: Set(templates.map(\.name)), separator: " ")
     }
 
     // MARK: - Template placement

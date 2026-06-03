@@ -60,6 +60,14 @@ struct TemplateCatalogCodableTests {
         #expect(decoded == image)
     }
 
+    @Test("TemplateImage.file round-trips its relative path")
+    func templateImageFileRoundTrip() throws {
+        let image = TemplateImage.file("template-images/custom.png")
+        let decoded = try JSONDecoder().decode(
+            TemplateImage.self, from: JSONEncoder().encode(image))
+        #expect(decoded == image)
+    }
+
     @Test("SharedComponent membership query")
     func sharedComponentMembership() {
         let component = sampleManifest().sharedComponents[0]

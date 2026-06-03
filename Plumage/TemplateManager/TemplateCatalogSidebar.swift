@@ -22,10 +22,18 @@ struct TemplateCatalogSidebar: View {
             ForEach(model.catalog.sortedCategories) { category in
                 Section {
                     ForEach(model.catalog.templates(inCategory: category.id)) { template in
-                        Label(template.name, systemImage: template.image.sfSymbolName)
-                            .tag(TemplateCatalogItem.template(template.id))
-                            .draggable(TemplateDragPayload(templateID: template.id))
-                            .contextMenu { templateMenu(template) }
+                        Label {
+                            Text(template.name)
+                        } icon: {
+                            TemplateImageView(
+                                image: template.image,
+                                resolve: { model.imageFileURL(forRelative: $0) }
+                            )
+                            .frame(width: 18, height: 18)
+                        }
+                        .tag(TemplateCatalogItem.template(template.id))
+                        .draggable(TemplateDragPayload(templateID: template.id))
+                        .contextMenu { templateMenu(template) }
                     }
                 } header: {
                     categoryHeader(category)
@@ -45,9 +53,18 @@ struct TemplateCatalogSidebar: View {
                     Button("New Category", systemImage: "folder.badge.plus") {
                         model.beginAddCategory()
                     }
+                    Button("New Template", systemImage: "doc.badge.plus") {
+                        model.isAddingTemplate = true
+                    }
+                    .disabled(model.catalog.categories.isEmpty)
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
+            }
+        }
+        .sheet(isPresented: $model.isAddingTemplate) {
+            NewTemplateSheet(catalog: model.catalog) { request in
+                model.addTemplate(request)
             }
         }
         .overlay(alignment: .bottom) { errorBanner }

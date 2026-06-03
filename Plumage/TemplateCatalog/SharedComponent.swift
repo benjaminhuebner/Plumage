@@ -15,12 +15,12 @@ nonisolated enum SharedComponentKind: String, Codable, Hashable, Sendable, CaseI
 // fixes the concatenation position so composed layers stay byte-stable.
 nonisolated struct SharedComponent: Codable, Hashable, Sendable, Identifiable {
     let id: String
-    let name: String
+    var name: String
     let kind: SharedComponentKind
     // For `.layer`: layer base names (e.g. "swift-shared"). For `.hook`: hook base names.
-    let files: [String]
-    let order: Int
-    let memberTemplateIDs: Set<String>
+    var files: [String]
+    var order: Int
+    var memberTemplateIDs: Set<String>
 
     func isMember(_ templateID: String) -> Bool { memberTemplateIDs.contains(templateID) }
 }

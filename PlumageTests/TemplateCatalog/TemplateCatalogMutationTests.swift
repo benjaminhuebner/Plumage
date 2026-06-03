@@ -171,6 +171,63 @@ struct TemplateCatalogMutationTests {
         #expect(catalog.templates(inCategory: category.id).map(\.id) == reversed)
     }
 
+    // MARK: - Template authoring
+
+    @Test("addTemplate(empty) creates a custom template with its own layer")
+    func addTemplateEmpty() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let category = try #require(catalog.sortedCategories.first)
+
+        let created = catalog.addTemplate(
+            name: "My App", image: .symbol("star"), categoryID: category.id, startingFrom: .empty)
+
+        #expect(created.predefined == false)
+        #expect(created.categoryID == category.id)
+        #expect(created.templateLayers == [created.id])
+        #expect(catalog.templates(inCategory: category.id).contains { $0.id == created.id })
+    }
+
+    @Test("addTemplate(copy) inherits scaffold settings and shared-component memberships")
+    func addTemplateCopy() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let source = try #require(catalog.template(id: "macOS"))
+        let category = try #require(catalog.sortedCategories.first)
+
+        let created = catalog.addTemplate(
+            name: "macOS Clone", image: .symbol("macwindow"), categoryID: category.id,
+            startingFrom: .copy(source.id))
+
+        #expect(created.gitignoreTags == source.gitignoreTags)
+        #expect(created.gateCommands == source.gateCommands)
+        let sourceComponents = Set(catalog.sharedComponents(forTemplate: source.id).map(\.id))
+        let cloneComponents = Set(catalog.sharedComponents(forTemplate: created.id).map(\.id))
+        #expect(!sourceComponents.isEmpty)
+        #expect(cloneComponents == sourceComponents)
+    }
+
+    @Test("addTemplate never reuses an id")
+    func addTemplateUniqueIDs() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let category = try #require(catalog.sortedCategories.first)
+        let first = catalog.addTemplate(
+            name: "Dup", image: .symbol("doc"), categoryID: category.id, startingFrom: .empty)
+        let second = catalog.addTemplate(
+            name: "Dup", image: .symbol("doc"), categoryID: category.id, startingFrom: .empty)
+        #expect(first.id != second.id)
+    }
+
+    @Test("deleteTemplate clears it from shared-component membership")
+    func deleteTemplateClearsMembership() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let template = try #require(catalog.template(id: "macOS"))
+        #expect(!catalog.sharedComponents(forTemplate: template.id).isEmpty)
+
+        catalog.deleteTemplate(id: template.id)
+
+        #expect(catalog.template(id: template.id) == nil)
+        #expect(catalog.sharedComponents.allSatisfy { !$0.isMember(template.id) })
+    }
+
     // MARK: - Store persistence round-trip
 
     @Test("save then load round-trips a custom category through the overlay manifest")

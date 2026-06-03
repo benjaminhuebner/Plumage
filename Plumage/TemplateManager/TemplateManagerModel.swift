@@ -57,6 +57,9 @@ final class TemplateManagerModel {
     // the user types its name immediately (the Finder new-folder idiom).
     var categoryRename: CategoryRename?
 
+    // Drives the "New Template" sheet (name + image + starting point + category).
+    var isAddingTemplate = false
+
     // A transient (~4 s) banner shown when a structural mutation fails to persist;
     // the in-memory catalog is rolled back to the last saved state (no half-applied
     // structure), and this explains why nothing changed.
@@ -612,6 +615,87 @@ extension TemplateManagerModel {
         var updated = catalog
         updated.reorderTemplates(inCategory: template.categoryID, orderedIDs: ids)
         persist(updated)
+    }
+
+    // MARK: - Template authoring
+
+    // Resolves a `TemplateImage.file` relative path to its on-disk URL (override
+    // store) so `TemplateImageView` can render the imported image.
+    func imageFileURL(forRelative relativePath: String) -> URL? {
+        let url = overrides.url(forRelative: relativePath)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    // Creates a custom template: builds the descriptor, copies any imported image
+    // into the override store, writes the template's own layer file (so it appears
+    // and is editable), then persists. Selects the new template on success.
+    @discardableResult
+    func addTemplate(_ request: NewTemplateRequest) -> Bool {
+        guard overrides.overrideRoot != nil else {
+            showStructuralError("No override store is available to author a template.")
+            return false
+        }
+        var updated = catalog
+        let descriptor = updated.addTemplate(
+            name: request.name, image: .symbol("doc"), categoryID: request.categoryID,
+            startingFrom: request.startingPoint)
+        let id = descriptor.id
+
+        let image: TemplateImage
+        switch request.imageChoice {
+        case .symbol(let name):
+            image = .symbol(name)
+        case .importedFile(let url):
+            guard let relativePath = copyTemplateImage(from: url, templateID: id) else {
+                showStructuralError("Couldn't import the chosen image.")
+                return false
+            }
+            image = .file(relativePath)
+        }
+        if let index = updated.templates.firstIndex(where: { $0.id == id }) {
+            updated.templates[index].image = image
+        }
+
+        writeOwnLayer(forTemplate: descriptor, startingFrom: request.startingPoint)
+
+        guard persist(updated) else { return false }
+        selection = .template(id)
+        refreshContent()
+        return true
+    }
+
+    private func copyTemplateImage(from source: URL, templateID: String) -> String? {
+        guard let overrideRoot = overrides.overrideRoot else { return nil }
+        let ext = source.pathExtension.isEmpty ? "png" : source.pathExtension
+        let relativePath = "template-images/\(templateID).\(ext)"
+        let destination = overrideRoot.appending(path: relativePath)
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.removeItem(at: destination)
+            }
+            try fileManager.copyItem(at: source, to: destination)
+            return relativePath
+        } catch {
+            return nil
+        }
+    }
+
+    // Seeds the template's own layer file. `.empty` gets a heading starter; `.copy`
+    // concatenates the source template's own layer content so the user starts from
+    // the same text and edits from there.
+    private func writeOwnLayer(forTemplate descriptor: TemplateDescriptor, startingFrom: TemplateStartingPoint) {
+        let relativePath = "templates/\(descriptor.id).md"
+        var content = "# \(descriptor.name)\n"
+        if case .copy(let sourceID) = startingFrom, let source = catalog.template(id: sourceID) {
+            let copied = source.templateLayers
+                .compactMap { try? overrides.string(atRelative: "templates/\($0).md") }
+                .joined(separator: "\n\n")
+            if !copied.isEmpty { content = copied }
+        }
+        _ = try? overrides.writeOverride(content, toRelative: relativePath)
     }
 
     // MARK: - Persistence
