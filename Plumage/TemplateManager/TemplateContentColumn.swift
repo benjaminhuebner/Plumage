@@ -107,21 +107,28 @@ struct TemplateContentColumn: View {
     }
 
     private func fileRow(_ node: FileNode) -> some View {
-        HStack(spacing: 6) {
+        let needsWiring = node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
+        let overridden = node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
+        return HStack(spacing: 6) {
             Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
             Spacer(minLength: 0)
-            if model.needsWiring(node) {
+            if needsWiring {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
-                    .help("This hook is not wired into settings.json yet")
-                    .accessibilityLabel("Needs wiring")
+                    .opacity(node.isDirectory ? 0.6 : 1)
+                    .help(
+                        node.isDirectory
+                            ? "A hook inside is not wired into settings.json yet"
+                            : "This hook is not wired into settings.json yet"
+                    )
+                    .accessibilityLabel(node.isDirectory ? "Contains an unwired hook" : "Needs wiring")
             }
-            if model.isOverridden(node) {
+            if overridden {
                 Image(systemName: "circle.fill")
                     .font(.system(size: 7))
-                    .foregroundStyle(Color.accentColor)
-                    .accessibilityLabel("Overridden")
+                    .foregroundStyle(node.isDirectory ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                    .accessibilityLabel(node.isDirectory ? "Contains an override" : "Overridden")
             }
         }
     }

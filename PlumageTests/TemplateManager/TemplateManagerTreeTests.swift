@@ -52,6 +52,24 @@ struct TemplateManagerTreeTests {
         #expect(child(mySkill.children ?? [], named: "ref.md") != nil)
     }
 
+    @Test("A folder aggregates overridden and needs-wiring state from its descendants")
+    func folderAggregatesMarkers() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        try ctx.model.overrides.writeOverride("# Guide", toRelative: "docs/guide.md")
+        try ctx.model.overrides.writeOverride("#!/bin/sh", toRelative: "hooks/x.sh")  // unwired hook
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+
+        let claude = try #require(child(ctx.model.contentTree, named: ".claude"))
+        #expect(ctx.model.aggregateOverridden(claude))
+        #expect(ctx.model.aggregateNeedsWiring(claude))
+
+        let docs = try #require(child(claude.children ?? [], named: "docs"))
+        #expect(ctx.model.aggregateOverridden(docs))
+        #expect(!ctx.model.aggregateNeedsWiring(docs))  // docs has no hooks
+    }
+
     @Test("Flattened leaves cover every file and exclude directory nodes")
     func flattenedLeaves() throws {
         let ctx = try makeModel()

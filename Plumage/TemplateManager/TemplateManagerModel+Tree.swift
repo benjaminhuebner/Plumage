@@ -39,6 +39,21 @@ extension TemplateManagerModel {
         }
     }
 
+    // MARK: - Folder marker aggregation
+
+    // A directory carries a dimmed ● when any descendant file is overridden, so a
+    // collapsed folder still signals that something inside diverges from the default.
+    func aggregateOverridden(_ node: FileNode) -> Bool {
+        guard let children = node.children else { return false }
+        return children.contains { $0.isDirectory ? aggregateOverridden($0) : isOverridden($0) }
+    }
+
+    // A directory carries a ⚠ when any descendant hook still needs wiring.
+    func aggregateNeedsWiring(_ node: FileNode) -> Bool {
+        guard let children = node.children else { return false }
+        return children.contains { $0.isDirectory ? aggregateNeedsWiring($0) : needsWiring($0) }
+    }
+
     // MARK: - Base output tree
 
     private func baseLeafSpecs() -> [LeafSpec] {
