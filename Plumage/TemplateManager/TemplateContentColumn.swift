@@ -11,7 +11,7 @@ struct TemplateContentColumn: View {
         List(selection: $model.selectedFile) {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
-                    ForEach(model.contentFiles) { node in
+                    OutlineGroup(model.contentTree, id: \.self, children: \.children) { node in
                         fileRow(node)
                             .tag(node)
                             .contextMenu { rowMenu(node) }
@@ -108,7 +108,7 @@ struct TemplateContentColumn: View {
 
     private func fileRow(_ node: FileNode) -> some View {
         HStack(spacing: 6) {
-            Label(node.name, systemImage: "doc.text")
+            Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
             Spacer(minLength: 0)
             if model.needsWiring(node) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -139,17 +139,19 @@ struct TemplateContentColumn: View {
             addMenu()
             Divider()
         }
-        Button("Reveal in Finder") {
-            NSWorkspace.shared.activateFileViewerSelecting([node.url])
-        }
-        if model.isHook(node) {
-            Button(model.needsWiring(node) ? "Set Wiring…" : "Edit Wiring…") {
-                model.pendingHookWiring = node
+        if !node.isDirectory {
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
             }
-        }
-        if model.isUserAuthored(node) {
-            Divider()
-            Button("Delete", role: .destructive) { model.requestDelete(node) }
+            if model.isHook(node) {
+                Button(model.needsWiring(node) ? "Set Wiring…" : "Edit Wiring…") {
+                    model.pendingHookWiring = node
+                }
+            }
+            if model.isUserAuthored(node) {
+                Divider()
+                Button("Delete", role: .destructive) { model.requestDelete(node) }
+            }
         }
     }
 }
