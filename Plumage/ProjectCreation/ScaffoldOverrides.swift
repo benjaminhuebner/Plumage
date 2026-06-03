@@ -240,7 +240,8 @@ nonisolated struct ScaffoldOverrides: Sendable {
         let bundledDir = bundledRoot.appending(path: relativeDir, directoryHint: .isDirectory)
         var names = Set(Self.regularFileNames(in: bundledDir))
         names.formUnion(overrideFileNames(inRelativeDir: relativeDir))
-        return names.sorted()
+        let suppressed = suppressedRelativePaths()
+        return names.filter { !suppressed.contains("\(relativeDir)/\($0)") }.sorted()
     }
 
     // Top-level directory names under the override `skills/` that contain a
@@ -274,7 +275,10 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // leaving the arbitrary files a user authored or dropped anywhere in the tree.
     func overrideRootArbitraryFiles(excludingTopLevel excluded: Set<String>) -> [String] {
         guard let overrideRoot else { return [] }
+        let suppressed = suppressedRelativePaths()
         return Self.regularFileNamesRecursive(in: overrideRoot).filter { relative in
+            if relative == Self.tombstonesFileName { return false }  // store metadata, not a project file
+            if suppressed.contains(relative) { return false }
             let first = relative.split(separator: "/").first.map(String.init) ?? relative
             return !excluded.contains(first)
         }.sorted()
@@ -287,7 +291,8 @@ nonisolated struct ScaffoldOverrides: Sendable {
     func unionFileNamesRecursive(inRelativeDir relativeDir: String) -> [String] {
         var names = Set(Self.regularFileNamesRecursive(in: bundledRoot.appending(path: relativeDir)))
         names.formUnion(overrideFileNamesRecursive(inRelativeDir: relativeDir))
-        return names.sorted()
+        let suppressed = suppressedRelativePaths()
+        return names.filter { !suppressed.contains("\(relativeDir)/\($0)") }.sorted()
     }
 
     // So the content tree can show user-created folders even when still empty. Noise/VCS
