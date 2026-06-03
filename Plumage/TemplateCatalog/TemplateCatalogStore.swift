@@ -35,4 +35,38 @@ nonisolated struct TemplateCatalogStore: Sendable {
             return .bundledDefault
         }
     }
+
+    // Persists `catalog` as its minimal overlay manifest. The write is atomic
+    // (temp file + rename, via `Data`'s `.atomic` option) so a crash mid-write
+    // can never leave a half-written manifest. A single writer (the manager
+    // window), so no cross-process locking is needed.
+    func save(_ catalog: TemplateCatalog) throws {
+        guard let url = manifestURL else { throw TemplateCatalogStoreError.noManifestURL }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(catalog.manifest)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
+    }
+
+    // Drops the persisted overlay entirely, returning the catalog to the bundled
+    // baseline on the next `load()`. File-content overrides (a separate store) are
+    // untouched. No-op when the manifest does not exist.
+    func reset() throws {
+        guard let url = manifestURL else { throw TemplateCatalogStoreError.noManifestURL }
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+}
+
+nonisolated enum TemplateCatalogStoreError: Error, LocalizedError {
+    case noManifestURL
+
+    var errorDescription: String? {
+        switch self {
+        case .noManifestURL: "No template manifest location is available to write to."
+        }
+    }
 }
