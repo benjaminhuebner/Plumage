@@ -18,6 +18,11 @@ final class TemplateManagerModel {
     private(set) var catalog: TemplateCatalog = .bundledDefault
     var selection: TemplateCatalogItem? = .base
 
+    // The hierarchical content tree for the current selection (Base mirrors the
+    // scaffolded output layout; templates/shared show their fragment files). Drives
+    // the content column's outline. `contentFiles` is its flattened leaves, kept for
+    // selection retention, add/import lookups and the ● marker set.
+    private(set) var contentTree: [FileNode] = []
     private(set) var contentFiles: [FileNode] = []
     private(set) var membership: CatalogMembership?
     var selectedFile: FileNode?
@@ -119,7 +124,8 @@ final class TemplateManagerModel {
             beginEditing(nil)
             return
         }
-        contentFiles = fileNodes(for: selection)
+        contentTree = buildContentTree(for: selection)
+        contentFiles = Self.flattenLeaves(contentTree)
         membership = membershipInfo(for: selection)
         refreshOverriddenPaths()
         if let current = selectedFile, contentFiles.contains(current) { return }
@@ -460,52 +466,8 @@ final class TemplateManagerModel {
 
     // MARK: - Content derivation
 
-    private func fileNodes(for item: TemplateCatalogItem) -> [FileNode] {
-        switch item {
-        case .base: return baseFileNodes()
-        case .sharedComponent(let id):
-            guard let component = catalog.sharedComponent(id: id) else { return [] }
-            return component.files.compactMap { file in
-                fileNode(
-                    relative: relativePath(for: component.kind, file: file),
-                    displayName: component.kind == .layer ? file : nil)
-            }
-        case .template(let id):
-            guard let template = catalog.template(id: id) else { return [] }
-            return template.templateLayers.compactMap {
-                fileNode(relative: "templates/\($0)/CLAUDE.md", displayName: $0)
-            }
-        }
-    }
-
-    // Base contributes the global scaffold surfaces. Beyond the bundled CLAUDE.md,
-    // workflow hooks and issue template, it unions the user-authorable directories
-    // (the scaffolder unions these too), so a file added here shows up immediately.
-    private func baseFileNodes() -> [FileNode] {
-        var nodes: [FileNode] = []
-        var seen = Set<String>()
-        func add(_ relative: String, displayName: String? = nil) {
-            guard !seen.contains(relative),
-                let node = fileNode(relative: relative, displayName: displayName)
-            else { return }
-            seen.insert(relative)
-            nodes.append(node)
-        }
-        add(catalog.base.claudeMdRelativePath)
-        for hook in catalog.base.workflowHooks { add("hooks/\(hook).sh") }
-        for name in overrides.overrideFileNames(inRelativeDir: "hooks") where name.hasSuffix(".sh") {
-            add("hooks/\(name)")
-        }
-        add("issues/_TEMPLATE.md")
-        for script in overrides.unionFileNames(inRelativeDir: "plumage") { add("plumage/\(script)") }
-        for doc in overrides.unionFileNames(inRelativeDir: "docs") { add("docs/\(doc)") }
-        let skillNames = bundledSkillNames() + overrides.overrideSkillDirNames()
-        for skill in skillNames { add("skills/\(skill)/SKILL.md", displayName: skill) }
-        for agent in overrides.overrideFileNames(inRelativeDir: "agents") { add("agents/\(agent)") }
-        return nodes
-    }
-
-    private func relativePath(for kind: SharedComponentKind, file: String) -> String {
+    // The override relative path a shared component's file resolves to, by kind.
+    func relativePath(for kind: SharedComponentKind, file: String) -> String {
         switch kind {
         case .layer: "templates/\(file)/CLAUDE.md"
         case .hook: "hooks/\(file).sh"
@@ -516,25 +478,13 @@ final class TemplateManagerModel {
 
     // A referenced file missing on disk is omitted from the tree (the code view
     // then shows a placeholder rather than crashing — see the edge cases).
-    private func fileNode(relative: String, displayName: String? = nil) -> FileNode? {
+    func fileNode(relative: String, displayName: String? = nil) -> FileNode? {
         let url = overrides.url(forRelative: relative)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return FileNode(
             url: url, relativePath: relative,
             name: displayName ?? (relative as NSString).lastPathComponent,
             isDirectory: false, children: nil)
-    }
-
-    private func bundledSkillNames() -> [String] {
-        let dir = overrides.bundledRoot.appending(path: "skills", directoryHint: .isDirectory)
-        let contents =
-            (try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        return
-            contents
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .map(\.lastPathComponent)
-            .sorted()
     }
 
     private func membershipInfo(for item: TemplateCatalogItem) -> CatalogMembership? {

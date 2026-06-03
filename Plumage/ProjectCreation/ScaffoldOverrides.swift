@@ -210,6 +210,32 @@ nonisolated struct ScaffoldOverrides: Sendable {
         return result.sorted()
     }
 
+    // Union of regular file sub-paths (relative to `relativeDir`) found recursively
+    // in the bundled and override copies of `relativeDir`, sorted and de-duplicated.
+    // Used to build the content tree, where a directory's full subtree (e.g. a skill
+    // folder with reference files) must show every file, bundled or user-authored.
+    func unionFileNamesRecursive(inRelativeDir relativeDir: String) -> [String] {
+        var names = Set(Self.regularFileNamesRecursive(in: bundledRoot.appending(path: relativeDir)))
+        names.formUnion(overrideFileNamesRecursive(inRelativeDir: relativeDir))
+        return names.sorted()
+    }
+
+    private static func regularFileNamesRecursive(in dir: URL) -> [String] {
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+        else { return [] }
+        let base = dir.standardizedFileURL.path + "/"
+        var result: [String] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            else { continue }
+            result.append(url.standardizedFileURL.path.replacingOccurrences(of: base, with: ""))
+        }
+        return result
+    }
+
     private static func regularFileNames(in dir: URL) -> [String] {
         let contents =
             (try? FileManager.default.contentsOfDirectory(
