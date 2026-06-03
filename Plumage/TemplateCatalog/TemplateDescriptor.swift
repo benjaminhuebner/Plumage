@@ -6,11 +6,11 @@ import Foundation
 // not here — keeping membership single-sourced.
 nonisolated struct TemplateDescriptor: Codable, Hashable, Sendable, Identifiable {
     let id: String
-    let name: String
-    let image: TemplateImage
-    let categoryID: String
+    var name: String
+    var image: TemplateImage
+    var categoryID: String
     let predefined: Bool
-    let order: Int
+    var order: Int
 
     // Template-specific scaffold content (the effective resolver prepends the
     // shared-component layers/hooks to these).

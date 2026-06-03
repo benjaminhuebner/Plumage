@@ -122,6 +122,55 @@ struct TemplateCatalogMutationTests {
         }
     }
 
+    // MARK: - Template placement
+
+    @Test("moveTemplate changes the category and appends the template last")
+    func moveTemplate() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let template = try #require(catalog.templates.first)
+        let destination = try #require(
+            catalog.sortedCategories.first { $0.id != template.categoryID })
+
+        catalog.moveTemplate(id: template.id, toCategory: destination.id)
+
+        #expect(catalog.template(id: template.id)?.categoryID == destination.id)
+        #expect(catalog.templates(inCategory: destination.id).last?.id == template.id)
+    }
+
+    @Test("moveTemplate to the current category is a no-op")
+    func moveTemplateSameCategory() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let template = try #require(catalog.templates.first)
+        let before = catalog
+        catalog.moveTemplate(id: template.id, toCategory: template.categoryID)
+        #expect(catalog == before)
+    }
+
+    @Test("moveTemplate survives the overlay round-trip")
+    func moveTemplateRoundTrip() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let template = try #require(catalog.templates.first)
+        let destination = try #require(
+            catalog.sortedCategories.first { $0.id != template.categoryID })
+
+        catalog.moveTemplate(id: template.id, toCategory: destination.id)
+        let reloaded = TemplateCatalog(manifest: catalog.overlayManifest())
+
+        #expect(reloaded.template(id: template.id)?.categoryID == destination.id)
+    }
+
+    @Test("reorderTemplates renumbers within one category only")
+    func reorderTemplatesWithinCategory() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let category = try #require(
+            catalog.sortedCategories.first { catalog.templates(inCategory: $0.id).count >= 2 })
+        let reversed = Array(catalog.templates(inCategory: category.id).map(\.id).reversed())
+
+        catalog.reorderTemplates(inCategory: category.id, orderedIDs: reversed)
+
+        #expect(catalog.templates(inCategory: category.id).map(\.id) == reversed)
+    }
+
     // MARK: - Store persistence round-trip
 
     @Test("save then load round-trips a custom category through the overlay manifest")

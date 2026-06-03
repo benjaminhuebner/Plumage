@@ -24,9 +24,17 @@ struct TemplateCatalogSidebar: View {
                     ForEach(model.catalog.templates(inCategory: category.id)) { template in
                         Label(template.name, systemImage: template.image.sfSymbolName)
                             .tag(TemplateCatalogItem.template(template.id))
+                            .draggable(TemplateDragPayload(templateID: template.id))
+                            .contextMenu { templateMenu(template) }
                     }
                 } header: {
                     categoryHeader(category)
+                        .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
+                            for payload in payloads {
+                                model.moveTemplate(id: payload.templateID, toCategory: category.id)
+                            }
+                            return !payloads.isEmpty
+                        }
                 }
             }
         }
@@ -77,6 +85,25 @@ struct TemplateCatalogSidebar: View {
             model.deleteCategory(id: category.id)
         }
         .disabled(!model.canDeleteCategory(id: category.id))
+    }
+
+    @ViewBuilder
+    private func templateMenu(_ template: TemplateDescriptor) -> some View {
+        let others = model.catalog.sortedCategories.filter { $0.id != template.categoryID }
+        Menu("Move to…", systemImage: "folder") {
+            ForEach(others) { destination in
+                Button(destination.name) {
+                    model.moveTemplate(id: template.id, toCategory: destination.id)
+                }
+            }
+        }
+        .disabled(others.isEmpty)
+        Button("Move Up", systemImage: "arrow.up") {
+            model.moveTemplate(id: template.id, withinCategoryBy: -1)
+        }
+        Button("Move Down", systemImage: "arrow.down") {
+            model.moveTemplate(id: template.id, withinCategoryBy: 1)
+        }
     }
 
     @ViewBuilder

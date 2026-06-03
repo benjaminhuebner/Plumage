@@ -593,6 +593,27 @@ extension TemplateManagerModel {
         persist(updated)
     }
 
+    // MARK: - Template placement
+
+    func moveTemplate(id: String, toCategory categoryID: String) {
+        guard catalog.template(id: id)?.categoryID != categoryID else { return }
+        var updated = catalog
+        updated.moveTemplate(id: id, toCategory: categoryID)
+        persist(updated)
+    }
+
+    func moveTemplate(id: String, withinCategoryBy offset: Int) {
+        guard let template = catalog.template(id: id) else { return }
+        var ids = catalog.templates(inCategory: template.categoryID).map(\.id)
+        guard let index = ids.firstIndex(of: id) else { return }
+        let target = index + offset
+        guard ids.indices.contains(target) else { return }
+        ids.swapAt(index, target)
+        var updated = catalog
+        updated.reorderTemplates(inCategory: template.categoryID, orderedIDs: ids)
+        persist(updated)
+    }
+
     // MARK: - Persistence
 
     // Applies `updated` in memory, then persists the derived overlay. On a write

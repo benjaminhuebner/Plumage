@@ -58,6 +58,32 @@ nonisolated extension TemplateCatalog {
         }
     }
 
+    // MARK: - Template placement
+
+    // Moves a template to another category, appended after that category's last
+    // template. No-op if the destination is missing or already its category.
+    mutating func moveTemplate(id: String, toCategory categoryID: String) {
+        guard category(id: categoryID) != nil,
+            let index = templates.firstIndex(where: { $0.id == id }),
+            templates[index].categoryID != categoryID
+        else { return }
+        let maxOrder = templates.filter { $0.categoryID == categoryID }.map(\.order).max() ?? -1
+        templates[index].categoryID = categoryID
+        templates[index].order = maxOrder + 1
+    }
+
+    // Renumbers `order` 0…n for the templates of one category to match `orderedIDs`.
+    // Templates in other categories are untouched (orders are per-category).
+    mutating func reorderTemplates(inCategory categoryID: String, orderedIDs: [String]) {
+        let positions = Dictionary(
+            orderedIDs.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        for index in templates.indices where templates[index].categoryID == categoryID {
+            if let position = positions[templates[index].id] {
+                templates[index].order = position
+            }
+        }
+    }
+
     // MARK: - Naming helpers
 
     private func uniqueCategoryID(_ base: String) -> String {

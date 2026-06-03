@@ -81,6 +81,22 @@ struct TemplateManagerStructureTests {
         #expect(TemplateCatalogStore(manifestURL: ctx.manifest).load().category(id: id) == nil)
     }
 
+    @Test("Moving a template to another category persists")
+    func moveTemplatePersists() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        let template = try #require(ctx.model.catalog.templates.first)
+        let destination = try #require(
+            ctx.model.catalog.sortedCategories.first { $0.id != template.categoryID })
+
+        ctx.model.moveTemplate(id: template.id, toCategory: destination.id)
+
+        #expect(ctx.model.catalog.template(id: template.id)?.categoryID == destination.id)
+        #expect(
+            TemplateCatalogStore(manifestURL: ctx.manifest)
+                .load().template(id: template.id)?.categoryID == destination.id)
+    }
+
     @Test("Reordering a category persists the new order")
     func reorderPersists() throws {
         let ctx = makeModel()
