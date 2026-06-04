@@ -33,6 +33,7 @@ struct DestinationPicker: View {
             }
         }
         .help("Destination")
+        .accessibilityLabel("Destination: \(model.selectedDestination?.displayName ?? "None")")
         .disabled(model.destinationList.isEmpty)
     }
 

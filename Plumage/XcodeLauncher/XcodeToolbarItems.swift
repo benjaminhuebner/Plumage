@@ -61,6 +61,7 @@ struct RunButton: View {
         }
         .tint(tint)
         .help(helpText)
+        .accessibilityLabel(helpText)
         .disabled(!model.runState.isBusy && (model.selectedScheme == nil || model.selectedDestination == nil))
     }
 
@@ -98,6 +99,7 @@ struct BuildLogButton: View {
             }
             .tint(tint)
             .help(helpText)
+            .accessibilityLabel(helpText)
         }
     }
 
