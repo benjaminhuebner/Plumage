@@ -93,7 +93,7 @@ struct StemSelectingTextField: NSViewRepresentable {
         // the field is part of the window's responder chain by the time we
         // ask. Scoped to this field instance — no global firstResponder reach.
         let coord = context.coordinator
-        DispatchQueue.main.async { [weak field] in
+        Task { @MainActor [weak field] in
             guard let field, let window = field.window else { return }
             window.makeFirstResponder(field)
             coord.selectStem(in: field)

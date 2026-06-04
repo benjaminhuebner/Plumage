@@ -97,6 +97,16 @@ final class TerminalClaudeSession {
         }
     }
 
+    // isolated deinit (Swift 6.2) safety net mirroring ClaudeSession: the
+    // primary teardown is stop()/markExited() via TerminalTabsModel and
+    // ProjectWindow.onDisappear, but an abnormal window close can skip those.
+    // Without this, the SessionLogWatcher (FSEvent stream + serial queue) and
+    // the stopHandler closure (retains the PTY view) would leak.
+    isolated deinit {
+        stopLogWatcher()
+        stopHandler = nil
+    }
+
     func attach() {
         switch state {
         case .idle, .exited:

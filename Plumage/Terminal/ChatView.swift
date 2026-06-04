@@ -55,7 +55,7 @@ struct ChatView: View {
     private func send() {
         let text = session.draftMessage
         session.draftMessage = ""
-        Task { await session.send(text) }
+        Task { [weak session] in await session?.send(text) }
     }
 
     private let scrollAnchorID = "chat-bottom-anchor"

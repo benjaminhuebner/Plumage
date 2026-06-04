@@ -587,13 +587,17 @@ final class ClaudeSession {
             }
         }
 
+        // Hoisted out of the per-line loop: the read loop fires continuously
+        // during an active session (tens of events/s on tool-use turns), and a
+        // fresh JSONDecoder per line is needless allocation in that hot path.
+        let decoder = JSONDecoder()
         readTask = Task { @MainActor [weak self] in
             for await line in stream {
                 guard let self else { return }
                 guard !line.isEmpty else { continue }
                 guard let data = line.data(using: .utf8) else { continue }
                 guard
-                    let event = try? JSONDecoder().decode(
+                    let event = try? decoder.decode(
                         ClaudeStreamEvent.self, from: data)
                 else { continue }
                 self.handleEvent(event)
