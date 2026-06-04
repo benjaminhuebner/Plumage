@@ -13,7 +13,7 @@ struct IssueContextMenuItems: View {
             Button("Archive") {
                 kanban.applyOptimisticArchive(folderName: folderName, projectURL: projectURL)
             }
-            Button("Move to Trash") {
+            Button("Move to Trash", role: .destructive) {
                 kanban.applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
             }
             Divider()

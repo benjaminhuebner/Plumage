@@ -216,6 +216,13 @@ final class ProjectSettingsModel {
         }
     }
 
+    // Clears the failed-save banner without scheduling another write — backs
+    // the dismiss affordance on ProjectSettingsView's save-error banner so the
+    // message isn't a sticky overlay the user can only clear by navigating away.
+    func dismissSaveError() {
+        if case .failed = saveStatus { saveStatus = .idle }
+    }
+
     // Flush any pending debounced write immediately. Used by tests and by
     // contexts where we want a synchronous round-trip.
     func saveNow() async {
