@@ -6,6 +6,7 @@ struct PlumageApp: App {
     @NSApplicationDelegateAdaptor(PlumageAppDelegate.self) private var appDelegate
     @State private var recentProjects = RecentProjects()
     @State private var migrationRequest = MigrationRequest()
+    @State private var updater = UpdaterModel()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -28,6 +29,7 @@ struct PlumageApp: App {
         .keyboardShortcut("0", modifiers: [.command, .shift])
         .commands {
             NewProjectCommand()
+            UpdateCommands(updater: updater)
         }
         .environment(recentProjects)
         .environment(migrationRequest)
