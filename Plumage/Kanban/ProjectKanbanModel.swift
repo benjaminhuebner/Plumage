@@ -209,11 +209,7 @@ final class ProjectKanbanModel {
         issues = Self.replace(issues, folderName: issue.folderName, with: updated)
         groupedIssues = Self.group(issues)
 
-        let specURL =
-            projectURL
-            .appendingPathComponent(".claude/issues")
-            .appendingPathComponent(issue.folderName)
-            .appendingPathComponent("spec.md")
+        let specURL = IssueLayout.specURL(in: projectURL, folderName: issue.folderName)
         let mutatorFn = mutator
         dropTask?.cancel()
         dropTask = Task { [weak self] in

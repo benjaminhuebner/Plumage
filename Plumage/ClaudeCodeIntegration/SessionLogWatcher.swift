@@ -31,8 +31,11 @@ nonisolated final class SessionLogWatcher: @unchecked Sendable {
     init(directory: URL, onChange: @escaping @Sendable () -> Void) {
         self.directory = directory
         self.onChange = onChange
+        // Full path, not lastPathComponent: two projects with the same folder
+        // name would otherwise share a queue label, which muddies lldb /
+        // Instruments inspection.
         self.queue = DispatchQueue(
-            label: "com.plumage.sessionlog.\(directory.lastPathComponent)"
+            label: "com.plumage.sessionlog.\(directory.path)"
         )
     }
 

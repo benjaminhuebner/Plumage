@@ -559,13 +559,16 @@ struct IssueDetailView: View {
 
     private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {
         // WorkflowCommandResolver reads spec.md and prompt.md from disk, so
-        // both dirty buffers must be flushed before the inject runs.
+        // both dirty buffers must be flushed before the inject runs. If a flush
+        // fails, surface it and abort — injecting the stale on-disk version into
+        // claude with no indication would silently run the workflow on outdated
+        // content.
         Task {
-            if model.isPromptDirty {
-                try? await model.savePrompt()
-            }
-            if model.isBodyDirty {
-                try? await model.saveBody()
+            do {
+                try await saveAllEditableTabs()
+            } catch {
+                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                return
             }
             runWorkflow(action, folderName)
         }

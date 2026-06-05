@@ -47,10 +47,8 @@ nonisolated enum WorkflowCommandResolver {
             return defaultTemplates[action] ?? []
         }()
 
-        let promptContents: String =
-            promptURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
-        let specContents: String =
-            (try? String(contentsOf: specURL, encoding: .utf8)) ?? ""
+        let promptContents = promptURL.map { readCapped($0) } ?? ""
+        let specContents = readCapped(specURL)
 
         return template.compactMap { line in
             let substituted = substitute(
@@ -67,6 +65,23 @@ nonisolated enum WorkflowCommandResolver {
             }
             return substituted
         }
+    }
+
+    // Spec/prompt contents expand inline into a single REPL turn (one \r). A
+    // pathologically large file would otherwise become one enormous line, which
+    // some terminal emulators truncate or split unpredictably. Cap at the same
+    // 64 KB the IssueDetail editor uses for its preload, so a spec that already
+    // wouldn't display fully also won't inject fully — and mark the cut rather
+    // than dropping it silently.
+    private static let tokenByteCap = 64 * 1024
+
+    private static func readCapped(_ url: URL) -> String {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+            return ""
+        }
+        guard contents.utf8.count > tokenByteCap else { return contents }
+        let prefix = String(decoding: contents.utf8.prefix(tokenByteCap), as: UTF8.self)
+        return prefix + "\n… [truncated by Plumage: exceeds \(tokenByteCap / 1024) KB]"
     }
 
     // Single-pass substitution: walks the line once, replaces every matched

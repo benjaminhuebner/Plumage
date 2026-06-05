@@ -2,15 +2,6 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
-    // BUMP-CHECK (Yams 5.4): YAMLDecoder source review (Decoder.swift) confirms
-    // decode(_:from:) builds a fresh Parser + _Decoder per call and only reads
-    // the immutable `options` value, which we never mutate after init — so a
-    // shared instance is safe to read concurrently. `nonisolated(unsafe)` is
-    // sound on that basis. Re-verify this on every Yams major bump: if a future
-    // version adds mutable shared state to YAMLDecoder, revert to per-call.
-    // See notes.md #00009-yams-thread-safety.
-    nonisolated(unsafe) private static let sharedDecoder = YAMLDecoder()
-
     // Skips the Issue allocation and `extractGoal` walk that
     // `parse(content:folderName:)` does — for validation-only callers.
     static func validate(content: String) -> FrontmatterError? {
@@ -23,7 +14,10 @@ nonisolated enum SpecParser {
 
         let raw: RawFrontmatter
         do {
-            raw = try sharedDecoder.decode(RawFrontmatter.self, from: yaml)
+            // A fresh decoder per call: YAMLDecoder init is allocation-only and
+            // decode builds its own Parser, so there is no shared mutable state
+            // to reason about across concurrent discovery tasks.
+            raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
         } catch let yamlError as YamlError {
             return mapYamlError(yamlError)
         } catch let decoding as DecodingError {
@@ -57,7 +51,7 @@ nonisolated enum SpecParser {
 
         let raw: RawFrontmatter
         do {
-            raw = try sharedDecoder.decode(RawFrontmatter.self, from: yaml)
+            raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
         } catch let yamlError as YamlError {
             return .failure(mapYamlError(yamlError))
         } catch let decoding as DecodingError {

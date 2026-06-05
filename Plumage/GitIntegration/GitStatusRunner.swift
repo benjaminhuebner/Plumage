@@ -164,6 +164,7 @@ nonisolated struct GitStatusRunner: GitStatusRunning {
     }
 }
 
+#if DEBUG
 // Test-only stub for higher-level features (GitCommitModel, ProjectStatusBar).
 nonisolated final class MockGitStatusRunner: GitStatusRunning, @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
@@ -196,3 +197,4 @@ nonisolated final class MockGitStatusRunner: GitStatusRunning, @unchecked Sendab
         return result.output
     }
 }
+#endif

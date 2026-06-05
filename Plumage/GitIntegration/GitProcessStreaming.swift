@@ -134,6 +134,7 @@ private actor PipeDoneCounter {
     }
 }
 
+#if DEBUG
 // In-memory mock that replays a scripted sequence of lines and a chosen exit
 // code. Lines are emitted in order; the outcome resolves with `exitCode`
 // after the stream finishes. Used by GitPushRunner/GitPullRunner tests to
@@ -198,3 +199,4 @@ nonisolated final class MockGitProcessStreamer: GitProcessStreaming, @unchecked 
         return (stream, outcome)
     }
 }
+#endif
