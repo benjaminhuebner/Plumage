@@ -21,8 +21,11 @@ struct SparkleIntegrationTests {
     }
 
     @MainActor
-    @Test("UpdaterModel constructs without starting scheduled network checks")
-    func updaterModelInitSmoke() {
+    @Test("UpdaterModel seeds canCheckForUpdates from an un-started updater")
+    func updaterModelInitSeedsState() {
+        // With startingUpdater: false the updater never starts, so it reports
+        // it cannot check — and init reads that value synchronously, so the
+        // flag is correct without waiting on the KVO main-actor hop.
         let model = UpdaterModel(startingUpdater: false)
         #expect(model.canCheckForUpdates == false)
     }

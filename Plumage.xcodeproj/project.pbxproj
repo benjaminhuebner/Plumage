@@ -10,8 +10,8 @@
 		44E3B82D1742D54552C8802A /* NewProjectAssets in Resources */ = {isa = PBXBuildFile; fileRef = 8FD755147E90DA2E1CBA72E3 /* NewProjectAssets */; };
 		CA46020320030001000000C3 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020220030001000000C3 /* Yams */; };
 		CA46020520030001000000C3 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020720030001000000C3 /* CodeEditorView */; };
-		CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020C20030001000000C3 /* SwiftTerm */; };
 		CA46030320030001000000C3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CA46030220030001000000C3 /* Sparkle */; };
+		CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020C20030001000000C3 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */

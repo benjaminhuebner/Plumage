@@ -30,6 +30,8 @@
 	<true/>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
