@@ -23,7 +23,7 @@ struct MissingClaudeView: View {
                     .textSelection(.enabled)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.regularMaterial, in: .rect(cornerRadius: 6))
+                    .background(.quaternary, in: .rect(cornerRadius: 6))
             }
 
             Spacer(minLength: 0)

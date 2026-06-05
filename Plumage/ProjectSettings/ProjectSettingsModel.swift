@@ -172,7 +172,7 @@ final class ProjectSettingsModel {
         // Picker selection is a discrete user choice; flush immediately so a
         // workflow click within the 500ms scheduleSave debounce can't spawn a
         // session with the old mode.
-        Task { await saveNow() }
+        Task { [weak self] in await self?.saveNow() }
     }
 
     // The action's built-in default permission mode — the one the picker
@@ -214,6 +214,13 @@ final class ProjectSettingsModel {
             guard !Task.isCancelled else { return }
             await self?.performSave()
         }
+    }
+
+    // Clears the failed-save banner without scheduling another write — backs
+    // the dismiss affordance on ProjectSettingsView's save-error banner so the
+    // message isn't a sticky overlay the user can only clear by navigating away.
+    func dismissSaveError() {
+        if case .failed = saveStatus { saveStatus = .idle }
     }
 
     // Flush any pending debounced write immediately. Used by tests and by

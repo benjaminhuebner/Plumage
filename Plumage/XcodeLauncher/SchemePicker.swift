@@ -33,6 +33,7 @@ struct SchemePicker: View {
             }
         }
         .help("Scheme")
+        .accessibilityLabel("Scheme: \(model.selectedScheme ?? "None")")
         .disabled(model.schemes.isEmpty)
     }
 }

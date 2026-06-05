@@ -163,6 +163,12 @@ struct WelcomeView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Collapse title + subtitle into one element so VoiceOver announces the
+        // action as label and the descriptive subtitle as hint, matching the
+        // recent-row pattern above.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
     }
 
     private func open(_ item: RecentItem) {

@@ -247,6 +247,15 @@ struct ProjectSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            Button("Retry") { Task { await model.saveNow() } }
+                .controlSize(.small)
+            Button {
+                model.dismissSaveError()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
         }
         .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))

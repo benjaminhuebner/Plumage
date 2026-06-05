@@ -175,11 +175,12 @@ struct IssueDetailView: View {
 
     @ViewBuilder
     private func renderedDetail() -> some View {
+        @Bindable var model = model
         VStack(alignment: .leading, spacing: 0) {
             compactHeader
             if model.isCreating {
                 SpecTabView(
-                    text: bodyBinding,
+                    text: $model.bodyDraft,
                     position: $specEditorPosition,
                     messages: $specEditorMessages,
                     language: markdownLanguage,
@@ -227,6 +228,7 @@ struct IssueDetailView: View {
 
     @ViewBuilder
     private var compactHeader: some View {
+        @Bindable var model = model
         VStack(spacing: 0) {
             if !model.isCreating {
                 IssueDetailBanner(
@@ -248,7 +250,7 @@ struct IssueDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
             IssueTitleRow(
-                titleDraft: titleBinding,
+                titleDraft: $model.titleDraft,
                 titlePlaceholder: model.isCreating ? "Issue title" : "Title",
                 autoFocusTitle: model.isCreating,
                 onCommitTitle: onCommitTitle,
@@ -272,7 +274,7 @@ struct IssueDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 5)
             if !model.isCreating {
-                BodyTabPicker(selectedTab: bodyTabBinding)
+                BodyTabPicker(selectedTab: $model.selectedBodyTab)
                     .padding(.horizontal, 12)
             }
         }
@@ -280,12 +282,13 @@ struct IssueDetailView: View {
 
     @ViewBuilder
     private var tabBody: some View {
+        @Bindable var model = model
         switch model.selectedBodyTab {
         case .prompt:
-            PromptTabView(text: promptBinding)
+            PromptTabView(text: $model.promptDraft)
         case .spec:
             SpecTabView(
-                text: bodyBinding,
+                text: $model.bodyDraft,
                 position: $specEditorPosition,
                 messages: $specEditorMessages,
                 language: markdownLanguage,
@@ -391,34 +394,6 @@ struct IssueDetailView: View {
     private var branch: String? {
         guard !model.isCreating, let issue = model.issue else { return nil }
         return issue.branch
-    }
-
-    private var titleBinding: Binding<String> {
-        Binding(
-            get: { model.titleDraft },
-            set: { model.titleDraft = $0 }
-        )
-    }
-
-    private var bodyBinding: Binding<String> {
-        Binding(
-            get: { model.bodyDraft },
-            set: { model.bodyDraft = $0 }
-        )
-    }
-
-    private var promptBinding: Binding<String> {
-        Binding(
-            get: { model.promptDraft },
-            set: { model.promptDraft = $0 }
-        )
-    }
-
-    private var bodyTabBinding: Binding<BodyTab> {
-        Binding(
-            get: { model.selectedBodyTab },
-            set: { model.selectedBodyTab = $0 }
-        )
     }
 
     private var saveDisabled: Bool {
@@ -584,13 +559,16 @@ struct IssueDetailView: View {
 
     private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {
         // WorkflowCommandResolver reads spec.md and prompt.md from disk, so
-        // both dirty buffers must be flushed before the inject runs.
+        // both dirty buffers must be flushed before the inject runs. If a flush
+        // fails, surface it and abort — injecting the stale on-disk version into
+        // claude with no indication would silently run the workflow on outdated
+        // content.
         Task {
-            if model.isPromptDirty {
-                try? await model.savePrompt()
-            }
-            if model.isBodyDirty {
-                try? await model.saveBody()
+            do {
+                try await saveAllEditableTabs()
+            } catch {
+                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                return
             }
             runWorkflow(action, folderName)
         }

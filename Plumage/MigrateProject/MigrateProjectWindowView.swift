@@ -219,7 +219,7 @@ private struct MigrateProjectFlowView: View {
     }
 
     private func performMigrate() {
-        migrateTask = Task { await model.migrate() }
+        migrateTask = Task { [weak model] in await model?.migrate() }
     }
 
     private func openMigrated() {

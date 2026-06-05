@@ -263,14 +263,15 @@ nonisolated enum FrontmatterMutator {
         return raw
     }
 
+    private static let dangerCharacters: Set<Character> = [
+        ":", "#", "&", "*", "!", "|", ">", "%", "@", "\"", "\\", "{", "}", "[", "]", ",", "?",
+    ]
+
     private static func needsYAMLQuoting(_ raw: String) -> Bool {
         guard let first = raw.first else { return true }
         // Leading whitespace or `-` would be parsed as a list/scalar marker.
         if first == " " || first == "\t" || first == "-" { return true }
-        let danger: Set<Character> = [
-            ":", "#", "&", "*", "!", "|", ">", "%", "@", "\"", "\\", "{", "}", "[", "]", ",", "?",
-        ]
-        return raw.contains { danger.contains($0) }
+        return raw.contains { dangerCharacters.contains($0) }
     }
 
     private static func isoString(from date: Date) -> String {

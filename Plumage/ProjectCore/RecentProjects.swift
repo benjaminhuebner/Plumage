@@ -18,7 +18,7 @@ final class RecentProjects {
     private var pendingPersist: Task<Void, Never>?
 
     nonisolated private static let logger = Logger(
-        subsystem: "dev.plumage",
+        subsystem: "com.plumage",
         category: "RecentProjects"
     )
 

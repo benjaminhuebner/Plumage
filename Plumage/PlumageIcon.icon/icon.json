@@ -1,59 +1,146 @@
 {
   "fill" : {
-    "automatic-gradient" : "display-p3:0.92383,0.48800,0.01422,1.00000"
+    "automatic-gradient" : "display-p3:0.90967,0.46265,0.19214,1.00000"
   },
   "groups" : [
     {
-      "blur-material" : 0.5,
-      "hidden" : false,
+      "blur-material" : null,
       "layers" : [
         {
-          "blend-mode" : "normal",
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.90000,0.90000,0.90000,1.00000",
+              "srgb:1.00000,1.00000,1.00000,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : -0.33233090945752564,
+                "y" : 0.9185378067614276
+              },
+              "stop" : {
+                "x" : 0.8499676537797028,
+                "y" : 0.16052636289222125
+              }
+            }
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Pfad 4.svg",
+          "name" : "Pfad 4",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -143.6,
+              106.5
+            ]
+          }
+        },
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.90000,0.90000,0.90000,1.00000",
+              "srgb:1.00000,1.00000,1.00000,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0,
+                "y" : 1.1810199524327827
+              },
+              "stop" : {
+                "x" : 1,
+                "y" : 0
+              }
+            }
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Pfad 5.svg",
+          "name" : "Pfad 5",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -85.1,
+              184.4536458208214
+            ]
+          }
+        }
+      ],
+      "position" : {
+        "scale" : 0.9,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.05
+      }
+    },
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
           "fill" : {
             "automatic-gradient" : "srgb:1.00000,1.00000,1.00000,1.00000"
           },
           "glass" : true,
-          "image-name" : "Pfad.svg",
-          "name" : "Feather",
+          "hidden" : false,
+          "image-name" : "Pfad 6.svg",
+          "name" : "Pfad 6",
           "position" : {
-            "scale" : 1.1,
+            "scale" : 1,
             "translation-in-points" : [
-              0,
-              0
+              141,
+              70.5
+            ]
+          }
+        },
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.90000,0.90000,0.90000,1.00000",
+              "srgb:1.00000,1.00000,1.00000,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.08506583719132618,
+                "y" : 1
+              },
+              "stop" : {
+                "x" : 1,
+                "y" : -0.04411212695146022
+              }
+            }
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Pfad 3.svg",
+          "name" : "Pfad 3",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              94.5,
+              -139.60000000000002
             ]
           }
         }
       ],
+      "position" : {
+        "scale" : 0.9,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
       "shadow" : {
         "kind" : "neutral",
         "opacity" : 1
-      },
-      "specular" : true,
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
-      }
-    },
-    {
-      "hidden" : false,
-      "layers" : [
-        {
-          "glass" : false,
-          "image-name" : "Gruppe.svg",
-          "name" : "Gruppe",
-          "position" : {
-            "scale" : 1.1,
-            "translation-in-points" : [
-              21,
-              29.49997226816504
-            ]
-          }
-        }
-      ],
-      "opacity" : 0.8,
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
       },
       "specular" : false,
       "translucency" : {
@@ -63,26 +150,110 @@
     },
     {
       "blur-material" : null,
-      "hidden" : false,
       "layers" : [
         {
           "fill" : {
-            "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
+            "linear-gradient" : [
+              "display-p3:0.90000,0.90000,0.90000,1.00000",
+              "srgb:1.00000,1.00000,1.00000,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.12508310791164906,
+                "y" : 1.0595267386218135
+              },
+              "stop" : {
+                "x" : 1.1028008116346832,
+                "y" : 0.2840997568014057
+              }
+            }
           },
-          "glass" : false,
-          "image-name" : "Gruppe 1.svg",
-          "name" : "Lines"
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Pfad 1.svg",
+          "name" : "Pfad 1",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              235.5,
+              -212.1
+            ]
+          }
         }
       ],
-      "opacity" : 0.2,
+      "position" : {
+        "scale" : 0.9,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
       "shadow" : {
         "kind" : "neutral",
-        "opacity" : 0
+        "opacity" : 0.5
       },
       "specular" : false,
       "translucency" : {
-        "enabled" : false,
-        "value" : 1
+        "enabled" : true,
+        "value" : 0.4
+      }
+    },
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.90000,0.90000,0.90000,1.00000",
+              "srgb:1.00000,1.00000,1.00000,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : -0.22696191217452935,
+                "y" : 1.175456809942262
+              },
+              "stop" : {
+                "x" : 1,
+                "y" : -0.2753082652949276
+              }
+            }
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Pfad.svg",
+          "name" : "Stil",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -222.1,
+              342.423059288392
+            ]
+          }
+        },
+        {
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "oijo.svg",
+          "name" : "Raster"
+        }
+      ],
+      "name" : "Group",
+      "position" : {
+        "scale" : 0.9,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.8
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
       }
     }
   ],

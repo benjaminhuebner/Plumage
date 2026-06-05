@@ -137,6 +137,7 @@ nonisolated final class GitProcessTermination: Sendable {
     }
 }
 
+#if DEBUG
 // All mutable state lives behind an OSAllocatedUnfairLock so the mock is
 // safe to share across the concurrent reload() invocations in
 // DiffTabModelTests.rapidReloadsCancel. @unchecked Sendable stays — the
@@ -190,3 +191,4 @@ nonisolated final class MockGitProcessRunner: GitProcessRunning, @unchecked Send
         return GitSpawnResult(exitCode: result.code, stdout: result.stdout, stderr: result.stderr)
     }
 }
+#endif

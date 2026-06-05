@@ -19,7 +19,11 @@ struct ExitBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: .capsule)
+        // Solid fill, not .regularMaterial: this banner is composed inside the
+        // glass ClaudeDockPanel, where a material capsule would stack a second
+        // blur layer over the glass. A hierarchical fill differentiates the
+        // capsule without re-blurring.
+        .background(.quaternary, in: .capsule)
         .overlay(
             Capsule().strokeBorder(tint.opacity(0.3), lineWidth: 1)
         )

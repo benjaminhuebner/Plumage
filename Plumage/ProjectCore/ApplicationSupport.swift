@@ -11,8 +11,18 @@ nonisolated enum ApplicationSupport {
             appropriateFor: nil,
             create: true
         )
-        let app = base.appendingPathComponent(appFolderName, isDirectory: true)
+        var app = base.appendingPathComponent(appFolderName, isDirectory: true)
+        let created = !fileManager.fileExists(atPath: app.path)
         try fileManager.createDirectory(at: app, withIntermediateDirectories: true)
+        if created {
+            // Contents are machine-specific caches (absolute paths in recent.json)
+            // that are meaningless after a restore on another machine — keep them
+            // out of Time Machine / iCloud backups. Only set on first create to
+            // avoid touching the flag (and its mtime) on every launch.
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? app.setResourceValues(values)
+        }
         return app
     }
 
