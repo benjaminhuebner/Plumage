@@ -64,12 +64,21 @@ final class RecentProjects {
     // rename keeps the root URL (the key) but changes the name; this refreshes
     // the Welcome list without reordering. No-op when the project isn't listed
     // or the name is unchanged.
+    //
+    // Matches on the symlink-resolved path, not raw URL equality: the open path
+    // stores the URL as delivered by LaunchServices, which on real opens is the
+    // symlink-resolved form (e.g. /private/tmp/…) while a caller may pass the
+    // unresolved root (/tmp/…). Comparing resolved paths makes the lookup
+    // robust to that divergence. The stored URL's form is preserved on update.
     func update(url: URL, name: String) {
-        let canonical = url.standardizedFileURL
-        guard let index = items.firstIndex(where: { $0.url == canonical }),
+        let target = url.resolvingSymlinksInPath().standardizedFileURL.path
+        guard
+            let index = items.firstIndex(where: {
+                $0.url.resolvingSymlinksInPath().standardizedFileURL.path == target
+            }),
             items[index].name != name
         else { return }
-        items[index] = RecentItem(url: canonical, name: name)
+        items[index] = RecentItem(url: items[index].url, name: name)
         persist()
     }
 

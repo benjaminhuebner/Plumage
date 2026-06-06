@@ -67,6 +67,30 @@ struct RecentProjectsTests {
         #expect(reloaded.items.first(where: { $0.url == alpha.standardizedFileURL })?.name == "Renamed")
     }
 
+    @Test func updateMatchesAcrossSymlinkResolution() async throws {
+        // The recents entry is stored via a symlinked path (mirrors how the open
+        // path stores LaunchServices' delivered URL); the rename calls update
+        // with the resolved real path. They must still match.
+        let store = tempStoreURL()
+        defer { try? FileManager.default.removeItem(at: store) }
+
+        let real = FileManager.default.temporaryDirectory
+            .appendingPathComponent("recent-real-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: real) }
+        let link = FileManager.default.temporaryDirectory
+            .appendingPathComponent("recent-link-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        defer { try? FileManager.default.removeItem(at: link) }
+
+        let sut = RecentProjects(storeURL: store)
+        sut.add(url: link, name: "Old")  // stored via the symlinked path
+
+        sut.update(url: real, name: "Renamed")  // resolved path
+
+        #expect(sut.items.first?.name == "Renamed")
+    }
+
     @Test func updateForUnknownURLIsNoOp() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
