@@ -50,7 +50,7 @@ Then run `.claude/skills/plumage-plan/scripts/roadmap.py` (if it exists) to get 
 
 1. Look for `.claude/issues/*-<slug>/spec.md` (any padding).
 2. If found with `status: approved` or later → stop. The issue is past planning. Offer to re-open by resetting status to `draft`, but only proceed with explicit user confirmation.
-3. If not found → create it via `scripts/next-issue-id.sh <slug>`. The script allocates the next free ID across active + archive, handles padding from `.plumage/config.json`, and creates the folder and `spec.md` from `.claude/issues/_TEMPLATE.md` with substitutions filled in. If the script exits non-zero, stop and report — do not allocate by hand.
+3. If not found → create it via `scripts/next-issue-id.sh <slug>`. The script allocates the next free ID across active + archive, handles padding from the project's `*.plumage` bundle's `config.json`, and creates the folder and `spec.md` from `.claude/issues/_TEMPLATE.md` with substitutions filled in. If the script exits non-zero, stop and report — do not allocate by hand.
 
 From here the skill makes no distinction between "spec was pre-created" and "spec was just created by the script". In both cases: read whatever frontmatter and body content is already there, run the full interview, and write each section into the spec as you go. Whether Plumage's UI bootstrapped the issue, an earlier `/plumage-plan` left a partial draft, or the script just allocated the ID — same workflow, same outcome.
 
