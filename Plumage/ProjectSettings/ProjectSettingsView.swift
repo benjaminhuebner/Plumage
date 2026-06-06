@@ -6,6 +6,7 @@ struct ProjectSettingsView: View {
     @State private var model: ProjectSettingsModel
     @State private var showRenameConfirm = false
     @Environment(\.onProjectConfigSaved) private var onProjectConfigSaved
+    @Environment(\.onProjectRenamed) private var onProjectRenamed
 
     init(projectURL: URL) {
         self.projectURL = projectURL
@@ -35,6 +36,7 @@ struct ProjectSettingsView: View {
         }
         .task {
             model.onSaved = onProjectConfigSaved
+            model.onRenamed = onProjectRenamed
             await model.load()
         }
         .onDisappear {

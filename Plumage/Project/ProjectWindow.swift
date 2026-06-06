@@ -61,6 +61,7 @@ struct ProjectWindow: View {
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(RecentProjects.self) private var recentProjects
     @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction: EditorAction?
 
     init(handle: ProjectHandle) {
@@ -457,6 +458,20 @@ struct ProjectWindow: View {
                     model.setLoaded(saved)
                     terminalTabs.modelsConfig = saved.models
                 }
+                .environment(\.onProjectRenamed) { config, newBundle in
+                    // Live re-wire after a rename. The bundle folder moved but
+                    // the project root — and thus the running chat's cwd and
+                    // session-log key — did not, so the subprocess is untouched
+                    // and the chat keeps going. We only: refresh the window
+                    // title (config.name), repoint the chat session's bundle-
+                    // derived id-store to the moved bundle for future writes,
+                    // and update the project's name in Recents. Pins re-resolve
+                    // the bundle by extension on every access, and terminal tabs
+                    // are ephemeral, so neither needs repointing.
+                    model.setLoaded(config)
+                    session.repointSessionStore(toBundle: newBundle)
+                    recentProjects.update(url: handle.url, name: config.name)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
@@ -687,6 +702,7 @@ struct ProjectWindow: View {
 
 #Preview {
     ProjectWindow(handle: ProjectHandle(url: previewProjectURL()))
+        .environment(RecentProjects())
 }
 
 @MainActor
