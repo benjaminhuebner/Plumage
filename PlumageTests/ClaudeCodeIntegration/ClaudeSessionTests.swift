@@ -337,6 +337,29 @@ struct ClaudeSessionTests {
         #expect(rebuilt !== prior)
     }
 
+    @Test("session-id store lands under <stateDirectory>/sessions, never a .plumage dotfolder")
+    func sessionIDStoredUnderStateDirectory() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("plumage-statedir-\(UUID().uuidString)", isDirectory: true)
+        let bundle = base.appendingPathComponent("App.plumage", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let session = ClaudeSession(
+            cwd: base,
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: bundle,
+            autoSpawn: false
+        )
+
+        let store = bundle.appendingPathComponent("sessions/chat-id")
+        let persisted = try String(contentsOf: store, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(persisted == session.conversationID)
+        // The legacy hidden dotfolder must never be created under cwd.
+        #expect(!FileManager.default.fileExists(atPath: base.appendingPathComponent(".plumage").path))
+    }
+
     // MARK: - resumeOrInitArgs
 
     @Test("resumeOrInitArgs returns --session-id when log absent")
