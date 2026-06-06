@@ -1,6 +1,9 @@
-<img src="Docs/icon.png" width="104" align="left" hspace="18" vspace="4" alt="Plumage app icon">
+<img src="Docs/icon.png" width="92" align="left" hspace="18" vspace="2" alt="Plumage app icon">
 
-# Plumage
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="Docs/title-dark.png">
+  <img src="Docs/title-light.png" alt="Plumage" height="48">
+</picture>
 
 **A native macOS workspace for [Claude Code](https://claude.com/claude-code) workflows.**
 
