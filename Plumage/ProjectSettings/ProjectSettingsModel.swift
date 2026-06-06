@@ -11,10 +11,26 @@ final class ProjectSettingsModel {
         case failed(message: String)
     }
 
+    enum RenameStatus: Sendable, Equatable {
+        case idle
+        case renaming
+        case failed(message: String)
+    }
+
     let projectURL: URL
 
     private(set) var loadState: LoadState = .loading
     private(set) var saveStatus: SaveStatus = .idle
+    private(set) var renameStatus: RenameStatus = .idle
+
+    // Draft for the rename field. Seeded from config.name on load; the
+    // "Rename…" button commits it. Kept separate from the debounced auto-save
+    // fields below — a rename moves the bundle folder on disk and must NOT fire
+    // on every keystroke, so it never goes through scheduleSave().
+    var projectName: String = ""
+    // The canonical on-disk name, used to detect when the draft actually
+    // changed (button stays disabled until then).
+    private(set) var currentName: String = ""
 
     // Plumage-owned mutable settings — every field round-trips through
     // ConfigWriter on commit(). View binds via @Bindable. The editors start
@@ -50,7 +66,9 @@ final class ProjectSettingsModel {
     // Last loaded config so writes preserve the rest of the struct (name,
     // schemaVersion, git, …) intact when handing off to ConfigWriter.
     private var baseConfig: ProjectConfig?
-    private let bundleURL: URL?
+    // var, not let: a successful rename moves the bundle folder, so the resolved
+    // bundle path changes and every subsequent auto-save must target the new one.
+    private var bundleURL: URL?
 
     // Injectable write callback so tests can drive the debounced path without
     // hitting disk. Sendable so the production path can actually offload the
@@ -64,6 +82,11 @@ final class ProjectSettingsModel {
     // TerminalTabsModel.modelsConfig — without it, picker changes hit disk
     // but live tabs keep spawning with the stale ModelsConfig.
     var onSaved: @MainActor (ProjectConfig) -> Void = { _ in }
+    // Fires after a successful rename with the reloaded config and the new
+    // bundle URL. ProjectSettingsView wires this to an environment callback that
+    // ProjectWindow uses to update the window title (config.name), repoint the
+    // chat session's id-store to the moved bundle, and refresh Recents.
+    var onRenamed: @MainActor (ProjectConfig, URL) -> Void = { _, _ in }
 
     init(
         projectURL: URL,
@@ -97,6 +120,8 @@ final class ProjectSettingsModel {
 
     private func apply(config: ProjectConfig) {
         baseConfig = config
+        currentName = config.name
+        projectName = config.name
         // Override on disk → show that. No override → show the default template
         // so the user always sees what'll actually be injected.
         let planOverride = config.workflows?.plan
@@ -221,6 +246,84 @@ final class ProjectSettingsModel {
     // message isn't a sticky overlay the user can only clear by navigating away.
     func dismissSaveError() {
         if case .failed = saveStatus { saveStatus = .idle }
+    }
+
+    // MARK: - Rename
+
+    var trimmedProjectName: String {
+        projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // The "Rename…" button is active only when the draft is a valid bundle name
+    // AND actually differs from the on-disk name — renaming to the same name is
+    // a no-op the UI shouldn't offer.
+    var canRename: Bool {
+        guard canEdit, renameStatus != .renaming else { return false }
+        return ProjectRenamer.isValidName(projectName) && trimmedProjectName != currentName
+    }
+
+    func dismissRenameError() {
+        if case .failed = renameStatus { renameStatus = .idle }
+    }
+
+    // Commits the rename. Moves the `<name>.plumage` bundle and rewrites
+    // config.name off-main (ProjectRenamer is nonisolated, synchronous disk
+    // I/O), then reloads config from the moved bundle so baseConfig + bundleURL
+    // track the new location for subsequent auto-saves. On success fires
+    // onRenamed so the window can update its title, repoint the chat session,
+    // and refresh Recents.
+    func rename() async {
+        guard canRename else { return }
+        let root = projectURL
+        let newName = trimmedProjectName
+
+        // Flush any debounced auto-save first so pending workflow/model edits
+        // land in the bundle BEFORE it moves — otherwise the write would target
+        // the old, now-gone path.
+        await saveNow()
+
+        renameStatus = .renaming
+        let result: Result<(ProjectConfig, URL), Error> = await Task.detached(
+            priority: .userInitiated
+        ) {
+            do {
+                let newBundle = try ProjectRenamer.rename(projectRoot: root, newName: newName)
+                let config = try ConfigLoader.load(atBundle: newBundle)
+                return .success((config, newBundle))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        switch result {
+        case .success(let (config, newBundle)):
+            baseConfig = config
+            bundleURL = newBundle
+            currentName = config.name
+            projectName = config.name
+            renameStatus = .idle
+            onRenamed(config, newBundle)
+        case .failure(let error):
+            renameStatus = .failed(message: Self.renameMessage(for: error))
+        }
+    }
+
+    static func renameMessage(for error: Error) -> String {
+        guard let error = error as? ProjectRenamer.RenameError else {
+            return error.localizedDescription
+        }
+        switch error {
+        case .invalidName:
+            return "That name isn't a valid folder name. Avoid “/”, “.”, and “..”."
+        case .bundleExists(let url):
+            return "A project named “\(url.deletingPathExtension().lastPathComponent)” already exists here."
+        case .resolveFailed:
+            return "Couldn't locate this project's .plumage bundle to rename."
+        case .moveFailed(let message):
+            return "Couldn't rename the project folder: \(message)"
+        case .configWriteFailed(let message):
+            return "Renamed the folder but couldn't update config.json: \(message)"
+        }
     }
 
     // Flush any pending debounced write immediately. Used by tests and by

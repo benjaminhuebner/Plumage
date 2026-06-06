@@ -122,6 +122,118 @@ struct ProjectSettingsModelTests {
         #expect(skills.first?["name"] as? String == "x")
     }
 
+    @Test("load seeds the rename draft from config.name")
+    func loadSeedsRenameDraft() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        #expect(model.projectName == "Sample")
+        #expect(model.currentName == "Sample")
+        // Unchanged draft → button stays disabled.
+        #expect(!model.canRename)
+    }
+
+    @Test("canRename reflects validity and difference from current name")
+    func canRenameLogic() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        model.projectName = "Sample"
+        #expect(!model.canRename)  // unchanged
+        model.projectName = "  Sample  "
+        #expect(!model.canRename)  // trims to the same name
+        model.projectName = "a/b"
+        #expect(!model.canRename)  // invalid
+        model.projectName = ""
+        #expect(!model.canRename)  // empty
+        model.projectName = "Renamed"
+        #expect(model.canRename)  // valid and different
+    }
+
+    @Test("rename moves the bundle, updates state, and fires onRenamed")
+    func renameHappyPath() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        final class Box {
+            var config: ProjectConfig?
+            var url: URL?
+        }
+        let box = Box()
+        model.onRenamed = { config, url in
+            box.config = config
+            box.url = url
+        }
+
+        model.projectName = "Renamed"
+        await model.rename()
+
+        #expect(model.renameStatus == .idle)
+        #expect(model.currentName == "Renamed")
+        #expect(model.projectName == "Renamed")
+        #expect(!model.canRename)
+
+        // Disk reflects the rename.
+        #expect(FileManager.default.fileExists(atPath: project.appendingPathComponent("Renamed.plumage").path))
+        #expect(!FileManager.default.fileExists(atPath: project.appendingPathComponent("Test.plumage").path))
+        #expect(try ConfigLoader.load(at: project).name == "Renamed")
+
+        // Callback delivered the reloaded config + new bundle URL.
+        #expect(box.config?.name == "Renamed")
+        #expect(box.url?.lastPathComponent == "Renamed.plumage")
+    }
+
+    @Test("a no-op or invalid draft never touches disk")
+    func renameGuardedByCanRename() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        model.projectName = "a/b"  // invalid → canRename false
+        await model.rename()
+
+        #expect(model.renameStatus == .idle)
+        // Original bundle untouched.
+        #expect(FileManager.default.fileExists(atPath: project.appendingPathComponent("Test.plumage").path))
+        #expect(try ConfigLoader.load(at: project).name == "Sample")
+    }
+
+    @Test("rename preserves a pending workflow override and retargets the bundle")
+    func renamePreservesAndRetargets() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        model.setCommand("/my-plan <slug>", for: .plan)
+
+        model.projectName = "Renamed"
+        await model.rename()
+
+        // The override survived the bundle move (saveNow-before-move + writeName
+        // preservation).
+        let reloaded = try ConfigLoader.load(at: project)
+        #expect(reloaded.name == "Renamed")
+        #expect(reloaded.workflows?.plan?.command == "/my-plan <slug>")
+
+        // A subsequent auto-save lands in the moved bundle, not the gone one.
+        model.setModel(.sonnet, for: .chat)
+        await model.saveNow()
+        #expect(model.saveStatus == .saved)
+        #expect(try ConfigLoader.load(at: project).models?.chat == .sonnet)
+    }
+
     @Test("debounced save coalesces back-to-back mutations")
     func debounceCoalesces() async throws {
         let project = try makeProject()
