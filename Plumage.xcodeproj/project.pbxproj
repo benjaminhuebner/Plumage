@@ -10,6 +10,7 @@
 		44E3B82D1742D54552C8802A /* NewProjectAssets in Resources */ = {isa = PBXBuildFile; fileRef = 8FD755147E90DA2E1CBA72E3 /* NewProjectAssets */; };
 		CA46020320030001000000C3 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020220030001000000C3 /* Yams */; };
 		CA46020520030001000000C3 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020720030001000000C3 /* CodeEditorView */; };
+		CA46030320030001000000C3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CA46030220030001000000C3 /* Sparkle */; };
 		CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CA46020C20030001000000C3 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
@@ -63,6 +64,7 @@
 				CA471B922FB78C1300CE705E /* SwiftTerm in Frameworks */,
 				CA46020320030001000000C3 /* Yams in Frameworks */,
 				CA46020520030001000000C3 /* CodeEditorView in Frameworks */,
+				CA46030320030001000000C3 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,6 +129,7 @@
 				CA46020220030001000000C3 /* Yams */,
 				CA46020720030001000000C3 /* CodeEditorView */,
 				CA46020C20030001000000C3 /* SwiftTerm */,
+				CA46030220030001000000C3 /* Sparkle */,
 			);
 			productName = Plumage;
 			productReference = CA46013D2FB2F26800CAD6C3 /* Plumage.app */;
@@ -214,6 +217,7 @@
 				CA46020120030001000000C3 /* XCRemoteSwiftPackageReference "Yams" */,
 				CA46020620030001000000C3 /* XCRemoteSwiftPackageReference "CodeEditorView" */,
 				CA46020B20030001000000C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				CA46030120030001000000C3 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CA46013E2FB2F26800CAD6C3 /* Products */;
@@ -640,6 +644,14 @@
 				minimumVersion = 1.13.0;
 			};
 		};
+		CA46030120030001000000C3 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -657,6 +669,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CA46020B20030001000000C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		CA46030220030001000000C3 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA46030120030001000000C3 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
