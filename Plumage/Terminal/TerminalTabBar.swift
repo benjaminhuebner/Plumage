@@ -100,7 +100,8 @@ private struct TerminalTabPill: View {
 #Preview {
     @Previewable @State var model: TerminalTabsModel = {
         let binary = URL(filePath: "/usr/bin/true")
-        let session = TerminalClaudeSession(cwd: URL(filePath: "/tmp"), binaryURL: binary)
+        let session = TerminalClaudeSession(
+            cwd: URL(filePath: "/tmp"), binaryURL: binary, persistConversationID: false)
         return TerminalTabsModel(
             cwd: URL(filePath: "/tmp"),
             binaryURL: binary,

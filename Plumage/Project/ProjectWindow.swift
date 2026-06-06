@@ -68,14 +68,7 @@ struct ProjectWindow: View {
         let binary =
             (try? ProductionProcessRunner.locateBinary())
             ?? URL(filePath: "/dev/null")
-        // Resolve the project bundle (`<name>.plumage`) once at the open
-        // boundary so all per-window session state lands inside it. CCI never
-        // resolves bundles itself; it only receives the directory. Fall back
-        // to the project root if resolution fails (not a Plumage project) —
-        // the session then degrades to writing under the root rather than
-        // crashing.
-        let stateDirectory =
-            (try? BundleResolver.findBundle(in: handle.url)) ?? handle.url
+        let stateDirectory = Self.resolveStateDirectory(for: handle.url)
         self._session = State(
             initialValue: ClaudeSession(
                 cwd: handle.url, binaryURL: binary, stateDirectory: stateDirectory)
@@ -105,6 +98,20 @@ struct ProjectWindow: View {
         let runModel = XcodeRunModel()
         self._xcodeRun = State(initialValue: runModel)
         self._xcodeRunController = State(initialValue: XcodeRunController(model: runModel))
+    }
+
+    // CCI never resolves bundles itself — the caller resolves here, at the open
+    // boundary, and passes the directory in.
+    private static func resolveStateDirectory(for root: URL) -> URL {
+        guard let bundle = try? BundleResolver.findBundle(in: root) else {
+            // Open always resolves a bundle before a handle exists, so this is
+            // unreachable in practice. Assert rather than silently writing
+            // session state to a location the project `.gitignore` doesn't cover.
+            assertionFailure("No .plumage bundle for opened project at \(root.path)")
+            return root
+        }
+        LegacySessionStateMigration.migrate(root: root, bundle: bundle)
+        return bundle
     }
 
     var body: some View {
@@ -162,8 +169,7 @@ struct ProjectWindow: View {
                     initialConfig?.models?.terminals ?? ModelsConfig.terminalsDefault
                 // Re-resolve the bundle for the (possibly new) handle — the
                 // window may have been reused for a different project.
-                let stateDirectory =
-                    (try? BundleResolver.findBundle(in: handle.url)) ?? handle.url
+                let stateDirectory = Self.resolveStateDirectory(for: handle.url)
                 session = ClaudeSession.rebuilt(
                     for: handle.url, replacing: session,
                     stateDirectory: stateDirectory, modelChoice: chatModel

@@ -51,7 +51,8 @@ struct TerminalInspectorView: View {
 
 #Preview {
     let binary = URL(filePath: "/usr/bin/true")
-    let session = TerminalClaudeSession(cwd: URL(filePath: "/tmp"), binaryURL: binary)
+    let session = TerminalClaudeSession(
+        cwd: URL(filePath: "/tmp"), binaryURL: binary, persistConversationID: false)
     let model = TerminalTabsModel(
         cwd: URL(filePath: "/tmp"),
         binaryURL: binary,

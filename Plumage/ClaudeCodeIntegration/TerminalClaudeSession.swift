@@ -75,11 +75,16 @@ final class TerminalClaudeSession {
         self.modelChoice = modelChoice
         self.permissionMode = permissionMode
         if persistConversationID {
-            self.sessionIDStoreURL =
+            let resolved =
                 sessionIDStoreOverride
                 ?? stateDirectory?
                 .appendingPathComponent("sessions", isDirectory: true)
                 .appendingPathComponent("terminal-id")
+            assert(
+                resolved != nil,
+                "persistConversationID requires stateDirectory or sessionIDStoreOverride; "
+                    + "persistence is silently disabled otherwise")
+            self.sessionIDStoreURL = resolved
         } else {
             self.sessionIDStoreURL = nil
         }
