@@ -12,6 +12,7 @@ struct NewIssueCommand: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Divider()
             Button("New Issue") {
                 editorSave?.run()
                 createIssue?.run()

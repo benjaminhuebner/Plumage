@@ -28,14 +28,14 @@ struct PlumageApp: App {
         .defaultLaunchBehavior(.presented)
         .keyboardShortcut("0", modifiers: [.command, .shift])
         .commands {
-            NewProjectCommand(migrationRequest: migrationRequest)
+            ProjectFileCommands(recentProjects: recentProjects, migrationRequest: migrationRequest)
             UpdateCommands(updater: updater)
         }
         .environment(recentProjects)
         .environment(migrationRequest)
 
         // `.commandsRemoved()` suppresses the auto "New Project" Window-menu
-        // item; File > New (NewProjectCommand) is the intended entry point.
+        // item; File > New (ProjectFileCommands) is the intended entry point.
         Window("New Project", id: "new-project") {
             NewProjectWindowView()
                 .environment(recentProjects)
@@ -85,7 +85,7 @@ struct PlumageApp: App {
         }
         .defaultSize(width: 1280, height: 800)
         .commands {
-            OpenProjectMenuCommand(recentProjects: recentProjects)
+            ProjectFileCommands(recentProjects: recentProjects, migrationRequest: migrationRequest)
             NewIssueCommand()
             SpecEditorCommands()
             GitCommand()
