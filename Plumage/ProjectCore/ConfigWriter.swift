@@ -17,40 +17,10 @@ nonisolated enum ConfigWriter {
     static let writableKeys: Set<String> = ["workflows", "models"]
 
     static func write(_ config: ProjectConfig, atBundle bundle: URL) throws {
-        let configURL = bundle.appendingPathComponent(ConfigLoader.configFileName)
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: bundle.path) else {
-            throw WriteError.bundleMissing(bundle)
-        }
-
         // Read the on-disk JSON as a generic dictionary first so every key
-        // outside `writableKeys` survives untouched. If the file doesn't
-        // exist or is empty, start from an empty dictionary.
-        var rootObject: [String: Any]
-        if fm.fileExists(atPath: configURL.path) {
-            let existing: Data
-            do {
-                existing = try Data(contentsOf: configURL)
-            } catch {
-                throw WriteError.readFailed(message: error.localizedDescription)
-            }
-            if existing.isEmpty {
-                rootObject = [:]
-            } else {
-                let parsed: Any
-                do {
-                    parsed = try JSONSerialization.jsonObject(with: existing)
-                } catch {
-                    throw WriteError.readFailed(message: error.localizedDescription)
-                }
-                guard let dict = parsed as? [String: Any] else {
-                    throw WriteError.rootNotObject
-                }
-                rootObject = dict
-            }
-        } else {
-            rootObject = [:]
-        }
+        // outside `writableKeys` survives untouched.
+        let configURL = try guardedConfigURL(atBundle: bundle)
+        var rootObject = try readRootObject(at: configURL)
 
         // Encode only the writable subsections and overlay them onto disk.
         // workflows/models are fully Plumage-owned: a nil section removes the
@@ -60,8 +30,56 @@ nonisolated enum ConfigWriter {
         try overlay(key: "workflows", value: config.workflows, into: &rootObject)
         try overlay(key: "models", value: config.models, into: &rootObject)
 
-        // Pretty-print so the on-disk file stays human-readable; sortedKeys
-        // keeps diffs stable across writes that touch the same logical state.
+        try writeRootObject(rootObject, to: configURL)
+    }
+
+    // Persists the display `name` while leaving every other on-disk key
+    // bit-exact. `name` is deliberately NOT in `writableKeys`: the debounced
+    // settings auto-save must never touch it (a rename moves the bundle folder
+    // too, which only ProjectRenamer coordinates). This is the single explicit
+    // entry point that mutates it.
+    static func writeName(_ name: String, atBundle bundle: URL) throws {
+        let configURL = try guardedConfigURL(atBundle: bundle)
+        var rootObject = try readRootObject(at: configURL)
+        rootObject["name"] = name
+        try writeRootObject(rootObject, to: configURL)
+    }
+
+    private static func guardedConfigURL(atBundle bundle: URL) throws -> URL {
+        guard FileManager.default.fileExists(atPath: bundle.path) else {
+            throw WriteError.bundleMissing(bundle)
+        }
+        return bundle.appendingPathComponent(ConfigLoader.configFileName)
+    }
+
+    // Loads config.json as a generic dictionary. A missing or empty file
+    // starts from an empty dictionary so the caller's overlay still produces a
+    // valid file.
+    private static func readRootObject(at configURL: URL) throws -> [String: Any] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: configURL.path) else { return [:] }
+        let existing: Data
+        do {
+            existing = try Data(contentsOf: configURL)
+        } catch {
+            throw WriteError.readFailed(message: error.localizedDescription)
+        }
+        if existing.isEmpty { return [:] }
+        let parsed: Any
+        do {
+            parsed = try JSONSerialization.jsonObject(with: existing)
+        } catch {
+            throw WriteError.readFailed(message: error.localizedDescription)
+        }
+        guard let dict = parsed as? [String: Any] else {
+            throw WriteError.rootNotObject
+        }
+        return dict
+    }
+
+    // Pretty-print so the on-disk file stays human-readable; sortedKeys keeps
+    // diffs stable across writes that touch the same logical state.
+    private static func writeRootObject(_ rootObject: [String: Any], to configURL: URL) throws {
         let outData: Data
         do {
             outData = try JSONSerialization.data(
@@ -71,7 +89,6 @@ nonisolated enum ConfigWriter {
         } catch {
             throw WriteError.encodeFailed(message: error.localizedDescription)
         }
-
         do {
             try outData.write(to: configURL, options: [.atomic])
         } catch {

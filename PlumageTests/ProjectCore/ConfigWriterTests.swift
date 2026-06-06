@@ -232,4 +232,66 @@ struct ConfigWriterTests {
             return false
         }
     }
+
+    @Test("writeName updates name and preserves every other key bit-exact")
+    func writeNamePreservesSiblings() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        try ConfigWriter.writeName("Renamed", atBundle: bundle)
+
+        let configURL = bundle.appendingPathComponent("config.json")
+        let parsed = try #require(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: configURL)) as? [String: Any]
+        )
+
+        #expect(parsed["name"] as? String == "Renamed")
+        // Every sibling key from the sample survives untouched.
+        #expect(parsed["schemaVersion"] as? Int == 2)
+        #expect(parsed["minPlumageVersion"] as? String == "0.1.0")
+        #expect(parsed["createdWithPlumageVersion"] as? String == "0.1.0-bootstrap")
+        #expect(parsed["projectType"] as? String == "macOS")
+        #expect(parsed["createdAt"] as? String == "2026-05-12T00:00:00Z")
+        #expect(parsed["issueIdPadding"] as? Int == 5)
+        let agentTimeouts = try #require(parsed["agentTimeouts"] as? [String: Any])
+        #expect(agentTimeouts["planModeProbeMs"] as? Int == 5000)
+        let git = try #require(parsed["git"] as? [String: Any])
+        #expect(git["branchPrefix"] as? String == "issue/")
+        #expect(git["defaultBranch"] as? String == "main")
+        #expect(git["agentFilesInGit"] as? Bool == true)
+        let paths = try #require(parsed["paths"] as? [String: Any])
+        #expect(paths["issues"] as? String == ".claude/issues")
+        let managed = try #require(parsed["plumageManaged"] as? [String: Any])
+        #expect((managed["mcps"] as? [[String: Any]])?.first?["name"] as? String == "XcodeBuildMCP")
+    }
+
+    @Test("writeName does not introduce workflows or models keys")
+    func writeNameLeavesWritableSectionsAbsent() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        try ConfigWriter.writeName("Renamed", atBundle: bundle)
+
+        let configURL = bundle.appendingPathComponent("config.json")
+        let parsed = try #require(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: configURL)) as? [String: Any]
+        )
+        // The sample has no workflows/models; writeName must not add them.
+        #expect(parsed["workflows"] == nil)
+        #expect(parsed["models"] == nil)
+    }
+
+    @Test("writeName on a missing bundle throws bundleMissing")
+    func writeNameMissingBundleThrows() throws {
+        let project = try TempProject.make(content: nil)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let bundle = project.appendingPathComponent("NotThere.plumage", isDirectory: true)
+
+        #expect {
+            try ConfigWriter.writeName("X", atBundle: bundle)
+        } throws: { error in
+            if case ConfigWriter.WriteError.bundleMissing = error { return true }
+            return false
+        }
+    }
 }
