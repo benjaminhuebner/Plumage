@@ -65,21 +65,41 @@ final class RecentProjects {
     // the Welcome list without reordering. No-op when the project isn't listed
     // or the name is unchanged.
     //
+    // Reconciles the persisted file, not just the in-memory list: at launch the
+    // in-memory `items` can be clobbered back to the on-disk state by a load()
+    // that races add()'s async persist, so a window may hold an empty/stale
+    // `items` by the time a rename fires. Treating the store as source of truth
+    // — read-modify-write through the persist chain — makes the rename land
+    // regardless. The in-memory list is updated too so a visible Welcome stays
+    // live.
+    //
     // Matches on the symlink-resolved path, not raw URL equality: the open path
-    // stores the URL as delivered by LaunchServices, which on real opens is the
-    // symlink-resolved form (e.g. /private/tmp/…) while a caller may pass the
-    // unresolved root (/tmp/…). Comparing resolved paths makes the lookup
-    // robust to that divergence. The stored URL's form is preserved on update.
+    // stores the URL as delivered by LaunchServices (often the symlink-resolved
+    // form, e.g. /private/tmp/…) while a caller may pass the unresolved root
+    // (/tmp/…). Comparing resolved paths makes the lookup robust to that.
     func update(url: URL, name: String) {
         let target = url.resolvingSymlinksInPath().standardizedFileURL.path
-        guard
-            let index = items.firstIndex(where: {
-                $0.url.resolvingSymlinksInPath().standardizedFileURL.path == target
-            }),
-            items[index].name != name
-        else { return }
-        items[index] = RecentItem(url: items[index].url, name: name)
-        persist()
+        if let index = items.firstIndex(where: {
+            $0.url.resolvingSymlinksInPath().standardizedFileURL.path == target
+        }), items[index].name != name {
+            items[index] = RecentItem(url: items[index].url, name: name)
+        }
+        // Chain off pendingPersist so this read-modify-write can't race a
+        // concurrent add()/persist on the same store.
+        let store = storeURL
+        let prior = pendingPersist
+        pendingPersist = Task.detached(priority: .utility) {
+            _ = await prior?.value
+            var stored = Self.loadFromDisk(at: store)
+            guard
+                let idx = stored.firstIndex(where: {
+                    $0.url.resolvingSymlinksInPath().standardizedFileURL.path == target
+                }),
+                stored[idx].name != name
+            else { return }
+            stored[idx] = RecentItem(url: stored[idx].url, name: name)
+            Self.persistToDisk(items: stored, at: store)
+        }
     }
 
     private func persist() {

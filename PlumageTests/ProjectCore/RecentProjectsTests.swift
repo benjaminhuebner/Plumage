@@ -91,6 +91,30 @@ struct RecentProjectsTests {
         #expect(sut.items.first?.name == "Renamed")
     }
 
+    @Test func updatePersistsToDiskEvenWhenInMemoryListIsEmpty() async throws {
+        // Reproduces the launch race: a window's RecentProjects can hold an empty
+        // in-memory list (a load() clobbered the just-add()ed entry before its
+        // async persist flushed) while disk holds the real recents. A rename's
+        // update must still land on disk.
+        let store = tempStoreURL()
+        defer { try? FileManager.default.removeItem(at: store) }
+
+        let url = URL(fileURLWithPath: "/tmp/alpha")
+        let seeder = RecentProjects(storeURL: store)
+        seeder.add(url: url, name: "Old")
+        await seeder.flushPendingWrites()
+
+        // Fresh instance that never loaded → items is empty, mirroring the window.
+        let sut = RecentProjects(storeURL: store)
+        #expect(sut.items.isEmpty)
+        sut.update(url: url, name: "Renamed")
+        await sut.flushPendingWrites()
+
+        let reloaded = RecentProjects(storeURL: store)
+        await reloaded.load()
+        #expect(reloaded.items.first(where: { $0.url == url.standardizedFileURL })?.name == "Renamed")
+    }
+
     @Test func updateForUnknownURLIsNoOp() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
