@@ -9,7 +9,7 @@
 #   - Scans .claude/issues/**/spec.md and .claude/issues/archive/**/spec.md
 #     for the highest `id:` value in frontmatter.
 #   - Next ID = highest + 1 (starts at 1 if no issues exist).
-#   - Padding = max(issueIdPadding from .plumage/config.json, len(str(nextId))).
+#   - Padding = max(issueIdPadding from <bundle>/config.json, len(str(nextId))).
 #   - Creates .claude/issues/<padded-id>-<slug>/spec.md from _TEMPLATE.md.
 #   - Substitutes <<<ID>>>, <<<ID_PADDED>>>, <<<TITLE>>>, <<<SLUG>>>, <<<CREATED>>>.
 #   - Prints the new spec path on stdout. Exits 0 on success.
@@ -39,7 +39,12 @@ cd "$repo_root"
 issues_dir=".claude/issues"
 archive_dir=".claude/issues/archive"
 template=".claude/issues/_TEMPLATE.md"
-config=".plumage/config.json"
+# Resolve the project bundle by globbing `*.plumage` in cwd (the project root).
+# BundleResolver guarantees exactly one per root. `! -name '.*'` excludes the
+# legacy hidden `.plumage` dotfolder so a rotting dotfolder never shadows the
+# real bundle. Empty glob → padding falls back to the default 5 below.
+bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
+config="${bundle:+$bundle/config.json}"
 
 if [ ! -f "$template" ]; then
     echo "error: template not found at $template" >&2
@@ -75,7 +80,7 @@ if [ -d "$issues_dir" ]; then
 fi
 next_id=$((highest + 1))
 
-# Padding: read issueIdPadding from .plumage/config.json (default 5).
+# Padding: read issueIdPadding from <bundle>/config.json (default 5).
 padding=5
 if [ -f "$config" ] && command -v jq >/dev/null 2>&1; then
     p=$(jq -r '.issueIdPadding // 5' "$config" 2>/dev/null || echo 5)
