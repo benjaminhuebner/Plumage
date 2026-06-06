@@ -129,10 +129,14 @@ struct NewProjectEngineAcceptanceTests {
                 git: GitSetup(plumageInGit: false, claudeInGit: false, createGitignore: true)))
         let exclude = try String(
             contentsOf: created.root.appending(path: ".git/info/exclude"), encoding: .utf8)
-        #expect(exclude.contains(".plumage/"))
-        #expect(exclude.contains("Acme.plumage/"))
-        #expect(exclude.contains(".claude/"))
-        #expect(exclude.contains(".mcp.json"))
+        let excludeLines = exclude.split(separator: "\n").map(String.init)
+        // The whole bundle is excluded; the obsolete `.plumage/` dotfolder is
+        // no longer created, so it must not be excluded as a standalone line
+        // (substring-matching `.plumage/` would falsely pass via `Acme.plumage/`).
+        #expect(excludeLines.contains("Acme.plumage/"))
+        #expect(!excludeLines.contains(".plumage/"))
+        #expect(excludeLines.contains(".claude/"))
+        #expect(excludeLines.contains(".mcp.json"))
     }
 
     @Test("config.json reflects projectType and git.agentFilesInGit")
