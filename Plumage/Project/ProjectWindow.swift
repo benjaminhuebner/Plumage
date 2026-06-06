@@ -68,8 +68,17 @@ struct ProjectWindow: View {
         let binary =
             (try? ProductionProcessRunner.locateBinary())
             ?? URL(filePath: "/dev/null")
+        // Resolve the project bundle (`<name>.plumage`) once at the open
+        // boundary so all per-window session state lands inside it. CCI never
+        // resolves bundles itself; it only receives the directory. Fall back
+        // to the project root if resolution fails (not a Plumage project) —
+        // the session then degrades to writing under the root rather than
+        // crashing.
+        let stateDirectory =
+            (try? BundleResolver.findBundle(in: handle.url)) ?? handle.url
         self._session = State(
-            initialValue: ClaudeSession(cwd: handle.url, binaryURL: binary)
+            initialValue: ClaudeSession(
+                cwd: handle.url, binaryURL: binary, stateDirectory: stateDirectory)
         )
         // Every terminal tab — including the main one at index 0 — runs as
         // an ephemeral session: fresh conversationID per window-open, no
@@ -83,7 +92,8 @@ struct ProjectWindow: View {
         // drops the user's terminal history. Accepted (2026-05-25, #00037
         // post-review).
         let initialTerminalSession = TerminalClaudeSession(
-            cwd: handle.url, binaryURL: binary, persistConversationID: false
+            cwd: handle.url, binaryURL: binary, stateDirectory: stateDirectory,
+            persistConversationID: false
         )
         self._terminalTabs = State(
             initialValue: TerminalTabsModel(
@@ -150,8 +160,13 @@ struct ProjectWindow: View {
                     initialConfig?.models?.chat ?? ModelsConfig.chatDefault
                 let terminalsModel =
                     initialConfig?.models?.terminals ?? ModelsConfig.terminalsDefault
+                // Re-resolve the bundle for the (possibly new) handle — the
+                // window may have been reused for a different project.
+                let stateDirectory =
+                    (try? BundleResolver.findBundle(in: handle.url)) ?? handle.url
                 session = ClaudeSession.rebuilt(
-                    for: handle.url, replacing: session, modelChoice: chatModel
+                    for: handle.url, replacing: session,
+                    stateDirectory: stateDirectory, modelChoice: chatModel
                 )
                 // Window reused for a different handle, OR the terminals
                 // model preference changed in config: rebuild the tabs model
@@ -165,6 +180,7 @@ struct ProjectWindow: View {
                         ?? URL(filePath: "/dev/null")
                     let newInitial = TerminalClaudeSession(
                         cwd: handle.url, binaryURL: newBinary,
+                        stateDirectory: stateDirectory,
                         modelChoice: terminalsModel,
                         persistConversationID: false
                     )

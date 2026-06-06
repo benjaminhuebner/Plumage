@@ -63,6 +63,7 @@ struct ClaudeDockOverlay: View {
     let session = ClaudeSession(
         cwd: URL(filePath: "/tmp"),
         binaryURL: URL(filePath: "/usr/bin/true"),
+        stateDirectory: URL(filePath: "/tmp"),
         autoSpawn: false
     )
     return Color.gray.opacity(0.1)

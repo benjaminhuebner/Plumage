@@ -288,6 +288,7 @@ struct ClaudeSessionTests {
         let session = ClaudeSession(
             cwd: URL(filePath: "/tmp"),
             binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: URL(filePath: "/tmp"),
             modelChoice: .opus,
             autoSpawn: false,
             sessionIDStoreOverride: FileManager.default.temporaryDirectory
@@ -303,11 +304,14 @@ struct ClaudeSessionTests {
         let prior = ClaudeSession(
             cwd: URL(filePath: "/tmp/a"),
             binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: URL(filePath: "/tmp"),
             modelChoice: .sonnet,
             autoSpawn: false,
             sessionIDStoreOverride: store
         )
-        let rebuilt = ClaudeSession.rebuilt(for: URL(filePath: "/tmp/b"), replacing: prior)
+        let rebuilt = ClaudeSession.rebuilt(
+            for: URL(filePath: "/tmp/b"), replacing: prior,
+            stateDirectory: URL(filePath: "/tmp"))
         #expect(rebuilt.modelChoice == .sonnet)
     }
 
@@ -318,6 +322,7 @@ struct ClaudeSessionTests {
         let prior = ClaudeSession(
             cwd: URL(filePath: "/tmp/a"),
             binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: URL(filePath: "/tmp"),
             modelChoice: .opus,
             autoSpawn: false,
             sessionIDStoreOverride: store
@@ -325,6 +330,7 @@ struct ClaudeSessionTests {
         let rebuilt = ClaudeSession.rebuilt(
             for: URL(filePath: "/tmp/a"),
             replacing: prior,
+            stateDirectory: URL(filePath: "/tmp"),
             modelChoice: .haiku
         )
         #expect(rebuilt.modelChoice == .haiku)
@@ -464,10 +470,11 @@ struct ClaudeSessionTests {
         ClaudeSession(
             cwd: cwd,
             binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: URL(filePath: "/tmp"),
             autoSpawn: false,
             sessionLogRoot: sessionLogRoot,
             // Per-test temp store so persisted UUIDs don't leak across runs
-            // (default would write to /tmp/.plumage/sessions/chat-id).
+            // (the override always wins; stateDirectory is unused here).
             sessionIDStoreOverride: sessionIDStoreOverride
                 ?? FileManager.default.temporaryDirectory
                 .appendingPathComponent("plumage-chat-tests-\(UUID().uuidString)")

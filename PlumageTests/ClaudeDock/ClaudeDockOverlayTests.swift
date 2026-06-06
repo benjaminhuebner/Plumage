@@ -9,6 +9,8 @@ struct ClaudeDockOverlayTests {
         ClaudeSession(
             cwd: URL(filePath: "/tmp"),
             binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("plumage-dock-tests-\(UUID().uuidString)"),
             autoSpawn: false
         )
     }

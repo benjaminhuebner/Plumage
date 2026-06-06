@@ -64,10 +64,14 @@ final class ClaudeSession {
     // polluting the real home. sessionIDStoreOverride is the per-project
     // file that persists the conversation UUID across project re-opens —
     // mirror to TerminalClaudeSession so chat mode also resumes its claude
-    // session via --resume <uuid>.
+    // session via --resume <uuid>. stateDirectory is the resolved project
+    // bundle (`<name>.plumage`); the chat-id store lives under its
+    // `sessions/` subfolder. CCI stays free of bundle resolution — the
+    // caller (ProjectWindow) resolves it once and passes it in.
     init(
         cwd: URL,
         binaryURL: URL,
+        stateDirectory: URL,
         modelChoice: ModelChoice = .default,
         autoSpawn: Bool = true,
         sessionLogRoot: URL? = nil,
@@ -85,8 +89,7 @@ final class ClaudeSession {
             .appendingPathComponent(".claude/projects")
         self.sessionIDStoreURL =
             sessionIDStoreOverride
-            ?? cwd
-            .appendingPathComponent(".plumage", isDirectory: true)
+            ?? stateDirectory
             .appendingPathComponent("sessions", isDirectory: true)
             .appendingPathComponent("chat-id")
 
@@ -139,6 +142,7 @@ final class ClaudeSession {
     static func rebuilt(
         for handleURL: URL,
         replacing prior: ClaudeSession,
+        stateDirectory: URL,
         modelChoice: ModelChoice? = nil
     ) -> ClaudeSession {
         let newChoice = modelChoice ?? prior.modelChoice
@@ -147,7 +151,9 @@ final class ClaudeSession {
         let binary =
             (try? ProductionProcessRunner.locateBinary())
             ?? URL(filePath: "/dev/null")
-        return ClaudeSession(cwd: handleURL, binaryURL: binary, modelChoice: newChoice)
+        return ClaudeSession(
+            cwd: handleURL, binaryURL: binary, stateDirectory: stateDirectory,
+            modelChoice: newChoice)
     }
 
     func send(_ text: String) async {
