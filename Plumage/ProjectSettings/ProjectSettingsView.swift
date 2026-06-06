@@ -4,6 +4,7 @@ struct ProjectSettingsView: View {
     let projectURL: URL
 
     @State private var model: ProjectSettingsModel
+    @State private var showRenameConfirm = false
     @Environment(\.onProjectConfigSaved) private var onProjectConfigSaved
 
     init(projectURL: URL) {
@@ -21,6 +22,7 @@ struct ProjectSettingsView: View {
                 case .failed(let message):
                     loadFailedBanner(message: message)
                 case .loaded:
+                    projectSection
                     workflowCommandsSection
                     workflowModesSection
                     modelsSection
@@ -112,6 +114,71 @@ struct ProjectSettingsView: View {
         case .idle, .failed:
             EmptyView()
         }
+    }
+
+    @ViewBuilder
+    private var projectSection: some View {
+        sectionHeader(
+            title: "Project",
+            description:
+                "The project's display name. Renaming also renames the `.plumage` bundle folder on disk; the project folder itself is left alone."
+        )
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                TextField("Project name", text: projectNameBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 320)
+                    .onSubmit {
+                        if model.canRename { showRenameConfirm = true }
+                    }
+                Button("Rename…") { showRenameConfirm = true }
+                    .disabled(!model.canRename)
+                if model.renameStatus == .renaming {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer(minLength: 0)
+            }
+            if case .failed(let message) = model.renameStatus {
+                renameErrorBanner(message: message)
+            }
+        }
+        .confirmationDialog(
+            "Rename this project?",
+            isPresented: $showRenameConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Rename") { Task { await model.rename() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Renames the bundle on disk to “\(model.trimmedProjectName).plumage” and updates the window title. A running chat session keeps going."
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func renameErrorBanner(message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Rename failed")
+                    .font(.subheadline).bold()
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                model.dismissRenameError()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -264,6 +331,13 @@ struct ProjectSettingsView: View {
 
     private var bindings: ProjectSettingsBindings {
         ProjectSettingsBindings(model: model)
+    }
+
+    private var projectNameBinding: Binding<String> {
+        Binding(
+            get: { model.projectName },
+            set: { model.projectName = $0 }
+        )
     }
 
     private func modelBinding(for slot: ModelSlot) -> Binding<ModelChoice> {
