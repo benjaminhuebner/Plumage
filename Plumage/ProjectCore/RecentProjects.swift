@@ -60,6 +60,19 @@ final class RecentProjects {
         persist()
     }
 
+    // Updates the cached display name of the recent matching `url`. A project
+    // rename keeps the root URL (the key) but changes the name; this refreshes
+    // the Welcome list without reordering. No-op when the project isn't listed
+    // or the name is unchanged.
+    func update(url: URL, name: String) {
+        let canonical = url.standardizedFileURL
+        guard let index = items.firstIndex(where: { $0.url == canonical }),
+            items[index].name != name
+        else { return }
+        items[index] = RecentItem(url: canonical, name: name)
+        persist()
+    }
+
     private func persist() {
         let snapshot = items
         let url = storeURL

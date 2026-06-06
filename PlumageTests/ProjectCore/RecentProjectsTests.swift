@@ -44,6 +44,41 @@ struct RecentProjectsTests {
         #expect(sut.items[1].url == beta)
     }
 
+    @Test func updateChangesNameInPlaceWithoutReordering() async throws {
+        let store = tempStoreURL()
+        defer { try? FileManager.default.removeItem(at: store) }
+        let sut = RecentProjects(storeURL: store)
+
+        let alpha = URL(fileURLWithPath: "/tmp/alpha")
+        let beta = URL(fileURLWithPath: "/tmp/beta")
+        sut.add(url: alpha, name: "Alpha")
+        sut.add(url: beta, name: "Beta")  // beta is now at the front
+
+        sut.update(url: alpha, name: "Renamed")
+
+        // Renamed in place; order preserved (beta still first).
+        #expect(sut.items.first?.url == beta.standardizedFileURL)
+        #expect(sut.items.first(where: { $0.url == alpha.standardizedFileURL })?.name == "Renamed")
+
+        // Persisted to disk.
+        await sut.flushPendingWrites()
+        let reloaded = RecentProjects(storeURL: store)
+        await reloaded.load()
+        #expect(reloaded.items.first(where: { $0.url == alpha.standardizedFileURL })?.name == "Renamed")
+    }
+
+    @Test func updateForUnknownURLIsNoOp() async throws {
+        let store = tempStoreURL()
+        defer { try? FileManager.default.removeItem(at: store) }
+        let sut = RecentProjects(storeURL: store)
+        sut.add(url: URL(fileURLWithPath: "/tmp/alpha"), name: "Alpha")
+
+        sut.update(url: URL(fileURLWithPath: "/tmp/ghost"), name: "Nope")
+
+        #expect(sut.items.count == 1)
+        #expect(sut.items.first?.name == "Alpha")
+    }
+
     @Test func roundTripPersistence() async throws {
         let store = tempStoreURL()
         defer { try? FileManager.default.removeItem(at: store) }
