@@ -114,6 +114,35 @@ struct ProjectRenamerTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Renamed.plumage").path))
     }
 
+    @Test("repoints a name-specific .git/info/exclude line during rename")
+    func rewritesGitExcludeLine() throws {
+        let root = try makeProject()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Simulate a plumageInGit==false project: the scaffolder wrote a
+        // name-specific exclude line for the bundle.
+        let info = root.appending(path: ".git/info")
+        try FileManager.default.createDirectory(at: info, withIntermediateDirectories: true)
+        try "Test.plumage/\n".write(
+            to: info.appending(path: "exclude"), atomically: true, encoding: .utf8)
+
+        _ = try ProjectRenamer.rename(projectRoot: root, newName: "Renamed")
+
+        let exclude = try String(
+            contentsOf: info.appending(path: "exclude"), encoding: .utf8)
+        #expect(exclude.contains("Renamed.plumage/"))
+        #expect(!exclude.contains("Test.plumage/"))
+    }
+
+    @Test("rename succeeds even when there is no git exclude to rewrite")
+    func renameSucceedsWithoutGitExclude() throws {
+        let root = try makeProject()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let newBundle = try ProjectRenamer.rename(projectRoot: root, newName: "Renamed")
+        #expect(newBundle.lastPathComponent == "Renamed.plumage")
+        #expect(try ConfigLoader.load(at: root).name == "Renamed")
+    }
+
     @Test("no bundle in the root fails with resolveFailed")
     func noBundleFails() throws {
         let root = FileManager.default.temporaryDirectory

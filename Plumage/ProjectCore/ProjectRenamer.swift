@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Renames a Plumage project: moves the `<name>.plumage` bundle folder on disk
 // and rewrites `config.name` so the display name and the folder stay in sync.
@@ -73,6 +74,22 @@ nonisolated enum ProjectRenamer {
             throw RenameError.configWriteFailed(message: error.localizedDescription)
         }
 
+        // Best-effort: repoint a name-specific `.git/info/exclude` line so the
+        // renamed bundle doesn't leak into `git status`. A failure here does NOT
+        // roll back the (already successful) move — a git-hygiene line doesn't
+        // justify undoing a good rename; surface it via the log instead.
+        let oldName = oldBundle.deletingPathExtension().lastPathComponent
+        do {
+            try GitExcludeRenamer().rename(
+                oldBundleName: oldName, newBundleName: trimmed, repoURL: projectRoot)
+        } catch {
+            log.warning(
+                "Bundle renamed to \(trimmed, privacy: .public).plumage but .git/info/exclude rewrite failed: \(error.localizedDescription, privacy: .public). The old exclude line may leave the renamed bundle showing in git status."
+            )
+        }
+
         return target
     }
+
+    private static let log = Logger(subsystem: "com.plumage", category: "ProjectRenamer")
 }
