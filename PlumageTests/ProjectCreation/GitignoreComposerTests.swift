@@ -39,6 +39,15 @@ struct GitignoreComposerTests {
         }
     }
 
+    @Test("Every kind always includes the plumage block")
+    func plumageAlways() throws {
+        for kind in ProjectKind.allCases {
+            let out = try composer.compose(for: kind)
+            #expect(out.contains("*.plumage/runs/"), "plumage runs pattern missing for \(kind)")
+            #expect(out.contains("*.plumage/sessions/"), "plumage sessions pattern missing for \(kind)")
+        }
+    }
+
     @Test("An overridden fragment flows in; other fragments fall back to bundled")
     func overriddenFragmentComposes() throws {
         let fm = FileManager.default
