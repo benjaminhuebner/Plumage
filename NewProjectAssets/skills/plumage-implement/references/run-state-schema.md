@@ -1,15 +1,21 @@
 # Run-state schema
 
-Single source of truth for `.plumage/runs/<slug>.json` (and `setup-project.json`). Plumage's main loop and the `/plumage-implement` skill both write into this file; this document defines who writes which field and why.
+Single source of truth for `<bundle>/runs/<slug>.json` (and `setup-project.json`), where `<bundle>` is the project's visible `*.plumage` bundle. Plumage's main loop and the `/plumage-implement` skill both write into this file; this document defines who writes which field and why.
 
 **Note on `kind` values:** The `kind` field uses short internal discriminators (`implement`, `plan-issue`, `setup-project`) — these are *not* the skill names. Skill names are user-facing (`/plumage-implement`, `/plumage-plan`); `kind` values are short data labels chosen for compactness.
 
 ## File location
 
-- Issue runs: `.plumage/runs/<slug>.json` (slug matches the issue folder name, e.g. `00042-add-user-auth`)
-- Project setup runs: `.plumage/runs/setup-project.json`
+- Issue runs: `<bundle>/runs/<slug>.json` (slug matches the issue folder name, e.g. `00042-add-user-auth`)
+- Project setup runs: `<bundle>/runs/setup-project.json`
 
-Both under `.plumage/runs/`, which is in Layer 1 of the project `.gitignore`.
+Both under `<bundle>/runs/`. Resolve `<bundle>` by globbing the project root (the `claude` subprocess's `cwd`):
+
+```sh
+bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
+```
+
+`! -name '.*'` excludes any legacy hidden `.plumage` dotfolder so it never shadows the real bundle. `runs/` (and `sessions/`) are gitignored *inside* the committable bundle, so relocating run-state here keeps it out of git even when the owner commits `<bundle>/`.
 
 ## Schema
 
@@ -60,7 +66,7 @@ Both under `.plumage/runs/`, which is in Layer 1 of the project `.gitignore`.
 
 ## Atomic writes
 
-All writes to the run-state file must be atomic. Write the new JSON to `.plumage/runs/<slug>.json.tmp`, then `mv` it to `.plumage/runs/<slug>.json`. Never write in place — a crash mid-write would leave a half-written JSON exactly when recovery needs to read it.
+All writes to the run-state file must be atomic. Write the new JSON to `<bundle>/runs/<slug>.json.tmp`, then `mv` it to `<bundle>/runs/<slug>.json`. Never write in place — a crash mid-write would leave a half-written JSON exactly when recovery needs to read it.
 
 The skill should also re-read the file before mutating, in case Plumage updated `plumageHeartbeatAt` or `agentLastOutputAt` since the last read. Read-modify-write is acceptable here because the skill mutates a different field set than Plumage does.
 
