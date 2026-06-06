@@ -28,8 +28,9 @@ struct NewProjectAssetsTests {
         let fm = FileManager.default
         #expect(fm.fileExists(atPath: root.appending(path: "configs/swift-format").path))
         #expect(fm.fileExists(atPath: root.appending(path: "configs/swiftlint.yml").path))
-        #expect(fm.fileExists(atPath: root.appending(path: "plumage/roadmap.py").path))
+        #expect(fm.fileExists(atPath: root.appending(path: "skills/plumage-plan/scripts/roadmap.py").path))
         #expect(fm.fileExists(atPath: root.appending(path: "issues/_TEMPLATE.md").path))
         #expect(fm.fileExists(atPath: root.appending(path: "templates/gitignore/macos.gitignore").path))
+        #expect(fm.fileExists(atPath: root.appending(path: "templates/gitignore/plumage.gitignore").path))
     }
 }

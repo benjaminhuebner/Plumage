@@ -65,6 +65,7 @@ struct ChatView: View {
     let session = ClaudeSession(
         cwd: URL(filePath: "/tmp"),
         binaryURL: URL(filePath: "/usr/bin/true"),
+        stateDirectory: URL(filePath: "/tmp"),
         autoSpawn: false
     )
     session.start()
@@ -77,6 +78,7 @@ struct ChatView: View {
     let session = ClaudeSession(
         cwd: URL(filePath: "/tmp"),
         binaryURL: URL(filePath: "/usr/bin/true"),
+        stateDirectory: URL(filePath: "/tmp"),
         autoSpawn: false
     )
     session.start()

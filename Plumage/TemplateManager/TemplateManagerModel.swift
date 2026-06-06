@@ -611,7 +611,7 @@ final class TemplateManagerModel {
     // membership; everything else lands in the global store. Typed kinds land in their
     // canonical directory; typeless `.file`/`.folder` land relative to the selection.
     var addableKinds: [UserTemplateKind] {
-        [.hook, .skill, .doc, .script, .agent, .file, .folder]
+        [.hook, .skill, .doc, .agent, .file, .folder]
     }
 
     // The component kind a `UserTemplateKind` contributes to (so adding it while that

@@ -5,7 +5,7 @@ user-invocable: true
 disable-model-invocation: true
 ---
 
-Plumage-implement is the implementation half of Plumage's workflow. Each step is tracked in `.plumage/runs/<slug>.json` so the work survives crashes.
+Plumage-implement is the implementation half of Plumage's workflow. Each step is tracked in `<bundle>/runs/<slug>.json` (inside the project's `*.plumage` bundle) so the work survives crashes.
 
 ## Standalone usage
 
@@ -38,8 +38,9 @@ If `<slug>` is omitted at invocation: list open issues (status `approved` or `in
 
 ## The run-state file
 
-The run-state file at `.plumage/runs/<slug>.json` is how the run survives crashes. See `references/run-state-schema.md` for the full schema, who writes which field, and the atomic-write protocol. Key invariants:
+The run-state file at `<bundle>/runs/<slug>.json` is how the run survives crashes. Resolve `<bundle>` by globbing the project root — `bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)` (the `! -name '.*'` skips any legacy hidden `.plumage` dotfolder). See `references/run-state-schema.md` for the full schema, who writes which field, the glob convention, and the atomic-write protocol. Key invariants:
 
+- `runs/` lives inside the committable bundle but is gitignored, so run-state never enters git.
 - All writes are atomic (`.tmp` + `rename`). Never write the file in place.
 - Plumage writes `plumagePid`, `plumageHeartbeatAt`, `agentLastOutputAt`, and `lastUserVisibleAction`. The skill must not touch those.
 - The skill writes `kind`, `runId`, `issue`, `startedAt`, `agentPid`, `phase`, `lastProgressAt`, `branch`, `headBeforeRun`, `lastCompletedTask`, `totalTasks`.
@@ -47,7 +48,7 @@ The run-state file at `.plumage/runs/<slug>.json` is how the run survives crashe
 ## Fresh start
 
 1. **Check the working tree.** Run `git status`. If there are uncommitted changes, stop and ask the user — stash, commit, or discard — before continuing. Do not carry dirty state onto the issue branch.
-2. Read `git.defaultBranch` from `.plumage/config.json` (default `main`).
+2. Read `git.defaultBranch` from `<bundle>/config.json` (default `main`).
 3. Capture `headBeforeRun = git rev-parse <defaultBranch>`.
 4. Write the initial run-state file with `phase: "starting"`, `lastCompletedTask: 0`, and `totalTasks` set to the count of unchecked tasks in the spec's `## Tasks` section.
 5. Branch: `git checkout <defaultBranch> && git checkout -b issue/<slug>`. If `issue/<slug>` already exists, check it out instead.
@@ -120,7 +121,7 @@ If both files end up untouched after a non-trivial issue, ask the user once: "No
 ## Finish
 
 1. Set spec frontmatter `status: waiting-for-review`, `updated:` to now.
-2. Delete `.plumage/runs/<slug>.json`.
+2. Delete `<bundle>/runs/<slug>.json`.
 3. Print one line: `Issue <id-padded>-<slug> ready for review.`
 
 ## When to stop and ask

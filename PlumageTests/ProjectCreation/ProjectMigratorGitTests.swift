@@ -72,10 +72,11 @@ struct ProjectMigratorGitTests {
                     createGitignore: false)))
         let exclude = try String(
             contentsOf: root.appending(path: ".git/info/exclude"), encoding: .utf8)
-        #expect(exclude.contains(".plumage/"))
-        #expect(exclude.contains("Acme.plumage/"))
-        #expect(exclude.contains(".claude/"))
-        #expect(exclude.contains(".mcp.json"))
+        let excludeLines = exclude.split(separator: "\n").map(String.init)
+        #expect(excludeLines.contains("Acme.plumage/"))
+        #expect(!excludeLines.contains(".plumage/"))  // obsolete dotfolder, no longer excluded
+        #expect(excludeLines.contains(".claude/"))
+        #expect(excludeLines.contains(".mcp.json"))
     }
 
     @Test("Existing repo writes no excludes when everything stays in git")
@@ -92,8 +93,10 @@ struct ProjectMigratorGitTests {
         let excludePath = root.appending(path: ".git/info/exclude").path
         if fileManager.fileExists(atPath: excludePath) {
             let exclude = try String(contentsOf: URL(filePath: excludePath), encoding: .utf8)
-            #expect(!exclude.contains(".claude/"))
-            #expect(!exclude.contains(".plumage/"))
+            let excludeLines = exclude.split(separator: "\n").map(String.init)
+            #expect(!excludeLines.contains(".claude/"))
+            #expect(!excludeLines.contains(".plumage/"))
+            #expect(!excludeLines.contains("Acme.plumage/"))
         }
     }
 
@@ -110,7 +113,9 @@ struct ProjectMigratorGitTests {
         #expect(fileManager.fileExists(atPath: root.appending(path: ".git").path))
         let exclude = try String(
             contentsOf: root.appending(path: ".git/info/exclude"), encoding: .utf8)
-        #expect(exclude.contains(".plumage/"))
-        #expect(!exclude.contains(".claude/"))
+        let excludeLines = exclude.split(separator: "\n").map(String.init)
+        #expect(excludeLines.contains("Acme.plumage/"))
+        #expect(!excludeLines.contains(".plumage/"))  // obsolete dotfolder, no longer excluded
+        #expect(!excludeLines.contains(".claude/"))
     }
 }

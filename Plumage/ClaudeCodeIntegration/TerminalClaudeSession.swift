@@ -16,8 +16,9 @@ final class TerminalClaudeSession {
     let modelChoice: ModelChoice
     // nil disables disk persistence — additional tabs from TerminalTabsModel
     // pass persistConversationID: false so each new tab gets a fresh UUID
-    // without writing/reading the on-disk pointer. The default tab keeps the
-    // status-quo single-file persistence at .plumage/sessions/terminal-id.
+    // without writing/reading the on-disk pointer. When a tab does persist,
+    // the terminal-id store lives under the project bundle's `sessions/`
+    // subfolder (stateDirectory), mirroring ClaudeSession.
     private let sessionIDStoreURL: URL?
     private let sessionLogRoot: URL
     // Returns conversation IDs that must NOT be adopted by reconcile —
@@ -61,6 +62,7 @@ final class TerminalClaudeSession {
     init(
         cwd: URL,
         binaryURL: URL,
+        stateDirectory: URL? = nil,
         modelChoice: ModelChoice = .default,
         sessionIDStoreOverride: URL? = nil,
         sessionLogRoot: URL? = nil,
@@ -73,12 +75,16 @@ final class TerminalClaudeSession {
         self.modelChoice = modelChoice
         self.permissionMode = permissionMode
         if persistConversationID {
-            self.sessionIDStoreURL =
+            let resolved =
                 sessionIDStoreOverride
-                ?? cwd
-                .appendingPathComponent(".plumage", isDirectory: true)
+                ?? stateDirectory?
                 .appendingPathComponent("sessions", isDirectory: true)
                 .appendingPathComponent("terminal-id")
+            assert(
+                resolved != nil,
+                "persistConversationID requires stateDirectory or sessionIDStoreOverride; "
+                    + "persistence is silently disabled otherwise")
+            self.sessionIDStoreURL = resolved
         } else {
             self.sessionIDStoreURL = nil
         }

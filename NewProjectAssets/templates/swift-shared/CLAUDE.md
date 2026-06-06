@@ -7,3 +7,4 @@
 %% BUILD AND TEST %%
 - Tests use **Swift Testing**: `import Testing`, `@Test`, `#expect`, `try #require(...)`.
 - Test types: prefer `struct`. Use `class` only when you need `deinit` cleanup.
+- Pre-commit gate tooling: clean **SwiftLint** and **swift-format** lint. `// swiftlint:disable` requires a one-line justification.

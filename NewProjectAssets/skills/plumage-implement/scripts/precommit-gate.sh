@@ -384,8 +384,16 @@ track_c() {
     # Step 6: hardcoded secrets in the cumulative diff
     t0=$(now)
     local default_branch=""
-    if [ -f .plumage/config.json ] && command -v jq >/dev/null 2>&1; then
-        default_branch=$(jq -r '.git.defaultBranch // empty' .plumage/config.json 2>/dev/null || true)
+    # Resolve the project bundle by globbing `*.plumage` in cwd (the project
+    # root, whether claude runs inside Plumage or standalone). BundleResolver
+    # guarantees exactly one per root. The `! -name '.*'` excludes the legacy
+    # hidden `.plumage` dotfolder (find's `*` matches a leading dot, unlike
+    # BundleResolver's extension check) so a rotting dotfolder never shadows
+    # the real bundle. Empty glob → fall back to git refs below.
+    local bundle
+    bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
+    if [ -n "$bundle" ] && [ -f "$bundle/config.json" ] && command -v jq >/dev/null 2>&1; then
+        default_branch=$(jq -r '.git.defaultBranch // empty' "$bundle/config.json" 2>/dev/null || true)
     fi
     if [ -z "$default_branch" ]; then
         if git show-ref --verify --quiet refs/heads/main; then default_branch=main

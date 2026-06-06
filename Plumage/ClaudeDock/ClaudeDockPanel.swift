@@ -160,6 +160,7 @@ private struct DockPanelHeader: View {
     let session = ClaudeSession(
         cwd: URL(filePath: "/tmp"),
         binaryURL: URL(filePath: "/usr/bin/true"),
+        stateDirectory: URL(filePath: "/tmp"),
         autoSpawn: false
     )
     return ClaudeDockPanel(

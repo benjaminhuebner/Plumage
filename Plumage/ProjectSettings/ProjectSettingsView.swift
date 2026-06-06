@@ -119,7 +119,7 @@ struct ProjectSettingsView: View {
         sectionHeader(
             title: "Workflow Commands",
             description:
-                "Custom slash-commands for the three workflow buttons. The placeholders `<slug>`, `<prompt>`, `<prompt-suffix>`, `<spec>` are substituted at run time. `<prompt-suffix>` expands to ` - <prompt>` when prompt.md is non-empty, or to nothing otherwise."
+                "Custom slash-commands for the three workflow buttons. The placeholders `<slug>`, `<prompt>`, `<spec>` are substituted at run time. An empty prompt.md substitutes to an empty string."
         )
         VStack(alignment: .leading, spacing: 18) {
             workflowEditor(for: .plan, binding: bindings.planCommand)
@@ -317,7 +317,6 @@ private struct ProjectSettingsBindings {
 nonisolated enum WorkflowPlaceholder: String, CaseIterable, Sendable, Hashable {
     case slug
     case prompt
-    case promptSuffix = "prompt-suffix"
     case spec
 
     var token: String { "<\(rawValue)>" }

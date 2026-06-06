@@ -117,7 +117,7 @@ final class ProjectSettingsModel {
 
     // Default templates — used by the per-editor reset button and to detect
     // when a command override matches the built-in (so we skip writing to disk).
-    static let planDefault = "/plumage-plan <slug><prompt-suffix>"
+    static let planDefault = "/plumage-plan <slug> - <prompt>"
     static let implementDefault = "/plumage-implement <slug>"
     static let reviewDefault = "/plumage-review <slug>"
 

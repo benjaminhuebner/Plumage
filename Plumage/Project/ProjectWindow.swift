@@ -68,8 +68,10 @@ struct ProjectWindow: View {
         let binary =
             (try? ProductionProcessRunner.locateBinary())
             ?? URL(filePath: "/dev/null")
+        let stateDirectory = Self.resolveStateDirectory(for: handle.url)
         self._session = State(
-            initialValue: ClaudeSession(cwd: handle.url, binaryURL: binary)
+            initialValue: ClaudeSession(
+                cwd: handle.url, binaryURL: binary, stateDirectory: stateDirectory)
         )
         // Every terminal tab — including the main one at index 0 — runs as
         // an ephemeral session: fresh conversationID per window-open, no
@@ -83,7 +85,8 @@ struct ProjectWindow: View {
         // drops the user's terminal history. Accepted (2026-05-25, #00037
         // post-review).
         let initialTerminalSession = TerminalClaudeSession(
-            cwd: handle.url, binaryURL: binary, persistConversationID: false
+            cwd: handle.url, binaryURL: binary, stateDirectory: stateDirectory,
+            persistConversationID: false
         )
         self._terminalTabs = State(
             initialValue: TerminalTabsModel(
@@ -95,6 +98,20 @@ struct ProjectWindow: View {
         let runModel = XcodeRunModel()
         self._xcodeRun = State(initialValue: runModel)
         self._xcodeRunController = State(initialValue: XcodeRunController(model: runModel))
+    }
+
+    // CCI never resolves bundles itself — the caller resolves here, at the open
+    // boundary, and passes the directory in.
+    private static func resolveStateDirectory(for root: URL) -> URL {
+        guard let bundle = try? BundleResolver.findBundle(in: root) else {
+            // Open always resolves a bundle before a handle exists, so this is
+            // unreachable in practice. Assert rather than silently writing
+            // session state to a location the project `.gitignore` doesn't cover.
+            assertionFailure("No .plumage bundle for opened project at \(root.path)")
+            return root
+        }
+        LegacySessionStateMigration.migrate(root: root, bundle: bundle)
+        return bundle
     }
 
     var body: some View {
@@ -150,8 +167,12 @@ struct ProjectWindow: View {
                     initialConfig?.models?.chat ?? ModelsConfig.chatDefault
                 let terminalsModel =
                     initialConfig?.models?.terminals ?? ModelsConfig.terminalsDefault
+                // Re-resolve the bundle for the (possibly new) handle — the
+                // window may have been reused for a different project.
+                let stateDirectory = Self.resolveStateDirectory(for: handle.url)
                 session = ClaudeSession.rebuilt(
-                    for: handle.url, replacing: session, modelChoice: chatModel
+                    for: handle.url, replacing: session,
+                    stateDirectory: stateDirectory, modelChoice: chatModel
                 )
                 // Window reused for a different handle, OR the terminals
                 // model preference changed in config: rebuild the tabs model
@@ -165,6 +186,7 @@ struct ProjectWindow: View {
                         ?? URL(filePath: "/dev/null")
                     let newInitial = TerminalClaudeSession(
                         cwd: handle.url, binaryURL: newBinary,
+                        stateDirectory: stateDirectory,
                         modelChoice: terminalsModel,
                         persistConversationID: false
                     )

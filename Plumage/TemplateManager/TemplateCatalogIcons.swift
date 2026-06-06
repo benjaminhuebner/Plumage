@@ -20,7 +20,6 @@ extension UserTemplateKind {
         case .hook: "bolt"
         case .skill: "star"
         case .doc: "doc.text"
-        case .script: "terminal"
         case .agent: "person"
         case .file: "doc.badge.plus"
         case .folder: "folder.badge.plus"

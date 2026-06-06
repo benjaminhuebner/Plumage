@@ -15,7 +15,7 @@ nonisolated extension TemplateCatalog {
     }
 
     // Base workflow hooks followed by member shared hooks (in component order) —
-    // e.g. a Swift kind ⇒ workflow hooks + [format-swift, lint-swift, no-doc-comments].
+    // e.g. a Swift kind ⇒ workflow hooks + [format-swift, lint-swift].
     func effectiveHooks(forTemplate templateID: String) -> [String] {
         let sharedHooks = sharedComponents(forTemplate: templateID)
             .flatMap { $0.files(ofKind: .hook) }

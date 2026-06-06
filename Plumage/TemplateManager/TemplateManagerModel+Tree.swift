@@ -68,15 +68,10 @@ extension TemplateManagerModel {
 
     // MARK: - Output ⇄ override-store path mapping
 
-    // The override-store directory new items created/dropped in an output folder are
-    // written to. `.claude/<x>` and `.plumage/scripts` fold back to their store dirs;
-    // the project root and the bare `.claude`/`.plumage` nodes map to the store root.
+    // Inverse of `outputPath(forStorageDir:)`: output-tree paths and override-store
+    // paths are distinct spaces, so a dropped/created item maps back before it's written.
     nonisolated static func storageDir(forOutputFolder output: String) -> String {
-        if output.isEmpty || output == ".claude" || output == ".plumage" { return "" }
-        if output == ".plumage/scripts" { return "plumage" }
-        if output.hasPrefix(".plumage/scripts/") {
-            return "plumage/" + output.dropFirst(".plumage/scripts/".count)
-        }
+        if output.isEmpty || output == ".claude" { return "" }
         if output.hasPrefix(".claude/") { return String(output.dropFirst(".claude/".count)) }
         // An arbitrary project-root folder maps to the same store path (the inverse of
         // `outputPath(forStorageDir:)`), so adding into it lands inside it, not at root.
@@ -86,7 +81,7 @@ extension TemplateManagerModel {
     // Surfaced through their own typed walks (or internal), so the arbitrary-root-files
     // scan must skip them to avoid showing the same file twice.
     static let typedStoreTopLevel: Set<String> = [
-        "hooks", "docs", "skills", "agents", "plumage", "issues",
+        "hooks", "docs", "skills", "agents", "issues",
         "templates", "template-images", "configs", ".claude",
     ]
 
@@ -95,10 +90,6 @@ extension TemplateManagerModel {
     static func outputPath(forStorageDir storage: String) -> String? {
         let first = storage.split(separator: "/").first.map(String.init) ?? storage
         if ["templates", "template-images", "configs"].contains(first) { return nil }
-        if first == "plumage" {
-            return storage == "plumage"
-                ? ".plumage/scripts" : ".plumage/scripts/" + storage.dropFirst("plumage/".count)
-        }
         if ["hooks", "docs", "skills", "agents", "issues"].contains(first) { return ".claude/\(storage)" }
         return storage  // arbitrary store-root directory → project root
     }
@@ -184,9 +175,6 @@ extension TemplateManagerModel {
         }
         for agent in overrides.overrideFileNames(inRelativeDir: "agents") {
             add(output: ".claude/agents/\(agent)", relative: "agents/\(agent)")
-        }
-        for script in overrides.unionFileNames(inRelativeDir: "plumage") {
-            add(output: ".plumage/scripts/\(script)", relative: "plumage/\(script)")
         }
         // Bundled Swift tooling configs land at the project root.
         add(output: ".swift-format", relative: "configs/swift-format")

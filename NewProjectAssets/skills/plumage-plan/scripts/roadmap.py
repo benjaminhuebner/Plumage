@@ -242,7 +242,7 @@ def render_markdown(groups: dict[str, list[dict]], done_limit: int | None) -> st
 
 
 def _format_issue_line(issue: dict) -> str:
-    pad = 5  # Default; could read from .plumage/config.json but cheap default is fine here.
+    pad = 5  # Default; could read issueIdPadding from <bundle>/config.json but cheap default is fine here.
     id_str = f"#{issue['id']:0{pad}d}" if isinstance(issue["id"], int) else "#?????"
     title = issue["title"] or issue["slug"]
     parts = [f"- {id_str} {title}"]

@@ -200,6 +200,30 @@ struct TerminalClaudeSessionTests {
         }
     }
 
+    @Test("persisting terminal session stores its ID under <stateDirectory>/sessions, not a dotfolder")
+    func sessionIDStoredUnderStateDirectory() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let bundle = env.cwdRoot.appendingPathComponent("App.plumage", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+
+        let session = TerminalClaudeSession(
+            cwd: env.cwdRoot,
+            binaryURL: env.fakeBinary,
+            stateDirectory: bundle,
+            sessionLogRoot: env.sessionLogRoot,
+            persistConversationID: true
+        )
+
+        let store = bundle.appendingPathComponent("sessions/terminal-id")
+        let persisted = try String(contentsOf: store, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(persisted == session.conversationID)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: env.cwdRoot.appendingPathComponent(".plumage").path))
+    }
+
     @Test("shellSpawnArgs single-quote-escapes ' inside cwd")
     func shellArgsEscapesQuotes() throws {
         let env = try TempEnv.make()

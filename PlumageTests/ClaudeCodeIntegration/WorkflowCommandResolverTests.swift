@@ -88,8 +88,8 @@ struct WorkflowCommandResolverTests {
         #expect(lines == ["/plumage-implement abc"])
     }
 
-    @Test("missing prompt file substitutes empty string and filters")
-    func missingPromptFiltered() throws {
+    @Test("missing prompt file substitutes empty string for <prompt>")
+    func missingPromptEmpty() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("WCR-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -103,9 +103,9 @@ struct WorkflowCommandResolverTests {
             promptURL: dir.appendingPathComponent("missing-prompt.md"),
             override: nil
         )
-        // The default plan template's second line "<prompt>" resolves to ""
-        // when the file doesn't exist; it's filtered out.
-        #expect(lines == ["/plumage-plan x"])
+        // `<prompt>` resolves to "" when the file doesn't exist; the template
+        // is otherwise non-empty, so the line stays with a trailing " - ".
+        #expect(lines == ["/plumage-plan x - "])
     }
 
     @Test("missing spec file substitutes empty string for <spec>")
@@ -144,7 +144,7 @@ struct WorkflowCommandResolverTests {
         // prompt.md contains the literal token "<spec>". A naive sequential
         // substitution (slug → prompt → spec) would expand the user's
         // literal text into the actual spec content. Single-pass resolver
-        // must leave it alone. The prompt-suffix token inlines the prompt
+        // must leave it alone. The default plan template inlines the prompt
         // after " - " so the whole thing is a single REPL line.
         let fx = try makeFixture(
             spec: "ACTUAL-SPEC-CONTENT",

@@ -42,7 +42,7 @@ Before forming any finding, read whichever of these files have content:
 - `.claude/docs/decisions.md` — both **Did** and **Won't (and why)**. The cross-check matters: a diff that revives a rejected direction is blocking, even if the diff is technically good.
 - `.claude/docs/notes.md` — library quirks, perf notes, known traps. A diff that hits a known trap deserves a note.
 
-Optionally run `.plumage/scripts/roadmap.py` to see whether other issues are in flight. Helpful when the diff touches code that may interact with an `in-progress` issue elsewhere — surface that as a Note so the user can think about merge order.
+Optionally run `.claude/skills/plumage-plan/scripts/roadmap.py` to see whether other issues are in flight. Helpful when the diff touches code that may interact with an `in-progress` issue elsewhere — surface that as a Note so the user can think about merge order.
 
 ## Read the PR
 
@@ -50,7 +50,7 @@ Read in this order:
 
 1. **`spec.md`** — what the issue was supposed to do. Goal, scope, technical approach, tasks, done-when.
 2. **`PR.md`** — what `/plumage-implement` says it did. Summary, diff stats, commit list, how-to-test, notes.
-3. **The diff:** `git diff <defaultBranch>...issue/<slug>` (three-dot, against merge-base). Read `git.defaultBranch` from `.plumage/config.json` (default `main`). If the diff is large (>2000 lines), run `git diff --stat <defaultBranch>...issue/<slug>` first to map the surface, then read full diffs of the most-changed files plus a sample of the rest. Note in the review which files were read fully and which were sampled.
+3. **The diff:** `git diff <defaultBranch>...issue/<slug>` (three-dot, against merge-base). Read `git.defaultBranch` from the project's `*.plumage` bundle's `config.json` (default `main`). If the diff is large (>2000 lines), run `git diff --stat <defaultBranch>...issue/<slug>` first to map the surface, then read full diffs of the most-changed files plus a sample of the rest. Note in the review which files were read fully and which were sampled.
 4. **The commits:** `git log <defaultBranch>..issue/<slug> --oneline` to see the progression. Then `git show <hash>` on any commit whose message looks suspicious (catch-all message, big diff for small message, etc.).
 
 ## Conduct the review

@@ -306,21 +306,25 @@ struct IssueDetailView: View {
                         }
                     }
                 if currentStatus == .waitingForReview, let issue = model.issue {
-                    Divider()
-                    MergeBranchSection(
-                        branch: issue.branch,
-                        isMerging: model.isMerging,
-                        errorMessage: mergeBannerMessage,
-                        nonFatalNotice: model.lastMergeNotice,
-                        onDismissError: {
-                            model.clearMergeError()
-                            model.clearMergeCriticalError()
-                        },
-                        onDismissNotice: { model.clearMergeNotice() },
-                        onMerge: { deleteBranch in
-                            Task { await performMerge(deleteBranch: deleteBranch) }
-                        }
-                    )
+                    VStack(alignment: .leading, spacing: 12) {
+                        Divider()
+                        MergeBranchSection(
+                            branch: issue.branch,
+                            isMerging: model.isMerging,
+                            errorMessage: mergeBannerMessage,
+                            nonFatalNotice: model.lastMergeNotice,
+                            onDismissError: {
+                                model.clearMergeError()
+                                model.clearMergeCriticalError()
+                            },
+                            onDismissNotice: { model.clearMergeNotice() },
+                            onMerge: { deleteBranch in
+                                Task { await performMerge(deleteBranch: deleteBranch) }
+                            }
+                        )
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

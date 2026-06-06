@@ -196,12 +196,8 @@ struct WelcomeView: View {
         Image(nsImage: NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName) ?? NSImage())
     }
 
-    nonisolated static let appVersionString: String = {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
-        if build.isEmpty || build == version { return version }
-        return "\(version) (\(build))"
-    }()
+    nonisolated static let appVersionString: String =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
 }
 
 #Preview("Empty") {

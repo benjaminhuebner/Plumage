@@ -83,25 +83,12 @@ nonisolated struct ProjectScaffolder {
         try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
         try configCreator.write(for: spec, toBundle: bundle)
 
-        try writePlumageScripts(root: root)
         try writeClaudeTree(spec: spec, root: root, claudeOutput: claudeOutput)
         try writeMCPConfig(spec: spec, root: root)
         try writeSwiftConfigs(spec: spec, root: root)
         try writeGitignore(spec: spec, root: root)
         try await initGitIfRequested(spec: spec, root: root)
         return bundle
-    }
-
-    // MARK: - .plumage working dir
-
-    private func writePlumageScripts(root: URL) throws {
-        let scripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: scripts, withIntermediateDirectories: true)
-        for script in overrides.unionFileNames(inRelativeDir: "plumage") {
-            try copy(
-                from: overrides.url(forRelative: "plumage/\(script)"),
-                to: scripts.appending(path: script), executable: true)
-        }
     }
 
     // MARK: - .claude tree
@@ -232,7 +219,7 @@ nonisolated struct ProjectScaffolder {
         try await gitInitRunner.initRepo(at: root, defaultBranch: "main")
 
         var excludes: [String] = []
-        if !git.plumageInGit { excludes += [".plumage/", "\(spec.name).plumage/"] }
+        if !git.plumageInGit { excludes += ["\(spec.name).plumage/"] }
         if !git.claudeInGit { excludes += [".claude/", ".mcp.json"] }
         if !excludes.isEmpty {
             try GitExcludeWriter().append(paths: excludes, repoURL: root)

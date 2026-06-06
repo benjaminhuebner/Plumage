@@ -30,17 +30,13 @@ Issues live in `.claude/issues/<id>-<slug>/spec.md`. Frontmatter is source of tr
 ## Branches and commits
 - Branch: `issue/<slug>`.
 - Don't run `git push`, `gh pr create`, etc. — workflow ends at "merged locally".
-- Commits: imperative single line.
 
 ## Pre-commit gate (enforced by `/plumage-implement`)
-Each commit must pass: green build (zero warnings), green tests, clean SwiftLint, clean `swift-format` lint. `// swiftlint:disable` requires a one-line justification.
+Each commit must pass: green build (zero warnings), green tests, clean lint and formatting.
 
 ## Coding defaults
-- Build as modular, reusable, easily extensible, and clean as possible
 - Pick the simplest design that works. Don't pre-build abstractions for needs that aren't real.
 - Don't change tooling stacks (build system, test framework, package manager) without explicit ask.
-- Comments default to none. Inline comments are justified only for non-obvious *why* (workaround, perf trade-off, surprising behavior) — never restate code, never write owner-less TODOs.
-- No doc comments (`///`, `/** */`, docstrings) on types, methods, classes, structs, or properties unless I explicitly ask — even if the signature seems unclear.
 
 ## Common pitfalls
 <<<PITFALLS>>>

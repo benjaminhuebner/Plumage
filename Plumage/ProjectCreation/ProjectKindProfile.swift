@@ -71,7 +71,7 @@ nonisolated extension ProjectKindProfile {
         "force-plumage-skill",
         "stop-after-spec-approved",
     ]
-    static let swiftHooks = workflowHooks + ["format-swift", "lint-swift", "no-doc-comments"]
+    static let swiftHooks = workflowHooks + ["format-swift", "lint-swift"]
 }
 
 nonisolated extension ProjectKind {
