@@ -13,7 +13,6 @@ nonisolated struct SettingsComposer {
         ("block-git-commit", "PreToolUse", "Bash"),
         ("block-secret-files", "PreToolUse", "Read|Edit|Write"),
         ("block-secrets-in-content", "PreToolUse", "Edit|Write"),
-        ("no-doc-comments", "PreToolUse", "Write|Edit|MultiEdit"),
         ("format-swift", "PostToolUse", "Edit|Write"),
         ("lint-swift", "PostToolUse", "Edit|Write"),
         ("stop-after-spec-approved", "PostToolUse", "Edit|Write|MultiEdit"),

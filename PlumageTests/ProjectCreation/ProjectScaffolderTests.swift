@@ -37,7 +37,7 @@ struct ProjectScaffolderTests {
         #expect(fm.fileExists(atPath: dir.appending(path: ".claude/CLAUDE.md").path))
         #expect(fm.fileExists(atPath: dir.appending(path: ".claude/settings.json").path))
         #expect(fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
-        #expect(fm.fileExists(atPath: dir.appending(path: ".plumage/scripts/roadmap.py").path))
+        #expect(fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-plan/scripts/roadmap.py").path))
         #expect(fm.fileExists(atPath: dir.appending(path: ".mcp.json").path))
         #expect(fm.fileExists(atPath: dir.appending(path: ".swift-format").path))
 
@@ -229,14 +229,13 @@ struct ProjectScaffolderTests {
         #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents").path))
     }
 
-    @Test("User-authored docs and scripts are union-written alongside the bundled ones")
-    func unionWritesUserDocsAndScripts() async throws {
+    @Test("User-authored docs are union-written alongside the bundled ones")
+    func unionWritesUserDocs() async throws {
         let fm = FileManager.default
         let overrideRoot = fm.temporaryDirectory.appending(
             path: "UnionOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fm.removeItem(at: overrideRoot) }
         try write("# Guide\n", to: overrideRoot, rel: "docs/guide.md")
-        try write("#!/bin/sh\necho deploy\n", to: overrideRoot, rel: "plumage/deploy.sh")
 
         let dir = tmpProjectDir()
         defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
@@ -246,12 +245,6 @@ struct ProjectScaffolderTests {
         // The user doc sits alongside the bundled docs.
         #expect(fm.fileExists(atPath: dir.appending(path: ".claude/docs/guide.md").path))
         #expect(fm.fileExists(atPath: dir.appending(path: ".claude/docs/PROJECT.md").path))
-        // The user script is written executable; the bundled roadmap.py stays.
-        let scriptPath = dir.appending(path: ".plumage/scripts/deploy.sh").path
-        #expect(fm.fileExists(atPath: scriptPath))
-        let perms = try fm.attributesOfItem(atPath: scriptPath)[.posixPermissions] as? Int
-        #expect(((perms ?? 0) & 0o111) != 0)
-        #expect(fm.fileExists(atPath: dir.appending(path: ".plumage/scripts/roadmap.py").path))
     }
 
     @Test("A user hook is scaffolded and wired into settings.json")
@@ -279,7 +272,7 @@ struct ProjectScaffolderTests {
         #expect(settings.contains("Edit|Write"))
     }
 
-    @Test("No override store: docs and scripts are exactly the bundled set")
+    @Test("No override store: docs are the bundled set; no default .plumage/scripts")
     func emptyStoreDocsScriptsUnchanged() async throws {
         let fm = FileManager.default
         let dir = tmpProjectDir()
@@ -287,8 +280,12 @@ struct ProjectScaffolderTests {
         _ = try await scaffolder().create(
             spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
 
-        let scripts = try fm.contentsOfDirectory(atPath: dir.appending(path: ".plumage/scripts").path)
-        #expect(Set(scripts) == ["roadmap.py"])
+        // roadmap.py ships with the plumage-plan skill; .plumage/scripts is only
+        // created when the user adds their own scripts.
+        #expect(
+            fm.fileExists(
+                atPath: dir.appending(path: ".claude/skills/plumage-plan/scripts/roadmap.py").path))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".plumage/scripts").path))
         let docs = try fm.contentsOfDirectory(atPath: dir.appending(path: ".claude/docs").path)
         #expect(Set(docs) == ["PROJECT.md", "notes.md", "decisions.md"])
     }

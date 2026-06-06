@@ -19,7 +19,7 @@ struct PRTabView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .textSelection(.enabled)
             }

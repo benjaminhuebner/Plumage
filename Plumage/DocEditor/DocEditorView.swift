@@ -1,4 +1,7 @@
-import CodeEditorView
+// @preconcurrency: CodeEditorView exposes its default themes as plain
+// `static var` (effectively constant). Reading them under Swift 6 strict
+// concurrency errors out; the module isn't concurrency-audited. See notes.md.
+@preconcurrency import CodeEditorView
 import LanguageSupport
 import SwiftUI
 
@@ -35,6 +38,10 @@ struct DocEditorView: View {
     private let editorLayout = CodeEditor.LayoutConfiguration(showMinimap: false, wrapText: true)
 
     @Environment(\.scenePhase) private var scenePhase
+    // CodeEditorView defaults to Theme.defaultLight regardless of system
+    // appearance, so the editor stays light in Dark Mode unless we drive the
+    // theme off the color scheme ourselves.
+    @Environment(\.colorScheme) private var colorScheme
 
     init(
         fileURL: URL, displayName: String? = nil, fallbackURL: URL? = nil,
@@ -73,6 +80,7 @@ struct DocEditorView: View {
                 language: language
             )
             .environment(\.codeEditorLayoutConfiguration, editorLayout)
+            .environment(\.codeEditorTheme, colorScheme == .dark ? .defaultDark : .defaultLight)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(displayName)

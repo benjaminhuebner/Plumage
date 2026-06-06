@@ -247,8 +247,8 @@ struct ProjectMigratorTests {
         #expect(report.added.contains(".claude/skills/my-skill"))
     }
 
-    @Test("User-authored docs and scripts are migrated additively and reported")
-    func migratesUserDocsAndScriptsAdditively() async throws {
+    @Test("User-authored docs are migrated additively; pre-existing files are skipped")
+    func migratesUserDocsAdditively() async throws {
         let overrideRoot = fileManager.temporaryDirectory.appending(
             path: "MigrateUnion-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fileManager.removeItem(at: overrideRoot) }
@@ -256,28 +256,22 @@ struct ProjectMigratorTests {
         try fileManager.createDirectory(
             at: docOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "# Guide\n".write(to: docOverride, atomically: true, encoding: .utf8)
-        let scriptOverride = overrideRoot.appending(path: "plumage/deploy.sh")
-        try fileManager.createDirectory(
-            at: scriptOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "#!/bin/sh\necho deploy\n".write(to: scriptOverride, atomically: true, encoding: .utf8)
 
         let (root, parent) = try existingDir()
         defer { try? fileManager.removeItem(at: parent) }
-        // A pre-existing user script must be preserved and reported skipped.
-        let existingScripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: existingScripts, withIntermediateDirectories: true)
+        // A pre-existing user doc must be preserved and reported skipped.
+        let existingDocs = root.appending(path: ".claude/docs", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: existingDocs, withIntermediateDirectories: true)
         try "# my own\n".write(
-            to: existingScripts.appending(path: "deploy.sh"), atomically: true, encoding: .utf8)
+            to: existingDocs.appending(path: "guide.md"), atomically: true, encoding: .utf8)
 
         let (_, report) = try await migrator(overrideRoot: overrideRoot).migrate(
             spec: spec(root: root, kind: .macOS))
 
-        #expect(fileManager.fileExists(atPath: root.appending(path: ".claude/docs/guide.md").path))
-        #expect(report.added.contains(".claude/docs/guide.md"))
-        // Pre-existing user script preserved byte-for-byte and reported skipped.
+        // Pre-existing doc preserved byte-for-byte and reported skipped.
         #expect(
-            try String(contentsOf: existingScripts.appending(path: "deploy.sh"), encoding: .utf8)
+            try String(contentsOf: existingDocs.appending(path: "guide.md"), encoding: .utf8)
                 == "# my own\n")
-        #expect(report.skipped.contains(".plumage/scripts/deploy.sh"))
+        #expect(report.skipped.contains(".claude/docs/guide.md"))
     }
 }

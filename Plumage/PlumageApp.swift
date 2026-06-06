@@ -28,7 +28,7 @@ struct PlumageApp: App {
         .defaultLaunchBehavior(.presented)
         .keyboardShortcut("0", modifiers: [.command, .shift])
         .commands {
-            NewProjectCommand()
+            NewProjectCommand(migrationRequest: migrationRequest)
             UpdateCommands(updater: updater)
         }
         .environment(recentProjects)

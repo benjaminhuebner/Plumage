@@ -86,7 +86,7 @@ struct TemplateCatalogStoreTests {
         #expect(!swiftShared.isMember(ProjectKind.other.rawValue))
         // Swift Shared now carries both the layer fragment and the tooling hooks.
         #expect(swiftShared.files(ofKind: .layer) == ["swift-shared"])
-        #expect(swiftShared.files(ofKind: .hook) == ["format-swift", "lint-swift", "no-doc-comments"])
+        #expect(swiftShared.files(ofKind: .hook) == ["format-swift", "lint-swift"])
     }
 
     @Test("apple-shared ∈ exactly the three Apple kinds")
@@ -104,7 +104,7 @@ struct TemplateCatalogStoreTests {
         let catalog = TemplateCatalog.bundledDefault
         #expect(catalog.sharedComponent(id: "swift-tooling-hooks") == nil)
         let swiftShared = try #require(catalog.sharedComponent(id: "swift-shared"))
-        #expect(swiftShared.files(ofKind: .hook) == ["format-swift", "lint-swift", "no-doc-comments"])
+        #expect(swiftShared.files(ofKind: .hook) == ["format-swift", "lint-swift"])
     }
 
     @Test("Bundled base carries the workflow hooks")

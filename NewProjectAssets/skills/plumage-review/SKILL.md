@@ -42,7 +42,7 @@ Before forming any finding, read whichever of these files have content:
 - `.claude/docs/decisions.md` — both **Did** and **Won't (and why)**. The cross-check matters: a diff that revives a rejected direction is blocking, even if the diff is technically good.
 - `.claude/docs/notes.md` — library quirks, perf notes, known traps. A diff that hits a known trap deserves a note.
 
-Optionally run `.plumage/scripts/roadmap.py` to see whether other issues are in flight. Helpful when the diff touches code that may interact with an `in-progress` issue elsewhere — surface that as a Note so the user can think about merge order.
+Optionally run `.claude/skills/plumage-plan/scripts/roadmap.py` to see whether other issues are in flight. Helpful when the diff touches code that may interact with an `in-progress` issue elsewhere — surface that as a Note so the user can think about merge order.
 
 ## Read the PR
 

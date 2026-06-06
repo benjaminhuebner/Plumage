@@ -1,26 +1,46 @@
 import SwiftUI
 
 extension FocusedValues {
-    // Presence marker published by the Welcome scene so the menu's "New
-    // Project…" ⌘N is scoped to it. Optional → the command disables when Welcome
-    // isn't the focused scene (in a Project window ⌘N is "New Issue"; scene focus
-    // keeps exactly one of the two enabled).
+    // Welcome publishes this so ⌘N can be scoped to it: in a Project window the
+    // marker is absent and ⌘N belongs to New Issue instead. The menu items stay
+    // enabled everywhere regardless — only the shortcut is gated.
     @Entry var newProjectAvailable: Bool?
 }
 
 struct NewProjectCommand: Commands {
-    @FocusedValue(\.newProjectAvailable) private var available
+    let migrationRequest: MigrationRequest
+
+    @FocusedValue(\.newProjectAvailable) private var welcomeFocused
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
-            Button("New Project…") {
-                openWindow(id: "new-project")
-                dismissWindow(id: "welcome")
+            newProjectButton
+            Button("Migrate Project…") {
+                MigrateProjectCommand.presentPicker(
+                    request: migrationRequest,
+                    openWindow: openWindow,
+                    dismissWindow: dismissWindow
+                )
             }
-            .keyboardShortcut("n", modifiers: .command)
-            .disabled(available == nil)
+        }
+    }
+
+    @ViewBuilder
+    private var newProjectButton: some View {
+        if welcomeFocused != nil {
+            newProjectLabel
+                .keyboardShortcut("n", modifiers: .command)
+        } else {
+            newProjectLabel
+        }
+    }
+
+    private var newProjectLabel: some View {
+        Button("New Project…") {
+            openWindow(id: "new-project")
+            dismissWindow(id: "welcome")
         }
     }
 }

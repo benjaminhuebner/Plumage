@@ -195,7 +195,7 @@ struct TemplateManagerModelTests {
     func addableKindsEverywhere() throws {
         let ctx = try makeModel()
         defer { ctx.cleanup() }
-        let expected: [UserTemplateKind] = [.hook, .skill, .doc, .script, .agent, .file, .folder]
+        let expected: [UserTemplateKind] = [.hook, .skill, .doc, .agent, .file, .folder]
 
         ctx.model.selection = .base
         #expect(ctx.model.addableKinds == expected)

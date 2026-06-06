@@ -120,7 +120,6 @@ nonisolated struct ProjectMigrator {
         let adapter = newProjectSpec(from: spec)
         var report = Report()
 
-        try writePlumageScripts(root: root, into: &report)
         let bundle = try writeConfigBundle(
             spec: adapter, root: root, defaultBranch: defaultBranch, into: &report)
         try writeClaudeTree(spec: adapter, root: root, into: &report)
@@ -136,17 +135,6 @@ nonisolated struct ProjectMigrator {
     }
 
     // MARK: - tree
-
-    private func writePlumageScripts(root: URL, into report: inout Report) throws {
-        let scripts = root.appending(path: ".plumage/scripts", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: scripts, withIntermediateDirectories: true)
-        for script in overrides.unionFileNames(inRelativeDir: "plumage") {
-            try copyIfMissing(
-                from: overrides.url(forRelative: "plumage/\(script)"),
-                to: scripts.appending(path: script),
-                rel: ".plumage/scripts/\(script)", executable: true, into: &report)
-        }
-    }
 
     private func writeConfigBundle(
         spec: NewProjectSpec, root: URL, defaultBranch: String, into report: inout Report

@@ -19,7 +19,7 @@ The prompt is optional context the user provides upfront (issue description, req
 ## Workflow
 
 1. Identify relevant installed plugin skills for this project (see "Step 0").
-2. Read project context (PROJECT.md, decisions.md — both sections, notes.md), and check other issues' status via `.plumage/scripts/roadmap.py`.
+2. Read project context (PROJECT.md, decisions.md — both sections, notes.md), and check other issues' status via `.claude/skills/plumage-plan/scripts/roadmap.py`.
 3. Locate or create the spec.
 4. Interview the user one topic at a time, writing each section into the spec as the interview progresses.
 5. On confirmation, set frontmatter `status: approved` and stop.
@@ -44,7 +44,7 @@ Before the interview starts, read whichever of these files have content:
 
 If any file is empty or missing, skip and continue. The cross-check is the point, not file-completeness.
 
-Then run `.plumage/scripts/roadmap.py` (if it exists) to get a one-screen view of other issues' status and progress. If a proposed issue overlaps with anything `in-progress` or `waiting-for-review`, surface it during the Goal or Scope topic — duplicate work and merge conflicts are cheaper to prevent than to untangle.
+Then run `.claude/skills/plumage-plan/scripts/roadmap.py` (if it exists) to get a one-screen view of other issues' status and progress. If a proposed issue overlaps with anything `in-progress` or `waiting-for-review`, surface it during the Goal or Scope topic — duplicate work and merge conflicts are cheaper to prevent than to untangle.
 
 ## Locate or create the spec
 

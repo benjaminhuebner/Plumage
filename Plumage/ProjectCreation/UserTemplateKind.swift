@@ -9,7 +9,6 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
     case hook
     case skill
     case doc
-    case script
     case agent
     // Typeless authoring: an arbitrary file (name taken literally, extension and all)
     // or an empty folder, created relative to the selected tree folder rather than a
@@ -25,7 +24,6 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         case .hook: return "Hook"
         case .skill: return "Skill"
         case .doc: return "Doc"
-        case .script: return "Script"
         case .agent: return "Agent"
         case .file: return "File"
         case .folder: return "Folder"
@@ -46,7 +44,6 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         case .hook: return "hooks"
         case .skill: return "skills"
         case .doc: return "docs"
-        case .script: return "plumage"
         case .agent: return "agents"
         case .file, .folder: return ""
         }
@@ -60,7 +57,7 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         case .hook:
             let base = name.hasSuffix(".sh") ? String(name.dropLast(3)) : name
             return "\(base).sh"
-        case .skill, .script, .file, .folder:
+        case .skill, .file, .folder:
             return name
         case .doc, .agent:
             return name.hasSuffix(".md") ? name : name + ".md"
@@ -83,8 +80,6 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         switch self {
         case .hook:
             return "#!/bin/sh\n"
-        case .script:
-            return leafName.hasSuffix(".py") ? "#!/usr/bin/env python3\n" : "#!/bin/sh\n"
         case .doc:
             return "# \(Self.stem(leafName))\n\n"
         case .agent:

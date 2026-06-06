@@ -51,7 +51,6 @@ The pre-commit gate already ran at the end of `/plumage-implement` — its resul
 - Warnings silenced with `// swiftlint:disable <rule>` — does each have a one-line justification? Is the justification convincing?
 - New uses of `@unchecked Sendable` or `@preconcurrency` — does each have a comment and a `notes.md` entry, per the convention?
 - New `TODO`/`FIXME` comments without an owner or issue reference.
-- Doc comments (`///`, `/** */`) on new code without explicit user request — these violate the project default; the `no-doc-comments` hook may have missed them (it is fail-open in rare cases).
 
 **Pushback:** A justification of "needed for this to compile" is not a justification — push for the actual reason. "Needed because `ProcessRunning` is a Sendable struct with a closure property" is one.
 
