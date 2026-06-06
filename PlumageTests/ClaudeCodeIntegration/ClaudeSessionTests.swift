@@ -260,6 +260,64 @@ struct ClaudeSessionTests {
         #expect(reloaded.conversationID == postClearID)
     }
 
+    @Test("repointSessionStore preserves the live session and its conversation id")
+    func repointPreservesLiveSession() {
+        let session = startedSession()
+        let originalID = session.conversationID
+        let snapshot = session.state
+
+        let newBundle = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Renamed-\(UUID().uuidString).plumage", isDirectory: true)
+        session.repointSessionStore(toBundle: newBundle)
+
+        // The running chat is untouched: same id, same state.
+        #expect(session.conversationID == originalID)
+        #expect(session.state == snapshot)
+        // Future writes target the new bundle.
+        #expect(
+            session.sessionIDStoreURL
+                == newBundle.appendingPathComponent("sessions", isDirectory: true)
+                .appendingPathComponent("chat-id"))
+    }
+
+    @Test("after repoint, a regenerated id persists into the new bundle")
+    func repointRetargetsPersistedID() async throws {
+        // Simulate the bundle move: start with stateDirectory = oldBundle, then
+        // move it on disk to newBundle (carrying sessions/chat-id), then repoint.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RepointWrite-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldBundle = root.appendingPathComponent("Old.plumage", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldBundle, withIntermediateDirectories: true)
+
+        let session = ClaudeSession(
+            cwd: root,
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: oldBundle,
+            autoSpawn: false
+        )
+
+        // Move the bundle on disk, then repoint to it.
+        let newBundle = root.appendingPathComponent("New.plumage", isDirectory: true)
+        try FileManager.default.moveItem(at: oldBundle, to: newBundle)
+        session.repointSessionStore(toBundle: newBundle)
+
+        // /clear regenerates and persists the id (no subprocess: autoSpawn=false).
+        session.start()
+        session.handleEvent(.systemInit(sessionID: "test"))
+        await session.send("/clear")
+        let postClearID = session.conversationID
+
+        let written = try String(
+            contentsOf: newBundle.appendingPathComponent("sessions").appendingPathComponent("chat-id"),
+            encoding: .utf8
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(written == postClearID)
+        // Nothing leaked back into the old (now-gone) location.
+        #expect(!FileManager.default.fileExists(atPath: oldBundle.appendingPathComponent("sessions").path))
+    }
+
     @Test("restart() from .running is a no-op")
     func restartFromRunningIsNoOp() {
         let session = startedSession()

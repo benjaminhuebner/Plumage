@@ -43,7 +43,10 @@ final class ClaudeSession {
     let modelChoice: ModelChoice
     private let autoSpawn: Bool
     private let sessionLogRoot: URL
-    private let sessionIDStoreURL: URL
+    // var, not let: a project rename moves the bundle folder, so the
+    // bundle-derived chat-id store path changes. repointSessionStore updates it
+    // for future writes without disturbing the running subprocess.
+    private(set) var sessionIDStoreURL: URL
     private let rehydrationCap: Int
 
     private(set) var state: State = .idle
@@ -87,18 +90,22 @@ final class ClaudeSession {
             sessionLogRoot
             ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
-        self.sessionIDStoreURL =
+        // Local first, then assign: sessionIDStoreURL is now a `var`, and
+        // reading `self.<var>` during init (before conversationID is set)
+        // trips definite-initialization. The local sidesteps that.
+        let storeURL =
             sessionIDStoreOverride
             ?? stateDirectory
             .appendingPathComponent("sessions", isDirectory: true)
             .appendingPathComponent("chat-id")
+        self.sessionIDStoreURL = storeURL
 
-        if let persisted = Self.loadPersistedID(from: self.sessionIDStoreURL) {
+        if let persisted = Self.loadPersistedID(from: storeURL) {
             self.conversationID = persisted
         } else {
             let fresh = UUID().uuidString.lowercased()
             self.conversationID = fresh
-            Self.persistID(fresh, to: self.sessionIDStoreURL)
+            Self.persistID(fresh, to: storeURL)
         }
     }
 
@@ -154,6 +161,20 @@ final class ClaudeSession {
         return ClaudeSession(
             cwd: handleURL, binaryURL: binary, stateDirectory: stateDirectory,
             modelChoice: newChoice)
+    }
+
+    // Repoints where the conversation id is persisted after the project bundle
+    // was renamed. The bundle folder moved on disk and carried its `sessions/
+    // chat-id` along atomically, so the in-memory conversationID is still valid
+    // and only FUTURE persistID writes need the new path. The running subprocess
+    // (cwd = project root, log keyed by root — both unchanged) is untouched, so
+    // the live chat keeps going. Recomputes the store path the same way init
+    // does from the new bundle (stateDirectory).
+    func repointSessionStore(toBundle bundle: URL) {
+        sessionIDStoreURL =
+            bundle
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("chat-id")
     }
 
     func send(_ text: String) async {
