@@ -131,7 +131,16 @@ extension TemplateManagerModel {
         let first = stripped.split(separator: "/").first.map(String.init) ?? stripped
         // `templates`/`components` guard Base's scan from dumping sibling-tier subtrees.
         if ["templates", "components", "template-images", "configs"].contains(first) { return nil }
-        if ["hooks", "docs", "skills", "agents", "issues"].contains(first) { return ".claude/\(stripped)" }
+        // The `.claude/`-mapped typed dirs must match the arbitrary-scan exclusions
+        // (`scopedTypedTopLevel`): at Base every loose `.claude` namespace, but inside a
+        // tier only docs/skills/agents are scope-owned. `hooks`/`issues` aren't loose in
+        // a tier (hooks are global composition, issues a config slot), so a user folder
+        // named `hooks`/`issues` there is arbitrary and must map to the same project-root
+        // position its files and the scaffold use — not split to `.claude/...` (#00078).
+        let claudeMapped: Set<String> =
+            scope == .base
+            ? ["hooks", "docs", "skills", "agents", "issues"] : ["docs", "skills", "agents"]
+        if claudeMapped.contains(first) { return ".claude/\(stripped)" }
         return stripped  // arbitrary store-root directory → project root
     }
 

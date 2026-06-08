@@ -96,6 +96,23 @@ struct TemplateManagerScopeTreeTests {
         }
     }
 
+    @Test("A scope folder named hooks/issues maps to project root, not .claude")
+    func scopeReservedTypedNameFolderMapsToRoot() {
+        let scope = ManagerScope.template("macOS")
+        #expect(
+            TemplateManagerModel.outputPath(forStorageDir: "templates/macOS/hooks", scope: scope)
+                == "hooks")
+        #expect(
+            TemplateManagerModel.outputPath(forStorageDir: "templates/macOS/issues", scope: scope)
+                == "issues")
+        #expect(
+            TemplateManagerModel.outputPath(forStorageDir: "templates/macOS/docs", scope: scope)
+                == ".claude/docs")
+        // At Base they remain the real `.claude` typed namespaces.
+        #expect(TemplateManagerModel.outputPath(forStorageDir: "hooks", scope: .base) == ".claude/hooks")
+        #expect(TemplateManagerModel.outputPath(forStorageDir: "issues", scope: .base) == ".claude/issues")
+    }
+
     @Test("A tier's store dir is invisible to a different tier's mapping")
     func crossScopeMappingRejected() {
         let dir = "templates/macOS/docs"
