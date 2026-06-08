@@ -303,11 +303,6 @@ struct ProjectWindow: View {
             .sheet(isPresented: $showCreateSheet) {
                 NavigationStack {
                     IssueDetailView(projectURL: handle.url, initialStatus: createInitialStatus)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Close") { showCreateSheet = false }
-                            }
-                        }
                 }
                 // Sheets present in their own SwiftUI tree and don't inherit
                 // the presenter's environment. IssueDetailView's
