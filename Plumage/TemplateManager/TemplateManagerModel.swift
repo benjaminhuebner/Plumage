@@ -213,6 +213,25 @@ final class TemplateManagerModel {
             : node.relativePath
     }
 
+    // A skill surfaces as individual file leaves and `selectCreatedFile` lands on the
+    // `SKILL.md` leaf — so a delete/rename on a file inside a skill must escalate to the
+    // whole `<scope>/skills/<name>/` folder, else it orphans the manifest's siblings.
+    func enclosingSkillDir(forStorePath storePath: String) -> String? {
+        let root = activeScope.storageRoot
+        let relative: String
+        if root.isEmpty {
+            relative = storePath
+        } else if storePath.hasPrefix(root + "/") {
+            relative = String(storePath.dropFirst(root.count + 1))
+        } else {
+            return nil
+        }
+        let parts = relative.split(separator: "/").map(String.init)
+        guard parts.count >= 2, parts[0] == "skills" else { return nil }
+        let skillRelative = "skills/\(parts[1])"
+        return root.isEmpty ? skillRelative : "\(root)/\(skillRelative)"
+    }
+
     // Store-path variant: a folder node carries its *output* path in `relativePath`, so
     // the move path resolves it to a store path first (`TemplateContentDropResolver`)
     // and checks authorship against that — never the output path.
@@ -314,10 +333,10 @@ final class TemplateManagerModel {
         let storePath = nodeStorePath(file)
         let fallback = overrides.overrideURL(forRelative: storePath) ?? file.url
         guard let overrideRoot = overrides.overrideRoot else { return fallback }
-        let components = storePath.split(separator: "/")
-        if components.count >= 2, components[0] == "skills" {
-            return overrideRoot.appending(
-                path: "skills/\(components[1])", directoryHint: .isDirectory)
+        // A user skill is trashed whole — its `<scope>/skills/<name>/` folder, not just the
+        // selected leaf (e.g. the auto-selected `SKILL.md`), so no sibling files orphan.
+        if let skillDir = enclosingSkillDir(forStorePath: storePath) {
+            return overrideRoot.appending(path: skillDir, directoryHint: .isDirectory)
         }
         // A user folder is trashed whole at its store location (its `relativePath` is an
         // output path, so `fallback` already resolves through `nodeStorePath`).
@@ -329,13 +348,22 @@ final class TemplateManagerModel {
 
     // MARK: - Inline rename (content tree)
 
-    // Enter rename on a user-authored row (Return / context menu). Bundled-backed files
-    // and generated configs can't be renamed — only items the user created.
     func beginRenameContent(_ node: FileNode) {
-        guard isUserAuthored(node) else { return }
+        // Escalate to the skill folder so renaming the auto-selected `SKILL.md` leaf
+        // renames the skill, not its manifest (see `enclosingSkillDir`).
+        let target = skillFolderNode(containing: node) ?? node
+        guard isUserAuthored(target) else { return }
         contentRename = ContentRename(
-            id: node.id, storePath: nodeStorePath(node),
-            isDirectory: node.isDirectory, name: node.name)
+            id: target.id, storePath: nodeStorePath(target),
+            isDirectory: target.isDirectory, name: target.name)
+    }
+
+    private func skillFolderNode(containing node: FileNode) -> FileNode? {
+        let storePath = nodeStorePath(node)
+        guard let skillDir = enclosingSkillDir(forStorePath: storePath), skillDir != storePath
+        else { return nil }
+        return Self.outputPath(forStorageDir: skillDir, scope: activeScope)
+            .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
     }
 
     func cancelContentRename() { contentRename = nil }

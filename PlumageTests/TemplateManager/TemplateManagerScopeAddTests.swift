@@ -66,6 +66,56 @@ struct TemplateManagerScopeAddTests {
         #expect(ctx.model.catalog.sharedComponent(id: "swift-shared")?.files(ofKind: .skill).isEmpty == true)
     }
 
+    @Test("Deleting a component skill via its SKILL.md leaf trashes the whole skill folder")
+    func deleteComponentSkillTrashesWholeFolder() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+        let leaf = try #require(ctx.model.addUserFile(kind: .skill, rawName: "my-skill"))
+        try "ref".write(
+            to: ctx.override.appending(
+                path: "components/swift-shared/skills/my-skill/reference.md"),
+            atomically: true, encoding: .utf8)
+        ctx.model.refreshContent()
+
+        // `leaf` is the SKILL.md leaf (what `selectCreatedFile` selects).
+        #expect(leaf.relativePath == "components/swift-shared/skills/my-skill/SKILL.md")
+        ctx.model.requestDelete(leaf)
+        if ctx.model.pendingDeleteConfirmation != nil { ctx.model.confirmPendingDelete() }
+
+        let fm = FileManager.default
+        #expect(
+            !fm.fileExists(
+                atPath: ctx.override.appending(path: "components/swift-shared/skills/my-skill").path))
+    }
+
+    @Test("Renaming a component skill via its SKILL.md leaf renames the skill folder")
+    func renameComponentSkillRenamesFolder() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+        let leaf = try #require(ctx.model.addUserFile(kind: .skill, rawName: "my-skill"))
+
+        ctx.model.beginRenameContent(leaf)
+        // The rename session escalates to the skill folder, not SKILL.md.
+        #expect(ctx.model.contentRename?.isDirectory == true)
+        #expect(ctx.model.contentRename?.storePath == "components/swift-shared/skills/my-skill")
+        ctx.model.contentRename?.name = "renamed"
+        ctx.model.commitContentRename()
+
+        let fm = FileManager.default
+        #expect(
+            fm.fileExists(
+                atPath: ctx.override.appending(
+                    path: "components/swift-shared/skills/renamed/SKILL.md"
+                ).path))
+        #expect(
+            !fm.fileExists(
+                atPath: ctx.override.appending(path: "components/swift-shared/skills/my-skill").path))
+    }
+
     @Test("A hook authored under a component stays global and still joins membership")
     func addHookInComponentStillGlobalAndJoins() throws {
         let ctx = makeModel()
