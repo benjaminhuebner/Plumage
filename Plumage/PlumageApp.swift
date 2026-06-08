@@ -142,10 +142,13 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         Task.detached(priority: .utility) {
             ClaudeThemeInstaller.installIfNeeded()
         }
-        // One-time, idempotent move of flat layer overrides to the folder-per-layer
-        // layout (#00071 D1), so an upgrading user's saved layer edits keep applying.
+        // One-time, idempotent store migrations, in order: first move flat layer
+        // overrides to the folder-per-layer layout (#00071 D1) so saved layer edits keep
+        // applying, then move user-authored component skills into scope ownership
+        // (#00078). Both are pure file I/O; the second runs after the first.
         Task.detached(priority: .utility) {
             TemplateOverrideMigration.migrateStandard()
+            LooseFileScopeMigration.migrateStandard()
         }
     }
 }
