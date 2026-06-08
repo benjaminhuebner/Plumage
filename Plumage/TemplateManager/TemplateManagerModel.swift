@@ -698,17 +698,20 @@ final class TemplateManagerModel {
         guard let name = UserTemplateKind.sanitizedName(from: rawName),
             let overrideRoot = overrides.overrideRoot
         else { return nil }
-        // A hook is the global composition asset (lands in `hooks/`, joins the selected
-        // component's membership); every other kind is owned by the active tier's subtree
-        // (#00078) — typed kinds under `<root>/<dir>`, typeless ones relative to the
-        // selected folder (which `addTargetStorageDir` already scope-prefixes).
+        // The content tree is a file manager: when a folder is selected, every kind is
+        // created inside it (what the user asked for). With no folder selected the kind
+        // falls back to its sensible home — a typed kind to its canonical dir within the
+        // scope (so docs/skills/agents stay functional by default), a typeless one to the
+        // scope root. A hook is always the global `hooks/` composition asset (+ wiring).
         let scope = activeScope
         let componentID = membershipComponentID(forKind: kind)
         let baseDir: String
         if kind == .hook {
             baseDir = kind.directory
-        } else if kind.usesTargetDirectory {
+        } else if let selected = selectedFile, selected.isDirectory {
             baseDir = addTargetStorageDir()
+        } else if kind.usesTargetDirectory {
+            baseDir = scope.storageRoot
         } else {
             baseDir = scope.storageRoot.isEmpty ? kind.directory : "\(scope.storageRoot)/\(kind.directory)"
         }

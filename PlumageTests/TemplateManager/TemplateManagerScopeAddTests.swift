@@ -97,6 +97,44 @@ struct TemplateManagerScopeAddTests {
                 atPath: ctx.override.appending(path: "templates/macOS/drafts").path))
     }
 
+    @Test("With a folder selected, every kind is created inside it")
+    func addInsideSelectedFolder() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "box")
+        #expect(TemplateManagerModel.findNode(in: ctx.model.contentTree, relativePath: "box") != nil)
+
+        func selectBox() {
+            ctx.model.selectedFile = TemplateManagerModel.findNode(
+                in: ctx.model.contentTree, relativePath: "box")
+        }
+
+        selectBox()
+        let doc = try #require(ctx.model.addUserFile(kind: .doc, rawName: "inside"))
+        #expect(doc.relativePath == "templates/macOS/box/inside.md")
+
+        selectBox()
+        let skill = try #require(ctx.model.addUserFile(kind: .skill, rawName: "myskill"))
+        #expect(skill.relativePath == "templates/macOS/box/myskill/SKILL.md")
+
+        selectBox()
+        let file = try #require(ctx.model.addUserFile(kind: .file, rawName: "raw.txt"))
+        #expect(file.relativePath == "templates/macOS/box/raw.txt")
+    }
+
+    @Test("With nothing/a file selected, typed kinds still default to their canonical dir")
+    func typedKindsDefaultToCanonical() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()  // auto-selects a config file, not a folder
+        let doc = try #require(ctx.model.addUserFile(kind: .doc, rawName: "notes"))
+        #expect(doc.relativePath == "templates/macOS/docs/notes.md")
+    }
+
     @Test("A typeless add clamps to scope when an out-of-scope file (the layer) is selected")
     func typelessAddClampsToComponentScope() throws {
         let ctx = makeModel()
