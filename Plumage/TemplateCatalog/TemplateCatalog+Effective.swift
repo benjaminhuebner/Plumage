@@ -22,6 +22,12 @@ nonisolated extension TemplateCatalog {
         return base.workflowHooks + sharedHooks
     }
 
+    // Each returned name maps store `configs/<name>` → project-root `.<name>`.
+    func effectiveConfigs(forTemplate templateID: String) -> [String] {
+        sharedComponents(forTemplate: templateID)
+            .flatMap { $0.files(ofKind: .config) }
+    }
+
     func effectiveGitignoreTags(forTemplate templateID: String) -> [String] {
         template(id: templateID)?.gitignoreTags ?? []
     }

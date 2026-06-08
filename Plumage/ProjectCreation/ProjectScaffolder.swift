@@ -109,7 +109,7 @@ nonisolated struct ProjectScaffolder {
             guard !fileManager.fileExists(atPath: dest.path) else { continue }
             try fileManager.createDirectory(
                 at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try writeResolved(overrides.resolveLooseFile(variants: variants), to: dest)
+            try overrides.resolveLooseFile(variants: variants).write(to: dest, using: fileManager)
         }
     }
 
@@ -130,7 +130,8 @@ nonisolated struct ProjectScaffolder {
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
         for (name, variants) in overrides.composedLooseFileVariants(category: "docs", roots: roots) {
-            try writeResolved(overrides.resolveLooseFile(variants: variants), to: docs.appending(path: name))
+            try overrides.resolveLooseFile(variants: variants)
+                .write(to: docs.appending(path: name), using: fileManager)
         }
 
         let issues = claude.appending(path: "issues", directoryHint: .isDirectory)
@@ -186,7 +187,8 @@ nonisolated struct ProjectScaffolder {
         let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
         for (name, variants) in selected {
-            try writeResolved(overrides.resolveLooseFile(variants: variants), to: agentsDir.appending(path: name))
+            try overrides.resolveLooseFile(variants: variants)
+                .write(to: agentsDir.appending(path: name), using: fileManager)
         }
     }
 
@@ -211,14 +213,13 @@ nonisolated struct ProjectScaffolder {
         try data.write(to: root.appending(path: ".mcp.json"))
     }
 
+    // Membership, not a hardcoded `isSwift`, decides which configs land — mirroring hooks.
     private func writeSwiftConfigs(spec: NewProjectSpec, root: URL) throws {
-        guard spec.kind.isSwift else { return }
-        try copy(
-            from: overrides.url(forRelative: "configs/swift-format"),
-            to: root.appending(path: ".swift-format"))
-        try copy(
-            from: overrides.url(forRelative: "configs/swiftlint.yml"),
-            to: root.appending(path: ".swiftlint.yml"))
+        for name in catalog.effectiveConfigs(forTemplate: spec.templateID) {
+            try copy(
+                from: overrides.url(forRelative: "configs/\(name)"),
+                to: root.appending(path: ".\(name)"))
+        }
     }
 
     private func writeGitignore(spec: NewProjectSpec, root: URL) throws {
@@ -250,13 +251,6 @@ nonisolated struct ProjectScaffolder {
     private func copy(from source: URL, to dest: URL, executable: Bool = false) throws {
         try fileManager.copyItem(at: source, to: dest)
         if executable { try ScaffoldOverrides.setExecutable(dest) }
-    }
-
-    private func writeResolved(_ resolved: ScaffoldOverrides.ResolvedLooseFile, to dest: URL) throws {
-        switch resolved {
-        case .copy(let source): try copy(from: source, to: dest)
-        case .merged(let data): try data.write(to: dest)
-        }
     }
 
     private func cleanup(root: URL, preExisted: Bool) {

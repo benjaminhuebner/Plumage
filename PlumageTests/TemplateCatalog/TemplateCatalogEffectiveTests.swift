@@ -37,6 +37,13 @@ struct TemplateCatalogEffectiveTests {
         #expect(catalog.effectiveXcodeMcpLine(forTemplate: kind.rawValue) == kind.profile.xcodeMcpLine)
     }
 
+    @Test(
+        "Effective configs: Swift kinds get swift-format + swiftlint.yml, others none", arguments: ProjectKind.allCases)
+    func effectiveConfigs(_ kind: ProjectKind) {
+        let expected = kind.isSwift ? ["swift-format", "swiftlint.yml"] : []
+        #expect(catalog.effectiveConfigs(forTemplate: kind.rawValue) == expected)
+    }
+
     @Test("Unknown template id resolves to empty/none, never crashes")
     func unknownTemplate() {
         #expect(catalog.effectiveLayers(forTemplate: "nope").isEmpty)

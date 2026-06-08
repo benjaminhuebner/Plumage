@@ -104,4 +104,38 @@ struct PlaceholderMergeTests {
         // `two` has no contribution, so its heading and placeholder line drop out.
         #expect(merged == "# Title\n\n## One\nalpha\n")
     }
+
+    // MARK: - Tolerant harvesting (legacy open-only layers, stray markers)
+
+    @Test("Tolerant blocks auto-close a legacy open-only block at the next open and at EOF")
+    func tolerantAutoCloses() throws {
+        let legacy = "%% CONVENTIONS %%\n- a\n%% PITFALLS %%\n- b"
+        let harvested = try PlaceholderMerge.blocks(in: legacy, tolerant: true)
+        #expect(harvested.map(\.keyword) == ["CONVENTIONS", "PITFALLS"])
+        #expect(harvested.map(\.body) == ["- a", "- b"])
+    }
+
+    @Test("resolvedBlocks recovers a legacy open-only contribution instead of throwing")
+    func resolvedBlocksTolerantOfLegacy() throws {
+        let resolved = try PlaceholderMerge.resolvedBlocks(from: [
+            "%% CONVENTIONS %%\n- keep me\n%% PITFALLS %%\n- and me"
+        ])
+        #expect(resolved["CONVENTIONS"] == "- keep me")
+        #expect(resolved["PITFALLS"] == "- and me")
+    }
+
+    @Test("A stray %% marker line in body no longer aborts the whole merge")
+    func strayMarkerDoesNotAbort() throws {
+        let merged = try PlaceholderMerge.merge(
+            skeleton: "## One\n<<<one>>>\n",
+            contributions: ["%% one %%\nreal\n%% stray %%\n"])
+        #expect(merged.contains("real"))
+    }
+
+    @Test("Strict blocks still throw on a legacy open-only block (validation primitive)")
+    func strictStillThrows() {
+        #expect(throws: PlaceholderMerge.MergeError.unclosedBlock(keyword: "CONVENTIONS")) {
+            try PlaceholderMerge.blocks(in: "%% CONVENTIONS %%\n- a\n%% PITFALLS %%\n- b")
+        }
+    }
 }

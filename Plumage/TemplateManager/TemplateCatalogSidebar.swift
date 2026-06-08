@@ -144,6 +144,9 @@ struct TemplateCatalogSidebar: View {
                 Button("Restore Defaults…", role: .destructive) {
                     model.isConfirmingRestoreAll = true
                 }
+                Button("Reset to Factory Defaults…", role: .destructive) {
+                    model.isConfirmingResetEverything = true
+                }
             } label: {
                 Label("Restore", systemImage: "arrow.uturn.backward")
             }
@@ -317,6 +320,20 @@ private struct TemplateSidebarDialogs: ViewModifier {
                 Text(
                     "Categories, templates and shared components return to the bundled defaults. "
                         + "Custom items are removed. Your file edits are kept.")
+            }
+            .confirmationDialog(
+                "Reset everything to factory defaults?",
+                isPresented: $model.isConfirmingResetEverything,
+                titleVisibility: .visible
+            ) {
+                Button("Reset to Factory Defaults", role: .destructive) {
+                    model.resetToFactoryDefaults()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "Everything returns to the bundled defaults: structure, all file edits, "
+                        + "files you added, and hook wiring. Removed files are moved to the Trash.")
             }
     }
 }

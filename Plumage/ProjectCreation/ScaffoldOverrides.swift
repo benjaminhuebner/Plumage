@@ -222,6 +222,17 @@ nonisolated struct ScaffoldOverrides: Sendable {
         try? FileManager.default.removeItem(at: tombstonesURL)
     }
 
+    // MARK: - Factory reset
+
+    // Trashes the whole store rather than deleting it, so a factory reset stays
+    // recoverable — mirroring custom-item delete (per-file `removeOverride` reverts
+    // only one bundled-backed file and can't drop user-authored ones).
+    func trashEntireStore() throws {
+        guard let overrideRoot else { throw ScaffoldOverridesError.noOverrideStore }
+        guard FileManager.default.fileExists(atPath: overrideRoot.path) else { return }
+        try FileManager.default.trashItem(at: overrideRoot, resultingItemURL: nil)
+    }
+
     // File names directly inside the override `<relativeDir>` directory, sorted.
     // Used for catalogs that have no bundled baseline (user-authored agents):
     // the set of files is whatever the user created. Empty when there is no
@@ -366,20 +377,9 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // MARK: - Scope-composed loose surfaces (#00078, shared by scaffolder + migrator)
 
-    // The loose files of a flat category (`docs`/`agents`) composed across `roots`, a
-    // later (more specific) root winning a name clash — the conflict rule is
-    // Base < Component < Template (#00084). Each entry pairs the output leaf name with
-    // the store-relative path of the winning copy. `roots` come from `looseSurfaceRoots`.
-    func composedLooseFiles(category: String, roots: [String]) -> [(name: String, relativePath: String)] {
-        composedLooseFileVariants(category: category, roots: roots).map {
-            ($0.name, $0.variants[$0.variants.count - 1])
-        }
-    }
-
-    // Like `composedLooseFiles`, but each entry keeps the ordered list of every
-    // contributing store path (earliest/least-specific root first), not just the
-    // winner. `resolveLooseFile` turns that list into final content — a placeholder
-    // merge when the skeleton carries `<<<…>>>`, else the file-level winner.
+    // Variants are ordered earliest/least-specific root first (conflict rule
+    // Base < Component < Template, #00084) because `resolveLooseFile` relies on that order:
+    // earliest is the merge skeleton, latest is the file-level winner.
     func composedLooseFileVariants(category: String, roots: [String]) -> [(name: String, variants: [String])] {
         var variants: [String: [String]] = [:]
         for root in roots {
@@ -393,6 +393,14 @@ nonisolated struct ScaffoldOverrides: Sendable {
     enum ResolvedLooseFile: Equatable {
         case copy(URL)  // file-level override winner, copied verbatim (also: binary files)
         case merged(Data)  // placeholder-merged text
+
+        // `.copy` stays a verbatim file copy so binary files survive unchanged.
+        func write(to dest: URL, using fileManager: FileManager = .default) throws {
+            switch self {
+            case .copy(let source): try fileManager.copyItem(at: source, to: dest)
+            case .merged(let data): try data.write(to: dest, options: .atomic)
+            }
+        }
     }
 
     // Resolve same-named `variants` (earliest root first) to final content. The earliest
@@ -407,7 +415,8 @@ nonisolated struct ScaffoldOverrides: Sendable {
             PlaceholderMerge.hasPlaceholders(skeleton)
         else { return .copy(url(forRelative: winnerRel)) }
 
-        let contributions = try variants.map { try string(atRelative: $0) }
+        // The skeleton (variants[0]) is already read; harvest the remaining variants too.
+        let contributions = try [skeleton] + variants.dropFirst().map { try string(atRelative: $0) }
         let merged = try PlaceholderMerge.merge(skeleton: skeleton, contributions: contributions)
         return .merged(Data(merged.utf8))
     }
@@ -421,16 +430,9 @@ nonisolated struct ScaffoldOverrides: Sendable {
         "templates", "components", "template-images", "configs",
     ]
 
-    // Arbitrary loose files (those outside the typed/composition namespaces) composed
-    // across `roots`, a later root winning a clash. Each entry pairs the project-relative
-    // output path (same as the store path within its scope) with the winning store path,
-    // so a project reproduces whatever tree the user built in the manager (#00078).
-    func composedArbitraryFiles(roots: [String]) -> [(output: String, relativePath: String)] {
-        composedArbitraryFileVariants(roots: roots).map { ($0.output, $0.variants[$0.variants.count - 1]) }
-    }
-
-    // Like `composedArbitraryFiles`, but each entry keeps the ordered list of every
-    // contributing store path (earliest root first) for `resolveLooseFile`.
+    // The arbitrary-file counterpart of `composedLooseFileVariants` (same earliest-first
+    // ordering), for files outside the typed/composition namespaces — the user's hand-built
+    // tree, reproduced verbatim at the project root (#00078).
     func composedArbitraryFileVariants(roots: [String]) -> [(output: String, variants: [String])] {
         var variants: [String: [String]] = [:]
         for root in roots {

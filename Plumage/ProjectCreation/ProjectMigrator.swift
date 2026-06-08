@@ -279,13 +279,11 @@ nonisolated struct ProjectMigrator {
     }
 
     private func writeSwiftConfigs(spec: NewProjectSpec, root: URL, into report: inout Report) throws {
-        guard spec.kind.isSwift else { return }
-        try copyIfMissing(
-            from: overrides.url(forRelative: "configs/swift-format"),
-            to: root.appending(path: ".swift-format"), rel: ".swift-format", into: &report)
-        try copyIfMissing(
-            from: overrides.url(forRelative: "configs/swiftlint.yml"),
-            to: root.appending(path: ".swiftlint.yml"), rel: ".swiftlint.yml", into: &report)
+        for name in catalog.effectiveConfigs(forTemplate: spec.templateID) {
+            try copyIfMissing(
+                from: overrides.url(forRelative: "configs/\(name)"),
+                to: root.appending(path: ".\(name)"), rel: ".\(name)", into: &report)
+        }
     }
 
     private func writeGitignore(spec: MigrationSpec, root: URL, into report: inout Report) throws {
@@ -378,10 +376,7 @@ nonisolated struct ProjectMigrator {
             report.skipped.append(rel)
             return
         }
-        switch try overrides.resolveLooseFile(variants: variants) {
-        case .copy(let source): try fileManager.copyItem(at: source, to: dest)
-        case .merged(let data): try data.write(to: dest, options: .atomic)
-        }
+        try overrides.resolveLooseFile(variants: variants).write(to: dest, using: fileManager)
         report.added.append(rel)
     }
 

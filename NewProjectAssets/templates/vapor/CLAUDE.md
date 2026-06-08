@@ -27,7 +27,3 @@
 - Auto-migration is convenient and dangerous. Hides production data loss. Write explicit migrations, in every environment.
 - Convert `EventLoopFuture` at boundaries; don't introduce new `EventLoopFuture` code in handlers.
 %% /PITFALLS %%
-
-%% PROJECT_TYPE_DESCRIPTION %%
-Vapor server-side Swift backend
-%% /PROJECT_TYPE_DESCRIPTION %%

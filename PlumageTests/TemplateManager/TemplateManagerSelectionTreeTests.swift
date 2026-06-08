@@ -38,6 +38,25 @@ struct TemplateManagerSelectionTreeTests {
         #expect(find(ctx.model.contentTree, [".claude", "hooks", "lint-swift.sh"]) != nil)
     }
 
+    @Test("Swift Shared owns the Swift tooling configs at the project root, not Base")
+    func swiftConfigsLiveOnSwiftSharedNotBase() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+        let format = try #require(find(ctx.model.contentTree, [".swift-format"]))
+        #expect(format.relativePath == "configs/swift-format")
+        #expect(find(ctx.model.contentTree, [".swiftlint.yml"])?.relativePath == "configs/swiftlint.yml")
+
+        // Base no longer carries them — it is the universal tier (applies to non-Swift
+        // kinds too), so Swift-only tooling configs don't belong there.
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        #expect(find(ctx.model.contentTree, [".swift-format"]) == nil)
+        #expect(find(ctx.model.contentTree, [".swiftlint.yml"]) == nil)
+    }
+
     @Test("A layer component shows its fragment as .claude/CLAUDE.md (not the layer name)")
     func layerComponentNamedClaudeMd() throws {
         let ctx = makeModel()

@@ -24,38 +24,53 @@ nonisolated enum PlaceholderMerge {
 
     // MARK: - Harvest
 
-    // The `%% keyword %% … %% /keyword %%` blocks in `contribution`, in source order.
-    // Each body is trimmed of surrounding blank lines. Text outside any block is
-    // ignored. Throws on an unclosed or dangling block — validation, never silent.
-    static func blocks(in contribution: String) throws -> [(keyword: String, body: String)] {
+    // Strict by default — an unclosed/dangling block throws so authoring errors surface.
+    // `tolerant` instead auto-closes at the next open or EOF, recovering legacy open-only
+    // `%% SECTION %%` layers and stray `%% word %%` body lines, so one malformed layer
+    // can't abort a whole scaffold.
+    static func blocks(
+        in contribution: String, tolerant: Bool = false
+    ) throws -> [(keyword: String, body: String)] {
         var result: [(keyword: String, body: String)] = []
         var open: (keyword: String, lines: [String])?
+        func flush() {
+            if let current = open { result.append((current.keyword, joinBody(current.lines))) }
+            open = nil
+        }
         for line in contribution.components(separatedBy: "\n") {
             switch blockMarker(ofLine: line) {
             case .open(let keyword):
-                if let open { throw MergeError.unclosedBlock(keyword: open.keyword) }
+                if let current = open {
+                    guard tolerant else { throw MergeError.unclosedBlock(keyword: current.keyword) }
+                    flush()
+                }
                 open = (keyword, [])
             case .close(let keyword):
-                guard let current = open, current.keyword == keyword else {
-                    throw MergeError.danglingClose(keyword: keyword)
+                if let current = open, current.keyword == keyword {
+                    result.append((keyword, joinBody(current.lines)))
+                    open = nil
+                } else {
+                    guard tolerant else { throw MergeError.danglingClose(keyword: keyword) }
+                    flush()
                 }
-                result.append((keyword, joinBody(current.lines)))
-                open = nil
             case nil:
                 open?.lines.append(line)
             }
         }
-        if let open { throw MergeError.unclosedBlock(keyword: open.keyword) }
+        guard tolerant else {
+            if let open { throw MergeError.unclosedBlock(keyword: open.keyword) }
+            return result
+        }
+        flush()
         return result
     }
 
-    // The harvested blocks of every contribution keyed by keyword, the bodies joined in
-    // contribution order. Empty bodies contribute nothing (no stray separator). Throws
-    // via `blocks` on any malformed block.
+    // Harvested tolerantly so a single malformed contribution degrades to best-effort
+    // rather than aborting the whole composition.
     static func resolvedBlocks(from contributions: [String]) throws -> [String: String] {
         var collected: [String: [String]] = [:]
         for contribution in contributions {
-            for block in try blocks(in: contribution) where !block.body.isEmpty {
+            for block in try blocks(in: contribution, tolerant: true) where !block.body.isEmpty {
                 collected[block.keyword, default: []].append(block.body)
             }
         }
