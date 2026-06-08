@@ -364,6 +364,34 @@ nonisolated struct ScaffoldOverrides: Sendable {
             .filter { !Self.isNoise($0) }
     }
 
+    // MARK: - Scope-composed loose surfaces (#00078, shared by scaffolder + migrator)
+
+    // The loose files of a flat category (`docs`/`agents`) composed across `roots`, a
+    // later (more specific) root winning a name clash — the conflict rule is
+    // Base < Template < Component. Each entry pairs the output leaf name with the
+    // store-relative path of the winning copy. `roots` come from `looseSurfaceRoots`.
+    func composedLooseFiles(category: String, roots: [String]) -> [(name: String, relativePath: String)] {
+        var winner: [String: String] = [:]
+        for root in roots {
+            let dir = root.isEmpty ? category : "\(root)/\(category)"
+            for name in unionFileNames(inRelativeDir: dir) { winner[name] = "\(dir)/\(name)" }
+        }
+        return winner.keys.sorted().compactMap { name in winner[name].map { (name, $0) } }
+    }
+
+    // The skill directories composed across `roots` plus the bundled workflow skills
+    // (which live at the base root only), later roots winning. Each entry pairs the
+    // skill name with the store-relative skill dir to copy via `copyResolvedTree`.
+    func composedSkillDirs(roots: [String]) -> [(name: String, relativeDir: String)] {
+        var winner: [String: String] = [:]
+        for name in Self.bundledSkillNames { winner[name] = "skills/\(name)" }
+        for root in roots {
+            let prefix = root.isEmpty ? "skills" : "\(root)/skills"
+            for name in overrideSkillDirNames(inRoot: root) { winner[name] = "\(prefix)/\(name)" }
+        }
+        return winner.keys.sorted().compactMap { name in winner[name].map { (name, $0) } }
+    }
+
     // MARK: - Resolved tree copy (shared by scaffolder + migrator)
 
     static let bundledSkillNames = ["plumage-plan", "plumage-implement", "plumage-review"]

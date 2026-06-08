@@ -157,10 +157,11 @@ nonisolated struct ProjectMigrator {
 
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
-        for doc in overrides.unionFileNames(inRelativeDir: "docs") {
+        let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
+        for (name, rel) in overrides.composedLooseFiles(category: "docs", roots: roots) {
             try copyIfMissing(
-                from: overrides.url(forRelative: "docs/\(doc)"),
-                to: docs.appending(path: doc), rel: ".claude/docs/\(doc)", into: &report)
+                from: overrides.url(forRelative: rel),
+                to: docs.appending(path: name), rel: ".claude/docs/\(name)", into: &report)
         }
 
         let issues = claude.appending(path: "issues", directoryHint: .isDirectory)
@@ -172,30 +173,28 @@ nonisolated struct ProjectMigrator {
             to: issues.appending(path: "_TEMPLATE.md"),
             rel: ".claude/issues/_TEMPLATE.md", into: &report)
 
-        try writeSkills(claude: claude, into: &report)
+        try writeSkills(templateID: spec.templateID, claude: claude, into: &report)
         try writeHooks(spec: spec, claude: claude, into: &report)
-        try writeAgents(claude: claude, into: &report)
+        try writeAgents(templateID: spec.templateID, claude: claude, into: &report)
         try writeSettings(templateID: spec.templateID, claude: claude, into: &report)
     }
 
-    private var skillNames: [String] {
-        let bundled = ScaffoldOverrides.bundledSkillNames
-        let userSkills = overrides.overrideSkillDirNames().filter { !bundled.contains($0) }
-        return bundled + userSkills
-    }
-
-    private func writeSkills(claude: URL, into report: inout Report) throws {
+    private func writeSkills(templateID: String, claude: URL, into report: inout Report) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        let skills = toggles.enabledNames(in: .skills, from: skillNames)
-        for skill in skills {
-            let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
-            let rel = ".claude/skills/\(skill)"
+        // Base ∪ template ∪ member-component skills, most-specific scope winning; the
+        // winning source is resolved first, then written only if the target is absent.
+        let composed = overrides.composedSkillDirs(
+            roots: catalog.looseSurfaceRoots(forTemplate: templateID))
+        let enabled = Set(toggles.enabledNames(in: .skills, from: composed.map(\.name)))
+        for (name, relDir) in composed where enabled.contains(name) {
+            let dest = skillsDir.appending(path: name, directoryHint: .isDirectory)
+            let rel = ".claude/skills/\(name)"
             if fileManager.fileExists(atPath: dest.path) {
                 report.skipped.append(rel)
                 continue
             }
-            try overrides.copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
+            try overrides.copyResolvedTree(relativeDir: relDir, to: dest)
             try ScaffoldOverrides.makeExecutable(
                 scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
             report.added.append(rel)
@@ -213,17 +212,20 @@ nonisolated struct ProjectMigrator {
         }
     }
 
-    // Agents parity with the scaffolder, additive: each enabled user agent is
-    // written only if it isn't already present in the target's `.claude/agents/`.
-    private func writeAgents(claude: URL, into report: inout Report) throws {
-        let enabled = toggles.enabledNames(
-            in: .agents, from: overrides.overrideFileNames(inRelativeDir: "agents"))
-        guard !enabled.isEmpty else { return }
+    // Agents parity with the scaffolder, additive: each enabled user agent (composed
+    // across the template's loose roots, #00078) is written only if it isn't already
+    // present in the target's `.claude/agents/`.
+    private func writeAgents(templateID: String, claude: URL, into report: inout Report) throws {
+        let composed = overrides.composedLooseFiles(
+            category: "agents", roots: catalog.looseSurfaceRoots(forTemplate: templateID))
+        let enabled = Set(toggles.enabledNames(in: .agents, from: composed.map(\.name)))
+        let selected = composed.filter { enabled.contains($0.name) }
+        guard !selected.isEmpty else { return }
         let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
-        for name in enabled {
+        for (name, rel) in selected {
             try copyIfMissing(
-                from: overrides.url(forRelative: "agents/\(name)"),
+                from: overrides.url(forRelative: rel),
                 to: agentsDir.appending(path: name),
                 rel: ".claude/agents/\(name)", into: &report)
         }

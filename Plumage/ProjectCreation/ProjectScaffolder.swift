@@ -106,8 +106,9 @@ nonisolated struct ProjectScaffolder {
 
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
-        for doc in overrides.unionFileNames(inRelativeDir: "docs") {
-            try copy(from: overrides.url(forRelative: "docs/\(doc)"), to: docs.appending(path: doc))
+        let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
+        for (name, rel) in overrides.composedLooseFiles(category: "docs", roots: roots) {
+            try copy(from: overrides.url(forRelative: rel), to: docs.appending(path: name))
         }
 
         let issues = claude.appending(path: "issues", directoryHint: .isDirectory)
@@ -120,7 +121,7 @@ nonisolated struct ProjectScaffolder {
 
         try writeSkills(spec: spec, claude: claude)
         try writeHooks(spec: spec, claude: claude)
-        try writeAgents(claude: claude)
+        try writeAgents(templateID: spec.templateID, claude: claude)
         try writeSettings(spec: spec, claude: claude)
     }
 
@@ -136,38 +137,34 @@ nonisolated struct ProjectScaffolder {
         try composer.localSettingsJSON().write(to: claude.appending(path: "settings.local.json"))
     }
 
-    // The bundled skills plus any override-only (user-authored) skill directories.
-    private var skillNames: [String] {
-        let bundled = ScaffoldOverrides.bundledSkillNames
-        let userSkills = overrides.overrideSkillDirNames().filter { !bundled.contains($0) }
-        return bundled + userSkills
-    }
-
     private func writeSkills(spec: NewProjectSpec, claude: URL) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        let skills = toggles.enabledNames(in: .skills, from: skillNames)
-        for skill in skills {
-            let dest = skillsDir.appending(path: skill, directoryHint: .isDirectory)
-            try overrides.copyResolvedTree(relativeDir: "skills/\(skill)", to: dest)
+        // Base ∪ template ∪ member-component skills, most-specific scope winning (#00078).
+        let composed = overrides.composedSkillDirs(
+            roots: catalog.looseSurfaceRoots(forTemplate: spec.templateID))
+        let enabled = Set(toggles.enabledNames(in: .skills, from: composed.map(\.name)))
+        for (name, relDir) in composed where enabled.contains(name) {
+            let dest = skillsDir.appending(path: name, directoryHint: .isDirectory)
+            try overrides.copyResolvedTree(relativeDir: relDir, to: dest)
             try ScaffoldOverrides.makeExecutable(
                 scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
         }
     }
 
-    // First-time agent scaffolding: Plumage ships no agents, so the catalog is the
-    // user's override `agents/` directory, filtered by the enable toggles. Written
-    // unconditionally into a fresh tree (the scaffolder owns the directory).
-    private func writeAgents(claude: URL) throws {
-        let enabled = toggles.enabledNames(
-            in: .agents, from: overrides.overrideFileNames(inRelativeDir: "agents"))
-        guard !enabled.isEmpty else { return }
+    // First-time agent scaffolding: Plumage ships no agents, so the catalog is the user's
+    // scope-owned `agents/` files unioned across the template's loose roots (#00078),
+    // filtered by the enable toggles. Written into a fresh tree (the scaffolder owns it).
+    private func writeAgents(templateID: String, claude: URL) throws {
+        let composed = overrides.composedLooseFiles(
+            category: "agents", roots: catalog.looseSurfaceRoots(forTemplate: templateID))
+        let enabled = Set(toggles.enabledNames(in: .agents, from: composed.map(\.name)))
+        let selected = composed.filter { enabled.contains($0.name) }
+        guard !selected.isEmpty else { return }
         let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
-        for name in enabled {
-            try copy(
-                from: overrides.url(forRelative: "agents/\(name)"),
-                to: agentsDir.appending(path: name))
+        for (name, rel) in selected {
+            try copy(from: overrides.url(forRelative: rel), to: agentsDir.appending(path: name))
         }
     }
 
