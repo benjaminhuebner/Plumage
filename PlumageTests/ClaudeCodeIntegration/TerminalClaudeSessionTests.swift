@@ -67,6 +67,25 @@ struct TerminalClaudeSessionTests {
         #expect(session.state == .running)
     }
 
+    @Test("injectBodyDelay stays essentially at the floor for short commands")
+    func injectBodyDelayFloor() {
+        let payloads = ["/plumage-implement my-slug", "\r"]
+        let delay = TerminalClaudeSession.injectBodyDelay(for: payloads)
+        #expect(delay >= TerminalClaudeSession.injectBodyDelayFloor)
+        // A short command adds only a few ms (its byte count / 8) — negligible.
+        #expect(delay < TerminalClaudeSession.injectBodyDelayFloor + .milliseconds(50))
+    }
+
+    @Test("injectBodyDelay scales above the floor for a long body")
+    func injectBodyDelayScales() {
+        let longBody = String(repeating: "x", count: 16 * 1024)
+        let short = TerminalClaudeSession.injectBodyDelay(for: ["short", "\r"])
+        let long = TerminalClaudeSession.injectBodyDelay(for: [longBody, "\r"])
+        #expect(long > short)
+        // 16 KB / 8 = 2048 ms above the floor.
+        #expect(long == TerminalClaudeSession.injectBodyDelayFloor + .milliseconds(2048))
+    }
+
     @Test("markExited classifies code 0 as userClosed")
     func exitZeroUserClosed() throws {
         let env = try TempEnv.make()

@@ -244,6 +244,18 @@ final class TerminalClaudeSession {
         return false
     }
 
+    // Gap to wait between an injected body and the submit \r. claude drains a
+    // long paste over several read() bursts; if the \r lands in the same burst
+    // as the body's tail, claude's paste heuristic eats it and nothing submits.
+    // Scale the gap with the largest payload (≈125 KB/s settle budget) so the
+    // body clears first. Short commands keep the 800 ms floor; the 64 KB token
+    // cap (WorkflowCommandResolver) bounds the worst case near 8 s.
+    nonisolated static let injectBodyDelayFloor: Duration = .milliseconds(800)
+    nonisolated static func injectBodyDelay(for payloads: [String]) -> Duration {
+        let maxBytes = payloads.map(\.utf8.count).max() ?? 0
+        return injectBodyDelayFloor + .milliseconds(maxBytes / 8)
+    }
+
     func registerStopHandler(_ handler: @escaping () -> Void) {
         stopHandler = handler
     }
