@@ -106,6 +106,49 @@ struct TemplateContentMoveTests {
         #expect(find(ctx.model.contentTree, ["box", "bla.md"]) != nil)
     }
 
+    @Test("moving a user folder into another folder relocates its whole subtree")
+    func userFolderMoveRelocates() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "src")
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "dst")
+        ctx.model.selectedFile = find(ctx.model.contentTree, ["src"])
+        _ = ctx.model.addUserFile(kind: .file, rawName: "f.txt")  // src/f.txt
+
+        let src = try #require(find(ctx.model.contentTree, ["src"]))
+        let dst = try #require(find(ctx.model.contentTree, ["dst"]))
+        ctx.model.moveNodes([src], into: dst)
+
+        #expect(
+            FileManager.default.fileExists(atPath: ctx.override.appending(path: "dst/src/f.txt").path))
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "src").path))
+        #expect(find(ctx.model.contentTree, ["dst", "src"]) != nil)
+    }
+
+    @Test("deleting a user folder is offered and trashes the whole folder")
+    func userFolderDelete() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "trashme")
+        ctx.model.selectedFile = find(ctx.model.contentTree, ["trashme"])
+        _ = ctx.model.addUserFile(kind: .file, rawName: "x.txt")
+
+        let folder = try #require(find(ctx.model.contentTree, ["trashme"]))
+        #expect(ctx.model.isUserAuthored(folder))  // a user folder is deletable
+        ctx.model.requestDelete(folder)
+        if ctx.model.pendingDeleteConfirmation != nil { ctx.model.confirmPendingDelete() }
+
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "trashme").path))
+        #expect(find(ctx.model.contentTree, ["trashme"]) == nil)
+    }
+
     @Test("moving a user hook out of hooks/ drops its wiring")
     func userHookMoveDropsWiring() throws {
         let ctx = makeModel()

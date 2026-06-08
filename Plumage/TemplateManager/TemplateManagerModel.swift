@@ -204,7 +204,15 @@ final class TemplateManagerModel {
     // rather than Reset to Default. A generated config is never user-authored — it
     // has a generated baseline, so it resets (regenerates) rather than deletes.
     func isUserAuthored(_ file: FileNode) -> Bool {
-        isUserAuthoredStore(file.relativePath)
+        isUserAuthoredStore(nodeStorePath(file))
+    }
+
+    // The override-store path of any tree node: a file leaf already carries it; a folder
+    // carries its *output* path, so it is mapped back through the active scope (#00078).
+    func nodeStorePath(_ node: FileNode) -> String {
+        node.isDirectory
+            ? Self.storageDir(forOutputFolder: node.relativePath, scope: activeScope)
+            : node.relativePath
     }
 
     // Store-path variant: a folder node carries its *output* path in `relativePath`, so
@@ -305,12 +313,18 @@ final class TemplateManagerModel {
     // The override URL to trash for a file: a user skill is its whole `skills/<name>`
     // directory; everything else is the single override file.
     private func deleteTarget(for file: FileNode) -> URL {
-        let fallback = overrides.overrideURL(forRelative: file.relativePath) ?? file.url
+        let storePath = nodeStorePath(file)
+        let fallback = overrides.overrideURL(forRelative: storePath) ?? file.url
         guard let overrideRoot = overrides.overrideRoot else { return fallback }
-        let components = file.relativePath.split(separator: "/")
+        let components = storePath.split(separator: "/")
         if components.count >= 2, components[0] == "skills" {
             return overrideRoot.appending(
                 path: "skills/\(components[1])", directoryHint: .isDirectory)
+        }
+        // A user folder is trashed whole at its store location (its `relativePath` is an
+        // output path, so `fallback` already resolves through `nodeStorePath`).
+        if file.isDirectory {
+            return overrideRoot.appending(path: storePath, directoryHint: .isDirectory)
         }
         return fallback
     }

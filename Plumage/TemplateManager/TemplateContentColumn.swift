@@ -229,10 +229,11 @@ struct TemplateContentColumn: View {
                     model.pendingHookWiring = node
                 }
             }
-            if model.isUserAuthored(node) {
-                Divider()
-                Button("Delete", role: .destructive) { model.requestDelete(node) }
-            }
+        }
+        // Delete is offered for any user-authored item, file or folder.
+        if model.isUserAuthored(node) {
+            Divider()
+            Button("Delete", role: .destructive) { model.requestDelete(node) }
         }
     }
 }
