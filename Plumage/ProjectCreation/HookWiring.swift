@@ -30,15 +30,33 @@ nonisolated enum HookEvent: String, Codable, Sendable, CaseIterable {
 // in the override store under `hooks/<name>.sh`.
 nonisolated struct HookWiring: Codable, Sendable, Equatable {
     let name: String
+    // The hook's on-disk filename under `hooks/` (e.g. `my-hook.py`). It drives the
+    // exact `settings.json` command path. Defaults to `<name>.sh`, so a call site that
+    // only knows the base name — and every legacy Bash wiring — keeps its identity.
+    let fileName: String
     let event: HookEvent
     let matcher: String?
 
-    init(name: String, event: HookEvent, matcher: String? = nil) {
+    init(name: String, event: HookEvent, matcher: String? = nil, fileName: String? = nil) {
         self.name = name
+        self.fileName = fileName ?? "\(name).sh"
         self.event = event
         // Normalise an empty/whitespace matcher to nil so it round-trips as
         // `matcher: null` rather than an empty string.
         let trimmed = matcher?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.matcher = (trimmed?.isEmpty == false) ? trimmed : nil
+    }
+
+    // Legacy `hook-wirings.json` predates `fileName`; a missing field decodes to the
+    // back-compat default `<name>.sh`, so existing Bash wirings round-trip unchanged.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let name = try container.decode(String.self, forKey: .name)
+        self.name = name
+        self.fileName = try container.decodeIfPresent(String.self, forKey: .fileName) ?? "\(name).sh"
+        self.event = try container.decode(HookEvent.self, forKey: .event)
+        let raw = try container.decodeIfPresent(String.self, forKey: .matcher)
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.matcher = (trimmed?.isEmpty == false) ? trimmed : nil
     }
 }

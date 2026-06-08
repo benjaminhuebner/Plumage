@@ -53,6 +53,35 @@ struct HookWiringStoreTests {
         #expect(throws: (any Error).self) { _ = try HookWiringStore.load(from: url) }
     }
 
+    @Test("A typed fileName is kept; the default derives from the name")
+    func fileNameDefaulting() {
+        #expect(HookWiring(name: "h", event: .stop).fileName == "h.sh")
+        #expect(HookWiring(name: "h", event: .stop, fileName: "h.py").fileName == "h.py")
+    }
+
+    @Test("Legacy JSON without fileName decodes to the <name>.sh default")
+    func legacyDecodeDefaultsFileName() throws {
+        let legacy = Data(
+            #"[{"name":"old-hook","event":"PreToolUse","matcher":"Bash"}]"#.utf8)
+        let wirings = try JSONDecoder().decode([HookWiring].self, from: legacy)
+        let wiring = try #require(wirings.first)
+        #expect(wiring.fileName == "old-hook.sh")
+        #expect(wiring.name == "old-hook")
+        #expect(wiring.matcher == "Bash")
+    }
+
+    @Test("A .py wiring round-trips its fileName through save and load")
+    func fileNameRoundTrips() throws {
+        let url = tmpURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = HookWiringStore(wirings: [
+            HookWiring(name: "py-hook", event: .stop, fileName: "py-hook.py")
+        ])
+        try store.save(to: url)
+        let loaded = try HookWiringStore.load(from: url)
+        #expect(loaded.wiring(named: "py-hook")?.fileName == "py-hook.py")
+    }
+
     @Test("upsert inserts then replaces by name")
     func upsertReplaces() {
         var store = HookWiringStore()
