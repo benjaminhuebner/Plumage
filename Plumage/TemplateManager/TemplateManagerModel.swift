@@ -526,7 +526,12 @@ final class TemplateManagerModel {
                 ? overrideRoot : overrideRoot.appending(path: directory, directoryHint: .isDirectory)
             do {
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-                let target = try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
+                // A file dropped into `hooks/` is unique by base name across extensions
+                // (the hook identity), so it walks the stem rather than the full name.
+                let target =
+                    directory == "hooks"
+                    ? try ClaudeProjectFiles.findFreeStemName(in: parent, base: plan.name)
+                    : try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
                 guard target.standardizedFileURL.path.hasPrefix(parent.standardizedFileURL.path + "/")
                 else {
                     rejected.append(url.lastPathComponent)
@@ -846,8 +851,11 @@ final class TemplateManagerModel {
                 beginEditing(node)
                 return node
             default:
+                // A hook is unique by base name across extensions, so `foo.py` can't
+                // shadow an existing `foo.sh` (and vice versa) — it walks to `foo-1`.
                 let url = try ClaudeProjectFiles.createFileAt(
-                    parent: parent, name: kind.fileName(forSanitized: name))
+                    parent: parent, name: kind.fileName(forSanitized: name),
+                    stemUnique: kind == .hook)
                 try kind.starter(forLeaf: url.lastPathComponent).write(
                     to: url, atomically: true, encoding: .utf8)
                 // A hook joining a component is registered by its base name (any ext).

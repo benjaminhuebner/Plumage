@@ -52,6 +52,26 @@ struct ClaudeProjectFilesTests {
         #expect(second.lastPathComponent == "intro-1.md")
     }
 
+    @Test("stemUnique createFileAt walks the base across extensions (foo.py vs foo.sh)")
+    func createFileAtStemUniqueWalksAcrossExtensions() throws {
+        let fixture = try ClaudeFilesFixture()
+        let target = fixture.root.appendingPathComponent(".claude/hooks", isDirectory: true)
+        let sh = try ClaudeProjectFiles.createFileAt(parent: target, name: "foo.sh", stemUnique: true)
+        let py = try ClaudeProjectFiles.createFileAt(parent: target, name: "foo.py", stemUnique: true)
+        #expect(sh.lastPathComponent == "foo.sh")
+        // The base name collides even though the extension differs — it walks to foo-1.
+        #expect(py.lastPathComponent == "foo-1.py")
+    }
+
+    @Test("findFreeStemName keeps a free base name and preserves the extension")
+    func findFreeStemNameKeepsFreeName() throws {
+        let fixture = try ClaudeFilesFixture()
+        let target = fixture.root.appendingPathComponent(".claude/hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let url = try ClaudeProjectFiles.findFreeStemName(in: target, base: "bar.py")
+        #expect(url.lastPathComponent == "bar.py")
+    }
+
     @Test("createFolderAt creates the directory and suffix-walks on collision")
     func createFolderAtCreates() throws {
         let fixture = try ClaudeFilesFixture()

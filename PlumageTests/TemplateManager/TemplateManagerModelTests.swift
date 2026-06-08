@@ -476,4 +476,16 @@ struct TemplateManagerModelTests {
         #expect(content.isEmpty)
         #expect(ctx.model.isHook(node))
     }
+
+    @Test("Adding foo.py when foo.sh exists walks the base so neither clobbers")
+    func crossExtensionCollisionWalksBase() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        try ctx.model.overrides.writeOverride("#!/bin/sh\n", toRelative: "hooks/foo.sh")
+
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "foo.py"))
+        #expect(node.relativePath == "hooks/foo-1.py")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/foo.sh"))  // original intact
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/foo-1.py"))
+    }
 }
