@@ -126,6 +126,7 @@ nonisolated struct ProjectMigrator {
         try writeMCPConfig(spec: adapter, root: root, into: &report)
         try writeSwiftConfigs(spec: adapter, root: root, into: &report)
         try writeGitignore(spec: spec, root: root, into: &report)
+        try writeArbitraryFiles(spec: adapter, root: root, into: &report)
         try await setupGit(spec: spec, root: root, repoState: repoState)
 
         return (
@@ -198,6 +199,19 @@ nonisolated struct ProjectMigrator {
             try ScaffoldOverrides.makeExecutable(
                 scriptsIn: dest.appending(path: "scripts", directoryHint: .isDirectory))
             report.added.append(rel)
+        }
+    }
+
+    // Reproduce the user's hand-built loose tree (files outside the typed/composition
+    // namespaces) at their project-relative positions, additively (#00078).
+    private func writeArbitraryFiles(spec: NewProjectSpec, root: URL, into report: inout Report) throws {
+        let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
+        for (output, store) in overrides.composedArbitraryFiles(roots: roots) {
+            let dest = root.appending(path: output)
+            try fileManager.createDirectory(
+                at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try copyIfMissing(
+                from: overrides.url(forRelative: store), to: dest, rel: output, into: &report)
         }
     }
 

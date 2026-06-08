@@ -379,6 +379,29 @@ nonisolated struct ScaffoldOverrides: Sendable {
         return winner.keys.sorted().compactMap { name in winner[name].map { (name, $0) } }
     }
 
+    // The typed/composition namespaces handled by their own scaffold steps; the
+    // arbitrary-file copy skips them so it only reproduces the user's hand-built tree.
+    // Mirrors the manager's `typedStoreTopLevel`.
+    static let compositionTopLevel: Set<String> = [
+        "hooks", "docs", "skills", "agents", "issues",
+        "templates", "components", "template-images", "configs", ".claude",
+    ]
+
+    // Arbitrary loose files (those outside the typed/composition namespaces) composed
+    // across `roots`, a later root winning a clash. Each entry pairs the project-relative
+    // output path (same as the store path within its scope) with the winning store path,
+    // so a project reproduces whatever tree the user built in the manager (#00078).
+    func composedArbitraryFiles(roots: [String]) -> [(output: String, relativePath: String)] {
+        var winner: [String: String] = [:]
+        for root in roots {
+            let excluded: Set<String> = root.isEmpty ? Self.compositionTopLevel : ["docs", "skills", "agents"]
+            for rel in overrideRootArbitraryFiles(inRoot: root, excludingTopLevel: excluded) {
+                winner[rel] = root.isEmpty ? rel : "\(root)/\(rel)"
+            }
+        }
+        return winner.keys.sorted().compactMap { out in winner[out].map { (out, $0) } }
+    }
+
     // The skill directories composed across `roots` plus the bundled workflow skills
     // (which live at the base root only), later roots winning. Each entry pairs the
     // skill name with the store-relative skill dir to copy via `copyResolvedTree`.

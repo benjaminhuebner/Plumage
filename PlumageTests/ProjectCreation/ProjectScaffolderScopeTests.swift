@@ -99,6 +99,30 @@ struct ProjectScaffolderScopeTests {
             try String(contentsOf: macDir.appending(path: ".claude/docs/c.md"), encoding: .utf8) == "COMP-C")
     }
 
+    @Test("A user's hand-built loose tree is reproduced in the project (#00078)")
+    func arbitraryLooseTreeIsScaffolded() async throws {
+        let ov = makeOverrideRoot()
+        defer { try? FileManager.default.removeItem(at: ov) }
+        try write("# box note", to: ov, rel: "mybox/note.md")  // base-scope arbitrary folder
+        try write("ed", to: ov, rel: ".editorconfig")  // base-scope arbitrary root file
+        try write("# t-box", to: ov, rel: "templates/macOS/tbox/deep.md")  // template-scope arbitrary
+
+        let macDir = try await create(.macOS, overrideRoot: ov)
+        let otherDir = try await create(.other, overrideRoot: ov)
+        defer {
+            try? FileManager.default.removeItem(at: macDir.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: otherDir.deletingLastPathComponent())
+        }
+        let fm = FileManager.default
+        // Base arbitrary reaches every project at the project root, preserving structure.
+        #expect(fm.fileExists(atPath: macDir.appending(path: "mybox/note.md").path))
+        #expect(fm.fileExists(atPath: macDir.appending(path: ".editorconfig").path))
+        #expect(fm.fileExists(atPath: otherDir.appending(path: "mybox/note.md").path))
+        // Template-scoped arbitrary reaches only its own template's projects.
+        #expect(fm.fileExists(atPath: macDir.appending(path: "tbox/deep.md").path))
+        #expect(!fm.fileExists(atPath: otherDir.appending(path: "tbox/deep.md").path))
+    }
+
     @Test("A component-owned skill scaffolds into member projects only")
     func componentSkillReachesMembersOnly() async throws {
         let ov = makeOverrideRoot()

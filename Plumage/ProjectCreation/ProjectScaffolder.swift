@@ -87,8 +87,23 @@ nonisolated struct ProjectScaffolder {
         try writeMCPConfig(spec: spec, root: root)
         try writeSwiftConfigs(spec: spec, root: root)
         try writeGitignore(spec: spec, root: root)
+        try writeArbitraryFiles(spec: spec, root: root)
         try await initGitIfRequested(spec: spec, root: root)
         return bundle
+    }
+
+    // Reproduce the user's hand-built loose tree — files outside the typed/composition
+    // namespaces, at their project-relative positions, composed across the template's
+    // scope roots (#00078). Generated configs already written win a name clash.
+    private func writeArbitraryFiles(spec: NewProjectSpec, root: URL) throws {
+        let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
+        for (output, store) in overrides.composedArbitraryFiles(roots: roots) {
+            let dest = root.appending(path: output)
+            guard !fileManager.fileExists(atPath: dest.path) else { continue }
+            try fileManager.createDirectory(
+                at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try copy(from: overrides.url(forRelative: store), to: dest)
+        }
     }
 
     // MARK: - .claude tree
