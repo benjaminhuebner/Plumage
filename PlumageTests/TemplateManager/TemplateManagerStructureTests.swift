@@ -265,4 +265,30 @@ struct TemplateManagerStructureTests {
         #expect(!ctx.model.catalog.templates.contains { $0.name == "Custom" })
         #expect(ctx.model.overrides.hasOverride(forRelative: "templates/CLAUDE.md"))
     }
+
+    @Test("Reset to Factory Defaults wipes custom items, file overrides and user files")
+    func resetToFactoryDefaultsWipesEverything() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        // An edit to a bundled-backed file, and a user-authored file with no baseline.
+        _ = try ctx.model.overrides.writeOverride("EDITED", toRelative: "templates/CLAUDE.md")
+        _ = try ctx.model.overrides.writeOverride("MINE", toRelative: "docs/CUSTOM.md")
+        let category = try #require(ctx.model.catalog.sortedCategories.first)
+        _ = ctx.model.addTemplate(
+            NewTemplateRequest(
+                name: "Custom", imageChoice: .symbol("doc"),
+                categoryID: category.id, startingPoint: .empty))
+        #expect(ctx.model.catalog != .bundledDefault)
+
+        ctx.model.resetToFactoryDefaults()
+        // An editor is mounted (addTemplate selected the new layer), so the wipe is
+        // deferred to the editor's discard callback — simulate it as the per-file
+        // reset tests do.
+        ctx.model.finishReset()
+
+        #expect(ctx.model.structuralError == nil)
+        #expect(ctx.model.catalog == .bundledDefault)
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "templates/CLAUDE.md"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/CUSTOM.md"))
+    }
 }

@@ -23,7 +23,7 @@ struct ScaffoldOverridesTests {
         try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    @Test("composedLooseFiles: the template root wins a name clash over a member component (#00084)")
+    @Test("composedLooseFileVariants: variants order earliest-first, the template root winning (#00084)")
     func composedLooseFilesTemplateWinsClash() throws {
         let tree = try makeTree()
         defer { tree.cleanup() }
@@ -32,19 +32,60 @@ struct ScaffoldOverridesTests {
         try write("TMPL", to: tree.override, rel: "templates/t1/docs/x.md")
         let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
         // Roots in precedence order: base, member component, template (template last = wins).
-        let composed = overrides.composedLooseFiles(category: "docs", roots: ["", "components/c1", "templates/t1"])
-        let winner = try #require(composed.first { $0.name == "x.md" })
-        #expect(winner.relativePath == "templates/t1/docs/x.md")
+        let composed = overrides.composedLooseFileVariants(
+            category: "docs", roots: ["", "components/c1", "templates/t1"])
+        let entry = try #require(composed.first { $0.name == "x.md" })
+        #expect(entry.variants == ["docs/x.md", "components/c1/docs/x.md", "templates/t1/docs/x.md"])
+        #expect(entry.variants.last == "templates/t1/docs/x.md")
     }
 
-    @Test("composedArbitraryFiles reproduces a real .claude/ loose file (#00084)")
+    @Test("composedArbitraryFileVariants reproduces a real .claude/ loose file (#00084)")
     func composedArbitraryFilesIncludesClaude() throws {
         let tree = try makeTree()
         defer { tree.cleanup() }
         try write("X", to: tree.override, rel: ".claude/bla.md")
         let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
-        let composed = overrides.composedArbitraryFiles(roots: [""])
-        #expect(composed.contains { $0.output == ".claude/bla.md" && $0.relativePath == ".claude/bla.md" })
+        let composed = overrides.composedArbitraryFileVariants(roots: [""])
+        #expect(composed.contains { $0.output == ".claude/bla.md" && $0.variants == [".claude/bla.md"] })
+    }
+
+    @Test("resolveLooseFile merges a placeholder skeleton with a later layer's block")
+    func resolveLooseFilePlaceholderMerge() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        // Base skeleton carries a `<<<refs>>>` placeholder; the template layer fills it.
+        try write("# Doc\n\n## Refs\n<<<refs>>>\n", to: tree.override, rel: "docs/x.md")
+        try write("%% refs %%\n- one\n- two\n%% /refs %%\n", to: tree.override, rel: "templates/t1/docs/x.md")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "x.md" }?.variants)
+        #expect(variants == ["docs/x.md", "templates/t1/docs/x.md"])
+
+        guard case .merged(let data) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected a merged placeholder result")
+            return
+        }
+        #expect(String(decoding: data, as: UTF8.self) == "# Doc\n\n## Refs\n- one\n- two\n")
+    }
+
+    @Test("resolveLooseFile keeps the file-level winner when the skeleton has no placeholder")
+    func resolveLooseFileNoPlaceholderKeepsWinner() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("BASE", to: tree.override, rel: "docs/x.md")
+        try write("TMPL", to: tree.override, rel: "templates/t1/docs/x.md")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "x.md" }?.variants)
+        guard case .copy(let url) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected a file-level copy result")
+            return
+        }
+        #expect(url == overrides.url(forRelative: "templates/t1/docs/x.md"))
     }
 
     @Test("Absent override resolves to the bundled file")

@@ -39,6 +39,30 @@ struct BaseEditingReflectionTests {
         #expect(output.claudeMd.contains("Acme"))
     }
 
+    @Test("A new Base placeholder outside the old four sections is filled by a layer block")
+    func arbitraryPlaceholderReflects() throws {
+        let context = try makeOverrides()
+        defer { context.cleanup() }
+        // The manager writes both edits to the override store the composer reads from:
+        // a brand-new `<<<refdocs>>>` placeholder under `## Reference docs` in the base
+        // skeleton, and a matching `%% refdocs %%` block in an active layer.
+        _ = try context.overrides.writeOverride(
+            "# <<<PROJECT_NAME>>>\n\n## Reference docs\n<<<refdocs>>>\n",
+            toRelative: "templates/CLAUDE.md")
+        _ = try context.overrides.writeOverride(
+            "%% refdocs %%\n- PROJECT.md — read first\n%% /refdocs %%\n",
+            toRelative: "templates/macos/CLAUDE.md")
+
+        let composer = ClaudeMdComposer(overrides: context.overrides)
+        let output = try composer.compose(
+            spec: NewProjectSpec(
+                kind: .macOS, name: "Acme", tagline: "t",
+                projectDirectory: URL(filePath: "/tmp/x")))
+
+        #expect(output.claudeMd.contains("## Reference docs\n- PROJECT.md — read first"))
+        #expect(!output.claudeMd.contains("<<<"))
+    }
+
     @Test("Without a Base override the bundled base is used (edit is opt-in)")
     func bundledBaseWhenUnedited() throws {
         let context = try makeOverrides()

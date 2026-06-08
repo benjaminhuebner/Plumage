@@ -144,10 +144,12 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         }
         // One-time, idempotent store migrations, in order: first move flat layer
         // overrides to the folder-per-layer layout (#00071 D1) so saved layer edits keep
-        // applying, then move user-authored component skills into scope ownership
-        // (#00078). Both are pure file I/O; the second runs after the first.
+        // applying, then rewrite legacy open-only layer blocks to the closed-marker
+        // format (#00082) so they still fill placeholders, then move user-authored
+        // component skills into scope ownership (#00078). All pure file I/O, in sequence.
         Task.detached(priority: .utility) {
             TemplateOverrideMigration.migrateStandard()
+            TemplateLayerFormatMigration.migrateStandard()
             LooseFileScopeMigration.migrateStandard()
         }
     }

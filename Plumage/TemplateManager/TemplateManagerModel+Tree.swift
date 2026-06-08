@@ -60,7 +60,7 @@ extension TemplateManagerModel {
         switch item {
         case .base:
             return surfaceSpecs(
-                scope: .base, showsConfigs: true,
+                scope: .base, showsCompositionSlots: true,
                 hookFiles: hookLeafFileNames(effectiveBases: catalog.base.workflowHooks),
                 claudeMdStorage: catalog.base.claudeMdRelativePath)
         case .template(let id):
@@ -76,7 +76,7 @@ extension TemplateManagerModel {
                         output: ".claude/CLAUDE.md",
                         relative: ScaffoldOverrides.layerRelativePath(ownLayer), name: "CLAUDE.md"))
             }
-            specs += surfaceSpecs(scope: .template(id), showsConfigs: false)
+            specs += surfaceSpecs(scope: .template(id), showsCompositionSlots: false)
             return specs
         case .sharedComponent(let id):
             guard let component = catalog.sharedComponent(id: id) else { return [] }
@@ -238,14 +238,13 @@ extension TemplateManagerModel {
         }
     }
 
-    // The project surfaces in their output positions. `showsConfigs` adds the generated
-    // configs and composition slots (CLAUDE.md → `claudeMdStorage`, hooks, issues) for
-    // Base/Templates; a Component passes `false` and supplies those from its manifest.
-    // The loose surfaces (docs/skills/agents/arbitrary) are always read inside the
-    // scope's store root so they belong to one tier only (#00078); their output stays
-    // `.claude/...`, only `relative` carries the scope prefix. De-duplicates by output.
+    // `showsCompositionSlots` gates the CLAUDE.md/hooks/issues slots only — generated
+    // project configs are added by the caller (`showsConfigs(item)`) and Swift tooling
+    // configs are component-owned, so neither belongs here despite the historical coupling.
+    // Loose surfaces are read inside the scope's store root so a file belongs to one tier
+    // only (#00078).
     private func surfaceSpecs(
-        scope: ManagerScope, showsConfigs: Bool, hookFiles: [String] = [],
+        scope: ManagerScope, showsCompositionSlots: Bool, hookFiles: [String] = [],
         claudeMdStorage: String? = nil
     ) -> [LeafSpec] {
         var specs: [LeafSpec] = []
@@ -264,7 +263,7 @@ extension TemplateManagerModel {
                     name: name ?? (output as NSString).lastPathComponent))
         }
 
-        if showsConfigs {
+        if showsCompositionSlots {
             if let claudeMdStorage {
                 add(output: ".claude/CLAUDE.md", relative: claudeMdStorage, name: "CLAUDE.md")
             }
@@ -280,11 +279,8 @@ extension TemplateManagerModel {
         for agent in overrides.overrideFileNames(inRelativeDir: scoped("agents")) {
             add(output: ".claude/agents/\(agent)", relative: scoped("agents/\(agent)"))
         }
-        if showsConfigs {
-            // Bundled Swift tooling configs land at the project root.
-            add(output: ".swift-format", relative: "configs/swift-format")
-            add(output: ".swiftlint.yml", relative: "configs/swiftlint.yml")
-        }
+        // Swift tooling configs (.swift-format/.swiftlint.yml) are owned by the Swift
+        // Shared component now, not Base — they render under that component's tree.
         // Arbitrary user-authored files anywhere outside the typed category dirs show at
         // their output position (e.g. `.editorconfig` at root, or `myfolder/x.txt` inside
         // a user-created folder), minus the generated configs already shown as nodes.
@@ -328,14 +324,16 @@ extension TemplateManagerModel {
                             relative: "skills/\(name)/\(sub)", name: (sub as NSString).lastPathComponent))
                 }
             case .config:
+                // Component-owned tooling configs land at the project root (e.g.
+                // swift-format → .swift-format), not under .claude/.
                 specs.append(
-                    LeafSpec(output: ".claude/\(name)", relative: "configs/\(name)", name: name))
+                    LeafSpec(output: ".\(name)", relative: "configs/\(name)", name: ".\(name)"))
             }
         }
         let composition = specs.filter { !suppressed.contains($0.relative) }
         // The component's own loose files (docs/skills/agents/arbitrary) under
         // `components/<id>/` — no project configs, no CLAUDE.md/hook slots.
-        let loose = surfaceSpecs(scope: .component(component.id), showsConfigs: false)
+        let loose = surfaceSpecs(scope: .component(component.id), showsCompositionSlots: false)
         return composition + loose
     }
 
