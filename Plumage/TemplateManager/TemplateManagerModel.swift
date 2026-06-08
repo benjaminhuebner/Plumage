@@ -659,11 +659,19 @@ final class TemplateManagerModel {
     // dropped-on row) or the current selection — a folder targets itself, a file its
     // parent, and nothing selected the active tier's scope root (#00078). A file leaf's
     // `relativePath` is already a scoped store path; a folder's is an output path mapped
-    // back through the active scope.
+    // back through the active scope. A selected node *outside* the active scope subtree
+    // (e.g. a component's layer `CLAUDE.md` under `templates/<layer>`, or a global
+    // config) would pull a new loose item out of its tier — so the result is clamped
+    // back to the scope root, keeping loose files where they belong.
     func addTargetStorageDir(for node: FileNode? = nil) -> String {
-        guard let ref = node ?? selectedFile else { return activeScope.storageRoot }
-        if ref.isDirectory { return Self.storageDir(forOutputFolder: ref.relativePath, scope: activeScope) }
-        return (ref.relativePath as NSString).deletingLastPathComponent
+        let root = activeScope.storageRoot
+        guard let ref = node ?? selectedFile else { return root }
+        let dir =
+            ref.isDirectory
+            ? Self.storageDir(forOutputFolder: ref.relativePath, scope: activeScope)
+            : (ref.relativePath as NSString).deletingLastPathComponent
+        guard !root.isEmpty else { return dir }
+        return (dir == root || dir.hasPrefix(root + "/")) ? dir : root
     }
 
     // The content-tree node carrying `url` (a folder's synthetic output URL or a file

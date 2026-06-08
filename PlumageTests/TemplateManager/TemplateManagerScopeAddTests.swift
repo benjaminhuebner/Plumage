@@ -97,6 +97,40 @@ struct TemplateManagerScopeAddTests {
                 atPath: ctx.override.appending(path: "templates/macOS/drafts").path))
     }
 
+    @Test("A typeless add clamps to scope when an out-of-scope file (the layer) is selected")
+    func typelessAddClampsToComponentScope() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        // The component's layer CLAUDE.md lives under templates/<layer> — outside the
+        // component's components/<id> subtree. Selecting it (as refreshContent does by
+        // default) must not pull a new loose folder out into the shared layer namespace.
+        ctx.model.selectedFile = FileNode(
+            url: ctx.override, relativePath: "templates/swift-shared/CLAUDE.md",
+            name: "CLAUDE.md", isDirectory: false, children: nil)
+        #expect(ctx.model.addTargetStorageDir() == "components/swift-shared")
+
+        let node = try #require(ctx.model.addUserFile(kind: .folder, rawName: "drafts"))
+        #expect(node.relativePath == "drafts")
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "components/swift-shared/drafts").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "templates/swift-shared/drafts").path))
+    }
+
+    @Test("A typeless add still targets a selected folder inside the active scope")
+    func typelessAddRespectsInScopeFolder() {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.selectedFile = FileNode(
+            url: ctx.override, relativePath: ".claude/docs", name: "docs",
+            isDirectory: true, children: nil)
+        #expect(ctx.model.addTargetStorageDir() == "templates/macOS/docs")
+    }
+
     @Test("Dropping a skill onto a component stores it in the component's scope, no membership")
     func dropSkillOntoComponentIsScoped() throws {
         let ctx = makeModel()
