@@ -15,7 +15,9 @@ struct TemplateContentColumn: View {
         List(selection: $model.selectedFile) {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
-                    ForEach(model.contentTree) { contentRow($0) }
+                    ForEach(visibleRows(), id: \.node.id) { row in
+                        contentRow(row.node, depth: row.depth)
+                    }
                 }
             }
 
@@ -107,34 +109,54 @@ struct TemplateContentColumn: View {
         }
     }
 
-    // Recursive tree row. A folder is a `DisclosureGroup` whose expansion is model-
-    // driven (so a freshly created item's ancestors can be revealed); a file is a plain
-    // row. `AnyView` breaks the otherwise-infinite recursive return type. Every row keeps
-    // the same selection tag, drag source and drop target as the flat list had.
-    private func contentRow(_ node: FileNode) -> AnyView {
-        if let children = node.children {
-            return AnyView(
-                DisclosureGroup(
-                    isExpanded: Binding(
-                        get: { model.isNodeExpanded(node.id) },
-                        set: { model.setNode(node.id, expanded: $0) })
-                ) {
-                    ForEach(children) { contentRow($0) }
-                } label: {
-                    decoratedRow(node)
-                })
-        }
-        return AnyView(decoratedRow(node))
+    // One row per visible node. A `DisclosureGroup` label is not a reliable drop target,
+    // so the tree is a flat `List` of rows with manual indentation and a disclosure
+    // chevron — `.draggable`/`.dropDestination` then work on every row exactly as the old
+    // `OutlineGroup` did, while expansion stays model-driven so created/moved items reveal.
+    private struct VisibleRow {
+        let node: FileNode
+        let depth: Int
     }
 
-    private func decoratedRow(_ node: FileNode) -> some View {
-        fileRow(node)
-            .tag(node)
-            .contextMenu { rowMenu(node) }
-            .draggable(FileTreeDragPayload(url: node.url))
-            .dropDestination(for: DroppableTreeItem.self) { items, _ in
-                return handleDrop(items, onto: node)
+    private func visibleRows() -> [VisibleRow] {
+        var rows: [VisibleRow] = []
+        func walk(_ nodes: [FileNode], _ depth: Int) {
+            for node in nodes {
+                rows.append(VisibleRow(node: node, depth: depth))
+                if let children = node.children, model.isNodeExpanded(node.id) {
+                    walk(children, depth + 1)
+                }
             }
+        }
+        walk(model.contentTree, 0)
+        return rows
+    }
+
+    private func contentRow(_ node: FileNode, depth: Int) -> some View {
+        HStack(spacing: 4) {
+            if node.children != nil {
+                Button {
+                    model.setNode(node.id, expanded: !model.isNodeExpanded(node.id))
+                } label: {
+                    Image(systemName: model.isNodeExpanded(node.id) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear.frame(width: 12)
+            }
+            fileRow(node)
+        }
+        .padding(.leading, CGFloat(depth) * 14)
+        .tag(node)
+        .contentShape(Rectangle())
+        .contextMenu { rowMenu(node) }
+        .draggable(FileTreeDragPayload(url: node.url))
+        .dropDestination(for: DroppableTreeItem.self) { items, _ in
+            return handleDrop(items, onto: node)
+        }
     }
 
     // Internal nodes move into the row's folder, Finder URLs import there. `moveNodes`
