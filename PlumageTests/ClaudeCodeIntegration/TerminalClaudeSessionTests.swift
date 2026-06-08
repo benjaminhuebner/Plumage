@@ -72,7 +72,6 @@ struct TerminalClaudeSessionTests {
         let payloads = ["/plumage-implement my-slug", "\r"]
         let delay = TerminalClaudeSession.injectBodyDelay(for: payloads)
         #expect(delay >= TerminalClaudeSession.injectBodyDelayFloor)
-        // A short command adds only a few ms (its byte count / 8) — negligible.
         #expect(delay < TerminalClaudeSession.injectBodyDelayFloor + .milliseconds(50))
     }
 

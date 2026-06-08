@@ -595,13 +595,8 @@ struct ProjectWindow: View {
             [line.replacingOccurrences(of: "\r", with: ""), "\r"]
         }
 
-        // claude ingests a long pasted body (an inlined Plan prompt, often with
-        // blank lines) over several read() bursts. The submit \r is enqueued as
-        // its own write, but with a fixed 800 ms gap it can still land in the
-        // same burst as the body's tail on a long prompt — claude's paste
-        // heuristic then swallows it as a literal newline and nothing submits.
-        // Scale the gap with the largest body so it fully drains first; short
-        // workflow commands keep the 800 ms floor.
+        // A long body needs a wider gap before the submit \r or claude's paste
+        // heuristic eats it — see TerminalClaudeSession.injectBodyDelay.
         let bodyDelay = TerminalClaudeSession.injectBodyDelay(for: payloads)
 
         workflowTask = Task { @MainActor in

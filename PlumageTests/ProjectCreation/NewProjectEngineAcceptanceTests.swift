@@ -117,8 +117,7 @@ struct NewProjectEngineAcceptanceTests {
         #expect(ignore.contains(".DS_Store"))  // macOS, always
         #expect(ignore.contains("DerivedData/"))  // xcode
         #expect(ignore.contains(".build/"))  // swift
-        // Plumage's ephemeral state lives in .git/info/exclude, never the shared .gitignore.
-        #expect(!ignore.contains(".plumage/"))
+        #expect(!ignore.contains(".plumage/"))  // ephemeral state lives in .git/info/exclude
     }
 
     @Test("git exclude: committed bundle (plumageInGit) excludes only the ephemeral subfolders")
