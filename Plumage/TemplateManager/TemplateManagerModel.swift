@@ -67,6 +67,10 @@ final class TemplateManagerModel {
     // the user types its name immediately (the Finder new-folder idiom).
     var categoryRename: CategoryRename?
 
+    // A non-nil `contentRename` puts that content-tree row into an inline rename
+    // `TextField` (Return on a selected user file/folder, the Finder idiom).
+    var contentRename: ContentRename?
+
     // Drives the "New Template" sheet (name + image + starting point + category).
     var isAddingTemplate = false
 
@@ -321,6 +325,57 @@ final class TemplateManagerModel {
             return overrideRoot.appending(path: storePath, directoryHint: .isDirectory)
         }
         return fallback
+    }
+
+    // MARK: - Inline rename (content tree)
+
+    // Enter rename on a user-authored row (Return / context menu). Bundled-backed files
+    // and generated configs can't be renamed — only items the user created.
+    func beginRenameContent(_ node: FileNode) {
+        guard isUserAuthored(node) else { return }
+        contentRename = ContentRename(
+            id: node.id, storePath: nodeStorePath(node),
+            isDirectory: node.isDirectory, name: node.name)
+    }
+
+    func cancelContentRename() { contentRename = nil }
+
+    // Commit the inline rename: relocate the override file/folder to the new leaf name in
+    // the same directory (extension preserved for stem-only input, collision suffix-
+    // walked), carry hook wiring, and re-select the renamed row. A no-op on an unchanged
+    // or invalid name keeps the row as-is.
+    func commitContentRename() {
+        guard let rename = contentRename else { return }
+        contentRename = nil
+        guard let overrideRoot = overrides.overrideRoot else { return }
+        let sourceURL = overrideRoot.appending(path: rename.storePath)
+        guard FileManager.default.fileExists(atPath: sourceURL.path),
+            let newURL = try? ClaudeProjectFiles.renameFile(at: sourceURL, to: rename.name)
+        else { return }
+        let parentDir = (rename.storePath as NSString).deletingLastPathComponent
+        let newLeaf = newURL.lastPathComponent
+        let newStorePath = parentDir.isEmpty ? newLeaf : "\(parentDir)/\(newLeaf)"
+        guard newStorePath != rename.storePath else { return }
+        followHookWiring(from: rename.storePath, to: newStorePath)
+        overriddenPaths.remove(rename.storePath)
+        refreshContent()
+        if rename.isDirectory {
+            selectedFile = Self.outputPath(forStorageDir: newStorePath, scope: activeScope)
+                .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
+        } else {
+            selectedFile = contentFiles.first { $0.relativePath == newStorePath }
+        }
+        beginEditing(selectedFile)
+    }
+
+    // Backspace / Delete on the selected row.
+    func deleteSelected() {
+        if let file = selectedFile { requestDelete(file) }
+    }
+
+    // Return on the selected row.
+    func renameSelected() {
+        if let file = selectedFile { beginRenameContent(file) }
     }
 
     // MARK: - Hook wiring
@@ -829,6 +884,16 @@ final class TemplateManagerModel {
 // `name` is bound by the header's `TextField`.
 struct CategoryRename: Identifiable, Equatable {
     let id: String
+    var name: String
+}
+
+// Inline-rename session for a content-tree row. `id` is the node id; `storePath` is the
+// override-store path of the file/folder being renamed; `name` is bound by the row's
+// `TextField`.
+struct ContentRename: Identifiable, Equatable {
+    let id: String
+    let storePath: String
+    let isDirectory: Bool
     var name: String
 }
 

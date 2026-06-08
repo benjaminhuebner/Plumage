@@ -149,6 +149,56 @@ struct TemplateContentMoveTests {
         #expect(find(ctx.model.contentTree, ["trashme"]) == nil)
     }
 
+    @Test("Renaming a user file relocates the override (extension preserved) and re-selects it")
+    func renameUserFile() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        let node = try #require(ctx.model.addUserFile(kind: .doc, rawName: "old"))  // docs/old.md
+
+        ctx.model.beginRenameContent(node)
+        ctx.model.contentRename?.name = "new"  // stem only → keeps .md
+        ctx.model.commitContentRename()
+
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/new.md"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/old.md"))
+        #expect(ctx.model.selectedFile?.relativePath == "docs/new.md")
+        #expect(ctx.model.contentRename == nil)
+    }
+
+    @Test("Renaming a user folder relocates the whole folder")
+    func renameUserFolder() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "box")
+        let box = try #require(find(ctx.model.contentTree, ["box"]))
+
+        ctx.model.beginRenameContent(box)
+        ctx.model.contentRename?.name = "crate"
+        ctx.model.commitContentRename()
+
+        #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: "crate").path))
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "box").path))
+        #expect(find(ctx.model.contentTree, ["crate"]) != nil)
+    }
+
+    @Test("A bundled-backed row cannot be renamed")
+    func renameRejectsBundled() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        let bundled = try #require(
+            find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]))
+        ctx.model.beginRenameContent(bundled)
+        #expect(ctx.model.contentRename == nil)  // not user-authored → no rename session
+    }
+
     @Test("moving a user hook out of hooks/ drops its wiring")
     func userHookMoveDropsWiring() throws {
         let ctx = makeModel()
