@@ -8,7 +8,7 @@ import Foundation
 nonisolated enum TemplateContentDropResolver {
     // Override-store namespaces that back the tree's internals rather than a movable
     // user surface — dropping onto them (or onto a file living in them) is rejected.
-    static let nonTargetStoreRoots: Set<String> = ["configs", "templates", "template-images"]
+    static let nonTargetStoreRoots: Set<String> = ["configs", "templates", "components", "template-images"]
 
     // The override-store path of a node: a folder's output path mapped back to the
     // store, a file leaf's already-stored relative path.
