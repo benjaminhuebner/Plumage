@@ -1,0 +1,122 @@
+import Foundation
+import Testing
+
+@testable import Plumage
+
+// Authoring writes into the active tier's scope root, and only a hook still joins a
+// component's manifest membership (#00078).
+@MainActor
+@Suite("TemplateManager scope-rooted authoring (#00078)")
+struct TemplateManagerScopeAddTests {
+    private func makeModel() -> (model: TemplateManagerModel, override: URL, cleanup: () -> Void) {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appending(
+            path: "TMScopeAdd-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let bundled = base.appending(path: "bundled", directoryHint: .isDirectory)
+        let override = base.appending(path: "override", directoryHint: .isDirectory)
+        try? fm.createDirectory(at: bundled, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: override, withIntermediateDirectories: true)
+        let model = TemplateManagerModel(
+            store: TemplateCatalogStore(manifestURL: base.appending(path: "manifest.json")),
+            overrides: ScaffoldOverrides(bundledRoot: bundled, overrideRoot: override),
+            hookWiringStoreURL: base.appending(path: "hooks.json"))
+        return (model, override, { try? fm.removeItem(at: base) })
+    }
+
+    @Test("A doc authored under a template lands in that template's scope")
+    func addDocInTemplateScope() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+
+        let node = try #require(ctx.model.addUserFile(kind: .doc, rawName: "notes"))
+        #expect(node.relativePath == "templates/macOS/docs/notes.md")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "templates/macOS/docs/notes.md"))
+        // It belongs to that template only — no sibling template owns it.
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "templates/iOS/docs/notes.md"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/notes.md"))
+    }
+
+    @Test("A doc authored under a component lands in its subtree, with no manifest membership")
+    func addDocInComponentScopeNoMembership() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+        let filesBefore = ctx.model.catalog.sharedComponent(id: "swift-shared")?.files
+
+        let node = try #require(ctx.model.addUserFile(kind: .doc, rawName: "notes"))
+        #expect(node.relativePath == "components/swift-shared/docs/notes.md")
+        #expect(ctx.model.catalog.sharedComponent(id: "swift-shared")?.files == filesBefore)
+    }
+
+    @Test("A skill authored under a component is a scope-owned folder, not a .skill membership")
+    func addSkillInComponentScopeNoMembership() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+
+        let node = try #require(ctx.model.addUserFile(kind: .skill, rawName: "my-skill"))
+        #expect(node.relativePath == "components/swift-shared/skills/my-skill/SKILL.md")
+        #expect(
+            ctx.model.overrides.hasOverride(
+                forRelative: "components/swift-shared/skills/my-skill/SKILL.md"))
+        #expect(ctx.model.catalog.sharedComponent(id: "swift-shared")?.files(ofKind: .skill).isEmpty == true)
+    }
+
+    @Test("A hook authored under a component stays global and still joins membership")
+    func addHookInComponentStillGlobalAndJoins() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-hook"))
+        #expect(node.relativePath == "hooks/my-hook.sh")  // global composition asset
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/my-hook.sh"))
+        #expect(
+            ctx.model.catalog.sharedComponent(id: "swift-shared")?
+                .files(ofKind: .hook).contains("my-hook") == true)
+    }
+
+    @Test("A typeless folder authored under a template lands in the template's scope")
+    func addFolderInTemplateScope() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil  // add at the scope root
+
+        let node = try #require(ctx.model.addUserFile(kind: .folder, rawName: "drafts"))
+        #expect(node.isDirectory)
+        #expect(node.relativePath == "drafts")  // output position at the project root
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "templates/macOS/drafts").path))
+    }
+
+    @Test("Dropping a skill onto a component stores it in the component's scope, no membership")
+    func dropSkillOntoComponentIsScoped() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        let fm = FileManager.default
+        let src = fm.temporaryDirectory.appending(
+            path: "DropSkill-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let skill = src.appending(path: "myskill", directoryHint: .isDirectory)
+        try fm.createDirectory(at: skill, withIntermediateDirectories: true)
+        try "x\n".write(to: skill.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: src) }
+
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+        _ = ctx.model.importDropped(urls: [skill])
+
+        #expect(
+            ctx.model.overrides.hasOverride(
+                forRelative: "components/swift-shared/skills/myskill/SKILL.md"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "skills/myskill/SKILL.md"))
+        #expect(ctx.model.catalog.sharedComponent(id: "swift-shared")?.files(ofKind: .skill).isEmpty == true)
+    }
+}

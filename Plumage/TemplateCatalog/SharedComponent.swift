@@ -1,8 +1,11 @@
 import Foundation
 
 // What kind of asset a shared component file contributes to a template's effective
-// scaffold. `layer` => a `CLAUDE.md` layer file; `hook` => a hook script;
-// `skill`/`config` are reserved for later authoring.
+// scaffold. `layer` => a `CLAUDE.md` layer file; `hook` => a hook script. These two are
+// the only kinds authored today — `SharedComponent.files` now carries composition
+// references only (layer/hook order, #00078). `skill`/`config` remain decodable for
+// legacy manifests but are no longer written: a component's skills are scope-owned
+// loose folders under `components/<id>/skills/` instead.
 nonisolated enum SharedComponentKind: String, Codable, Hashable, Sendable, CaseIterable {
     case layer
     case hook
