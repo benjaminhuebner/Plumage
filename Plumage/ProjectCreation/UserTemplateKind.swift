@@ -55,8 +55,7 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
     func fileName(forSanitized name: String) -> String {
         switch self {
         case .hook:
-            let base = name.hasSuffix(".sh") ? String(name.dropLast(3)) : name
-            return "\(base).sh"
+            return Self.hookFileName(forStoredName: name)
         case .skill, .file, .folder:
             return name
         case .doc, .agent:
@@ -79,7 +78,7 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
     func starter(forLeaf leafName: String) -> String {
         switch self {
         case .hook:
-            return "#!/bin/sh\n"
+            return Self.hookShebang(forFileName: leafName)
         case .doc:
             return "# \(Self.stem(leafName))\n\n"
         case .agent:
@@ -120,9 +119,31 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         return collapsed
     }
 
-    // The hook base name (toggle key / wiring name) for a `hooks/<name>.sh` path.
+    // The hook base name (toggle key / wiring name) for any file directly under
+    // `hooks/`. Recognition is extension-agnostic — the base name drops whatever
+    // extension the file carries (or none); only the shebang gates whether it runs.
     static func hookBaseName(forRelativePath rel: String) -> String? {
-        guard rel.hasPrefix("hooks/"), rel.hasSuffix(".sh") else { return nil }
-        return String(rel.dropFirst("hooks/".count).dropLast(".sh".count))
+        guard rel.hasPrefix("hooks/") else { return nil }
+        let leaf = String(rel.dropFirst("hooks/".count))
+        guard !leaf.isEmpty else { return nil }
+        return (leaf as NSString).deletingPathExtension
+    }
+
+    // Resolve a stored hook reference (a typed name or a legacy base-name membership)
+    // to its on-disk filename: a typed extension is kept verbatim; a bare name defaults
+    // to `.sh`, which covers every built-in hook and every pre-existing membership.
+    static func hookFileName(forStoredName name: String) -> String {
+        (name as NSString).pathExtension.isEmpty ? "\(name).sh" : name
+    }
+
+    // The starter shebang for a freshly authored hook, chosen from its filename's
+    // extension: Python and Bash are known; anything else gets an empty starter (the
+    // user supplies the interpreter line). A bare name is the default Bash hook.
+    static func hookShebang(forFileName fileName: String) -> String {
+        switch (fileName as NSString).pathExtension {
+        case "py": return "#!/usr/bin/env python3\n"
+        case "sh", "": return "#!/bin/sh\n"
+        default: return ""
+        }
     }
 }
