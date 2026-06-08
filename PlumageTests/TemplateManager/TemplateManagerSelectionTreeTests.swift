@@ -50,8 +50,8 @@ struct TemplateManagerSelectionTreeTests {
         #expect(node.relativePath == "templates/swift-shared/CLAUDE.md")  // store path under the hood
     }
 
-    @Test("A template shows the project structure with its own CLAUDE.md fragment")
-    func templateStructure() throws {
+    @Test("A template shows only its own deltas: its CLAUDE.md layer, no inherited slots (#00084)")
+    func templateShowsOnlyOwnDeltas() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
         ctx.model.selection = .template("macOS")
@@ -59,8 +59,37 @@ struct TemplateManagerSelectionTreeTests {
 
         let claudeMd = try #require(find(ctx.model.contentTree, [".claude", "CLAUDE.md"]))
         #expect(claudeMd.relativePath == "templates/macos/CLAUDE.md")  // the template's own layer
-        // Same folder structure as Base: hooks live under .claude/hooks.
-        #expect(find(ctx.model.contentTree, [".claude", "hooks"])?.isDirectory == true)
+        // Inherited surfaces are hidden in the delta view: no Base hooks, no issues slot,
+        // no generated configs — only the template's own files remain.
+        #expect(find(ctx.model.contentTree, [".claude", "hooks"]) == nil)
+        #expect(find(ctx.model.contentTree, [".claude", "issues"]) == nil)
+        #expect(find(ctx.model.contentTree, [".swift-format"]) == nil)
+        #expect(find(ctx.model.contentTree, [".swiftlint.yml"]) == nil)
+    }
+
+    @Test("Two templates render visibly distinct minimal trees (#00084)")
+    func twoTemplatesDifferInDeltaView() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        // Each template owns a private doc; the delta view shows that doc and not the
+        // other template's, so the two trees are visibly different and minimal.
+        try ctx.model.overrides.writeOverride("# Mac", toRelative: "templates/macOS/docs/mac.md")
+        try ctx.model.overrides.writeOverride("# iOS", toRelative: "templates/iOS/docs/ios.md")
+
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+        #expect(find(ctx.model.contentTree, [".claude", "docs", "mac.md"]) != nil)
+        #expect(find(ctx.model.contentTree, [".claude", "docs", "ios.md"]) == nil)
+        let macClaude = find(ctx.model.contentTree, [".claude", "CLAUDE.md"])?.relativePath
+
+        ctx.model.selection = .template("iOS")
+        ctx.model.refreshContent()
+        #expect(find(ctx.model.contentTree, [".claude", "docs", "ios.md"]) != nil)
+        #expect(find(ctx.model.contentTree, [".claude", "docs", "mac.md"]) == nil)
+        let iosClaude = find(ctx.model.contentTree, [".claude", "CLAUDE.md"])?.relativePath
+
+        // The two templates draw their CLAUDE.md from their own (distinct) layer.
+        #expect(macClaude != iosClaude)
     }
 
     @Test("A bundled hook is not flagged as needing wiring (it is wired by the composer)")

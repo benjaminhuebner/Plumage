@@ -368,8 +368,8 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // The loose files of a flat category (`docs`/`agents`) composed across `roots`, a
     // later (more specific) root winning a name clash — the conflict rule is
-    // Base < Template < Component. Each entry pairs the output leaf name with the
-    // store-relative path of the winning copy. `roots` come from `looseSurfaceRoots`.
+    // Base < Component < Template (#00084). Each entry pairs the output leaf name with
+    // the store-relative path of the winning copy. `roots` come from `looseSurfaceRoots`.
     func composedLooseFiles(category: String, roots: [String]) -> [(name: String, relativePath: String)] {
         var winner: [String: String] = [:]
         for root in roots {
@@ -381,10 +381,11 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // The typed/composition namespaces handled by their own scaffold steps; the
     // arbitrary-file copy skips them so it only reproduces the user's hand-built tree.
-    // Mirrors the manager's `typedStoreTopLevel`.
+    // Mirrors the manager's `typedStoreTopLevel` — `.claude` is intentionally absent so a
+    // loose `.claude/<path>` file is reproduced at `<project>/.claude/<path>` (#00084).
     static let compositionTopLevel: Set<String> = [
         "hooks", "docs", "skills", "agents", "issues",
-        "templates", "components", "template-images", "configs", ".claude",
+        "templates", "components", "template-images", "configs",
     ]
 
     // Arbitrary loose files (those outside the typed/composition namespaces) composed

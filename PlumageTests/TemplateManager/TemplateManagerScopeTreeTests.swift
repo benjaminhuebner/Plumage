@@ -96,6 +96,25 @@ struct TemplateManagerScopeTreeTests {
         }
     }
 
+    @Test("The real .claude root and arbitrary .claude paths round-trip per tier (#00084)")
+    func claudeRootPathMappingRoundTrip() {
+        for scope in [ManagerScope.base, .template("macOS"), .component("swift-shared")] {
+            // The `.claude` root maps to a real `<root>/.claude` store dir, not the store root.
+            let claudeRoot = TemplateManagerModel.storageDir(forOutputFolder: ".claude", scope: scope)
+            #expect(claudeRoot == (scope.storageRoot.isEmpty ? ".claude" : "\(scope.storageRoot)/.claude"))
+            #expect(TemplateManagerModel.outputPath(forStorageDir: claudeRoot, scope: scope) == ".claude")
+
+            // An arbitrary file under `.claude/` keeps the prefix both ways — it is not hoisted.
+            let arb = TemplateManagerModel.storageDir(forOutputFolder: ".claude/bla.md", scope: scope)
+            #expect(arb == (scope.storageRoot.isEmpty ? ".claude/bla.md" : "\(scope.storageRoot)/.claude/bla.md"))
+            #expect(TemplateManagerModel.outputPath(forStorageDir: arb, scope: scope) == ".claude/bla.md")
+
+            // A typed `.claude/docs` child is still hoisted (stored without the prefix).
+            let typed = TemplateManagerModel.storageDir(forOutputFolder: ".claude/docs/x.md", scope: scope)
+            #expect(typed == (scope.storageRoot.isEmpty ? "docs/x.md" : "\(scope.storageRoot)/docs/x.md"))
+        }
+    }
+
     @Test("A scope folder named hooks/issues maps to project root, not .claude")
     func scopeReservedTypedNameFolderMapsToRoot() {
         let scope = ManagerScope.template("macOS")
