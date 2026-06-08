@@ -226,6 +226,33 @@ struct ProjectMigratorTests {
         #expect(settings.contains("Write"))
     }
 
+    @Test("A Python user hook is migrated as .py and wired at its .py path")
+    func pythonUserHookMigratesAndWires() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateHook-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let hookURL = overrideRoot.appending(path: "hooks/py-hook.py")
+        try fileManager.createDirectory(
+            at: hookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/usr/bin/env python3\nprint('hi')\n".write(to: hookURL, atomically: true, encoding: .utf8)
+        let wirings = [
+            HookWiring(name: "py-hook", event: .postToolUse, matcher: "Write", fileName: "py-hook.py")
+        ]
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let (_, report) = try await migrator(overrideRoot: overrideRoot, hookWirings: wirings).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(fileManager.fileExists(atPath: root.appending(path: ".claude/hooks/py-hook.py").path))
+        #expect(!fileManager.fileExists(atPath: root.appending(path: ".claude/hooks/py-hook.sh").path))
+        #expect(report.added.contains(".claude/hooks/py-hook.py"))
+        let settings = try String(
+            contentsOf: root.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("py-hook.py"))
+        #expect(!settings.contains("py-hook.sh"))
+    }
+
     @Test("A user-authored skill is migrated from the override store and reported added")
     func userSkillMigrates() async throws {
         let overrideRoot = fileManager.temporaryDirectory.appending(
