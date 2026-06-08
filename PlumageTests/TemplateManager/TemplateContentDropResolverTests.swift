@@ -30,9 +30,25 @@ struct TemplateContentDropResolverTests {
         #expect(TemplateContentDropResolver.targetStoreDir(for: file(store: "hooks/x.sh")) == "hooks")
     }
 
-    @Test("the .claude root folder maps to the store root")
-    func claudeRootMapsToStoreRoot() {
-        #expect(TemplateContentDropResolver.targetStoreDir(for: folder(".claude"))?.isEmpty == true)
+    @Test("the .claude root folder is a real, valid store target (#00084)")
+    func claudeRootIsRealTarget() {
+        #expect(TemplateContentDropResolver.targetStoreDir(for: folder(".claude")) == ".claude")
+        #expect(
+            TemplateContentDropResolver.targetStoreDir(for: folder(".claude"), scope: .template("macOS"))
+                == "templates/macOS/.claude")
+    }
+
+    @Test("a base-root file can move into the real .claude root (#00084)")
+    func looseFileMovesIntoClaude() {
+        // Bug 2 regression: dropping a store-root file onto `.claude` is a real move now,
+        // no longer a silent no-op into the same folder.
+        #expect(!TemplateContentDropResolver.rejectsMove(storePath: ".editorconfig", intoStoreDir: ".claude"))
+    }
+
+    @Test("an arbitrary .claude file targets the .claude store dir, not the root (#00084)")
+    func arbitraryClaudeFileTargetsClaude() {
+        #expect(
+            TemplateContentDropResolver.targetStoreDir(for: file(store: ".claude/bla.md")) == ".claude")
     }
 
     @Test("a file in an internal store namespace is not a valid target")

@@ -106,6 +106,29 @@ struct TemplateContentMoveTests {
         #expect(find(ctx.model.contentTree, ["box", "bla.md"]) != nil)
     }
 
+    @Test("a base-root loose file dropped onto .claude relocates under .claude and stays visible (#00084)")
+    func looseFileMovesIntoClaudeRoot() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+
+        // A user-authored loose file at the store root (the project root in the tree).
+        ctx.model.selectedFile = nil
+        let file = try #require(ctx.model.addUserFile(kind: .file, rawName: "bla.md"))
+        #expect(file.relativePath == "bla.md")
+
+        let claude = try #require(find(ctx.model.contentTree, [".claude"]))
+        ctx.model.moveNodes([file], into: claude)
+
+        // Bug 1 + 2 fixed: the file lives under `.claude/` in the store, shows in the
+        // `.claude` subtree, and no longer sits at the store root.
+        #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: ".claude/bla.md").path))
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "bla.md").path))
+        #expect(find(ctx.model.contentTree, [".claude", "bla.md"]) != nil)
+        #expect(ctx.model.selectedFile?.relativePath == ".claude/bla.md")
+    }
+
     @Test("moving a user folder into another folder relocates its whole subtree")
     func userFolderMoveRelocates() throws {
         let ctx = makeModel()

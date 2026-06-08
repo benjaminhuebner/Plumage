@@ -96,10 +96,19 @@ extension TemplateManagerModel {
         -> String
     {
         let baseDir: String
-        if output.isEmpty || output == ".claude" {
+        if output.isEmpty {
             baseDir = ""
+        } else if output == ".claude" {
+            // The real `.claude/` root: arbitrary loose files live directly under it
+            // (`.claude/bla.md`), distinct from the store root (#00084).
+            baseDir = ".claude"
         } else if output.hasPrefix(".claude/") {
-            baseDir = String(output.dropFirst(".claude/".count))
+            let rest = String(output.dropFirst(".claude/".count))
+            let head = rest.split(separator: "/").first.map(String.init) ?? rest
+            // Typed namespaces (docs/skills/agents, plus hooks/issues at Base) are hoisted
+            // out of `.claude/` in the store; any other `.claude/` path is arbitrary and
+            // keeps the prefix — the strict inverse of `outputPath` (#00084).
+            baseDir = claudeHoistedTopLevel(for: scope).contains(head) ? rest : ".claude/\(rest)"
         } else {
             // An arbitrary project-root folder maps to the same store path (the inverse
             // of `outputPath(forStorageDir:)`), so adding into it lands inside it.
@@ -110,11 +119,26 @@ extension TemplateManagerModel {
         return baseDir.isEmpty ? root : "\(root)/\(baseDir)"
     }
 
+    // The store top-level dirs whose contents are hoisted out of `.claude/` in the output:
+    // typed loose namespaces shown under `.claude/<name>` but stored without the prefix.
+    // At Base every loose `.claude` namespace; inside a tier only docs/skills/agents
+    // (`hooks`/`issues` aren't loose there, so a tier folder so named is arbitrary, #00078).
+    // Couples `storageDir` ⇄ `outputPath`; the arbitrary `.claude/<path>` namespace is the
+    // complement that is *not* hoisted and lives under `<scopeRoot>/.claude/` (#00084).
+    nonisolated static func claudeHoistedTopLevel(for scope: ManagerScope) -> Set<String> {
+        switch scope {
+        case .base: return ["hooks", "docs", "skills", "agents", "issues"]
+        case .template, .component: return ["docs", "skills", "agents"]
+        }
+    }
+
     // Surfaced through their own typed walks (or internal), so the arbitrary-root-files
-    // scan must skip them to avoid showing the same file twice.
+    // scan must skip them to avoid showing the same file twice. `.claude` is deliberately
+    // *not* here: it is now a real arbitrary namespace (`<root>/.claude/<path>`) the scan
+    // must surface so a loose file dropped onto `.claude` stays visible (#00084).
     static let typedStoreTopLevel: Set<String> = [
         "hooks", "docs", "skills", "agents", "issues",
-        "templates", "components", "template-images", "configs", ".claude",
+        "templates", "components", "template-images", "configs",
     ]
 
     // The output position a stored directory shows at, or nil for store dirs that are
@@ -137,16 +161,12 @@ extension TemplateManagerModel {
         let first = stripped.split(separator: "/").first.map(String.init) ?? stripped
         // `templates`/`components` guard Base's scan from dumping sibling-tier subtrees.
         if ["templates", "components", "template-images", "configs"].contains(first) { return nil }
-        // The `.claude/`-mapped typed dirs must match the arbitrary-scan exclusions
-        // (`scopedTypedTopLevel`): at Base every loose `.claude` namespace, but inside a
-        // tier only docs/skills/agents are scope-owned. `hooks`/`issues` aren't loose in
-        // a tier (hooks are global composition, issues a config slot), so a user folder
-        // named `hooks`/`issues` there is arbitrary and must map to the same project-root
-        // position its files and the scaffold use — not split to `.claude/...` (#00078).
-        let claudeMapped: Set<String> =
-            scope == .base
-            ? ["hooks", "docs", "skills", "agents", "issues"] : ["docs", "skills", "agents"]
-        if claudeMapped.contains(first) { return ".claude/\(stripped)" }
+        // A real `.claude/` store path (arbitrary loose files, or the `.claude` dir itself)
+        // already carries the prefix the output uses — map it straight back (#00084).
+        if first == ".claude" { return stripped }
+        // Typed loose namespaces are stored without the `.claude/` prefix but shown under
+        // it; the hoisted set is scope-aware and shared with `storageDir` (#00078/#00084).
+        if claudeHoistedTopLevel(for: scope).contains(first) { return ".claude/\(stripped)" }
         return stripped  // arbitrary store-root directory → project root
     }
 

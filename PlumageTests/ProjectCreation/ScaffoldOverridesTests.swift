@@ -23,6 +23,30 @@ struct ScaffoldOverridesTests {
         try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    @Test("composedLooseFiles: the template root wins a name clash over a member component (#00084)")
+    func composedLooseFilesTemplateWinsClash() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("BASE", to: tree.override, rel: "docs/x.md")
+        try write("COMP", to: tree.override, rel: "components/c1/docs/x.md")
+        try write("TMPL", to: tree.override, rel: "templates/t1/docs/x.md")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        // Roots in precedence order: base, member component, template (template last = wins).
+        let composed = overrides.composedLooseFiles(category: "docs", roots: ["", "components/c1", "templates/t1"])
+        let winner = try #require(composed.first { $0.name == "x.md" })
+        #expect(winner.relativePath == "templates/t1/docs/x.md")
+    }
+
+    @Test("composedArbitraryFiles reproduces a real .claude/ loose file (#00084)")
+    func composedArbitraryFilesIncludesClaude() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("X", to: tree.override, rel: ".claude/bla.md")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        let composed = overrides.composedArbitraryFiles(roots: [""])
+        #expect(composed.contains { $0.output == ".claude/bla.md" && $0.relativePath == ".claude/bla.md" })
+    }
+
     @Test("Absent override resolves to the bundled file")
     func absentFallsBackToBundled() throws {
         let tree = try makeTree()

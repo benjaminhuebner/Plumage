@@ -124,6 +124,28 @@ struct ProjectScaffolderScopeTests {
         #expect(!fm.fileExists(atPath: otherDir.appending(path: "tbox/deep.md").path))
     }
 
+    @Test("A loose .claude/ file is reproduced at <project>/.claude/ (#00084)")
+    func claudeRootArbitraryFileIsScaffolded() async throws {
+        let ov = makeOverrideRoot()
+        defer { try? FileManager.default.removeItem(at: ov) }
+        try write("# loose", to: ov, rel: ".claude/bla.md")  // base-scope `.claude/` loose file
+        try write("# t", to: ov, rel: "templates/macOS/.claude/tmac.md")  // template-scope `.claude/`
+
+        let macDir = try await create(.macOS, overrideRoot: ov)
+        let otherDir = try await create(.other, overrideRoot: ov)
+        defer {
+            try? FileManager.default.removeItem(at: macDir.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: otherDir.deletingLastPathComponent())
+        }
+        let fm = FileManager.default
+        // Base `.claude/` reaches every project under its real `.claude/` root.
+        #expect(fm.fileExists(atPath: macDir.appending(path: ".claude/bla.md").path))
+        #expect(fm.fileExists(atPath: otherDir.appending(path: ".claude/bla.md").path))
+        // Template-scoped `.claude/` reaches only its own template's projects.
+        #expect(fm.fileExists(atPath: macDir.appending(path: ".claude/tmac.md").path))
+        #expect(!fm.fileExists(atPath: otherDir.appending(path: ".claude/tmac.md").path))
+    }
+
     @Test("A component-owned skill scaffolds into member projects only")
     func componentSkillReachesMembersOnly() async throws {
         let ov = makeOverrideRoot()
