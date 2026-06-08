@@ -169,22 +169,6 @@ struct TemplateManagerScopeAddTests {
         #expect(ctx.model.addTargetStorageDir() == "templates/macOS/docs")
     }
 
-    @Test("Creating an item re-expands its collapsed ancestor folders so it is revealed")
-    func createRevealsAncestors() throws {
-        let ctx = makeModel()
-        defer { ctx.cleanup() }
-        ctx.model.selection = .base
-        ctx.model.refreshContent()
-        ctx.model.selectedFile = nil
-        // Collapse the ancestors so the reveal has something to undo.
-        ctx.model.setNode(".claude", expanded: false)
-        ctx.model.setNode(".claude/docs", expanded: false)
-
-        _ = try #require(ctx.model.addUserFile(kind: .doc, rawName: "notes"))  // → .claude/docs/notes.md
-        #expect(ctx.model.isNodeExpanded(".claude"))
-        #expect(ctx.model.isNodeExpanded(".claude/docs"))
-    }
-
     @Test("Dropping a skill onto a component stores it in the component's scope, no membership")
     func dropSkillOntoComponentIsScoped() throws {
         let ctx = makeModel()

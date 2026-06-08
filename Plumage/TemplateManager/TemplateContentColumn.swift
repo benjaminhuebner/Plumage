@@ -15,8 +15,14 @@ struct TemplateContentColumn: View {
         List(selection: $model.selectedFile) {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
-                    ForEach(visibleRows(), id: \.node.id) { row in
-                        contentRow(row.node, depth: row.depth)
+                    OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
+                        fileRow(node)
+                            .tag(node)
+                            .contextMenu { rowMenu(node) }
+                            .draggable(FileTreeDragPayload(url: node.url))
+                            .dropDestination(for: DroppableTreeItem.self) { items, _ in
+                                return handleDrop(items, onto: node)
+                            }
                     }
                 }
             }
@@ -109,56 +115,6 @@ struct TemplateContentColumn: View {
         }
     }
 
-    // One row per visible node. A `DisclosureGroup` label is not a reliable drop target,
-    // so the tree is a flat `List` of rows with manual indentation and a disclosure
-    // chevron — `.draggable`/`.dropDestination` then work on every row exactly as the old
-    // `OutlineGroup` did, while expansion stays model-driven so created/moved items reveal.
-    private struct VisibleRow {
-        let node: FileNode
-        let depth: Int
-    }
-
-    private func visibleRows() -> [VisibleRow] {
-        var rows: [VisibleRow] = []
-        func walk(_ nodes: [FileNode], _ depth: Int) {
-            for node in nodes {
-                rows.append(VisibleRow(node: node, depth: depth))
-                if let children = node.children, model.isNodeExpanded(node.id) {
-                    walk(children, depth + 1)
-                }
-            }
-        }
-        walk(model.contentTree, 0)
-        return rows
-    }
-
-    private func contentRow(_ node: FileNode, depth: Int) -> some View {
-        // Indentation + a *pure-visual* chevron. Crucially the row carries no tap or
-        // button gesture: any such gesture swallows the mouse-down and stops the folder
-        // from being dragged (the bug behind "can't drag folders into folders").
-        // Expand/Collapse lives in the context menu instead, and folders are expanded by
-        // default so nothing stays hidden.
-        HStack(spacing: 4) {
-            Group {
-                if node.children != nil {
-                    Image(systemName: model.isNodeExpanded(node.id) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 12)
-            fileRow(node)
-        }
-        .padding(.leading, CGFloat(depth) * 14)
-        .tag(node)
-        .contentShape(Rectangle())
-        .contextMenu { rowMenu(node) }
-        .draggable(FileTreeDragPayload(url: node.url))
-        .dropDestination(for: DroppableTreeItem.self) { items, _ in
-            return handleDrop(items, onto: node)
-        }
-    }
-
     // Internal nodes move into the row's folder, Finder URLs import there. `moveNodes`
     // maps a file row to its parent folder and rejects no-ops.
     private func handleDrop(_ items: [DroppableTreeItem], onto node: FileNode) -> Bool {
@@ -216,12 +172,6 @@ struct TemplateContentColumn: View {
 
     @ViewBuilder
     private func rowMenu(_ node: FileNode) -> some View {
-        if node.children != nil {
-            Button(model.isNodeExpanded(node.id) ? "Collapse" : "Expand") {
-                model.setNode(node.id, expanded: !model.isNodeExpanded(node.id))
-            }
-            Divider()
-        }
         if !model.addableKinds.isEmpty {
             addMenu(into: node)
             Divider()

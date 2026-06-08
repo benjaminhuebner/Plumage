@@ -27,12 +27,6 @@ final class TemplateManagerModel {
     private(set) var membership: CatalogMembership?
     var selectedFile: FileNode?
 
-    // Output paths of the expanded folder rows. Folders start collapsed (a clean,
-    // shallow tree); creating or moving an item expands its ancestors so it is always
-    // revealed, and the row's context menu toggles expansion (an inline tap/disclosure
-    // control would swallow the row's drag, #00078 follow-up).
-    var expandedNodeIDs: Set<String> = []
-
     // Editing state for the right column. The editor saves to the override slot but
     // seeds from the bundled fallback, so merely browsing a file writes nothing —
     // only a real edit materializes an override (mirrors `TemplatesSettingsModel`).
@@ -495,9 +489,6 @@ final class TemplateManagerModel {
             node = contentFiles.first { $0.relativePath == first.storage }
         }
         if let node {
-            let dir =
-                first.isDirectory ? first.storage : (first.storage as NSString).deletingLastPathComponent
-            revealAncestors(ofStorageDir: dir)
             selectedFile = node
             beginEditing(node)
         }
@@ -752,7 +743,6 @@ final class TemplateManagerModel {
             case .folder:
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
                 refreshContent()
-                revealAncestors(ofStorageDir: storagePath(dir.lastPathComponent))
                 let node = Self.outputPath(forStorageDir: storagePath(dir.lastPathComponent), scope: scope)
                     .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
                 selectedFile = node
@@ -779,33 +769,12 @@ final class TemplateManagerModel {
         refreshContent()
         let node = contentFiles.first { $0.relativePath == storagePath }
         if let node {
-            revealAncestors(ofStorageDir: (storagePath as NSString).deletingLastPathComponent)
             selectedFile = node
             beginEditing(node)
             // Adding a hook raises the wiring sheet so it does not scaffold inert.
             if kind == .hook { pendingHookWiring = node }
         }
         return node
-    }
-
-    // Re-expand the content-tree folders containing `storageDir` (a store path), so a
-    // newly created or moved item is revealed even if its ancestors were collapsed.
-    private func revealAncestors(ofStorageDir storageDir: String) {
-        guard !storageDir.isEmpty,
-            let output = Self.outputPath(forStorageDir: storageDir, scope: activeScope)
-        else { return }
-        var prefix = ""
-        for part in output.split(separator: "/").map(String.init) {
-            prefix = prefix.isEmpty ? part : "\(prefix)/\(part)"
-            expandedNodeIDs.insert(prefix)
-        }
-    }
-
-    // Folder rows are collapsed unless explicitly expanded.
-    func isNodeExpanded(_ id: String) -> Bool { expandedNodeIDs.contains(id) }
-
-    func setNode(_ id: String, expanded: Bool) {
-        if expanded { expandedNodeIDs.insert(id) } else { expandedNodeIDs.remove(id) }
     }
 
     var selectionTitle: String {
