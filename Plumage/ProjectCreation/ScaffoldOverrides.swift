@@ -368,8 +368,8 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // The loose files of a flat category (`docs`/`agents`) composed across `roots`, a
     // later (more specific) root winning a name clash — the conflict rule is
-    // Base < Template < Component. Each entry pairs the output leaf name with the
-    // store-relative path of the winning copy. `roots` come from `looseSurfaceRoots`.
+    // Base < Component < Template (#00084). Each entry pairs the output leaf name with
+    // the store-relative path of the winning copy. `roots` come from `looseSurfaceRoots`.
     func composedLooseFiles(category: String, roots: [String]) -> [(name: String, relativePath: String)] {
         var winner: [String: String] = [:]
         for root in roots {

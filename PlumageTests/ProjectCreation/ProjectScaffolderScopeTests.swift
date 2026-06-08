@@ -80,11 +80,12 @@ struct ProjectScaffolderScopeTests {
         #expect(!fm.fileExists(atPath: otherDir.appending(path: ".claude/docs/swift-only.md").path))
     }
 
-    @Test("Most-specific scope wins a name clash: component > template > base")
-    func precedenceComponentOverTemplateOverBase() async throws {
+    @Test("Most-specific scope wins a name clash: template > component > base (#00084)")
+    func precedenceTemplateOverComponentOverBase() async throws {
         let ov = makeOverrideRoot()
         defer { try? FileManager.default.removeItem(at: ov) }
-        // `t.md`: base vs template — template wins. `c.md`: base/template/component — component wins.
+        // `t.md`: base vs template — template wins. `c.md`: base/component/template — the
+        // template wins over the member component now (#00084 flips #00078's rule).
         try write("BASE-T", to: ov, rel: "docs/t.md")
         try write("MAC-T", to: ov, rel: "templates/macOS/docs/t.md")
         try write("BASE-C", to: ov, rel: "docs/c.md")
@@ -96,7 +97,7 @@ struct ProjectScaffolderScopeTests {
         #expect(
             try String(contentsOf: macDir.appending(path: ".claude/docs/t.md"), encoding: .utf8) == "MAC-T")
         #expect(
-            try String(contentsOf: macDir.appending(path: ".claude/docs/c.md"), encoding: .utf8) == "COMP-C")
+            try String(contentsOf: macDir.appending(path: ".claude/docs/c.md"), encoding: .utf8) == "MAC-C")
     }
 
     @Test("A user's hand-built loose tree is reproduced in the project (#00078)")
