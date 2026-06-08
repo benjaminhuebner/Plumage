@@ -198,6 +198,7 @@ struct IssueDetailView: View {
                         }
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Create Issue") { createAndNavigate() }
+                                .buttonStyle(.borderedProminent)
                                 // Override the default button's implicit plain
                                 // Return: the sheet body is a multiline spec
                                 // editor where Return must insert a newline.
