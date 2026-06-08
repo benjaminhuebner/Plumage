@@ -15,15 +15,7 @@ struct TemplateContentColumn: View {
         List(selection: $model.selectedFile) {
             if !model.contentFiles.isEmpty {
                 Section("Files") {
-                    OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
-                        fileRow(node)
-                            .tag(node)
-                            .contextMenu { rowMenu(node) }
-                            .draggable(FileTreeDragPayload(url: node.url))
-                            .dropDestination(for: DroppableTreeItem.self) { items, _ in
-                                return handleDrop(items, onto: node)
-                            }
-                    }
+                    ForEach(model.contentTree) { contentRow($0) }
                 }
             }
 
@@ -113,6 +105,36 @@ struct TemplateContentColumn: View {
         } message: { _ in
             Text("This folder and everything in it will be moved to the Trash.")
         }
+    }
+
+    // Recursive tree row. A folder is a `DisclosureGroup` whose expansion is model-
+    // driven (so a freshly created item's ancestors can be revealed); a file is a plain
+    // row. `AnyView` breaks the otherwise-infinite recursive return type. Every row keeps
+    // the same selection tag, drag source and drop target as the flat list had.
+    private func contentRow(_ node: FileNode) -> AnyView {
+        if let children = node.children {
+            return AnyView(
+                DisclosureGroup(
+                    isExpanded: Binding(
+                        get: { model.isNodeExpanded(node.id) },
+                        set: { model.setNode(node.id, expanded: $0) })
+                ) {
+                    ForEach(children) { contentRow($0) }
+                } label: {
+                    decoratedRow(node)
+                })
+        }
+        return AnyView(decoratedRow(node))
+    }
+
+    private func decoratedRow(_ node: FileNode) -> some View {
+        fileRow(node)
+            .tag(node)
+            .contextMenu { rowMenu(node) }
+            .draggable(FileTreeDragPayload(url: node.url))
+            .dropDestination(for: DroppableTreeItem.self) { items, _ in
+                return handleDrop(items, onto: node)
+            }
     }
 
     // Internal nodes move into the row's folder, Finder URLs import there. `moveNodes`
