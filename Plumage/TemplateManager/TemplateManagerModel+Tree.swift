@@ -17,9 +17,9 @@ extension TemplateManagerModel {
 
     // Every selection renders the same `.claude/`-mirroring output structure (D2), so
     // a hook is always shown under `.claude/hooks` and a CLAUDE.md fragment as
-    // `.claude/CLAUDE.md`, never a flat layer name. What populates it differs:
-    // Base and a Template show the full project surfaces (a Template swaps in its own
-    // CLAUDE.md fragment); a Shared Component shows just its own files.
+    // `.claude/CLAUDE.md`, never a flat layer name. What populates it differs: Base shows
+    // the full project surfaces; a Template and a Shared Component each show only their
+    // own deltas — the files that tier owns, nothing inherited (#00084 / #00078).
     func buildContentTree(for item: TemplateCatalogItem) -> [FileNode] {
         let scope = ManagerScope.scope(for: item)
         var leaves = leafSpecs(for: item).compactMap { spec in
@@ -41,12 +41,13 @@ extension TemplateManagerModel {
             leaves: leaves, directories: directories, bundledRoot: overrides.bundledRoot)
     }
 
-    // Only Base and Templates carry the generated project configs (settings, gitignore,
-    // …); a Shared Component is a focused sub-bundle without them.
+    // Only Base carries the generated project configs (settings, gitignore, …). A
+    // Template shows just its own deltas (#00084 delta view) and a Shared Component is a
+    // focused sub-bundle — neither repeats Base's generated configs.
     private func showsConfigs(_ item: TemplateCatalogItem) -> Bool {
         switch item {
-        case .base, .template: return true
-        case .sharedComponent: return false
+        case .base: return true
+        case .template, .sharedComponent: return false
         }
     }
 
@@ -64,15 +65,19 @@ extension TemplateManagerModel {
                 claudeMdStorage: catalog.base.claudeMdRelativePath)
         case .template(let id):
             guard let template = catalog.template(id: id) else { return [] }
-            // A Template shows the merged project surfaces with its own CLAUDE.md
-            // fragment swapped in (its effective hooks include its components' hooks).
-            let ownLayer = template.templateLayers.first
-            let claudeMdStorage =
-                ownLayer.map(ScaffoldOverrides.layerRelativePath) ?? catalog.base.claudeMdRelativePath
-            return surfaceSpecs(
-                scope: .template(id), showsConfigs: true,
-                hookFiles: hookLeafFileNames(effectiveBases: catalog.effectiveHooks(forTemplate: id)),
-                claudeMdStorage: claudeMdStorage)
+            // A Template shows only its own deltas (#00084): its own CLAUDE.md layer (no
+            // Base fallback) plus the loose files it owns under `templates/<id>/`. No Base
+            // hooks, no issues slot, no generated configs — those are inherited, not the
+            // template's, so two templates render visibly distinct minimal trees.
+            var specs: [LeafSpec] = []
+            if let ownLayer = template.templateLayers.first {
+                specs.append(
+                    LeafSpec(
+                        output: ".claude/CLAUDE.md",
+                        relative: ScaffoldOverrides.layerRelativePath(ownLayer), name: "CLAUDE.md"))
+            }
+            specs += surfaceSpecs(scope: .template(id), showsConfigs: false)
+            return specs
         case .sharedComponent(let id):
             guard let component = catalog.sharedComponent(id: id) else { return [] }
             return componentLeafSpecs(component)
