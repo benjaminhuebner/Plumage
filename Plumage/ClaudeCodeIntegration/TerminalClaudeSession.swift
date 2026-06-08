@@ -285,13 +285,17 @@ final class TerminalClaudeSession {
     }
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
-    func shellSpawnArgs() -> [String] {
+    func shellSpawnArgs(appearanceIsDark: Bool = true) -> [String] {
         // Inject the plumage theme per-session via --settings instead of
         // writing it into the user's global ~/.claude/settings.json — that
         // earlier approach also re-skinned the user's own claude terminal.
-        // Inline JSON contains no single quotes so shellQuote wraps it safely
-        // with one quote pair.
-        var args = ["--settings", ClaudeThemeInstaller.perSessionSettingsJSON]
+        // The dark/light variant is picked from the embedding view's
+        // colorScheme so claude's accents stay legible on the transparent
+        // terminal background. Inline JSON contains no single quotes so
+        // shellQuote wraps it safely with one quote pair.
+        var args = [
+            "--settings", ClaudeThemeInstaller.perSessionSettingsJSON(dark: appearanceIsDark),
+        ]
         args += resumeOrInitArgs()
         if let permissionMode {
             args += ["--permission-mode", permissionMode.rawCLIValue]

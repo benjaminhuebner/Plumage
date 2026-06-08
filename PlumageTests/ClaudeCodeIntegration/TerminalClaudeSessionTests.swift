@@ -173,20 +173,25 @@ struct TerminalClaudeSessionTests {
         #expect(args[1].contains(session.conversationID))
     }
 
-    @Test("shellSpawnArgs injects --settings with the plumage theme JSON")
+    @Test("shellSpawnArgs injects --settings with the appearance-matched theme JSON")
     func shellArgsInjectsThemeSettings() throws {
         let env = try TempEnv.make()
         defer { env.cleanup() }
         let session = env.makeSession()
-        let cmd = session.shellSpawnArgs()[1]
         // The theme is scoped per-session via `--settings <inline-json>` so
         // the user's global ~/.claude/settings.json (and therefore their own
         // claude terminal) keeps whatever theme they chose. Pin the exact
         // emitted argv pair to catch a refactor that swaps to env vars or to
         // a file path — both would silently undo the per-session isolation.
+        let dark = session.shellSpawnArgs(appearanceIsDark: true)[1]
         #expect(
-            cmd.contains(
-                "'--settings' '\(ClaudeThemeInstaller.perSessionSettingsJSON)'"))
+            dark.contains(
+                "'--settings' '\(ClaudeThemeInstaller.perSessionSettingsJSON(dark: true))'"))
+        let light = session.shellSpawnArgs(appearanceIsDark: false)[1]
+        #expect(
+            light.contains(
+                "'--settings' '\(ClaudeThemeInstaller.perSessionSettingsJSON(dark: false))'"))
+        #expect(light.contains("custom:plumage-light"))
     }
 
     @Test("shellSpawnArgs omits --permission-mode by default (nil mode)")
