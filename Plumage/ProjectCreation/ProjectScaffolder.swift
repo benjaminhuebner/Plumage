@@ -104,12 +104,12 @@ nonisolated struct ProjectScaffolder {
     // scope roots (#00078). Generated configs already written win a name clash.
     private func writeArbitraryFiles(spec: NewProjectSpec, root: URL) throws {
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
-        for (output, store) in overrides.composedArbitraryFiles(roots: roots) {
+        for (output, variants) in overrides.composedArbitraryFileVariants(roots: roots) {
             let dest = root.appending(path: output)
             guard !fileManager.fileExists(atPath: dest.path) else { continue }
             try fileManager.createDirectory(
                 at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try copy(from: overrides.url(forRelative: store), to: dest)
+            try writeResolved(overrides.resolveLooseFile(variants: variants), to: dest)
         }
     }
 
@@ -129,8 +129,8 @@ nonisolated struct ProjectScaffolder {
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
-        for (name, rel) in overrides.composedLooseFiles(category: "docs", roots: roots) {
-            try copy(from: overrides.url(forRelative: rel), to: docs.appending(path: name))
+        for (name, variants) in overrides.composedLooseFileVariants(category: "docs", roots: roots) {
+            try writeResolved(overrides.resolveLooseFile(variants: variants), to: docs.appending(path: name))
         }
 
         let issues = claude.appending(path: "issues", directoryHint: .isDirectory)
@@ -178,15 +178,15 @@ nonisolated struct ProjectScaffolder {
     // scope-owned `agents/` files unioned across the template's loose roots (#00078),
     // filtered by the enable toggles. Written into a fresh tree (the scaffolder owns it).
     private func writeAgents(templateID: String, claude: URL) throws {
-        let composed = overrides.composedLooseFiles(
+        let composed = overrides.composedLooseFileVariants(
             category: "agents", roots: catalog.looseSurfaceRoots(forTemplate: templateID))
         let enabled = Set(toggles.enabledNames(in: .agents, from: composed.map(\.name)))
         let selected = composed.filter { enabled.contains($0.name) }
         guard !selected.isEmpty else { return }
         let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
-        for (name, rel) in selected {
-            try copy(from: overrides.url(forRelative: rel), to: agentsDir.appending(path: name))
+        for (name, variants) in selected {
+            try writeResolved(overrides.resolveLooseFile(variants: variants), to: agentsDir.appending(path: name))
         }
     }
 
@@ -250,6 +250,13 @@ nonisolated struct ProjectScaffolder {
     private func copy(from source: URL, to dest: URL, executable: Bool = false) throws {
         try fileManager.copyItem(at: source, to: dest)
         if executable { try ScaffoldOverrides.setExecutable(dest) }
+    }
+
+    private func writeResolved(_ resolved: ScaffoldOverrides.ResolvedLooseFile, to dest: URL) throws {
+        switch resolved {
+        case .copy(let source): try copy(from: source, to: dest)
+        case .merged(let data): try data.write(to: dest)
+        }
     }
 
     private func cleanup(root: URL, preExisted: Bool) {

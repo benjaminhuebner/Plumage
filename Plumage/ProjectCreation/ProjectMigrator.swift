@@ -166,10 +166,9 @@ nonisolated struct ProjectMigrator {
         let docs = claude.appending(path: "docs", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
-        for (name, rel) in overrides.composedLooseFiles(category: "docs", roots: roots) {
-            try copyIfMissing(
-                from: overrides.url(forRelative: rel),
-                to: docs.appending(path: name), rel: ".claude/docs/\(name)", into: &report)
+        for (name, variants) in overrides.composedLooseFileVariants(category: "docs", roots: roots) {
+            try writeResolvedIfMissing(
+                variants, to: docs.appending(path: name), rel: ".claude/docs/\(name)", into: &report)
         }
 
         let issues = claude.appending(path: "issues", directoryHint: .isDirectory)
@@ -213,12 +212,11 @@ nonisolated struct ProjectMigrator {
     // namespaces) at their project-relative positions, additively (#00078).
     private func writeArbitraryFiles(spec: NewProjectSpec, root: URL, into report: inout Report) throws {
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
-        for (output, store) in overrides.composedArbitraryFiles(roots: roots) {
+        for (output, variants) in overrides.composedArbitraryFileVariants(roots: roots) {
             let dest = root.appending(path: output)
             try fileManager.createDirectory(
                 at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try copyIfMissing(
-                from: overrides.url(forRelative: store), to: dest, rel: output, into: &report)
+            try writeResolvedIfMissing(variants, to: dest, rel: output, into: &report)
         }
     }
 
@@ -237,17 +235,16 @@ nonisolated struct ProjectMigrator {
     // across the template's loose roots, #00078) is written only if it isn't already
     // present in the target's `.claude/agents/`.
     private func writeAgents(templateID: String, claude: URL, into report: inout Report) throws {
-        let composed = overrides.composedLooseFiles(
+        let composed = overrides.composedLooseFileVariants(
             category: "agents", roots: catalog.looseSurfaceRoots(forTemplate: templateID))
         let enabled = Set(toggles.enabledNames(in: .agents, from: composed.map(\.name)))
         let selected = composed.filter { enabled.contains($0.name) }
         guard !selected.isEmpty else { return }
         let agentsDir = claude.appending(path: "agents", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: agentsDir, withIntermediateDirectories: true)
-        for (name, rel) in selected {
-            try copyIfMissing(
-                from: overrides.url(forRelative: rel),
-                to: agentsDir.appending(path: name),
+        for (name, variants) in selected {
+            try writeResolvedIfMissing(
+                variants, to: agentsDir.appending(path: name),
                 rel: ".claude/agents/\(name)", into: &report)
         }
     }
@@ -369,6 +366,22 @@ nonisolated struct ProjectMigrator {
             return
         }
         try data.write(to: dest, options: .atomic)
+        report.added.append(rel)
+    }
+
+    // Resolve same-named loose-file `variants` (placeholder merge or file-level winner)
+    // and write the result only if the target is absent — additive, same as a copy.
+    private func writeResolvedIfMissing(
+        _ variants: [String], to dest: URL, rel: String, into report: inout Report
+    ) throws {
+        if fileManager.fileExists(atPath: dest.path) {
+            report.skipped.append(rel)
+            return
+        }
+        switch try overrides.resolveLooseFile(variants: variants) {
+        case .copy(let source): try fileManager.copyItem(at: source, to: dest)
+        case .merged(let data): try data.write(to: dest, options: .atomic)
+        }
         report.added.append(rel)
     }
 

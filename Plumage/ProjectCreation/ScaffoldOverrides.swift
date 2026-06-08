@@ -371,12 +371,45 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // Base < Component < Template (#00084). Each entry pairs the output leaf name with
     // the store-relative path of the winning copy. `roots` come from `looseSurfaceRoots`.
     func composedLooseFiles(category: String, roots: [String]) -> [(name: String, relativePath: String)] {
-        var winner: [String: String] = [:]
+        composedLooseFileVariants(category: category, roots: roots).map {
+            ($0.name, $0.variants[$0.variants.count - 1])
+        }
+    }
+
+    // Like `composedLooseFiles`, but each entry keeps the ordered list of every
+    // contributing store path (earliest/least-specific root first), not just the
+    // winner. `resolveLooseFile` turns that list into final content — a placeholder
+    // merge when the skeleton carries `<<<…>>>`, else the file-level winner.
+    func composedLooseFileVariants(category: String, roots: [String]) -> [(name: String, variants: [String])] {
+        var variants: [String: [String]] = [:]
         for root in roots {
             let dir = root.isEmpty ? category : "\(root)/\(category)"
-            for name in unionFileNames(inRelativeDir: dir) { winner[name] = "\(dir)/\(name)" }
+            for name in unionFileNames(inRelativeDir: dir) { variants[name, default: []].append("\(dir)/\(name)") }
         }
-        return winner.keys.sorted().compactMap { name in winner[name].map { (name, $0) } }
+        return variants.keys.sorted().compactMap { name in variants[name].map { (name, $0) } }
+    }
+
+    // How a same-named loose file resolves to final bytes.
+    enum ResolvedLooseFile: Equatable {
+        case copy(URL)  // file-level override winner, copied verbatim (also: binary files)
+        case merged(Data)  // placeholder-merged text
+    }
+
+    // Resolve same-named `variants` (earliest root first) to final content. The earliest
+    // variant is the skeleton: if it carries `<<<keyword>>>` placeholders, every variant
+    // is harvested for `%% keyword %%` blocks and merged into it; otherwise the latest
+    // variant wins verbatim (file-level override, #00078/#00084) — so a non-placeholder
+    // or binary file is unchanged. The placeholder merge is opt-in and additive.
+    func resolveLooseFile(variants: [String]) throws -> ResolvedLooseFile {
+        guard let skeletonRel = variants.first else { return .merged(Data()) }
+        let winnerRel = variants[variants.count - 1]
+        guard let skeleton = try? String(contentsOf: url(forRelative: skeletonRel), encoding: .utf8),
+            PlaceholderMerge.hasPlaceholders(skeleton)
+        else { return .copy(url(forRelative: winnerRel)) }
+
+        let contributions = try variants.map { try string(atRelative: $0) }
+        let merged = try PlaceholderMerge.merge(skeleton: skeleton, contributions: contributions)
+        return .merged(Data(merged.utf8))
     }
 
     // The typed/composition namespaces handled by their own scaffold steps; the
@@ -393,14 +426,20 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // output path (same as the store path within its scope) with the winning store path,
     // so a project reproduces whatever tree the user built in the manager (#00078).
     func composedArbitraryFiles(roots: [String]) -> [(output: String, relativePath: String)] {
-        var winner: [String: String] = [:]
+        composedArbitraryFileVariants(roots: roots).map { ($0.output, $0.variants[$0.variants.count - 1]) }
+    }
+
+    // Like `composedArbitraryFiles`, but each entry keeps the ordered list of every
+    // contributing store path (earliest root first) for `resolveLooseFile`.
+    func composedArbitraryFileVariants(roots: [String]) -> [(output: String, variants: [String])] {
+        var variants: [String: [String]] = [:]
         for root in roots {
             let excluded: Set<String> = root.isEmpty ? Self.compositionTopLevel : ["docs", "skills", "agents"]
             for rel in overrideRootArbitraryFiles(inRoot: root, excludingTopLevel: excluded) {
-                winner[rel] = root.isEmpty ? rel : "\(root)/\(rel)"
+                variants[rel, default: []].append(root.isEmpty ? rel : "\(root)/\(rel)")
             }
         }
-        return winner.keys.sorted().compactMap { out in winner[out].map { (out, $0) } }
+        return variants.keys.sorted().compactMap { out in variants[out].map { (out, $0) } }
     }
 
     // The skill directories composed across `roots` plus the bundled workflow skills
