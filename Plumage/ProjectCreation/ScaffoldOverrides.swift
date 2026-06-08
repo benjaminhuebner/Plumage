@@ -244,12 +244,14 @@ nonisolated struct ScaffoldOverrides: Sendable {
         return names.filter { !suppressed.contains("\(relativeDir)/\($0)") }.sorted()
     }
 
-    // Top-level directory names under the override `skills/` that contain a
+    // Top-level directory names under the override `<root>/skills/` that contain a
     // `SKILL.md` — i.e. user-authored skills (and any bundled skill the user has
-    // overridden). Empty with no override store.
-    func overrideSkillDirNames() -> [String] {
+    // overridden). `inRoot` scopes the lookup to a manager tier's subtree (#00078);
+    // empty (the default) is the historical store-root behaviour. Empty with no store.
+    func overrideSkillDirNames(inRoot root: String = "") -> [String] {
         guard let overrideRoot else { return [] }
-        let skillsDir = overrideRoot.appending(path: "skills", directoryHint: .isDirectory)
+        let skillsRel = root.isEmpty ? "skills" : "\(root)/skills"
+        let skillsDir = overrideRoot.appending(path: skillsRel, directoryHint: .isDirectory)
         let contents =
             (try? FileManager.default.contentsOfDirectory(
                 at: skillsDir, includingPropertiesForKeys: [.isDirectoryKey],
@@ -273,12 +275,24 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // Excludes the typed category dirs (surfaced through their own walks) and noise,
     // leaving the arbitrary files a user authored or dropped anywhere in the tree.
-    func overrideRootArbitraryFiles(excludingTopLevel excluded: Set<String>) -> [String] {
+    // Returned paths are relative to `inRoot` (the scope subtree, #00078); suppression
+    // and the tombstones-metadata skip are checked against the full store path so a
+    // scoped scan still honours store-root tombstones. `inRoot: ""` (the default) is the
+    // historical store-root scan, byte-identical to before.
+    func overrideRootArbitraryFiles(
+        inRoot root: String = "", excludingTopLevel excluded: Set<String>
+    )
+        -> [String]
+    {
         guard let overrideRoot else { return [] }
+        let scopeDir =
+            root.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: root, directoryHint: .isDirectory)
         let suppressed = suppressedRelativePaths()
-        return Self.regularFileNamesRecursive(in: overrideRoot).filter { relative in
-            if relative == Self.tombstonesFileName { return false }  // store metadata, not a project file
-            if suppressed.contains(relative) { return false }
+        return Self.regularFileNamesRecursive(in: scopeDir).filter { relative in
+            let fullStore = root.isEmpty ? relative : "\(root)/\(relative)"
+            if fullStore == Self.tombstonesFileName { return false }  // store metadata, not a project file
+            if suppressed.contains(fullStore) { return false }
             let first = relative.split(separator: "/").first.map(String.init) ?? relative
             return !excluded.contains(first)
         }.sorted()
@@ -296,14 +310,19 @@ nonisolated struct ScaffoldOverrides: Sendable {
     }
 
     // So the content tree can show user-created folders even when still empty. Noise/VCS
-    // dirs (`.git`) are skipped, matching the file walks.
-    func overrideDirectoryPaths() -> [String] {
+    // dirs (`.git`) are skipped, matching the file walks. `inRoot` scopes the walk to a
+    // manager tier's subtree (#00078); returned paths are relative to that root. Empty
+    // (the default) is the historical store-root walk.
+    func overrideDirectoryPaths(inRoot root: String = "") -> [String] {
         guard let overrideRoot else { return [] }
+        let scopeDir =
+            root.isEmpty
+            ? overrideRoot : overrideRoot.appending(path: root, directoryHint: .isDirectory)
         guard
             let enumerator = FileManager.default.enumerator(
-                at: overrideRoot, includingPropertiesForKeys: [.isDirectoryKey])
+                at: scopeDir, includingPropertiesForKeys: [.isDirectoryKey])
         else { return [] }
-        let base = overrideRoot.standardizedFileURL.path + "/"
+        let base = scopeDir.standardizedFileURL.path + "/"
         var result: [String] = []
         for case let url as URL in enumerator {
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true

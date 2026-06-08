@@ -82,7 +82,7 @@ extension TemplateManagerModel {
     // scan must skip them to avoid showing the same file twice.
     static let typedStoreTopLevel: Set<String> = [
         "hooks", "docs", "skills", "agents", "issues",
-        "templates", "template-images", "configs", ".claude",
+        "templates", "components", "template-images", "configs", ".claude",
     ]
 
     // The output position a stored directory shows at, or nil for store dirs that are
