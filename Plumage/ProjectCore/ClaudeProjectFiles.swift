@@ -28,14 +28,20 @@ nonisolated enum ClaudeProjectFiles {
 
     // MARK: - Generic at-path create (used by the unified file tree)
 
-    static func createFileAt(parent: URL, name: String) throws -> URL {
+    // `stemUnique` walks on the file's stem instead of its full name, so a hook can't
+    // land beside a sibling sharing its base name across extensions (`foo.py` next to
+    // `foo.sh`) — the base name is the hook's toggle / wiring / composition key.
+    static func createFileAt(parent: URL, name: String, stemUnique: Bool = false) throws -> URL {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw CocoaError(.fileWriteInvalidFileName)
         }
         let fm = FileManager.default
         try fm.createDirectory(at: parent, withIntermediateDirectories: true)
-        let target = try findFreeName(in: parent, base: trimmed)
+        let target =
+            stemUnique
+            ? try findFreeStemName(in: parent, base: trimmed)
+            : try findFreeName(in: parent, base: trimmed)
         try requireContained(target, within: parent)
         // `trimmed` may carry path separators ("team/lead.md"); create the
         // intervening folders so the leaf write doesn't fail on a missing dir.
@@ -163,6 +169,29 @@ nonisolated enum ClaudeProjectFiles {
             if !fileManager.fileExists(atPath: candidate.path) {
                 return candidate
             }
+        }
+        throw CocoaError(.fileWriteFileExists)
+    }
+
+    // Like `findFreeName`, but the *stem* is the identity: a candidate collides if any
+    // existing file shares its stem, regardless of extension. Used for hooks so two
+    // hooks can never share a base name (`foo.py` vs `foo.sh`) — that name is the
+    // toggle / wiring / composition key. The chosen extension is preserved.
+    static func findFreeStemName(in directory: URL, base: String) throws -> URL {
+        let fileManager = FileManager.default
+        let nameNS = base as NSString
+        let ext = nameNS.pathExtension
+        let stem = nameNS.deletingPathExtension
+        let takenStems = Set(
+            ((try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [])
+                .map { ($0 as NSString).deletingPathExtension })
+
+        func url(forStem walkedStem: String) -> URL {
+            directory.appendingPathComponent(ext.isEmpty ? walkedStem : "\(walkedStem).\(ext)")
+        }
+        if !takenStems.contains(stem) { return url(forStem: stem) }
+        for suffix in 1...maxNameSuffix where !takenStems.contains("\(stem)-\(suffix)") {
+            return url(forStem: "\(stem)-\(suffix)")
         }
         throw CocoaError(.fileWriteFileExists)
     }

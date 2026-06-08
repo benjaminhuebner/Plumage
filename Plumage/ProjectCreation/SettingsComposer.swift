@@ -45,15 +45,18 @@ nonisolated struct SettingsComposer {
             guard let event = HookEvent(rawValue: wiring.event) else { continue }
             groupsByEvent[event, default: []].append(
                 Settings.HookGroup(
-                    matcher: wiring.matcher, hooks: [.init(command: Self.command(for: wiring.name))]))
+                    matcher: wiring.matcher,
+                    hooks: [.init(command: Self.command(forFileName: "\(wiring.name).sh"))]))
         }
 
         // User wirings: not gated by the kind profile (they fire in every project),
-        // only by the hooks toggle. Appended after the built-ins per event.
+        // only by the hooks toggle. Appended after the built-ins per event. The wiring
+        // carries the real filename so a `.py` hook points at `…/hooks/<name>.py`.
         for wiring in userWirings where toggles.isEnabled(.hooks, wiring.name) {
             groupsByEvent[wiring.event, default: []].append(
                 Settings.HookGroup(
-                    matcher: wiring.matcher, hooks: [.init(command: Self.command(for: wiring.name))]))
+                    matcher: wiring.matcher,
+                    hooks: [.init(command: Self.command(forFileName: wiring.fileName))]))
         }
 
         let settings = Settings(
@@ -104,8 +107,8 @@ nonisolated struct SettingsComposer {
         return allow
     }
 
-    private static func command(for hookName: String) -> String {
-        "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/\(hookName).sh"
+    private static func command(forFileName fileName: String) -> String {
+        "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/\(fileName)"
     }
 }
 

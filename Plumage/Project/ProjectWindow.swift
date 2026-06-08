@@ -303,11 +303,6 @@ struct ProjectWindow: View {
             .sheet(isPresented: $showCreateSheet) {
                 NavigationStack {
                     IssueDetailView(projectURL: handle.url, initialStatus: createInitialStatus)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Close") { showCreateSheet = false }
-                            }
-                        }
                 }
                 // Sheets present in their own SwiftUI tree and don't inherit
                 // the presenter's environment. IssueDetailView's
@@ -588,11 +583,16 @@ struct ProjectWindow: View {
         let slug = action.slug
         // CR (\r) is what the terminal sends on Enter. claude's TUI treats
         // \n as a multi-line continuation (Shift+Enter style) and only \r as
-        // submit — strip embedded \r from each line first so a stray Enter
-        // doesn't submit a partial block early, then append \r as the
-        // terminator.
-        let payloads = lines.map { line in
-            line.replacingOccurrences(of: "\r", with: "") + "\r"
+        // submit. The submit \r must arrive as its OWN write, not appended to
+        // the body: claude's paste heuristic treats a body + trailing \r that
+        // land in one read() burst as pasted content and swallows the \r as a
+        // literal newline instead of submitting (this is why a long Plan
+        // command — body inlines the prompt — needed a manual Enter while the
+        // short Implement/Review commands submitted fine). injectLines enqueues
+        // each entry as a separate flush with bodyDelay between them, so
+        // splitting body and "\r" guarantees the Enter is a distinct keystroke.
+        let payloads = lines.flatMap { line -> [String] in
+            [line.replacingOccurrences(of: "\r", with: ""), "\r"]
         }
 
         workflowTask = Task { @MainActor in

@@ -444,4 +444,48 @@ struct TemplateManagerModelTests {
         // Still overridden — Delete does not touch a bundled-backed file.
         #expect(ctx.model.overrides.hasOverride(forRelative: "templates/CLAUDE.md"))
     }
+
+    // MARK: - Python / extension-aware hooks
+
+    @Test("Adding a .py hook creates a Python hook, recognized and wireable")
+    func addsPythonHook() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-hook.py"))
+        #expect(node.relativePath == "hooks/my-hook.py")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/my-hook.py"))
+        let content = try String(
+            contentsOf: ctx.override.appending(path: "hooks/my-hook.py"), encoding: .utf8)
+        #expect(content.hasPrefix("#!/usr/bin/env python3"))
+        #expect(ctx.model.isHook(node))
+
+        ctx.model.saveWiring(forHook: node, event: .preToolUse, matcher: "Edit")
+        let wiring = try #require(ctx.model.wiring(forHook: node))
+        #expect(wiring.name == "my-hook")
+        #expect(wiring.fileName == "my-hook.py")
+    }
+
+    @Test("An unknown-extension hook is created literally with an empty starter")
+    func addsUnknownExtensionHook() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "foo.rb"))
+        #expect(node.relativePath == "hooks/foo.rb")
+        let content = try String(
+            contentsOf: ctx.override.appending(path: "hooks/foo.rb"), encoding: .utf8)
+        #expect(content.isEmpty)
+        #expect(ctx.model.isHook(node))
+    }
+
+    @Test("Adding foo.py when foo.sh exists walks the base so neither clobbers")
+    func crossExtensionCollisionWalksBase() throws {
+        let ctx = try makeModel()
+        defer { ctx.cleanup() }
+        try ctx.model.overrides.writeOverride("#!/bin/sh\n", toRelative: "hooks/foo.sh")
+
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "foo.py"))
+        #expect(node.relativePath == "hooks/foo-1.py")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/foo.sh"))  // original intact
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/foo-1.py"))
+    }
 }

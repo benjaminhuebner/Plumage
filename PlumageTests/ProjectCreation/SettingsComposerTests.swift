@@ -130,6 +130,20 @@ struct SettingsComposerTests {
         #expect((mine?["matcher"] as? String) == "Edit|Write")
     }
 
+    @Test("A .py user wiring points its command at the .py file")
+    func pythonUserWiringCommand() throws {
+        let wiring = HookWiring(
+            name: "my-hook", event: .preToolUse, matcher: "Edit", fileName: "my-hook.py")
+        let obj = try #require(
+            try JSONSerialization.jsonObject(
+                with: composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
+        let preGroups = try #require(groups(obj, event: "PreToolUse"))
+        let commands = preGroups.flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }
+            .compactMap { $0["command"] as? String }
+        #expect(commands.contains { $0.hasSuffix("/.claude/hooks/my-hook.py") })
+        #expect(!commands.contains { $0.hasSuffix("my-hook.sh") })
+    }
+
     @Test("A user hook fires regardless of the kind profile")
     func userHookIgnoresProfile() throws {
         let wiring = HookWiring(name: "my-hook", event: .stop)

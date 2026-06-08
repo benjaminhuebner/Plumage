@@ -272,6 +272,34 @@ struct ProjectScaffolderTests {
         #expect(settings.contains("Edit|Write"))
     }
 
+    @Test("A Python user hook is scaffolded as .py and wired at its .py path")
+    func pythonUserHookScaffoldsAndWires() async throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "HookOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        try write("#!/usr/bin/env python3\nprint('hi')\n", to: overrideRoot, rel: "hooks/py-hook.py")
+        let wirings = [
+            HookWiring(name: "py-hook", event: .preToolUse, matcher: "Edit", fileName: "py-hook.py")
+        ]
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(overrideRoot: overrideRoot, hookWirings: wirings).create(
+            spec: NewProjectSpec(kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir))
+
+        let hookPath = dir.appending(path: ".claude/hooks/py-hook.py").path
+        #expect(fm.fileExists(atPath: hookPath))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/hooks/py-hook.sh").path))
+        let perms = try fm.attributesOfItem(atPath: hookPath)[.posixPermissions] as? Int
+        #expect(((perms ?? 0) & 0o111) != 0)
+
+        let settings = try String(
+            contentsOf: dir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("py-hook.py"))
+        #expect(!settings.contains("py-hook.sh"))
+    }
+
     @Test("No override store: docs are the bundled set; no default .plumage/scripts")
     func emptyStoreDocsScriptsUnchanged() async throws {
         let fm = FileManager.default

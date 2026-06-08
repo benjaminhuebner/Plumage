@@ -433,12 +433,15 @@ final class TemplateManagerModel {
         guard let base = UserTemplateKind.hookBaseName(forRelativePath: file.relativePath)
         else { return }
         let trimmed = matcher?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Record the hook's real filename so `settings.json` points at the exact path
+        // (e.g. `hooks/my-hook.py`), not a `.sh` derived from the base name.
         hookWirings.upsert(
             HookWiring(
-                name: base, event: event, matcher: (trimmed?.isEmpty ?? true) ? nil : trimmed))
+                name: base, event: event, matcher: (trimmed?.isEmpty ?? true) ? nil : trimmed,
+                fileName: (file.relativePath as NSString).lastPathComponent))
         saveHookWirings()
         // The hook is now wired — clear its ⚠ marker without a full disk rescan.
-        needsWiringPaths.remove(relativePath(for: .hook, file: base))
+        needsWiringPaths.remove(file.relativePath)
     }
 
     // Creates the store directory first so a save before any other write lands
@@ -498,12 +501,14 @@ final class TemplateManagerModel {
                 rejected.append(url.lastPathComponent)
                 continue
             }
-            // A standalone `.sh` dropped onto a Shared Component joins it as a hook,
-            // which the membership and the scaffolder both resolve at `hooks/<name>.sh`
-            // — so its bytes must land there, not in the component's selected folder.
+            // A standalone hook script (Bash or Python) dropped onto a Shared Component
+            // joins it as a hook — its bytes land in `hooks/`, not the component's
+            // selected folder. Restricted to the two supported hook languages so a doc
+            // or skill file dropped onto a component still routes to its own surface.
             // Outside a component a dropped file stays verbatim in the target folder.
+            let droppedExtension = (plan.name as NSString).pathExtension
             let joinsComponentAsHook =
-                !plan.isDirectory && !plan.isSkill && plan.name.hasSuffix(".sh")
+                !plan.isDirectory && !plan.isSkill && ["sh", "py"].contains(droppedExtension)
                 && membershipComponentID(forKind: .hook) != nil
             // A skill is a scope-owned loose folder under `<root>/skills` (#00078); a hook
             // joining a component stays global; everything else uses the scoped target dir.
@@ -521,7 +526,12 @@ final class TemplateManagerModel {
                 ? overrideRoot : overrideRoot.appending(path: directory, directoryHint: .isDirectory)
             do {
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-                let target = try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
+                // A file dropped into `hooks/` is unique by base name across extensions
+                // (the hook identity), so it walks the stem rather than the full name.
+                let target =
+                    directory == "hooks"
+                    ? try ClaudeProjectFiles.findFreeStemName(in: parent, base: plan.name)
+                    : try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
                 guard target.standardizedFileURL.path.hasPrefix(parent.standardizedFileURL.path + "/")
                 else {
                     rejected.append(url.lastPathComponent)
@@ -533,15 +543,18 @@ final class TemplateManagerModel {
                 let storage = plan.isSkill ? "\(dir)\(leaf)/SKILL.md" : "\(dir)\(leaf)"
                 importedStoragePaths.insert(storage)
                 if first == nil { first = (storage, plan.isDirectory && !plan.isSkill) }
-                // Dropping a `.sh` onto a component joins it as a hook (the only
+                // Dropping a hook script onto a component joins it as a hook (the only
                 // membership-backed kind); a dropped skill is now a scope-owned folder.
                 let importKind: UserTemplateKind? = joinsComponentAsHook ? .hook : nil
                 if let importKind, let componentKind = Self.sharedComponentKind(for: importKind),
                     let componentID = membershipComponentID(forKind: importKind)
                 {
+                    // A hook is a member by its base name (extension-agnostic); the real
+                    // filename is resolved from the override store when it's used.
                     registerMembership(
                         componentID, kind: componentKind,
-                        fileName: importKind == .hook ? String(leaf.dropLast(3)) : leaf)
+                        fileName: importKind == .hook
+                            ? (leaf as NSString).deletingPathExtension : leaf)
                 }
             } catch {
                 rejected.append(url.lastPathComponent)
@@ -699,13 +712,19 @@ final class TemplateManagerModel {
         guard let oldBase = UserTemplateKind.hookBaseName(forRelativePath: oldStorePath),
             let existing = hookWirings.wiring(named: oldBase)
         else { return }
-        let newBase = UserTemplateKind.hookBaseName(forRelativePath: newStorePath)
-        if newBase == oldBase { return }  // moved within hooks/, same name — wiring stands
-        hookWirings.remove(named: oldBase)
-        if let newBase {
-            hookWirings.upsert(
-                HookWiring(name: newBase, event: existing.event, matcher: existing.matcher))
+        guard let newBase = UserTemplateKind.hookBaseName(forRelativePath: newStorePath) else {
+            hookWirings.remove(named: oldBase)  // left hooks/ — the wiring has no target
+            saveHookWirings()
+            return
         }
+        let newFileName = (newStorePath as NSString).lastPathComponent
+        // Same base and same filename — moved within hooks/ unchanged, wiring stands.
+        if newBase == oldBase, newFileName == existing.fileName { return }
+        hookWirings.remove(named: oldBase)
+        hookWirings.upsert(
+            HookWiring(
+                name: newBase, event: existing.event, matcher: existing.matcher,
+                fileName: newFileName))
         saveHookWirings()
     }
 
@@ -832,14 +851,18 @@ final class TemplateManagerModel {
                 beginEditing(node)
                 return node
             default:
+                // A hook is unique by base name across extensions, so `foo.py` can't
+                // shadow an existing `foo.sh` (and vice versa) — it walks to `foo-1`.
                 let url = try ClaudeProjectFiles.createFileAt(
-                    parent: parent, name: kind.fileName(forSanitized: name))
+                    parent: parent, name: kind.fileName(forSanitized: name),
+                    stemUnique: kind == .hook)
                 try kind.starter(forLeaf: url.lastPathComponent).write(
                     to: url, atomically: true, encoding: .utf8)
-                // A hook joining a component is registered by its base name (no `.sh`).
+                // A hook joining a component is registered by its base name (any ext).
                 if kind == .hook {
                     registerMembership(
-                        componentID, kind: .hook, fileName: String(url.lastPathComponent.dropLast(3)))
+                        componentID, kind: .hook,
+                        fileName: (url.lastPathComponent as NSString).deletingPathExtension)
                 }
                 return selectCreatedFile(storagePath: storagePath(url.lastPathComponent), kind: kind)
             }
@@ -875,10 +898,20 @@ final class TemplateManagerModel {
     func relativePath(for kind: SharedComponentKind, file: String) -> String {
         switch kind {
         case .layer: ScaffoldOverrides.layerRelativePath(file)
-        case .hook: "hooks/\(file).sh"
+        case .hook: "hooks/\(hookFileName(forBase: file))"
         case .skill: "skills/\(file)/SKILL.md"
         case .config: "configs/\(file)"
         }
+    }
+
+    // The on-disk filename for a hook member stored by base name: the real override
+    // file whose base matches (carrying a `.py`/`.rb` extension), else the default
+    // `<base>.sh`. This is what lets a Python member render, scaffold and trash by its
+    // real path, while every built-in / legacy base-name member stays `.sh`. Not
+    // `private` — `TemplateManagerModel+Tree` resolves leaf specs through it too.
+    func hookFileName(forBase base: String) -> String {
+        overrides.overrideFileNames(inRelativeDir: "hooks")
+            .first { ($0 as NSString).deletingPathExtension == base } ?? "\(base).sh"
     }
 
     // A referenced file missing on disk is omitted from the tree (the code view
@@ -1173,7 +1206,10 @@ extension TemplateManagerModel {
         let content: String
         switch file.kind {
         case .layer: content = "# \(component.name)\n"
-        case .hook: content = "#!/bin/bash\n# \(component.name)\n"
+        case .hook:
+            content =
+                UserTemplateKind.hookShebang(forFileName: hookFileName(forBase: file.name))
+                + "# \(component.name)\n"
         case .skill: content = "# \(component.name)\n"
         case .config: content = "{}\n"
         }

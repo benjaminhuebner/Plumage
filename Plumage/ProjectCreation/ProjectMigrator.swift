@@ -88,15 +88,22 @@ nonisolated struct ProjectMigrator {
         self.catalog = catalog
     }
 
-    // The bundled-or-user hooks enabled for a template: effective hooks plus
-    // override-only `.sh` files, minus any disabled by the toggles.
-    private func enabledHookNames(forTemplate templateID: String) -> [String] {
+    // The bundled-or-user hooks enabled for a template, as (base name, real filename)
+    // pairs. Built-ins resolve to `<base>.sh`; a user override hook keeps its real
+    // extension (e.g. `.py`). The toggle key stays the base name — built-ins toggle by
+    // base — so recognition is extension-agnostic while identity is unchanged.
+    private func enabledHookFiles(forTemplate templateID: String) -> [(base: String, fileName: String)] {
         let effective = catalog.effectiveHooks(forTemplate: templateID)
-        let userHooks = overrides.overrideFileNames(inRelativeDir: "hooks")
-            .filter { $0.hasSuffix(".sh") }
-            .map { String($0.dropLast(3)) }
-            .filter { !effective.contains($0) }
-        return toggles.enabledNames(in: .hooks, from: effective + userHooks)
+        var fileByBase: [String: String] = [:]
+        for base in effective { fileByBase[base] = "\(base).sh" }
+        var userBases: [String] = []
+        for file in overrides.overrideFileNames(inRelativeDir: "hooks") {
+            let base = (file as NSString).deletingPathExtension
+            if fileByBase[base] == nil { userBases.append(base) }
+            fileByBase[base] = file  // the real override file wins, carrying its extension
+        }
+        return toggles.enabledNames(in: .hooks, from: effective + userBases)
+            .map { ($0, fileByBase[$0] ?? "\($0).sh") }
     }
 
     private var fileManager: FileManager { .default }
@@ -218,11 +225,11 @@ nonisolated struct ProjectMigrator {
     private func writeHooks(spec: NewProjectSpec, claude: URL, into report: inout Report) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in enabledHookNames(forTemplate: spec.templateID) {
+        for hook in enabledHookFiles(forTemplate: spec.templateID) {
             try copyIfMissing(
-                from: overrides.url(forRelative: "hooks/\(hook).sh"),
-                to: hooksDir.appending(path: "\(hook).sh"),
-                rel: ".claude/hooks/\(hook).sh", executable: true, into: &report)
+                from: overrides.url(forRelative: "hooks/\(hook.fileName)"),
+                to: hooksDir.appending(path: hook.fileName),
+                rel: ".claude/hooks/\(hook.fileName)", executable: true, into: &report)
         }
     }
 

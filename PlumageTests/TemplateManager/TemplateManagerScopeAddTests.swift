@@ -131,6 +131,23 @@ struct TemplateManagerScopeAddTests {
                 .files(ofKind: .hook).contains("my-hook") == true)
     }
 
+    @Test("A .py hook under a component is a base-name member resolved to its real filename")
+    func addPythonHookInComponentResolvesFilename() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "py-hook.py"))
+        #expect(node.relativePath == "hooks/py-hook.py")  // real extension on disk
+        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/py-hook.py"))
+        // The membership key stays the base name; the real filename is resolved from it.
+        #expect(
+            ctx.model.catalog.sharedComponent(id: "swift-shared")?
+                .files(ofKind: .hook).contains("py-hook") == true)
+        #expect(ctx.model.relativePath(for: .hook, file: "py-hook") == "hooks/py-hook.py")
+    }
+
     @Test("A typeless folder authored under a template lands in the template's scope")
     func addFolderInTemplateScope() throws {
         let ctx = makeModel()

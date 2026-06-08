@@ -186,24 +186,31 @@ struct IssueDetailView: View {
                     language: markdownLanguage,
                     layout: editorLayout
                 )
-                issueCreateFooter
+                .toolbar {
+                    // Gated on isCreating so the pushed loaded-mode detail
+                    // (NavigatorDetail) never inherits these sheet buttons.
+                    // .cancellationAction / .confirmationAction give macOS the
+                    // bottom button row: Cancel left, prominent default Create
+                    // Issue right — no manual styling needed.
+                    if model.isCreating {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { dismiss() }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Create Issue") { createAndNavigate() }
+                                .buttonStyle(.borderedProminent)
+                                // Override the default button's implicit plain
+                                // Return: the sheet body is a multiline spec
+                                // editor where Return must insert a newline.
+                                .keyboardShortcut(.return, modifiers: [.command])
+                                .disabled(!model.canSaveInCreatingMode)
+                        }
+                    }
+                }
             } else {
                 tabBody
             }
         }
-    }
-
-    @ViewBuilder
-    private var issueCreateFooter: some View {
-        HStack {
-            Spacer()
-            Button("Create Issue") { createAndNavigate() }
-                .keyboardShortcut(.return, modifiers: [.command])
-                .buttonStyle(.borderedProminent)
-                .disabled(!model.canSaveInCreatingMode)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
     }
 
     // Single creation path: footer button (Cmd+Return) AND attemptSave (Cmd+S)
