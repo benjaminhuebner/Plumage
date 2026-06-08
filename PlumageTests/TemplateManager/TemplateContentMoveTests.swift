@@ -57,6 +57,55 @@ struct TemplateContentMoveTests {
         #expect(ctx.model.selectedFile?.relativePath == newPath)
     }
 
+    @Test("moving a user file into a folder within a template scope keeps it in scope (#00078)")
+    func moveWithinTemplateScope() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "box")
+        ctx.model.selectedFile = nil
+        let file = try #require(ctx.model.addUserFile(kind: .file, rawName: "bla.md"))
+        #expect(file.relativePath == "templates/macOS/bla.md")  // scoped store path
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "templates/macOS/bla.md").path))
+
+        let box = try #require(find(ctx.model.contentTree, ["box"]))
+        ctx.model.moveNodes([file], into: box)
+
+        // The file stays inside the template's scope and is still visible — not leaked to Base.
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "templates/macOS/box/bla.md").path))
+        #expect(
+            !FileManager.default.fileExists(atPath: ctx.override.appending(path: "box/bla.md").path))
+        #expect(find(ctx.model.contentTree, ["box", "bla.md"]) != nil)
+        #expect(ctx.model.selectedFile?.relativePath == "templates/macOS/box/bla.md")
+    }
+
+    @Test("moving a user file into a folder within a component scope keeps it in scope (#00078)")
+    func moveWithinComponentScope() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "box")
+        ctx.model.selectedFile = nil
+        let file = try #require(ctx.model.addUserFile(kind: .file, rawName: "bla.md"))
+        let box = try #require(find(ctx.model.contentTree, ["box"]))
+        ctx.model.moveNodes([file], into: box)
+
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "components/swift-shared/box/bla.md").path))
+        #expect(find(ctx.model.contentTree, ["box", "bla.md"]) != nil)
+    }
+
     @Test("moving a user hook out of hooks/ drops its wiring")
     func userHookMoveDropsWiring() throws {
         let ctx = makeModel()

@@ -469,7 +469,7 @@ final class TemplateManagerModel {
         guard let first else { return }
         let node: FileNode?
         if first.isDirectory {
-            node = Self.outputPath(forStorageDir: first.storage)
+            node = Self.outputPath(forStorageDir: first.storage, scope: activeScope)
                 .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
         } else {
             node = contentFiles.first { $0.relativePath == first.storage }
@@ -509,14 +509,15 @@ final class TemplateManagerModel {
             showDropBanner("No override store is available.")
             return
         }
-        guard let targetDir = TemplateContentDropResolver.targetStoreDir(for: target) else {
+        guard let targetDir = TemplateContentDropResolver.targetStoreDir(for: target, scope: activeScope)
+        else {
             showDropBanner("Can't move here.")
             return
         }
         var movedSelection: (storage: String, isDirectory: Bool)?
         var rejected: [String] = []
         for source in sources {
-            let sourceStorePath = TemplateContentDropResolver.storePath(for: source)
+            let sourceStorePath = TemplateContentDropResolver.storePath(for: source, scope: activeScope)
             guard
                 !TemplateContentDropResolver.rejectsMove(
                     storePath: sourceStorePath, intoStoreDir: targetDir)
