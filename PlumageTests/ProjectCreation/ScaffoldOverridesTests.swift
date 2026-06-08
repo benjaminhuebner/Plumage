@@ -243,4 +243,64 @@ struct ScaffoldOverridesTests {
         #expect(!files.contains { $0.hasPrefix("hooks/") })
         #expect(!files.contains { $0.contains(".DS_Store") })
     }
+
+    // MARK: - Scope-rooted enumerators (#00078)
+
+    @Test("Scoped skill-dir names read only inside the scope subtree")
+    func scopedSkillDirNames() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("# base", to: tree.override, rel: "skills/base-skill/SKILL.md")
+        try write("# t", to: tree.override, rel: "templates/t1/skills/t-skill/SKILL.md")
+        try write("# c", to: tree.override, rel: "components/c1/skills/c-skill/SKILL.md")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        #expect(overrides.overrideSkillDirNames() == ["base-skill"])
+        #expect(overrides.overrideSkillDirNames(inRoot: "templates/t1") == ["t-skill"])
+        #expect(overrides.overrideSkillDirNames(inRoot: "components/c1") == ["c-skill"])
+    }
+
+    @Test("Scoped arbitrary-files scan returns scope-relative paths inside the subtree")
+    func scopedArbitraryFiles() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("r", to: tree.override, rel: ".editorconfig")  // base root → not in scope
+        try write("d", to: tree.override, rel: "templates/t1/docs/x.md")  // typed → excluded
+        try write("a", to: tree.override, rel: "templates/t1/note.txt")  // arbitrary → kept
+        try write("n", to: tree.override, rel: "templates/t1/sub/deep.txt")  // nested → kept
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let files = overrides.overrideRootArbitraryFiles(
+            inRoot: "templates/t1", excludingTopLevel: ["docs", "skills", "agents"])
+        #expect(files == ["note.txt", "sub/deep.txt"])  // scope-relative, no prefix, docs excluded
+        #expect(!files.contains(".editorconfig"))  // base-root file not pulled into the scope
+    }
+
+    @Test("Scoped arbitrary scan honours a store-root tombstone on the full path")
+    func scopedArbitraryFilesHonoursSuppression() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("a", to: tree.override, rel: "templates/t1/gone.txt")
+        try write("b", to: tree.override, rel: "templates/t1/stay.txt")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        try overrides.suppress(relativePath: "templates/t1/gone.txt")
+
+        let files = overrides.overrideRootArbitraryFiles(
+            inRoot: "templates/t1", excludingTopLevel: [])
+        #expect(files == ["stay.txt"])
+    }
+
+    @Test("Scoped directory walk returns scope-relative folder paths")
+    func scopedDirectoryPaths() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("x", to: tree.override, rel: "components/c1/myfolder/keep.txt")
+        try write("y", to: tree.override, rel: "myfolder-base/keep.txt")  // base scope
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let dirs = overrides.overrideDirectoryPaths(inRoot: "components/c1")
+        #expect(dirs.contains("myfolder"))  // scope-relative, no "components/c1" prefix
+        #expect(!dirs.contains { $0.hasPrefix("components") })
+        #expect(!dirs.contains("myfolder-base"))  // base-scope folder not in component scope
+    }
 }

@@ -57,6 +57,148 @@ struct TemplateContentMoveTests {
         #expect(ctx.model.selectedFile?.relativePath == newPath)
     }
 
+    @Test("moving a user file into a folder within a template scope keeps it in scope (#00078)")
+    func moveWithinTemplateScope() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "box")
+        ctx.model.selectedFile = nil
+        let file = try #require(ctx.model.addUserFile(kind: .file, rawName: "bla.md"))
+        #expect(file.relativePath == "templates/macOS/bla.md")  // scoped store path
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "templates/macOS/bla.md").path))
+
+        let box = try #require(find(ctx.model.contentTree, ["box"]))
+        ctx.model.moveNodes([file], into: box)
+
+        // The file stays inside the template's scope and is still visible — not leaked to Base.
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "templates/macOS/box/bla.md").path))
+        #expect(
+            !FileManager.default.fileExists(atPath: ctx.override.appending(path: "box/bla.md").path))
+        #expect(find(ctx.model.contentTree, ["box", "bla.md"]) != nil)
+        #expect(ctx.model.selectedFile?.relativePath == "templates/macOS/box/bla.md")
+    }
+
+    @Test("moving a user file into a folder within a component scope keeps it in scope (#00078)")
+    func moveWithinComponentScope() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "box")
+        ctx.model.selectedFile = nil
+        let file = try #require(ctx.model.addUserFile(kind: .file, rawName: "bla.md"))
+        let box = try #require(find(ctx.model.contentTree, ["box"]))
+        ctx.model.moveNodes([file], into: box)
+
+        #expect(
+            FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "components/swift-shared/box/bla.md").path))
+        #expect(find(ctx.model.contentTree, ["box", "bla.md"]) != nil)
+    }
+
+    @Test("moving a user folder into another folder relocates its whole subtree")
+    func userFolderMoveRelocates() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "src")
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "dst")
+        ctx.model.selectedFile = find(ctx.model.contentTree, ["src"])
+        _ = ctx.model.addUserFile(kind: .file, rawName: "f.txt")  // src/f.txt
+
+        let src = try #require(find(ctx.model.contentTree, ["src"]))
+        let dst = try #require(find(ctx.model.contentTree, ["dst"]))
+        ctx.model.moveNodes([src], into: dst)
+
+        #expect(
+            FileManager.default.fileExists(atPath: ctx.override.appending(path: "dst/src/f.txt").path))
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "src").path))
+        #expect(find(ctx.model.contentTree, ["dst", "src"]) != nil)
+    }
+
+    @Test("deleting a user folder is offered and trashes the whole folder")
+    func userFolderDelete() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "trashme")
+        ctx.model.selectedFile = find(ctx.model.contentTree, ["trashme"])
+        _ = ctx.model.addUserFile(kind: .file, rawName: "x.txt")
+
+        let folder = try #require(find(ctx.model.contentTree, ["trashme"]))
+        #expect(ctx.model.isUserAuthored(folder))  // a user folder is deletable
+        ctx.model.requestDelete(folder)
+        if ctx.model.pendingDeleteConfirmation != nil { ctx.model.confirmPendingDelete() }
+
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "trashme").path))
+        #expect(find(ctx.model.contentTree, ["trashme"]) == nil)
+    }
+
+    @Test("Renaming a user file relocates the override (extension preserved) and re-selects it")
+    func renameUserFile() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        let node = try #require(ctx.model.addUserFile(kind: .doc, rawName: "old"))  // docs/old.md
+
+        ctx.model.beginRenameContent(node)
+        ctx.model.contentRename?.name = "new"  // stem only → keeps .md
+        ctx.model.commitContentRename()
+
+        #expect(ctx.model.overrides.hasOverride(forRelative: "docs/new.md"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "docs/old.md"))
+        #expect(ctx.model.selectedFile?.relativePath == "docs/new.md")
+        #expect(ctx.model.contentRename == nil)
+    }
+
+    @Test("Renaming a user folder relocates the whole folder")
+    func renameUserFolder() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "box")
+        let box = try #require(find(ctx.model.contentTree, ["box"]))
+
+        ctx.model.beginRenameContent(box)
+        ctx.model.contentRename?.name = "crate"
+        ctx.model.commitContentRename()
+
+        #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: "crate").path))
+        #expect(!FileManager.default.fileExists(atPath: ctx.override.appending(path: "box").path))
+        #expect(find(ctx.model.contentTree, ["crate"]) != nil)
+    }
+
+    @Test("A bundled-backed row cannot be renamed")
+    func renameRejectsBundled() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        let bundled = try #require(
+            find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]))
+        ctx.model.beginRenameContent(bundled)
+        #expect(ctx.model.contentRename == nil)  // not user-authored → no rename session
+    }
+
     @Test("moving a user hook out of hooks/ drops its wiring")
     func userHookMoveDropsWiring() throws {
         let ctx = makeModel()

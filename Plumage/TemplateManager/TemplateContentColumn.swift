@@ -59,6 +59,14 @@ struct TemplateContentColumn: View {
                 Text("No files").foregroundStyle(.secondary)
             }
         }
+        // Standard macOS file-tree keys: Delete/Backspace trashes the selected row,
+        // Return renames it (no-op unless it is a user-authored file/folder).
+        .onDeleteCommand { model.deleteSelected() }
+        .onKeyPress(.return) {
+            guard model.contentRename == nil, model.selectedFile != nil else { return .ignored }
+            model.renameSelected()
+            return .handled
+        }
         // Finder files dropped on the empty list area import into the current selection.
         .dropDestination(for: URL.self) { urls, _ in
             model.importDropped(urls: urls)
@@ -136,7 +144,18 @@ struct TemplateContentColumn: View {
         let needsWiring = node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
         let overridden = node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
         return HStack(spacing: 6) {
-            Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
+            if model.contentRename?.id == node.id {
+                Label("", systemImage: node.isDirectory ? "folder" : "doc.text")
+                    .labelStyle(.iconOnly)
+                StemSelectingTextField(
+                    text: renameBinding(),
+                    placeholder: node.name,
+                    onSubmit: { model.commitContentRename() },
+                    onCancel: { model.cancelContentRename() },
+                    onBlur: { model.commitContentRename() })
+            } else {
+                Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
+            }
             Spacer(minLength: 0)
             if needsWiring {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -157,6 +176,12 @@ struct TemplateContentColumn: View {
                     .accessibilityLabel(node.isDirectory ? "Contains an override" : "Overridden")
             }
         }
+    }
+
+    private func renameBinding() -> Binding<String> {
+        Binding(
+            get: { model.contentRename?.name ?? "" },
+            set: { if model.contentRename != nil { model.contentRename?.name = $0 } })
     }
 
     @ViewBuilder
@@ -185,10 +210,12 @@ struct TemplateContentColumn: View {
                     model.pendingHookWiring = node
                 }
             }
-            if model.isUserAuthored(node) {
-                Divider()
-                Button("Delete", role: .destructive) { model.requestDelete(node) }
-            }
+        }
+        // Rename + Delete are offered for any user-authored item, file or folder.
+        if model.isUserAuthored(node) {
+            Divider()
+            Button("Rename") { model.beginRenameContent(node) }
+            Button("Delete", role: .destructive) { model.requestDelete(node) }
         }
     }
 }
