@@ -60,7 +60,8 @@ extension TemplateManagerModel {
         case .base:
             return surfaceSpecs(
                 scope: .base, showsConfigs: true,
-                hookNames: baseHookNames(), claudeMdStorage: catalog.base.claudeMdRelativePath)
+                hookFiles: hookLeafFileNames(effectiveBases: catalog.base.workflowHooks),
+                claudeMdStorage: catalog.base.claudeMdRelativePath)
         case .template(let id):
             guard let template = catalog.template(id: id) else { return [] }
             // A Template shows the merged project surfaces with its own CLAUDE.md
@@ -70,7 +71,7 @@ extension TemplateManagerModel {
                 ownLayer.map(ScaffoldOverrides.layerRelativePath) ?? catalog.base.claudeMdRelativePath
             return surfaceSpecs(
                 scope: .template(id), showsConfigs: true,
-                hookNames: catalog.effectiveHooks(forTemplate: id) + overrideHookBaseNames(),
+                hookFiles: hookLeafFileNames(effectiveBases: catalog.effectiveHooks(forTemplate: id)),
                 claudeMdStorage: claudeMdStorage)
         case .sharedComponent(let id):
             guard let component = catalog.sharedComponent(id: id) else { return [] }
@@ -185,15 +186,21 @@ extension TemplateManagerModel {
 
     // MARK: - Leaf specs
 
-    // Base names of the workflow hooks plus any user override-only hooks.
-    private func baseHookNames() -> [String] {
-        catalog.base.workflowHooks + overrideHookBaseNames()
-    }
-
-    private func overrideHookBaseNames() -> [String] {
-        overrides.overrideFileNames(inRelativeDir: "hooks")
-            .filter { $0.hasSuffix(".sh") }
-            .map { String($0.dropLast(3)) }
+    // Real filenames for the hook slots a tree shows: each effective base resolves to
+    // its real override file (so a `.py`/`.rb` hook displays with its extension) or the
+    // default `<base>.sh` for built-ins, plus any override-only hook files not already
+    // covered by an effective base. De-duplication by output happens in `surfaceSpecs`.
+    private func hookLeafFileNames(effectiveBases: [String]) -> [String] {
+        let overrideFiles = overrides.overrideFileNames(inRelativeDir: "hooks")
+        var fileByBase: [String: String] = [:]
+        for file in overrideFiles { fileByBase[(file as NSString).deletingPathExtension] = file }
+        var names = effectiveBases.map { fileByBase[$0] ?? "\($0).sh" }
+        let coveredBases = Set(effectiveBases)
+        for file in overrideFiles
+        where !coveredBases.contains((file as NSString).deletingPathExtension) {
+            names.append(file)
+        }
+        return names
     }
 
     // The typed top-level dirs of a `scope`'s arbitrary-file scan: at the store root
@@ -213,7 +220,7 @@ extension TemplateManagerModel {
     // scope's store root so they belong to one tier only (#00078); their output stays
     // `.claude/...`, only `relative` carries the scope prefix. De-duplicates by output.
     private func surfaceSpecs(
-        scope: ManagerScope, showsConfigs: Bool, hookNames: [String] = [],
+        scope: ManagerScope, showsConfigs: Bool, hookFiles: [String] = [],
         claudeMdStorage: String? = nil
     ) -> [LeafSpec] {
         var specs: [LeafSpec] = []
@@ -236,7 +243,7 @@ extension TemplateManagerModel {
             if let claudeMdStorage {
                 add(output: ".claude/CLAUDE.md", relative: claudeMdStorage, name: "CLAUDE.md")
             }
-            for hook in hookNames { add(output: ".claude/hooks/\(hook).sh", relative: "hooks/\(hook).sh") }
+            for file in hookFiles { add(output: ".claude/hooks/\(file)", relative: "hooks/\(file)") }
             add(output: ".claude/issues/_TEMPLATE.md", relative: "issues/_TEMPLATE.md")
         }
         for doc in overrides.unionFileNames(inRelativeDir: scoped("docs")) {
@@ -281,10 +288,11 @@ extension TemplateManagerModel {
                         output: ".claude/CLAUDE.md", relative: ScaffoldOverrides.layerRelativePath(name),
                         name: "CLAUDE.md"))
             case .hook:
+                let fileName = hookFileName(forBase: name)
                 specs.append(
                     LeafSpec(
-                        output: ".claude/hooks/\(name).sh", relative: "hooks/\(name).sh",
-                        name: "\(name).sh"))
+                        output: ".claude/hooks/\(fileName)", relative: "hooks/\(fileName)",
+                        name: fileName))
             case .skill:
                 let subs = overrides.unionFileNamesRecursive(inRelativeDir: "skills/\(name)")
                 let entries = subs.isEmpty ? ["SKILL.md"] : subs

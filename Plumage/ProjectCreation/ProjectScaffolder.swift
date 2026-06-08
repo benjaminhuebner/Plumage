@@ -50,9 +50,8 @@ nonisolated struct ProjectScaffolder {
         var userBases: [String] = []
         for file in overrides.overrideFileNames(inRelativeDir: "hooks") {
             let base = (file as NSString).deletingPathExtension
-            guard !effective.contains(base) else { continue }  // effective copy already wins
             if fileByBase[base] == nil { userBases.append(base) }
-            fileByBase[base] = file
+            fileByBase[base] = file  // the real override file wins, carrying its extension
         }
         return toggles.enabledNames(in: .hooks, from: effective + userBases)
             .map { ($0, fileByBase[$0] ?? "\($0).sh") }
