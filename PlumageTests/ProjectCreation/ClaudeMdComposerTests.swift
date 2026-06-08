@@ -74,7 +74,7 @@ struct ClaudeMdComposerTests {
         let macosOverride = overrideRoot.appending(path: "templates/macos/CLAUDE.md")
         try fm.createDirectory(
             at: macosOverride.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "%% CONVENTIONS %%\nOVERRIDE_MARKER_XYZ\n".write(
+        try "%% CONVENTIONS %%\nOVERRIDE_MARKER_XYZ\n%% /CONVENTIONS %%\n".write(
             to: macosOverride, atomically: true, encoding: .utf8)
 
         let composer = ClaudeMdComposer(

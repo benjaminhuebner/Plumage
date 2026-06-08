@@ -61,7 +61,7 @@ struct ProjectScaffolderTests {
             path: "CustomTemplate-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fm.removeItem(at: overrideRoot) }
         try write(
-            "%% LAYOUT %%\nCUSTOM_TEMPLATE_MARKER\n", to: overrideRoot,
+            "%% LAYOUT %%\nCUSTOM_TEMPLATE_MARKER\n%% /LAYOUT %%\n", to: overrideRoot,
             rel: "templates/\(descriptor.id)/CLAUDE.md")
 
         let dir = tmpProjectDir()

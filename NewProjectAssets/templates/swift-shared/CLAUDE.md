@@ -3,8 +3,10 @@
 - Name actors for what they isolate (`ImageCache`, not `ImageActor`).
 - `Task { }` only at boundaries with non-async worlds (UI events, `@main`, signal handlers).
 - For safe unwrapping: `guard let … else { throw … }`. In tests: `try #require(...)`.
+%% /CONVENTIONS %%
 
-%% BUILD AND TEST %%
+%% BUILD_AND_TEST %%
 - Tests use **Swift Testing**: `import Testing`, `@Test`, `#expect`, `try #require(...)`.
 - Test types: prefer `struct`. Use `class` only when you need `deinit` cleanup.
 - Pre-commit gate tooling: clean **SwiftLint** and **swift-format** lint. `// swiftlint:disable` requires a one-line justification.
+%% /BUILD_AND_TEST %%
