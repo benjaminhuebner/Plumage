@@ -79,8 +79,8 @@ struct ProjectMigratorGitTests {
         #expect(excludeLines.contains(".mcp.json"))
     }
 
-    @Test("Existing repo writes no excludes when everything stays in git")
-    func noExcludeWhenAllInGit() async throws {
+    @Test("Existing repo excludes only the ephemeral subfolders when the bundle stays in git")
+    func excludeEphemeralWhenBundleInGit() async throws {
         let (root, parent) = try existingDir()
         defer { try? fileManager.removeItem(at: parent) }
         try fakeRepo(at: root, head: "ref: refs/heads/main\n")
@@ -90,14 +90,13 @@ struct ProjectMigratorGitTests {
                 git: MigrationGitSetup(
                     initIfMissing: false, plumageInGit: true, claudeInGit: true,
                     createGitignore: false)))
-        let excludePath = root.appending(path: ".git/info/exclude").path
-        if fileManager.fileExists(atPath: excludePath) {
-            let exclude = try String(contentsOf: URL(filePath: excludePath), encoding: .utf8)
-            let excludeLines = exclude.split(separator: "\n").map(String.init)
-            #expect(!excludeLines.contains(".claude/"))
-            #expect(!excludeLines.contains(".plumage/"))
-            #expect(!excludeLines.contains("Acme.plumage/"))
-        }
+        let exclude = try String(
+            contentsOf: root.appending(path: ".git/info/exclude"), encoding: .utf8)
+        let excludeLines = exclude.split(separator: "\n").map(String.init)
+        #expect(excludeLines.contains("*.plumage/runs/"))
+        #expect(excludeLines.contains("*.plumage/sessions/"))
+        #expect(!excludeLines.contains(".claude/"))
+        #expect(!excludeLines.contains("Acme.plumage/"))  // bundle itself stays tracked
     }
 
     @Test("initIfMissing initializes a repo when none exists and applies excludes")

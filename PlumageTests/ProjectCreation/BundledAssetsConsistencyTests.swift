@@ -36,10 +36,10 @@ struct BundledAssetsConsistencyTests {
         #expect(exists("templates/CLAUDE.md"))
     }
 
-    @Test("Every gitignore tag (plus the always-on macOS + plumage blocks) is bundled")
+    @Test("Every gitignore tag (plus the always-on macOS block) is bundled")
     func gitignoreFragmentsExist() {
         for kind in ProjectKind.allCases {
-            for tag in kind.profile.gitignoreTags + ["macos", "plumage"] {
+            for tag in kind.profile.gitignoreTags + ["macos"] {
                 #expect(exists("templates/gitignore/\(tag).gitignore"), "missing gitignore \(tag) for \(kind)")
             }
         }

@@ -39,12 +39,13 @@ struct GitignoreComposerTests {
         }
     }
 
-    @Test("Every kind always includes the plumage block")
-    func plumageAlways() throws {
+    @Test("No kind leaks Plumage ephemeral state into the shared .gitignore")
+    func plumageNeverInGitignore() throws {
         for kind in ProjectKind.allCases {
             let out = try composer.compose(for: kind)
-            #expect(out.contains("*.plumage/runs/"), "plumage runs pattern missing for \(kind)")
-            #expect(out.contains("*.plumage/sessions/"), "plumage sessions pattern missing for \(kind)")
+            #expect(!out.contains("*.plumage/runs/"), "plumage runs pattern leaked for \(kind)")
+            #expect(!out.contains("*.plumage/sessions/"), "plumage sessions pattern leaked for \(kind)")
+            #expect(!out.contains(".plumage/"), "any .plumage pattern leaked for \(kind)")
         }
     }
 

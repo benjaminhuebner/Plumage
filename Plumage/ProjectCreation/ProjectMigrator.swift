@@ -316,7 +316,11 @@ nonisolated struct ProjectMigrator {
         guard hasRepo else { return }
 
         var excludes: [String] = []
-        if !spec.git.plumageInGit { excludes += ["\(spec.name).plumage/"] }
+        if spec.git.plumageInGit {
+            excludes += GitExcludeWriter.plumageEphemeralPaths
+        } else {
+            excludes += ["\(spec.name).plumage/"]
+        }
         if !spec.git.claudeInGit { excludes += [".claude/", ".mcp.json"] }
         if !excludes.isEmpty {
             try GitExcludeWriter().append(paths: excludes, repoURL: root)
