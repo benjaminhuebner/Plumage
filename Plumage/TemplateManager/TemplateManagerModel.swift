@@ -27,10 +27,10 @@ final class TemplateManagerModel {
     private(set) var membership: CatalogMembership?
     var selectedFile: FileNode?
 
-    // Output paths of the folder rows that are expanded in the content tree. Empty by
-    // default (folders start collapsed, like the old OutlineGroup); creating an item
-    // expands its ancestors so a freshly added file is always revealed, never hidden
-    // inside a collapsed folder (#00078 follow-up).
+    // Output paths of the expanded folder rows. Folders start collapsed (a clean,
+    // shallow tree); creating or moving an item expands its ancestors so it is always
+    // revealed, and the row's context menu toggles expansion (an inline tap/disclosure
+    // control would swallow the row's drag, #00078 follow-up).
     var expandedNodeIDs: Set<String> = []
 
     // Editing state for the right column. The editor saves to the override slot but
@@ -788,8 +788,8 @@ final class TemplateManagerModel {
         return node
     }
 
-    // Expand the content-tree folder rows that contain `storageDir` (a store path), so a
-    // newly created or moved item is revealed instead of hidden in a collapsed folder.
+    // Re-expand the content-tree folders containing `storageDir` (a store path), so a
+    // newly created or moved item is revealed even if its ancestors were collapsed.
     private func revealAncestors(ofStorageDir storageDir: String) {
         guard !storageDir.isEmpty,
             let output = Self.outputPath(forStorageDir: storageDir, scope: activeScope)
@@ -801,7 +801,7 @@ final class TemplateManagerModel {
         }
     }
 
-    // Two-way binding for a folder row's disclosure state, defaulting to collapsed.
+    // Folder rows are collapsed unless explicitly expanded.
     func isNodeExpanded(_ id: String) -> Bool { expandedNodeIDs.contains(id) }
 
     func setNode(_ id: String, expanded: Bool) {

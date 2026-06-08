@@ -133,20 +133,20 @@ struct TemplateContentColumn: View {
     }
 
     private func contentRow(_ node: FileNode, depth: Int) -> some View {
+        // Indentation + a *pure-visual* chevron. Crucially the row carries no tap or
+        // button gesture: any such gesture swallows the mouse-down and stops the folder
+        // from being dragged (the bug behind "can't drag folders into folders").
+        // Expand/Collapse lives in the context menu instead, and folders are expanded by
+        // default so nothing stays hidden.
         HStack(spacing: 4) {
-            if node.children != nil {
-                Button {
-                    model.setNode(node.id, expanded: !model.isNodeExpanded(node.id))
-                } label: {
+            Group {
+                if node.children != nil {
                     Image(systemName: model.isNodeExpanded(node.id) ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 12)
                 }
-                .buttonStyle(.plain)
-            } else {
-                Color.clear.frame(width: 12)
             }
+            .frame(width: 12)
             fileRow(node)
         }
         .padding(.leading, CGFloat(depth) * 14)
@@ -216,6 +216,12 @@ struct TemplateContentColumn: View {
 
     @ViewBuilder
     private func rowMenu(_ node: FileNode) -> some View {
+        if node.children != nil {
+            Button(model.isNodeExpanded(node.id) ? "Collapse" : "Expand") {
+                model.setNode(node.id, expanded: !model.isNodeExpanded(node.id))
+            }
+            Divider()
+        }
         if !model.addableKinds.isEmpty {
             addMenu(into: node)
             Divider()
