@@ -239,7 +239,11 @@ nonisolated struct ProjectScaffolder {
         try await gitInitRunner.initRepo(at: root, defaultBranch: "main")
 
         var excludes: [String] = []
-        if !git.plumageInGit { excludes += ["\(spec.name).plumage/"] }
+        if git.plumageInGit {
+            excludes += GitExcludeWriter.plumageEphemeralPaths
+        } else {
+            excludes += ["\(spec.name).plumage/"]
+        }
         if !git.claudeInGit { excludes += [".claude/", ".mcp.json"] }
         if !excludes.isEmpty {
             try GitExcludeWriter().append(paths: excludes, repoURL: root)

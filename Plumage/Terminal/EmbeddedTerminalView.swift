@@ -118,7 +118,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
             session.markExited(code: -1)
             return view
         }
-        let args = session.shellSpawnArgs()
+        let args = session.shellSpawnArgs(appearanceIsDark: colorScheme == .dark)
         let env = Self.environmentForClaude()
 
         view.startProcess(

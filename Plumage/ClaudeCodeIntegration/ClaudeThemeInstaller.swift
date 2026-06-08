@@ -15,6 +15,12 @@ nonisolated enum ClaudeThemeInstaller {
     }
 
     static let themeName = "plumage"
+    // The light counterpart. claude's `base` palette can't adapt within one
+    // theme file, and Plumage's terminal background is transparent — so on a
+    // light-mode (light) background the dark theme's pale accent colors (the
+    // gold `claude` question text, the gray `subtle`/`inactive`) wash out and
+    // become unreadable. We install both and pick per-session by appearance.
+    static let lightThemeName = "plumage-light"
     // claude's settings.json stores custom themes with a `custom:` prefix —
     // a bare `"theme": "plumage"` is treated as an unknown built-in name and
     // silently falls back to "Dark mode". The custom-theme file in
@@ -22,7 +28,9 @@ nonisolated enum ClaudeThemeInstaller {
     // value gets the prefix. Verified against claude 2.1.150 by selecting
     // "plumage (custom)" through `/theme` and reading back the stored value.
     static let settingsThemeValue = "custom:\(themeName)"
+    static let lightSettingsThemeValue = "custom:\(lightThemeName)"
     static let bundledResource = "plumage-theme"
+    static let lightBundledResource = "plumage-theme-light"
     static let bundledExtension = "json"
     // Inline JSON passed via `claude --settings '<json>'` to scope Plumage's
     // session-specific overrides without touching the user's global
@@ -38,16 +46,28 @@ nonisolated enum ClaudeThemeInstaller {
     //   doesn't carry into Plumage sessions when the embedded terminal is the
     //   first surface they touch. Pinning to `false` per-session matches the
     //   Terminal.app behavior without forcing a global write.
-    static let perSessionSettingsJSON =
-        #"{"theme":"custom:plumage","promptSuggestionEnabled":false}"#
+    // `dark` selects the matching custom theme so claude's accent colors stay
+    // legible against Plumage's transparent terminal background in either
+    // appearance. Built at the call site (TerminalClaudeSession.shellSpawnArgs)
+    // from the embedding view's colorScheme. No single quotes or newlines so
+    // shellQuotedAttachArgs wraps it with one quote pair.
+    static func perSessionSettingsJSON(dark: Bool) -> String {
+        let theme = dark ? settingsThemeValue : lightSettingsThemeValue
+        return #"{"theme":"\#(theme)","promptSuggestionEnabled":false}"#
+    }
 
     static func installIfNeeded(bundle: Bundle = .main, fileManager: FileManager = .default) {
         do {
             guard
                 let sourceURL = bundle.url(
-                    forResource: bundledResource, withExtension: bundledExtension)
+                    forResource: bundledResource, withExtension: bundledExtension),
+                let lightSourceURL = bundle.url(
+                    forResource: lightBundledResource, withExtension: bundledExtension)
             else { throw InstallError.bundleResourceMissing }
             try writeThemeFile(sourceURL: sourceURL, fileManager: fileManager)
+            try writeThemeFile(
+                sourceURL: lightSourceURL, fileManager: fileManager,
+                destination: try defaultThemeFileURL(fileManager: fileManager, name: lightThemeName))
             try removeManagedThemeFromSettings(fileManager: fileManager)
         } catch {
             // Theme install is best-effort. A failure here must not block
@@ -87,6 +107,7 @@ nonisolated enum ClaudeThemeInstaller {
         else { return }
         guard let current = json["theme"] as? String,
             current == settingsThemeValue || current == themeName
+                || current == lightSettingsThemeValue || current == lightThemeName
         else { return }
         json.removeValue(forKey: "theme")
         let updated = try JSONSerialization.data(
@@ -94,10 +115,12 @@ nonisolated enum ClaudeThemeInstaller {
         try updated.write(to: url, options: .atomic)
     }
 
-    static func defaultThemeFileURL(fileManager: FileManager) throws -> URL {
+    static func defaultThemeFileURL(
+        fileManager: FileManager, name: String = themeName
+    ) throws -> URL {
         try claudeHomeDirectory(fileManager: fileManager)
             .appendingPathComponent("themes", isDirectory: true)
-            .appendingPathComponent("\(themeName).json")
+            .appendingPathComponent("\(name).json")
     }
 
     static func defaultSettingsFileURL(fileManager: FileManager) throws -> URL {

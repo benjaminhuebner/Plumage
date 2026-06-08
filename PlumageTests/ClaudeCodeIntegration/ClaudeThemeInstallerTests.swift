@@ -24,32 +24,36 @@ struct ClaudeThemeInstallerTests {
         #expect(overrides["background"] as? String == "transparent")
     }
 
-    @Test("perSessionSettingsJSON is valid JSON with the custom:plumage theme value")
+    @Test("perSessionSettingsJSON carries the appearance-matched custom theme value")
     func perSessionJSONShape() throws {
-        let data = try #require(
-            ClaudeThemeInstaller.perSessionSettingsJSON.data(using: .utf8))
-        let json = try #require(
-            try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        // claude requires the `custom:` prefix — bare "plumage" is silently
-        // treated as an unknown built-in and falls back to "Dark mode".
-        #expect(json["theme"] as? String == "custom:plumage")
-        // Must stay free of characters that would break single-quote shell
-        // wrapping in TerminalClaudeSession.shellQuotedAttachArgs.
-        #expect(!ClaudeThemeInstaller.perSessionSettingsJSON.contains("'"))
-        #expect(!ClaudeThemeInstaller.perSessionSettingsJSON.contains("\n"))
+        for (dark, expected) in [(true, "custom:plumage"), (false, "custom:plumage-light")] {
+            let raw = ClaudeThemeInstaller.perSessionSettingsJSON(dark: dark)
+            let data = try #require(raw.data(using: .utf8))
+            let json = try #require(
+                try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            // claude requires the `custom:` prefix — bare "plumage" is silently
+            // treated as an unknown built-in and falls back to "Dark mode".
+            #expect(json["theme"] as? String == expected)
+            // Must stay free of characters that would break single-quote shell
+            // wrapping in TerminalClaudeSession.shellQuotedAttachArgs.
+            #expect(!raw.contains("'"))
+            #expect(!raw.contains("\n"))
+        }
     }
 
     @Test("perSessionSettingsJSON pins promptSuggestionEnabled=false")
     func perSessionDisablesPromptSuggestions() throws {
-        let data = try #require(
-            ClaudeThemeInstaller.perSessionSettingsJSON.data(using: .utf8))
-        let json = try #require(
-            try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        // claude defaults `promptSuggestionEnabled` to true and renders a
-        // "Predicted next user prompt" line after every turn. Plumage opts out
-        // per-session so the embedded terminal matches a user's suggestion-
-        // free Terminal.app setup without writing to ~/.claude/settings.json.
-        #expect(json["promptSuggestionEnabled"] as? Bool == false)
+        for dark in [true, false] {
+            let data = try #require(
+                ClaudeThemeInstaller.perSessionSettingsJSON(dark: dark).data(using: .utf8))
+            let json = try #require(
+                try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            // claude defaults `promptSuggestionEnabled` to true and renders a
+            // "Predicted next user prompt" line after every turn. Plumage opts out
+            // per-session so the embedded terminal matches a user's suggestion-
+            // free Terminal.app setup without writing to ~/.claude/settings.json.
+            #expect(json["promptSuggestionEnabled"] as? Bool == false)
+        }
     }
 
     @Test("removeManagedThemeFromSettings strips custom:plumage and leaves siblings alone")
@@ -82,6 +86,23 @@ struct ClaudeThemeInstallerTests {
         // Pre-`custom:` Plumage builds wrote the bare name. Treat it as ours
         // and migrate it out the same way.
         try #"{"theme": "plumage", "other": "value"}"#
+            .write(to: settings, atomically: true, encoding: .utf8)
+
+        try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)
+
+        let data = try Data(contentsOf: settings)
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["theme"] == nil)
+        #expect(json["other"] as? String == "value")
+    }
+
+    @Test("removeManagedThemeFromSettings strips the managed light theme value")
+    func removesLightValue() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let settings = tmp.appendingPathComponent("settings.json")
+        try #"{"theme": "custom:plumage-light", "other": "value"}"#
             .write(to: settings, atomically: true, encoding: .utf8)
 
         try ClaudeThemeInstaller.removeManagedThemeFromSettings(settingsURL: settings)

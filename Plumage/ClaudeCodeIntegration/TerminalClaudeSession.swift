@@ -244,6 +244,18 @@ final class TerminalClaudeSession {
         return false
     }
 
+    // Gap to wait between an injected body and the submit \r. claude drains a
+    // long paste over several read() bursts; if the \r lands in the same burst
+    // as the body's tail, claude's paste heuristic eats it and nothing submits.
+    // Scale the gap with the largest payload (≈125 KB/s settle budget) so the
+    // body clears first. Short commands keep the 800 ms floor; the 64 KB token
+    // cap (WorkflowCommandResolver) bounds the worst case near 8 s.
+    nonisolated static let injectBodyDelayFloor: Duration = .milliseconds(800)
+    nonisolated static func injectBodyDelay(for payloads: [String]) -> Duration {
+        let maxBytes = payloads.map(\.utf8.count).max() ?? 0
+        return injectBodyDelayFloor + .milliseconds(maxBytes / 8)
+    }
+
     func registerStopHandler(_ handler: @escaping () -> Void) {
         stopHandler = handler
     }
@@ -273,13 +285,17 @@ final class TerminalClaudeSession {
     }
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
-    func shellSpawnArgs() -> [String] {
+    func shellSpawnArgs(appearanceIsDark: Bool = true) -> [String] {
         // Inject the plumage theme per-session via --settings instead of
         // writing it into the user's global ~/.claude/settings.json — that
         // earlier approach also re-skinned the user's own claude terminal.
-        // Inline JSON contains no single quotes so shellQuote wraps it safely
-        // with one quote pair.
-        var args = ["--settings", ClaudeThemeInstaller.perSessionSettingsJSON]
+        // The dark/light variant is picked from the embedding view's
+        // colorScheme so claude's accents stay legible on the transparent
+        // terminal background. Inline JSON contains no single quotes so
+        // shellQuote wraps it safely with one quote pair.
+        var args = [
+            "--settings", ClaudeThemeInstaller.perSessionSettingsJSON(dark: appearanceIsDark),
+        ]
         args += resumeOrInitArgs()
         if let permissionMode {
             args += ["--permission-mode", permissionMode.rawCLIValue]

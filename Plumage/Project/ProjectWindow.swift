@@ -595,11 +595,15 @@ struct ProjectWindow: View {
             [line.replacingOccurrences(of: "\r", with: ""), "\r"]
         }
 
+        // A long body needs a wider gap before the submit \r or claude's paste
+        // heuristic eats it — see TerminalClaudeSession.injectBodyDelay.
+        let bodyDelay = TerminalClaudeSession.injectBodyDelay(for: payloads)
+
         workflowTask = Task { @MainActor in
             // Single inject call covers every line: consumePending() runs
             // exactly once at entry so the prior line can never be silently
             // drained between iterations (see TerminalClaudeSession.injectLines).
-            let result = await session.injectLines(payloads)
+            let result = await session.injectLines(payloads, bodyDelay: bodyDelay)
             switch result {
             case .sessionExited:
                 Self.log.info(

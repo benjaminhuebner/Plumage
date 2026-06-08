@@ -31,6 +31,5 @@ struct NewProjectAssetsTests {
         #expect(fm.fileExists(atPath: root.appending(path: "skills/plumage-plan/scripts/roadmap.py").path))
         #expect(fm.fileExists(atPath: root.appending(path: "issues/_TEMPLATE.md").path))
         #expect(fm.fileExists(atPath: root.appending(path: "templates/gitignore/macos.gitignore").path))
-        #expect(fm.fileExists(atPath: root.appending(path: "templates/gitignore/plumage.gitignore").path))
     }
 }

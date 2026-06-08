@@ -117,6 +117,23 @@ struct NewProjectEngineAcceptanceTests {
         #expect(ignore.contains(".DS_Store"))  // macOS, always
         #expect(ignore.contains("DerivedData/"))  // xcode
         #expect(ignore.contains(".build/"))  // swift
+        #expect(!ignore.contains(".plumage/"))  // ephemeral state lives in .git/info/exclude
+    }
+
+    @Test("git exclude: committed bundle (plumageInGit) excludes only the ephemeral subfolders")
+    func gitExcludeEphemeral() async throws {
+        let (root, parent) = freshRoot()
+        defer { try? fileManager.removeItem(at: parent) }
+        let created = try await scaffolder().create(
+            spec: NewProjectSpec(
+                kind: .macOS, name: "Acme", tagline: "x", projectDirectory: root,
+                git: GitSetup(plumageInGit: true, createGitignore: true)))
+        let exclude = try String(
+            contentsOf: created.root.appending(path: ".git/info/exclude"), encoding: .utf8)
+        let excludeLines = exclude.split(separator: "\n").map(String.init)
+        #expect(excludeLines.contains("*.plumage/runs/"))
+        #expect(excludeLines.contains("*.plumage/sessions/"))
+        #expect(!excludeLines.contains("Acme.plumage/"))  // bundle itself stays tracked
     }
 
     @Test("git exclude: plumageInGit=false excludes plumage dirs; claudeInGit=false excludes claude + mcp")
@@ -135,6 +152,8 @@ struct NewProjectEngineAcceptanceTests {
         // (substring-matching `.plumage/` would falsely pass via `Acme.plumage/`).
         #expect(excludeLines.contains("Acme.plumage/"))
         #expect(!excludeLines.contains(".plumage/"))
+        // Whole bundle is excluded, so the ephemeral-subfolder lines are redundant.
+        #expect(!excludeLines.contains("*.plumage/runs/"))
         #expect(excludeLines.contains(".claude/"))
         #expect(excludeLines.contains(".mcp.json"))
     }
