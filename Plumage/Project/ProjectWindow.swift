@@ -145,7 +145,9 @@ struct ProjectWindow: View {
                     legacyTerminalPaneMode = ""
                     hasMigratedLegacyPaneMode = true
                 }
-                if let restored = NavigatorRoute(persistedString: persistedRouteData) {
+                if let restored = Self.restoredRoute(
+                    from: persistedRouteData, projectURL: handle.url)
+                {
                     selectedRoute = restored
                 }
                 // @State ignores re-assignment from init, so a window reused
@@ -276,7 +278,7 @@ struct ProjectWindow: View {
                 sidebarFileWatcher = nil
             }
             .onChange(of: selectedRoute) { _, new in
-                persistedRouteData = new.persistedString
+                persistedRouteData = Self.persistedRouteString(new, projectURL: handle.url)
                 if case .issue = new {
                 } else {
                     detailOriginRoute = nil
@@ -307,6 +309,9 @@ struct ProjectWindow: View {
                 // Sheets present in their own SwiftUI tree and don't inherit
                 // the presenter's environment. IssueDetailView's
                 // @Environment(ProjectKanbanModel.self) crashes without these.
+                // openSpec stays deliberately unwired here (defaults to no-op):
+                // the create sheet navigates via onIssueCreated + dismiss(),
+                // never by routing the window behind itself.
                 .environment(kanban)
                 .environment(navigator)
                 .environment(\.onIssueCreated) { folderName in
@@ -436,6 +441,11 @@ struct ProjectWindow: View {
                 .environment(\.openSpec) { route in
                     if selectedRoute == .kanban, case .issue = route {
                         detailOriginRoute = .kanban
+                    } else if case .issue = route {
+                        // Issue→issue navigation: the new issue wasn't opened
+                        // from the board, so the back-to-board affordance
+                        // must not survive the hop.
+                        detailOriginRoute = nil
                     }
                     selectedRoute = route
                 }
@@ -511,8 +521,19 @@ struct ProjectWindow: View {
     // Keeps the open detail pane in sync when the sidebar renames/moves/trashes
     // the file (or an ancestor folder of the file) currently shown. Moves
     // re-point the selection to the new path; removals fall back to the board.
+    // `.issue` routes follow their folder under .claude/issues/ the same way.
     private func applyRouteRewrites(_ rewrites: [RouteRewrite]) {
-        guard case .projectFile(let current) = selectedRoute else { return }
+        switch selectedRoute {
+        case .projectFile(let current):
+            applyFileRouteRewrites(rewrites, current: current)
+        case .issue(let folderName):
+            applyIssueRouteRewrites(rewrites, folderName: folderName)
+        case .kanban, .projectSettings:
+            return
+        }
+    }
+
+    private func applyFileRouteRewrites(_ rewrites: [RouteRewrite], current: String) {
         for rewrite in rewrites {
             switch rewrite {
             case .moved(let old, let new):
@@ -531,6 +552,61 @@ struct ProjectWindow: View {
                     return
                 }
             }
+        }
+    }
+
+    private func applyIssueRouteRewrites(_ rewrites: [RouteRewrite], folderName: String) {
+        let issuesPrefix = ".claude/issues/"
+        let issuePath = issuesPrefix + folderName
+        for rewrite in rewrites {
+            switch rewrite {
+            case .moved(let old, let new):
+                guard old == issuePath || issuePath.hasPrefix(old + "/") else { continue }
+                let renamed = new.hasPrefix(issuesPrefix) ? String(new.dropFirst(issuesPrefix.count)) : ""
+                if old == issuePath, !renamed.isEmpty, !renamed.contains("/") {
+                    selectedRoute = .issue(folderName: renamed)
+                } else {
+                    // Moved out of the issues directory (or an ancestor moved):
+                    // the route can't follow — fall back to the board.
+                    selectedRoute = .kanban
+                }
+                return
+            case .removed(let old):
+                if old == issuePath || issuePath.hasPrefix(old + "/") {
+                    selectedRoute = .kanban
+                    return
+                }
+            }
+        }
+    }
+
+    // SceneStorage survives window reuse across projects — the persisted
+    // payload is prefixed with the project path so a route never bleeds into
+    // another project, and the restore validates the target still exists so
+    // a deleted issue/file falls back to the board instead of restoring into
+    // an error pane.
+    private static func persistedRouteString(_ route: NavigatorRoute, projectURL: URL) -> String {
+        projectURL.path + "\n" + route.persistedString
+    }
+
+    private static func restoredRoute(from data: String, projectURL: URL) -> NavigatorRoute? {
+        let parts = data.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0] == projectURL.path,
+            let route = NavigatorRoute(persistedString: String(parts[1]))
+        else { return nil }
+        return routeTargetExists(route, projectURL: projectURL) ? route : nil
+    }
+
+    private static func routeTargetExists(_ route: NavigatorRoute, projectURL: URL) -> Bool {
+        let fm = FileManager.default
+        switch route {
+        case .kanban, .projectSettings:
+            return true
+        case .issue(let folderName):
+            return fm.fileExists(
+                atPath: IssueLayout.specURL(in: projectURL, folderName: folderName).path)
+        case .projectFile(let rel):
+            return fm.fileExists(atPath: projectURL.appendingPathComponent(rel).path)
         }
     }
 

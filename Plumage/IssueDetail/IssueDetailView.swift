@@ -114,13 +114,13 @@ struct IssueDetailView: View {
             model.observeKanban(currentIssue: current)
         }
         .onChange(of: kanban.lastRemovalCompleted) { _, completed in
-            if let completed, completed == model.folderName { dismiss() }
+            if let completed, completed == model.folderName { popToBoard() }
         }
         .onChange(of: kanban.lastMergeCompleted) { _, completed in
-            if let completed, completed == model.folderName { dismiss() }
+            if let completed, completed == model.folderName { popToBoard() }
         }
         .onChange(of: model.conflict) { _, conflict in
-            if conflict == .fileDeleted { dismiss() }
+            if conflict == .fileDeleted { popToBoard() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Auto-save on background only applies in loaded mode. In creating
@@ -148,6 +148,15 @@ struct IssueDetailView: View {
             model.cancelPendingWork()
             diffTabModel?.stop()
         }
+    }
+
+    // dismiss() is a no-op when this view is the split-view detail (nothing
+    // is presented there), and openSpec defaults to a no-op inside the create
+    // sheet (deliberately unwired). Firing both means exactly one acts in
+    // either context.
+    private func popToBoard() {
+        openSpec(.kanban)
+        dismiss()
     }
 
     @ViewBuilder
