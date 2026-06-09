@@ -74,6 +74,15 @@ if ! printf '%s' "$payload" | grep -qE '^status:[[:space:]]+approved[[:space:]]*
     exit 0
 fi
 
+# Planning is done — clear the session-scoped plan-active marker so the
+# block-write / block-exit-plan guards stop firing (see force-plumage-skill.sh).
+session_id=$(printf '%s' "$input" | jq -r '.session_id // empty')
+if [ -n "$session_id" ]; then
+    safe=$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')
+    [ -z "$safe" ] && safe=default
+    rm -f "${TMPDIR:-/tmp}/plumage-plan-active/${safe}" 2>/dev/null || true
+fi
+
 cat >&2 <<'EOF'
 Plan workflow complete: spec.md now has `status: approved`.
 

@@ -26,13 +26,18 @@ nonisolated extension TemplateCatalog {
             !ProjectKindProfile.workflowHooks.contains($0)
         }
 
-        // Swift Shared carries both the shared CLAUDE.md layer and the Swift tooling
-        // hooks — same membership (every Swift kind), so they live in one component.
+        // Swift Shared carries the shared CLAUDE.md layer, the Swift tooling hooks and
+        // the Swift tooling configs (.swift-format/.swiftlint.yml) — all the same
+        // membership (every Swift kind, incl. server-side), so they live in one component.
         let sharedComponents = [
             SharedComponent(
                 id: "swift-shared", name: "Swift Shared",
                 files: [ComponentFile(kind: .layer, name: "swift-shared")]
-                    + swiftToolingHooks.map { ComponentFile(kind: .hook, name: $0) },
+                    + swiftToolingHooks.map { ComponentFile(kind: .hook, name: $0) }
+                    + [
+                        ComponentFile(kind: .config, name: "swift-format"),
+                        ComponentFile(kind: .config, name: "swiftlint.yml"),
+                    ],
                 order: 0, memberTemplateIDs: swiftKindIDs),
             SharedComponent(
                 id: "apple-shared", name: "Apple Shared",

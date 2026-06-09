@@ -189,32 +189,37 @@ final class TerminalClaudeSession {
         case cancelled
     }
 
-    // Wait for the session to enter .running (bounded by `timeout`), then
-    // enqueue `slashCommand`. If `followUpBody` is set, sleep `bodyDelay` and
-    // enqueue it. Drops any stale pendingInput entries up front so a quick
-    // second call doesn't tack onto leftover state from a prior failed inject.
-    // Pure session-state orchestration: caller (View) owns logging and the
-    // workflowTask handle, so this method stays free of UI concerns.
-    func inject(
-        slashCommand: String,
-        followUpBody: String? = nil,
+    // The submit \r must be its OWN entry, never appended to the body: claude's
+    // paste heuristic treats a body + trailing \r landing in one read() burst as
+    // pasted content and swallows the \r as a literal newline instead of
+    // submitting (a long Plan command, whose body inlines the prompt, needed a
+    // manual Enter while short Implement/Review commands submitted fine). Hence
+    // each line splits into [body-without-\r, "\r"], and the pre-submit gap
+    // scales with the payload so the body clears before the \r lands.
+    func injectCommands(
+        _ lines: [String],
         timeout: Duration = .seconds(5),
-        bodyDelay: Duration = .milliseconds(800)
+        // Test seam: the gap floors at 800 ms, so without an override every
+        // injectCommands test pays a real ~second of sleep.
+        bodyDelay: Duration? = nil
     ) async -> InjectResult {
-        let lines: [String] = followUpBody.map { [slashCommand, $0] } ?? [slashCommand]
-        return await injectLines(lines, timeout: timeout, bodyDelay: bodyDelay)
+        let payloads = lines.flatMap { line -> [String] in
+            [line.replacingOccurrences(of: "\r", with: ""), "\r"]
+        }
+        return await injectLines(
+            payloads, timeout: timeout, bodyDelay: bodyDelay ?? Self.injectBodyDelay(for: payloads))
     }
 
     // Enqueue every entry in `lines` in order, with a single wait-for-running
     // gate up front and `bodyDelay` between subsequent enqueues. Critically,
-    // consumePending() runs exactly ONCE at entry — looping over inject()
+    // consumePending() runs exactly ONCE at entry — a per-line inject loop
     // would re-consume on every iteration and race the terminal view's
     // pendingInput drain (the prior line could be silently dropped before it
     // ever reached the subprocess).
-    func injectLines(
+    private func injectLines(
         _ lines: [String],
         timeout: Duration = .seconds(5),
-        bodyDelay: Duration = .milliseconds(800)
+        bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor
     ) async -> InjectResult {
         guard !lines.isEmpty else { return .injected }
         _ = consumePending()
@@ -242,6 +247,18 @@ final class TerminalClaudeSession {
     private nonisolated func isRunningState(_ state: State) -> Bool {
         if case .running = state { return true }
         return false
+    }
+
+    // Gap to wait between an injected body and the submit \r. claude drains a
+    // long paste over several read() bursts; if the \r lands in the same burst
+    // as the body's tail, claude's paste heuristic eats it and nothing submits.
+    // Scale the gap with the largest payload (≈125 KB/s settle budget) so the
+    // body clears first. Short commands keep the 800 ms floor; the 64 KB token
+    // cap (WorkflowCommandResolver) bounds the worst case near 8 s.
+    nonisolated static let injectBodyDelayFloor: Duration = .milliseconds(800)
+    nonisolated static func injectBodyDelay(for payloads: [String]) -> Duration {
+        let maxBytes = payloads.map(\.utf8.count).max() ?? 0
+        return injectBodyDelayFloor + .milliseconds(maxBytes / 8)
     }
 
     func registerStopHandler(_ handler: @escaping () -> Void) {
@@ -273,13 +290,17 @@ final class TerminalClaudeSession {
     }
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
-    func shellSpawnArgs() -> [String] {
+    func shellSpawnArgs(appearanceIsDark: Bool = true) -> [String] {
         // Inject the plumage theme per-session via --settings instead of
         // writing it into the user's global ~/.claude/settings.json — that
         // earlier approach also re-skinned the user's own claude terminal.
-        // Inline JSON contains no single quotes so shellQuote wraps it safely
-        // with one quote pair.
-        var args = ["--settings", ClaudeThemeInstaller.perSessionSettingsJSON]
+        // The dark/light variant is picked from the embedding view's
+        // colorScheme so claude's accents stay legible on the transparent
+        // terminal background. Inline JSON contains no single quotes so
+        // shellQuote wraps it safely with one quote pair.
+        var args = [
+            "--settings", ClaudeThemeInstaller.perSessionSettingsJSON(dark: appearanceIsDark),
+        ]
         args += resumeOrInitArgs()
         if let permissionMode {
             args += ["--permission-mode", permissionMode.rawCLIValue]

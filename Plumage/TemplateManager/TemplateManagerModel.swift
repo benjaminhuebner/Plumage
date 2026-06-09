@@ -56,6 +56,9 @@ final class TemplateManagerModel {
     // so the right column shows the reverted content while keeping the file selected.
     private(set) var editorReloadToken = 0
     private var pendingResetPath: String?
+    // Set while a factory reset waits for the mounted editor to discard its buffer
+    // before the wipe — the same disappear-autosave hazard `pendingResetPath` guards.
+    private var pendingFactoryReset = false
 
     // A hook file the user just added/imported that has no wiring yet: presenting
     // this raises the wiring sheet. Also set by the "Edit wiring…" action.
@@ -88,6 +91,9 @@ final class TemplateManagerModel {
     // Drives the "Restore Defaults" confirmation (resets structure to bundled,
     // keeps file-content overrides).
     var isConfirmingRestoreAll = false
+
+    // The full-reset sibling of `isConfirmingRestoreAll`, which keeps file edits.
+    var isConfirmingResetEverything = false
 
     // A transient (~4 s) banner shown when a structural mutation fails to persist;
     // the in-memory catalog is rolled back to the last saved state (no half-applied
@@ -261,6 +267,14 @@ final class TemplateManagerModel {
     // Phase 2: delete the override (revert to bundled) and remount the editor so it
     // reseeds from the bundled original. The file stays selected.
     func finishReset() {
+        // A factory reset routes its wipe through here (when an editor was mounted) so
+        // the buffer is already discarded — otherwise the disappear-autosave below would
+        // re-materialize an override the wipe just removed.
+        if pendingFactoryReset {
+            pendingFactoryReset = false
+            performFactoryReset()
+            return
+        }
         guard let relativePath = pendingResetPath else { return }
         pendingResetPath = nil
         try? overrides.removeOverride(forRelative: relativePath)
@@ -1292,6 +1306,54 @@ extension TemplateManagerModel {
         } catch {
             showStructuralError(error.localizedDescription)
         }
+    }
+
+    // Unlike `restoreAllDefaults` (structure only), this also discards every file edit
+    // and user-authored file. A mounted editor must discard its buffer before the wipe,
+    // else its disappear-autosave re-creates a just-trashed override — so the wipe is
+    // deferred through the reset token (→ `finishReset` → `performFactoryReset`); with
+    // no editor mounted it runs immediately.
+    func resetToFactoryDefaults() {
+        if editingFileURL != nil {
+            pendingFactoryReset = true
+            editorResetToken += 1
+        } else {
+            performFactoryReset()
+        }
+    }
+
+    private func performFactoryReset() {
+        // Run the destructive steps, capturing the first failure — then re-sync the model
+        // to whatever actually remains on disk regardless of outcome. The editor buffer
+        // was already discarded before we got here (deferred path), so a partial failure
+        // must not leave the window showing state that diverges from the store.
+        var failure: Error?
+        do {
+            try overrides.trashEntireStore()
+            try store.reset()
+        } catch {
+            failure = error
+        }
+        clearHookWirings()
+        catalog = store.load()
+        selection = .base
+        isEditorDirty = false
+        // Remount the editor so it reseeds from the bundled original (its override slot
+        // may have been trashed); `refreshContent` rebinds the selection and recomputes
+        // the overridden/needs-wiring markers from disk.
+        editorReloadToken += 1
+        refreshContent()
+        if let failure { showStructuralError(failure.localizedDescription) }
+    }
+
+    // The hooks this metadata described were wiped with the override store, so the now
+    // dangling wiring must go too — both in memory and on disk.
+    private func clearHookWirings() {
+        hookWirings = HookWiringStore()
+        guard let url = hookWiringStoreURL,
+            FileManager.default.fileExists(atPath: url.path)
+        else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     // MARK: - Persistence

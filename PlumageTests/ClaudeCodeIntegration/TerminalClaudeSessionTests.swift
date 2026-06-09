@@ -67,6 +67,24 @@ struct TerminalClaudeSessionTests {
         #expect(session.state == .running)
     }
 
+    @Test("injectBodyDelay stays essentially at the floor for short commands")
+    func injectBodyDelayFloor() {
+        let payloads = ["/plumage-implement my-slug", "\r"]
+        let delay = TerminalClaudeSession.injectBodyDelay(for: payloads)
+        #expect(delay >= TerminalClaudeSession.injectBodyDelayFloor)
+        #expect(delay < TerminalClaudeSession.injectBodyDelayFloor + .milliseconds(50))
+    }
+
+    @Test("injectBodyDelay scales above the floor for a long body")
+    func injectBodyDelayScales() {
+        let longBody = String(repeating: "x", count: 16 * 1024)
+        let short = TerminalClaudeSession.injectBodyDelay(for: ["short", "\r"])
+        let long = TerminalClaudeSession.injectBodyDelay(for: [longBody, "\r"])
+        #expect(long > short)
+        // 16 KB / 8 = 2048 ms above the floor.
+        #expect(long == TerminalClaudeSession.injectBodyDelayFloor + .milliseconds(2048))
+    }
+
     @Test("markExited classifies code 0 as userClosed")
     func exitZeroUserClosed() throws {
         let env = try TempEnv.make()
@@ -154,20 +172,25 @@ struct TerminalClaudeSessionTests {
         #expect(args[1].contains(session.conversationID))
     }
 
-    @Test("shellSpawnArgs injects --settings with the plumage theme JSON")
+    @Test("shellSpawnArgs injects --settings with the appearance-matched theme JSON")
     func shellArgsInjectsThemeSettings() throws {
         let env = try TempEnv.make()
         defer { env.cleanup() }
         let session = env.makeSession()
-        let cmd = session.shellSpawnArgs()[1]
         // The theme is scoped per-session via `--settings <inline-json>` so
         // the user's global ~/.claude/settings.json (and therefore their own
         // claude terminal) keeps whatever theme they chose. Pin the exact
         // emitted argv pair to catch a refactor that swaps to env vars or to
         // a file path — both would silently undo the per-session isolation.
+        let dark = session.shellSpawnArgs(appearanceIsDark: true)[1]
         #expect(
-            cmd.contains(
-                "'--settings' '\(ClaudeThemeInstaller.perSessionSettingsJSON)'"))
+            dark.contains(
+                "'--settings' '\(ClaudeThemeInstaller.perSessionSettingsJSON(dark: true))'"))
+        let light = session.shellSpawnArgs(appearanceIsDark: false)[1]
+        #expect(
+            light.contains(
+                "'--settings' '\(ClaudeThemeInstaller.perSessionSettingsJSON(dark: false))'"))
+        #expect(light.contains("custom:plumage-light"))
     }
 
     @Test("shellSpawnArgs omits --permission-mode by default (nil mode)")
@@ -387,6 +410,20 @@ struct TerminalClaudeSessionTests {
         let session = env.makeSession()
         #expect(session.consumePending().isEmpty)
         #expect(session.pendingInput.isEmpty)
+    }
+
+    @Test("injectCommands splits each line into [body-without-\\r, submit \\r]")
+    func injectCommandsSplitsBodyAndSubmit() async throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        // Embedded \r in the input proves it's stripped from the body — a
+        // malformed template can't smuggle an early submit past the split.
+        let result = await session.injectCommands(["/plumage-plan 86\rsmuggled"], bodyDelay: .zero)
+        #expect(result == .injected)
+        #expect(session.pendingInput == ["/plumage-plan 86smuggled", "\r"])
     }
 
     // MARK: - reconcileSessionFromDisk

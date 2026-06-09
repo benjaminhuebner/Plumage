@@ -1,6 +1,13 @@
 import Foundation
 
 nonisolated struct GitExcludeWriter {
+    // A committed `<name>.plumage/` bundle still must not carry its ephemeral
+    // `runs/`/`sessions/` subfolders into git. These belong in the repo's local
+    // `.git/info/exclude` rather than the shared `.gitignore` — they're a
+    // Plumage implementation detail, not a fact every contributor's checkout
+    // should advertise.
+    static let plumageEphemeralPaths = ["*.plumage/runs/", "*.plumage/sessions/"]
+
     func append(paths: [String], repoURL: URL) throws {
         let toWrite = paths.filter { !$0.isEmpty }
         guard !toWrite.isEmpty else { return }

@@ -61,7 +61,7 @@ struct ProjectScaffolderTests {
             path: "CustomTemplate-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? fm.removeItem(at: overrideRoot) }
         try write(
-            "%% LAYOUT %%\nCUSTOM_TEMPLATE_MARKER\n", to: overrideRoot,
+            "%% LAYOUT %%\nCUSTOM_TEMPLATE_MARKER\n%% /LAYOUT %%\n", to: overrideRoot,
             rel: "templates/\(descriptor.id)/CLAUDE.md")
 
         let dir = tmpProjectDir()
@@ -84,6 +84,42 @@ struct ProjectScaffolderTests {
         #expect(fm.fileExists(atPath: dir.appending(path: "MyApp.plumage/config.json").path))
         // A custom template maps to `.other` ⇒ no Swift configs (minimal but valid).
         #expect(!fm.fileExists(atPath: dir.appending(path: ".swift-format").path))
+    }
+
+    @Test("A loose docs file with a base placeholder merges a layer block at scaffold")
+    func looseDocPlaceholderMergesAtScaffold() async throws {
+        let fm = FileManager.default
+        var catalog = TemplateCatalog.bundledDefault
+        let descriptor = catalog.addTemplate(
+            name: "Merge Demo", image: .symbol("doc"),
+            categoryID: ProjectKindGroup.other.rawValue, startingFrom: .empty)
+
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "LooseMerge-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        // The custom template needs its own (empty) CLAUDE.md layer to compose.
+        try write("", to: overrideRoot, rel: "templates/\(descriptor.id)/CLAUDE.md")
+        // Base docs skeleton carries the placeholder; the template layer fills it.
+        try write("# Refs\n\n<<<refs>>>\n", to: overrideRoot, rel: "docs/refs.md")
+        try write(
+            "%% refs %%\n- see PROJECT.md\n%% /refs %%\n", to: overrideRoot,
+            rel: "templates/\(descriptor.id)/docs/refs.md")
+
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        let scaffolder = ProjectScaffolder(
+            assetsRoot: RepoAssets.root, overrideRoot: overrideRoot,
+            toggles: ScaffoldToggles(), hookWirings: [],
+            configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
+            gitInitRunner: GitInitRunner(), catalog: catalog)
+        _ = try await scaffolder.create(
+            spec: NewProjectSpec(
+                kind: .other, templateID: descriptor.id, name: "MyApp", tagline: "tl",
+                projectDirectory: dir))
+
+        let doc = try String(
+            contentsOf: dir.appending(path: ".claude/docs/refs.md"), encoding: .utf8)
+        #expect(doc == "# Refs\n\n- see PROJECT.md\n")
     }
 
     @Test(".other omits the Swift config files")

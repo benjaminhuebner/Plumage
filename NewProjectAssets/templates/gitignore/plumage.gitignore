@@ -1,3 +1,0 @@
-# Plumage ephemeral state (kept out of git even when the bundle is committed)
-*.plumage/runs/
-*.plumage/sessions/
