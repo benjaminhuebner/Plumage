@@ -172,6 +172,9 @@ struct GitCommitModelTests {
 
 // MARK: - Mocks
 
+// @unchecked Sendable (all three mocks): mutable state is only touched
+// under the respective `lock`; test setup happens before concurrent use.
+
 private final class MockGitWorkingDiffRunner: GitWorkingDiffRunning, @unchecked Sendable {
     private let lock = NSLock()
     var workingOutputs: [String: String] = [:]

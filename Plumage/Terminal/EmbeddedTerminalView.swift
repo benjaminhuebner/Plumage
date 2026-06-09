@@ -291,14 +291,27 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     deinit {
         // Fallback for the abnormal path where dismantleNSView was skipped.
         // Normal teardown nils both properties on MainActor via dismantleNSView,
-        // making this a no-op — Timer.invalidate / NSEvent.removeMonitor are
-        // not documented as thread-safe and must not run from a nonisolated
-        // deinit in the normal path.
-        cursorKeepAlive?.invalidate()
+        // making this a no-op. Timer.invalidate / NSEvent.removeMonitor are
+        // main-thread APIs and a nonisolated deinit can run off-main — ferry
+        // the references onto the main queue instead of calling them inline.
+        guard cursorKeepAlive != nil || shiftEnterMonitor != nil else { return }
+        // @unchecked Sendable: only carries the main-thread-bound references
+        // across the queue hop; nothing reads them concurrently. See notes.md.
+        struct Teardown: @unchecked Sendable {
+            let timer: Timer?
+            let token: Any?
+        }
+        let teardown = Teardown(timer: cursorKeepAlive, token: shiftEnterMonitor)
         cursorKeepAlive = nil
-        if let token = shiftEnterMonitor {
-            NSEvent.removeMonitor(token)
-            shiftEnterMonitor = nil
+        shiftEnterMonitor = nil
+        if Thread.isMainThread {
+            teardown.timer?.invalidate()
+            if let token = teardown.token { NSEvent.removeMonitor(token) }
+        } else {
+            DispatchQueue.main.async {
+                teardown.timer?.invalidate()
+                if let token = teardown.token { NSEvent.removeMonitor(token) }
+            }
         }
     }
 

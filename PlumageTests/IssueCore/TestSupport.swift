@@ -2,6 +2,7 @@ import Foundation
 
 @testable import Plumage
 
+// @unchecked Sendable: `value`/`calls` are only touched under `lock`.
 final class SnapshotSource: @unchecked Sendable {
     private let lock = NSLock()
     private var value: [DiscoveredIssue]

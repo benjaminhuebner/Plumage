@@ -154,6 +154,7 @@ struct MockProcessRunnerSpawnTests {
     }
 }
 
+// @unchecked Sendable: `stored` is only touched under `lock`.
 private final class CapturedArgs: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: [String] = []
