@@ -316,6 +316,23 @@ final class TerminalClaudeSession {
         return ["-c", "cd \(quotedCwd) && exec \(quotedBin) \(attach)"]
     }
 
+    // Inherit the parent app's full environment so claude finds the same
+    // auth state (credentials, env tokens, keychain access) that the
+    // chat-mode subprocess gets. The earlier minimal-allowlist approach
+    // left interactive claude unauthenticated even though chat mode
+    // worked. Override TERM and augment PATH for a launched-from-Finder
+    // Plumage that didn't inherit the user's shell PATH.
+    static func spawnEnvironment() -> [String] {
+        var env = ProcessInfo.processInfo.environment
+        env["TERM"] = "xterm-256color"
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let basePath =
+            env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] =
+            "\(basePath):/opt/homebrew/bin:\(home)/.local/bin:\(home)/.claude/local"
+        return env.map { "\($0.key)=\($0.value)" }
+    }
+
     static func shellQuotedAttachArgs(_ args: [String]) -> String {
         args.map(shellQuote).joined(separator: " ")
     }

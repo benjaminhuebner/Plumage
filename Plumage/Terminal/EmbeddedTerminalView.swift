@@ -119,7 +119,10 @@ private struct SwiftTermBridge: NSViewRepresentable {
             return view
         }
         let args = session.shellSpawnArgs(appearanceIsDark: colorScheme == .dark)
-        let env = Self.environmentForClaude()
+        // Env construction lives in CCI: the PATH augmentation points at
+        // claude-internal install locations only ClaudeCodeIntegration may
+        // know about (enforced by the boundary test).
+        let env = TerminalClaudeSession.spawnEnvironment()
 
         view.startProcess(
             executable: "/bin/sh",
@@ -236,23 +239,6 @@ private struct SwiftTermBridge: NSViewRepresentable {
             color(233, 235, 235),  // 15 bright white
         ]
         view.installColors(palette)
-    }
-
-    private static func environmentForClaude() -> [String] {
-        // Inherit the parent app's full environment so claude finds the same
-        // auth state (credentials, env tokens, keychain access) that the
-        // chat-mode subprocess gets. The earlier minimal-allowlist approach
-        // left interactive claude unauthenticated even though chat mode
-        // worked. Override TERM and augment PATH for a launched-from-Finder
-        // Plumage that didn't inherit the user's shell PATH.
-        var env = ProcessInfo.processInfo.environment
-        env["TERM"] = "xterm-256color"
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let basePath =
-            env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        env["PATH"] =
-            "\(basePath):/opt/homebrew/bin:\(home)/.local/bin:\(home)/.claude/local"
-        return env.map { "\($0.key)=\($0.value)" }
     }
 
     @MainActor
