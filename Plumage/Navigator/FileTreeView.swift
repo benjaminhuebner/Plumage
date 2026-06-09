@@ -280,9 +280,7 @@ struct FileTreeRow: View {
         }
         Button("Rename") { navigator.beginRename(url: node.url) }
         Button("Move to Trash", role: .destructive) {
-            Task { @MainActor in
-                await navigator.trash(url: node.url, projectURL: projectURL)
-            }
+            navigator.requestTrash(url: node.url)
         }
     }
 
@@ -293,9 +291,7 @@ struct FileTreeRow: View {
         }
         Button("Rename") { navigator.beginRename(url: node.url) }
         Button("Move to Trash", role: .destructive) {
-            Task { @MainActor in
-                await navigator.trash(url: node.url, projectURL: projectURL)
-            }
+            navigator.requestTrash(url: node.url)
         }
     }
 

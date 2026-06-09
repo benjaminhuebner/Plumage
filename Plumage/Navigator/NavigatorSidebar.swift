@@ -45,6 +45,21 @@ struct NavigatorSidebar: View {
         .onDeleteCommand {
             _ = handleDeleteKey()
         }
+        // Derived isPresented binding is the standard confirmationDialog
+        // shape; the model owns the actual pending state.
+        .confirmationDialog(
+            "Move \"\(navigator.pendingTrash?.lastPathComponent ?? "")\" to Trash?",
+            isPresented: Binding(
+                get: { navigator.pendingTrash != nil },
+                set: { if !$0 { navigator.cancelPendingTrash() } }
+            )
+        ) {
+            Button("Move to Trash", role: .destructive) {
+                Task { await navigator.confirmPendingTrash(projectURL: projectURL) }
+            }
+        } message: {
+            Text("You can restore it from the Trash.")
+        }
     }
 
     // Pinned outside the List (via safeAreaInset) so it stays put as the file
@@ -207,9 +222,7 @@ struct NavigatorSidebar: View {
             return .ignored
         }
         guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
-        Task { @MainActor in
-            await navigator.trash(url: url, projectURL: projectURL)
-        }
+        navigator.requestTrash(url: url)
         return .handled
     }
 }

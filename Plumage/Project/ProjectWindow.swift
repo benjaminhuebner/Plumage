@@ -165,7 +165,18 @@ struct ProjectWindow: View {
                 // Load config synchronously so the initial sessions pick up
                 // per-project model overrides before attach(). The async
                 // model.reload below covers the @Observable view-state path.
-                let initialConfig = try? ConfigLoader.load(at: handle.url)
+                let initialConfig: ProjectConfig?
+                do {
+                    initialConfig = try ConfigLoader.load(at: handle.url)
+                } catch {
+                    // Sessions fall back to default models; model.reload below
+                    // surfaces the failure in the UI — but leave a trace for
+                    // the silent window-reuse path.
+                    Self.log.error(
+                        "Window task: config load failed for \(handle.url.path, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                    initialConfig = nil
+                }
                 let chatModel =
                     initialConfig?.models?.chat ?? ModelsConfig.chatDefault
                 let terminalsModel =
@@ -354,6 +365,9 @@ struct ProjectWindow: View {
                     ClaudeDockOverlay(
                         session: session,
                         indicatorState: indicator.state,
+                        onRecheck: {
+                            Task { await indicator.detect(using: processRunner) }
+                        },
                         isOpen: $isDockOpen
                     )
                 }
@@ -494,7 +508,40 @@ struct ProjectWindow: View {
                     banner: navigator.dropRejectMessage
                         ?? kanban.lastDropError.map { "Drop failed: \($0)" }
                         ?? kanban.lastRemovalError.map { "Remove failed: \($0)" }
+                        ?? kanban.boardError
                 )
+            }
+            // Derived isPresented binding is the standard confirmationDialog
+            // shape; the kanban model owns the pending state so the card
+            // context menus (board + sidebar) share one dialog.
+            .confirmationDialog(
+                removalDialogTitle,
+                isPresented: Binding(
+                    get: { kanban.pendingRemoval != nil },
+                    set: { if !$0 { kanban.cancelPendingRemoval() } }
+                ),
+                presenting: kanban.pendingRemoval
+            ) { removal in
+                switch removal.kind {
+                case .archive:
+                    Button("Archive") {
+                        kanban.confirmRemoval(removal, projectURL: handle.url)
+                    }
+                case .trash:
+                    Button("Move to Trash", role: .destructive) {
+                        kanban.confirmRemoval(removal, projectURL: handle.url)
+                    }
+                }
+            } message: { removal in
+                switch removal.kind {
+                case .archive:
+                    Text(
+                        "The issue folder moves to .claude/issues/archive/. "
+                            + "Restoring means moving it back in Finder."
+                    )
+                case .trash:
+                    Text("You can restore it from the Trash.")
+                }
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
@@ -502,6 +549,15 @@ struct ProjectWindow: View {
                     .font(.headline)
                 Text(Self.message(for: error))
                     .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Try Again") {
+                        Task { await model.reload(at: handle.url) }
+                    }
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([handle.url])
+                    }
+                }
+                .padding(.top, 4)
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -511,6 +567,14 @@ struct ProjectWindow: View {
     private var displayTitle: String {
         if case .loaded(let config) = model.state { return config.name }
         return handle.url.lastPathComponent
+    }
+
+    private var removalDialogTitle: String {
+        guard let removal = kanban.pendingRemoval else { return "" }
+        switch removal.kind {
+        case .archive: return "Archive \"\(removal.folderName)\"?"
+        case .trash: return "Move \"\(removal.folderName)\" to Trash?"
+        }
     }
 
     private var backToOriginAction: (() -> Void)? {
@@ -624,6 +688,8 @@ struct ProjectWindow: View {
             Self.log.warning(
                 "runWorkflow: refusing inject for \(action.slug, privacy: .public) — folderName contains control chars."
             )
+            navigator.showBanner(
+                "Can't run workflow: issue folder name contains control characters.")
             return
         }
 
@@ -659,6 +725,7 @@ struct ProjectWindow: View {
 
         let session = workflowTab.session
         let slug = action.slug
+        let failedTabID = workflowTab.id
         workflowTask = Task { @MainActor in
             let result = await session.injectCommands(lines)
             switch result {
@@ -666,10 +733,18 @@ struct ProjectWindow: View {
                 Self.log.info(
                     "runWorkflow: session exited mid-inject for \(slug, privacy: .public)."
                 )
+                // Close the dead tab: find-or-create would keep returning it,
+                // silently blocking every retry of this action+issue.
+                terminalTabs.closeTab(id: failedTabID)
+                navigator.showBanner(
+                    "Workflow \(slug) didn't start: claude exited during launch. Try again.")
             case .timedOut:
                 Self.log.warning(
                     "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
                 )
+                terminalTabs.closeTab(id: failedTabID)
+                navigator.showBanner(
+                    "Workflow \(slug) didn't start: claude wasn't ready within 5s. Try again.")
             case .injected, .cancelled:
                 break
             }

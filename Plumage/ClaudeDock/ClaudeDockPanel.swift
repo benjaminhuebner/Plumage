@@ -7,6 +7,7 @@ struct ClaudeDockPanel: View {
 
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
+    var onRecheck: (() -> Void)?
     @Binding var isOpen: Bool
 
     @AccessibilityFocusState private var contentFocused: Bool
@@ -86,7 +87,7 @@ struct ClaudeDockPanel: View {
         case .loading, .ok:
             chatContent
         case .missing, .unsupported, .failed:
-            MissingClaudeView(state: indicatorState)
+            MissingClaudeView(state: indicatorState, onRecheck: onRecheck)
         }
     }
 

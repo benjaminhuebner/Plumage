@@ -30,6 +30,18 @@ final class ProjectKanbanModel {
         let expectedOrder: SetValue<Double?>
     }
 
+    // Archive/trash wait for a confirmation dialog before they run — both
+    // remove the card instantly (and archive has no restore UI), so an
+    // unconfirmed context-menu click must not destroy state.
+    nonisolated struct PendingRemoval: Equatable, Sendable {
+        enum Kind: Equatable, Sendable {
+            case archive
+            case trash
+        }
+        let kind: Kind
+        let folderName: String
+    }
+
     typealias Mutator = @Sendable (URL, IssueStatus?, SetValue<Double?>, Date) throws -> Void
     typealias Archiver = @Sendable (_ folderURL: URL, _ archiveRoot: URL) throws -> URL
     typealias Trasher = @Sendable (_ folderURL: URL) throws -> URL
@@ -54,6 +66,10 @@ final class ProjectKanbanModel {
     // a distinct event.
     private(set) var lastMergeCompleted: String?
     private(set) var pendingDrop: PendingDrop?
+    private(set) var pendingRemoval: PendingRemoval?
+    // Non-nil when the issues directory itself is missing — distinguishes a
+    // broken project from a legitimately empty board.
+    private(set) var boardError: String?
 
     var pendingDropFolderName: String? { pendingDrop?.folderName }
     var pendingDropExpectedStatus: IssueStatus? { pendingDrop?.expectedStatus }
@@ -107,6 +123,7 @@ final class ProjectKanbanModel {
     }
 
     func run(projectURL: URL) async {
+        refreshBoardError(projectURL: projectURL)
         let producer = producerFactory(projectURL)
         await producer.start()
         for await snapshot in producer.snapshots {
@@ -121,8 +138,44 @@ final class ProjectKanbanModel {
             if reconciled.pendingCleared {
                 pendingDrop = nil
             }
+            refreshBoardError(projectURL: projectURL)
         }
         await producer.stop()
+    }
+
+    // One stat call per (debounced) snapshot: an empty array from a missing
+    // issues directory must read as an error, not as an empty board.
+    private func refreshBoardError(projectURL: URL) {
+        let issuesDir = IssueLayout.issuesDirectory(in: projectURL)
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: issuesDir.path, isDirectory: &isDirectory)
+        boardError =
+            (exists && isDirectory.boolValue)
+            ? nil
+            : "Issues folder missing: .claude/issues — the board can't load."
+    }
+
+    func requestArchive(folderName: String) {
+        pendingRemoval = PendingRemoval(kind: .archive, folderName: folderName)
+    }
+
+    func requestTrash(folderName: String) {
+        pendingRemoval = PendingRemoval(kind: .trash, folderName: folderName)
+    }
+
+    func cancelPendingRemoval() {
+        pendingRemoval = nil
+    }
+
+    func confirmRemoval(_ removal: PendingRemoval, projectURL: URL) {
+        pendingRemoval = nil
+        switch removal.kind {
+        case .archive:
+            applyOptimisticArchive(folderName: removal.folderName, projectURL: projectURL)
+        case .trash:
+            applyOptimisticTrash(folderName: removal.folderName, projectURL: projectURL)
+        }
     }
 
     func highlight(folderName: String) {

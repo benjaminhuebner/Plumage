@@ -166,10 +166,22 @@ struct IssueDetailView: View {
             ProgressView().controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            Text(message)
-                .foregroundStyle(.secondary)
-                .padding(32)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(message)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Try Again") {
+                        Task {
+                            await model.load()
+                            await model.loadPrompt()
+                            await model.loadPR()
+                        }
+                    }
+                    Button("Back to Board") { popToBoard() }
+                }
+            }
+            .padding(32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .loaded:
             if model.isCreating || model.issue != nil {
                 renderedDetail()
