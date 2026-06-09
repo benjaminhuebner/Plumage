@@ -189,32 +189,37 @@ final class TerminalClaudeSession {
         case cancelled
     }
 
-    // Wait for the session to enter .running (bounded by `timeout`), then
-    // enqueue `slashCommand`. If `followUpBody` is set, sleep `bodyDelay` and
-    // enqueue it. Drops any stale pendingInput entries up front so a quick
-    // second call doesn't tack onto leftover state from a prior failed inject.
-    // Pure session-state orchestration: caller (View) owns logging and the
-    // workflowTask handle, so this method stays free of UI concerns.
-    func inject(
-        slashCommand: String,
-        followUpBody: String? = nil,
+    // The submit \r must be its OWN entry, never appended to the body: claude's
+    // paste heuristic treats a body + trailing \r landing in one read() burst as
+    // pasted content and swallows the \r as a literal newline instead of
+    // submitting (a long Plan command, whose body inlines the prompt, needed a
+    // manual Enter while short Implement/Review commands submitted fine). Hence
+    // each line splits into [body-without-\r, "\r"], and the pre-submit gap
+    // scales with the payload so the body clears before the \r lands.
+    func injectCommands(
+        _ lines: [String],
         timeout: Duration = .seconds(5),
-        bodyDelay: Duration = .milliseconds(800)
+        // Test seam: the gap floors at 800 ms, so without an override every
+        // injectCommands test pays a real ~second of sleep.
+        bodyDelay: Duration? = nil
     ) async -> InjectResult {
-        let lines: [String] = followUpBody.map { [slashCommand, $0] } ?? [slashCommand]
-        return await injectLines(lines, timeout: timeout, bodyDelay: bodyDelay)
+        let payloads = lines.flatMap { line -> [String] in
+            [line.replacingOccurrences(of: "\r", with: ""), "\r"]
+        }
+        return await injectLines(
+            payloads, timeout: timeout, bodyDelay: bodyDelay ?? Self.injectBodyDelay(for: payloads))
     }
 
     // Enqueue every entry in `lines` in order, with a single wait-for-running
     // gate up front and `bodyDelay` between subsequent enqueues. Critically,
-    // consumePending() runs exactly ONCE at entry — looping over inject()
+    // consumePending() runs exactly ONCE at entry — a per-line inject loop
     // would re-consume on every iteration and race the terminal view's
     // pendingInput drain (the prior line could be silently dropped before it
     // ever reached the subprocess).
-    func injectLines(
+    private func injectLines(
         _ lines: [String],
         timeout: Duration = .seconds(5),
-        bodyDelay: Duration = .milliseconds(800)
+        bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor
     ) async -> InjectResult {
         guard !lines.isEmpty else { return .injected }
         _ = consumePending()
