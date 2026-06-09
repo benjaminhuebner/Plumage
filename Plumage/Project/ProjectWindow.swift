@@ -482,6 +482,8 @@ struct ProjectWindow: View {
                     statusModel: claudeStatus,
                     repoState: gitModel.repoState,
                     banner: navigator.dropRejectMessage
+                        ?? kanban.lastDropError.map { "Drop failed: \($0)" }
+                        ?? kanban.lastRemovalError.map { "Remove failed: \($0)" }
                 )
             }
         case .failed(let error):

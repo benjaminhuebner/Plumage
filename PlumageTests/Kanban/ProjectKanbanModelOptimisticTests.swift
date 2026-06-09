@@ -75,6 +75,28 @@ struct OptimisticDropTests {
         #expect(model.lastDropError == nil)
     }
 
+    @Test("failed drop does not resurrect a card removed while the write was in flight")
+    func dropFailureDoesNotResurrectRemovedCard() async {
+        struct DummyError: Error, LocalizedError {
+            var errorDescription: String? { "boom" }
+        }
+        let model = ProjectKanbanModel(mutator: { _, _, _, _ in throw DummyError() })
+        let issueA = Self.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+        let payload = IssueDragPayload(folderName: "00001-a", currentStatus: .approved)
+        let projectURL = URL(filePath: "/tmp/probe")
+
+        model.applyOptimisticDrop(payload, to: .column(.inProgress), projectURL: projectURL)
+        // Card disappears (archived/trashed) while the failing write is
+        // still in flight — the rollback must not bring it back.
+        model._setIssuesForTesting([])
+        // Second apply no-ops (card gone); this just awaits the original task.
+        await model.performDropOptimistic(payload, to: .column(.inProgress), projectURL: projectURL)
+
+        #expect(model.issues.isEmpty)
+        #expect(model.lastDropError == "boom")
+    }
+
     nonisolated static func makeIssue(
         id: Int, folder: String, status: IssueStatus, order: Double? = nil
     ) -> Plumage.Issue {

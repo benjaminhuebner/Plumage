@@ -103,6 +103,20 @@ struct IssueDetailModelTests {
         #expect(model.issue?.status == .blocked)
     }
 
+    @Test("external auto-reload still works after a completed form write")
+    func externalReloadAfterFormWrite() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        try await model.commitStatus(.inProgress)
+        // The finished write must not occupy pendingFormWrite — that
+        // permanently disabled the silent reload below.
+        let updated = Self.baseSpec(status: "blocked", body: "Hello.")
+        await model.handleExternalChange(diskContent: updated)
+        #expect(model.conflict == nil)
+        #expect(model.issue?.status == .blocked)
+    }
+
     @Test("external change with dirty buffer raises conflict")
     func externalDirtyConflict() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))

@@ -68,6 +68,7 @@ final class ProjectKanbanModel {
     private var highlightTask: Task<Void, Never>?
     private var dropTask: Task<Void, Never>?
     private var removalTask: Task<Void, Never>?
+    private var errorClearTask: Task<Void, Never>?
 
     init(
         producerFactory: @escaping @Sendable (URL) -> IssueSnapshotProducer = {
@@ -102,6 +103,7 @@ final class ProjectKanbanModel {
         highlightTask?.cancel()
         dropTask?.cancel()
         removalTask?.cancel()
+        errorClearTask?.cancel()
     }
 
     func run(projectURL: URL) async {
@@ -226,7 +228,8 @@ final class ProjectKanbanModel {
                 // would overwrite the newer state with our old snapshot.
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticDrop(
-                    to: priorIssues, error: error.localizedDescription)
+                    to: priorIssues, folderName: issue.folderName,
+                    error: error.localizedDescription)
             }
         }
     }
@@ -244,13 +247,37 @@ final class ProjectKanbanModel {
         await task?.value
     }
 
-    private func rollbackOptimisticDrop(to prior: [DiscoveredIssue], error: String) {
+    private func rollbackOptimisticDrop(
+        to prior: [DiscoveredIssue], folderName: String, error: String
+    ) {
+        // Targeted, not whole-array: restoring the full prior snapshot would
+        // resurrect cards that were archived/trashed while the drop write was
+        // in flight, and clobber other cards' newer optimistic state.
         // Mutate-only; view-side `.animation(.smooth, value: kanban.issues)`
         // handles the visual transition. See `run` for the same reasoning.
-        issues = prior
-        groupedIssues = Self.group(prior)
+        if let priorCard = prior.first(where: { $0.id == folderName }),
+            issues.contains(where: { $0.id == folderName })
+        {
+            issues = Self.replace(issues, folderName: folderName, with: priorCard)
+            groupedIssues = Self.group(issues)
+        }
         pendingDrop = nil
         lastDropError = error
+        scheduleErrorAutoClear()
+    }
+
+    // Banner messages clear themselves after a few seconds (NavigatorModel's
+    // showBanner discipline) — a stale error string over the status bar would
+    // otherwise outlive the situation it describes.
+    private func scheduleErrorAutoClear() {
+        errorClearTask?.cancel()
+        let clock = highlightClock
+        errorClearTask = Task { [weak self] in
+            try? await clock.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.lastDropError = nil
+            self?.lastRemovalError = nil
+        }
     }
 
     func applyOptimisticArchive(folderName: String, projectURL: URL) {
@@ -277,7 +304,8 @@ final class ProjectKanbanModel {
                 // already deleted in the second action.
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticRemoval(
-                    to: priorIssues, error: error.localizedDescription)
+                    to: priorIssues, folderName: folderName,
+                    error: error.localizedDescription)
             }
         }
     }
@@ -306,7 +334,8 @@ final class ProjectKanbanModel {
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticRemoval(
-                    to: priorIssues, error: error.localizedDescription)
+                    to: priorIssues, folderName: folderName,
+                    error: error.localizedDescription)
             }
         }
     }
@@ -320,10 +349,20 @@ final class ProjectKanbanModel {
     // Mirror of rollbackOptimisticDrop for archive/trash. Kept duplicated
     // intentionally — generalizing the two would force callers to share an
     // error surface and obscure which kind of removal failed.
-    private func rollbackOptimisticRemoval(to prior: [DiscoveredIssue], error: String) {
-        issues = prior
-        groupedIssues = Self.group(prior)
+    private func rollbackOptimisticRemoval(
+        to prior: [DiscoveredIssue], folderName: String, error: String
+    ) {
+        // Targeted: only the card whose removal failed comes back; the rest
+        // of the prior snapshot may be stale relative to concurrent drops.
+        // Append suffices — group() re-sorts per column.
+        if let priorCard = prior.first(where: { $0.id == folderName }),
+            !issues.contains(where: { $0.id == folderName })
+        {
+            issues = issues + [priorCard]
+            groupedIssues = Self.group(issues)
+        }
         lastRemovalError = error
+        scheduleErrorAutoClear()
     }
 
     nonisolated static func reconcile(

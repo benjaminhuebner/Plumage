@@ -424,6 +424,12 @@ final class IssueDetailModel {
             }.value
         }
         pendingFormWrite = task
+        // Identity-checked reset: a newer write may have replaced the slot
+        // while we awaited. Leaving the finished task in place permanently
+        // disabled the external-change auto-reload (it gates on nil).
+        defer {
+            if pendingFormWrite == task { pendingFormWrite = nil }
+        }
         try await task.value
         await reloadFromDiskAfterOwnWrite()
     }
