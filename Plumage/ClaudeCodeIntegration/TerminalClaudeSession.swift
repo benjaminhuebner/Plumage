@@ -198,12 +198,16 @@ final class TerminalClaudeSession {
     // scales with the payload so the body clears before the \r lands.
     func injectCommands(
         _ lines: [String],
-        timeout: Duration = .seconds(5)
+        timeout: Duration = .seconds(5),
+        // Test seam: the gap floors at 800 ms, so without an override every
+        // injectCommands test pays a real ~second of sleep.
+        bodyDelay: Duration? = nil
     ) async -> InjectResult {
         let payloads = lines.flatMap { line -> [String] in
             [line.replacingOccurrences(of: "\r", with: ""), "\r"]
         }
-        return await injectLines(payloads, timeout: timeout, bodyDelay: Self.injectBodyDelay(for: payloads))
+        return await injectLines(
+            payloads, timeout: timeout, bodyDelay: bodyDelay ?? Self.injectBodyDelay(for: payloads))
     }
 
     // Enqueue every entry in `lines` in order, with a single wait-for-running
@@ -212,7 +216,7 @@ final class TerminalClaudeSession {
     // would re-consume on every iteration and race the terminal view's
     // pendingInput drain (the prior line could be silently dropped before it
     // ever reached the subprocess).
-    func injectLines(
+    private func injectLines(
         _ lines: [String],
         timeout: Duration = .seconds(5),
         bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor

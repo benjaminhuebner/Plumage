@@ -421,7 +421,7 @@ struct TerminalClaudeSessionTests {
         session.markStarted()
         // Embedded \r in the input proves it's stripped from the body — a
         // malformed template can't smuggle an early submit past the split.
-        let result = await session.injectCommands(["/plumage-plan 86\rsmuggled"])
+        let result = await session.injectCommands(["/plumage-plan 86\rsmuggled"], bodyDelay: .zero)
         #expect(result == .injected)
         #expect(session.pendingInput == ["/plumage-plan 86smuggled", "\r"])
     }
