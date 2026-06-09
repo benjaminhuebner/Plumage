@@ -155,9 +155,9 @@ struct ClaudeSessionTests {
         await session.send("/exit")
         // /exit itself does not produce a user message…
         #expect(session.messages.count == 1)
-        // …and state stays .running until the terminationHandler fires (which
-        // never does in this autoSpawn:false test — no real process exists).
-        #expect(session.state == .running(sessionID: "test-session"))
+        // …and stop() transitions to a user-initiated exit directly — the
+        // terminationHandler is cleared, so nothing reclassifies it later.
+        #expect(session.state == .exited(code: 0, reason: .userClosed))
     }
 
     @Test("result event clears awaitingResponse")
@@ -176,11 +176,25 @@ struct ClaudeSessionTests {
         #expect(session.state == .exited(code: 0, reason: .userClosed))
     }
 
-    @Test("handleExit(137) yields .exited(137, .killed) for signal codes")
-    func exitKilledSignal() {
+    @Test("uncaught SIGTERM classifies as .killed, not .crashed")
+    func exitSigtermIsKilled() {
+        let session = startedSession()
+        session.handleExit(code: SIGTERM, reason: .uncaughtSignal)
+        #expect(session.state == .exited(code: SIGTERM, reason: .killed))
+    }
+
+    @Test("uncaught SIGSEGV classifies as .crashed")
+    func exitSigsegvIsCrashed() {
+        let session = startedSession()
+        session.handleExit(code: SIGSEGV, reason: .uncaughtSignal)
+        #expect(session.state == .exited(code: SIGSEGV, reason: .crashed))
+    }
+
+    @Test("regular exit 137 is .crashed — 128+n only applies to shell wrappers")
+    func exit137AsExitCodeIsCrashed() {
         let session = startedSession()
         session.handleExit(code: 137)
-        #expect(session.state == .exited(code: 137, reason: .killed))
+        #expect(session.state == .exited(code: 137, reason: .crashed))
     }
 
     @Test("handleExit(1) yields .exited(1, .crashed) for non-zero non-signal codes")
@@ -499,6 +513,22 @@ struct ClaudeSessionTests {
         #expect(session.messages[0].text == "real turn")
     }
 
+    @Test("rehydrate keeps user messages that merely start with markup")
+    func rehydrateKeepsPastedMarkup() async throws {
+        let temp = try makeTempLogRoot()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let cwd = URL(filePath: "/tmp/proj")
+        let session = makeSession(cwd: cwd, sessionLogRoot: temp)
+        let jsonl =
+            #"{"type":"user","message":{"role":"user","content":"<div>why is this broken</div>"}}"#
+        try writeSessionLog(
+            at: temp, cwd: cwd, conversationID: session.conversationID, contents: jsonl)
+
+        await session.rehydrateMessagesFromSessionLog()
+        #expect(session.messages.count == 1)
+        #expect(session.messages[0].text == "<div>why is this broken</div>")
+    }
+
     @Test("rehydrate is a no-op when messages are already populated")
     func rehydrateSkipsWhenPopulated() async throws {
         let temp = try makeTempLogRoot()
@@ -584,5 +614,44 @@ struct ClaudeSessionTests {
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
         let file = projectDir.appendingPathComponent("\(conversationID).jsonl")
         try contents.write(to: file, atomically: true, encoding: .utf8)
+    }
+}
+
+@Suite("ClaudeSession.LineBuffer")
+struct ClaudeLineBufferTests {
+    @Test("multi-byte UTF-8 character split across chunks survives intact")
+    func utf8SplitAcrossChunks() {
+        let buffer = ClaudeSession.LineBuffer()
+        let bytes = Array("héllo\n".utf8)
+        // Split inside the two-byte é (0xC3 0xA9): the first chunk ends
+        // mid-character, which the old String-based buffer dropped whole.
+        let first = buffer.append(Data(bytes[0..<2]))
+        #expect(first.isEmpty)
+        let second = buffer.append(Data(bytes[2...]))
+        #expect(second == ["héllo"])
+    }
+
+    @Test("four-byte emoji split across chunks survives intact")
+    func emojiSplitAcrossChunks() {
+        let buffer = ClaudeSession.LineBuffer()
+        let bytes = Array("👍ok\n".utf8)
+        _ = buffer.append(Data(bytes[0..<1]))
+        _ = buffer.append(Data(bytes[1..<3]))
+        let lines = buffer.append(Data(bytes[3...]))
+        #expect(lines == ["👍ok"])
+    }
+
+    @Test("splits multiple lines in one chunk and keeps trailing partial")
+    func splitsAndKeepsPartial() {
+        let buffer = ClaudeSession.LineBuffer()
+        let lines = buffer.append(Data("first\nsecond\nthird".utf8))
+        #expect(lines == ["first", "second"])
+        #expect(buffer.flush() == "third")
+    }
+
+    @Test("flush returns nil when buffer is empty")
+    func flushEmptyReturnsNil() {
+        let buffer = ClaudeSession.LineBuffer()
+        #expect(buffer.flush() == nil)
     }
 }

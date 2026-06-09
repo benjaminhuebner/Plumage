@@ -223,18 +223,19 @@ nonisolated final class XcodeProcessTermination: Sendable {
 // helper waits until a third caller justifies the indirection.
 nonisolated final class XcodeLineBuffer: @unchecked Sendable {
     private let lock = NSLock()
-    private var partial: String = ""
+    private var partial = Data()
 
     func append(_ data: Data) -> [String] {
         lock.lock()
         defer { lock.unlock() }
-        guard let chunk = String(data: data, encoding: .utf8) else { return [] }
-        partial.append(contentsOf: chunk)
+        partial.append(data)
         var lines: [String] = []
         lines.reserveCapacity(4)
-        while let nl = partial.range(of: "\n") {
-            lines.append(String(partial[..<nl.lowerBound]))
-            partial.removeSubrange(..<nl.upperBound)
+        // Raw-byte split before decoding — see ClaudeSession.LineBuffer.
+        while let nl = partial.firstIndex(of: 0x0A) {
+            lines.append(
+                String(decoding: partial[partial.startIndex..<nl], as: UTF8.self))
+            partial.removeSubrange(partial.startIndex...nl)
         }
         return lines
     }
@@ -242,8 +243,9 @@ nonisolated final class XcodeLineBuffer: @unchecked Sendable {
     func flush() -> String? {
         lock.lock()
         defer { lock.unlock() }
-        let remaining = partial
-        partial = ""
-        return remaining.isEmpty ? nil : remaining
+        guard !partial.isEmpty else { return nil }
+        let remaining = String(decoding: partial, as: UTF8.self)
+        partial = Data()
+        return remaining
     }
 }

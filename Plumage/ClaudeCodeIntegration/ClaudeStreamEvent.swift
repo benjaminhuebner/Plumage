@@ -42,8 +42,10 @@ extension ClaudeStreamEvent {
             let message = try? container.decode(AssistantMessageEnvelope.self, forKey: .message)
             self = .assistant(message?.content ?? [])
         case "result":
-            let isError = (try? container.decode(Bool.self, forKey: .isError)) ?? false
-            let text = try? container.decode(String.self, forKey: .result)
+            // Strict on semantic fields: a CLI type change on is_error must
+            // fail the decode (logged upstream) rather than read as success.
+            let isError = try container.decodeIfPresent(Bool.self, forKey: .isError) ?? false
+            let text = try container.decodeIfPresent(String.self, forKey: .result)
             self = .result(isError: isError, text: text)
         case "rate_limit_event":
             self = .rateLimit

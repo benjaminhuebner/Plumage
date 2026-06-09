@@ -107,6 +107,15 @@ struct XcodeLineBufferTests {
         let lines = buffer.append(Data("st\nsecond\n".utf8))
         #expect(lines == ["first", "second"])
     }
+
+    @Test("multi-byte UTF-8 character split across chunks survives intact")
+    func utf8SplitAcrossChunks() {
+        let buffer = XcodeLineBuffer()
+        let bytes = Array("Bücher.swift\n".utf8)
+        _ = buffer.append(Data(bytes[0..<2]))
+        let lines = buffer.append(Data(bytes[2...]))
+        #expect(lines == ["Bücher.swift"])
+    }
 }
 
 @Suite("MockXcodeProcessRunner")
