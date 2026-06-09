@@ -164,11 +164,18 @@ nonisolated enum SpecParser {
     }
 
     private static func extractFrontmatter(from content: String) -> String? {
+        // Normalize CRLF first: splitting on "\n" leaves a trailing \r on
+        // every line (the \r\n grapheme survives the split), so a CRLF file's
+        // "---\r" delimiter never matched and the whole spec read as invalid.
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
         var collected: [Substring] = []
         var sawOpener = false
-        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if !sawOpener {
+                // Tolerate leading blank lines, matching FrontmatterMutator's
+                // delimiter search — parser and writer must agree on validity.
+                if trimmed.isEmpty { continue }
                 guard trimmed == "---" else { return nil }
                 sawOpener = true
                 continue

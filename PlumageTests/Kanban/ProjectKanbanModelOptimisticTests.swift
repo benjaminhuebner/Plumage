@@ -144,6 +144,23 @@ struct ReconcileTests {
         #expect(patched.order == 20)
     }
 
+    @Test("%g-rounded order from older builds still clears pending")
+    func epsilonOrderMatch() {
+        // 1234.5678 written by an old build came back as 1234.57 (%g, six
+        // significant digits); an exact compare kept pending stuck forever.
+        let issue = OptimisticDropTests.makeIssue(
+            id: 1, folder: "00001-a", status: .inProgress, order: 1234.57)
+        let result = ProjectKanbanModel.reconcile(
+            incoming: [.valid(issue)],
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(1234.5678)
+            )
+        )
+        #expect(result.pendingCleared == true)
+    }
+
     @Test("pending issue absent from disk clears pending")
     func pendingDisappeared() {
         let other = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .approved)

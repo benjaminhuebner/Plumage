@@ -232,32 +232,30 @@ nonisolated enum FrontmatterMutator {
         if value.rounded() == value, abs(value) < 1e15 {
             return String(Int64(value))
         }
-        let formatted = String(format: "%g", value)
-        return formatted
+        // Swift's description is the shortest round-trip representation.
+        // The earlier %g (6 significant digits) silently rounded mid-column
+        // order values, so reconcile never saw its expected order come back.
+        return String(value)
     }
 
     static func formatTitleValue(_ raw: String) -> String {
-        if needsYAMLQuoting(raw) {
-            let escaped =
-                raw
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            return "\"\(escaped)\""
-        }
-        return raw
+        yamlScalar(raw)
     }
 
     static func formatLabels(_ labels: [String]) -> String {
-        let formatted = labels.map { formatLabelValue($0) }
+        let formatted = labels.map { yamlScalar($0) }
         return "[\(formatted.joined(separator: ", "))]"
     }
 
-    private static func formatLabelValue(_ raw: String) -> String {
+    private static func yamlScalar(_ raw: String) -> String {
         if needsYAMLQuoting(raw) {
             let escaped =
                 raw
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+                .replacingOccurrences(of: "\t", with: "\\t")
             return "\"\(escaped)\""
         }
         return raw
@@ -271,7 +269,13 @@ nonisolated enum FrontmatterMutator {
         guard let first = raw.first else { return true }
         // Leading whitespace or `-` would be parsed as a list/scalar marker.
         if first == " " || first == "\t" || first == "-" { return true }
-        return raw.contains { dangerCharacters.contains($0) }
+        return raw.contains { char in
+            if dangerCharacters.contains(char) { return true }
+            // Newlines/control characters would break the single-line field;
+            // they only survive in escaped double-quoted form.
+            if char.isNewline { return true }
+            return char.unicodeScalars.allSatisfy { $0.value < 0x20 }
+        }
     }
 
     private static func isoString(from date: Date) -> String {

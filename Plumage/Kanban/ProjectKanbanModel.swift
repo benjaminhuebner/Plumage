@@ -343,7 +343,7 @@ final class ProjectKanbanModel {
         case .keep:
             orderMatch = true
         case .set(let expected):
-            orderMatch = item.order == expected
+            orderMatch = ordersEqual(item.order, expected)
         }
         if statusMatch && orderMatch {
             return (incoming, true)
@@ -365,6 +365,21 @@ final class ProjectKanbanModel {
         var snapshot = incoming
         snapshot[idx] = .valid(patched)
         return (snapshot, false)
+    }
+
+    // Epsilon, not exact: spec files written by older Plumage builds carry
+    // %g-rounded order values (6 significant digits), so an exact compare
+    // left pendingDrop stuck and re-patched stale status on every snapshot.
+    // 1e-5 relative matches the %g precision loss.
+    nonisolated private static func ordersEqual(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case (let left?, let right?):
+            return abs(left - right) <= max(1e-9, abs(left) * 1e-5)
+        default:
+            return false
+        }
     }
 
     nonisolated static func computeMutation(
