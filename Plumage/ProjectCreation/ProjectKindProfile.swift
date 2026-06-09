@@ -68,6 +68,7 @@ nonisolated extension ProjectKindProfile {
         "block-git-commit",
         "block-secret-files",
         "block-secrets-in-content",
+        "block-during-plumage-plan",
         "force-plumage-skill",
         "stop-after-spec-approved",
     ]
