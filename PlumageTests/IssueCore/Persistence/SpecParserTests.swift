@@ -38,6 +38,35 @@ struct SpecParserTests {
         #expect(issue.updated == isoFractional("2026-05-12T09:15:30.123Z"))
     }
 
+    @Test("parses optional mergeSubject when present")
+    func mergeSubjectPresent() throws {
+        let content = """
+            ---
+            id: 7
+            title: t
+            type: feature
+            status: waiting-for-review
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00007-x
+            labels: []
+            model: null
+            mergeSubject: Add squash mode to issue merge
+            ---
+
+            Body.
+            """
+        let issue = try requireSuccess(SpecParser.parse(content: content, folderName: "00007-x"))
+        #expect(issue.mergeSubject == "Add squash mode to issue merge")
+    }
+
+    @Test("mergeSubject is nil when absent")
+    func mergeSubjectAbsent() throws {
+        let issue = try requireSuccess(
+            SpecParser.parse(content: try load("valid-feature.md"), folderName: "00042-feature"))
+        #expect(issue.mergeSubject == nil)
+    }
+
     @Test("missing frontmatter delimiter is .missingFrontmatter")
     func missingFrontmatter() throws {
         #expect(

@@ -108,6 +108,8 @@ Update run-state phase → `"writing PR.md"`. Write `.claude/issues/<id-padded>-
 - **How to test** — concrete steps a reviewer can run to verify it works. Include the commands, what to look at, and what "passes" means. Reproducible from `git checkout issue/<slug>` alone.
 - **Notes** — anything surprising, anything deferred, anything the reviewer should know.
 
+In the same step, set `mergeSubject` in the spec frontmatter (add the field if absent, overwrite if present): a one-line imperative English summary of the whole branch, following the commit-message convention. It becomes the squash-commit subject when the issue is merged. No issue id or slug, no merge mechanics ("squash", "merge branch"), no trailing period — e.g. `mergeSubject: Add squash mode to issue merge`.
+
 ## Record what was learned
 
 Before finishing, check:
