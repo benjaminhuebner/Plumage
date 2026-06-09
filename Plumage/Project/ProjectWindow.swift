@@ -581,29 +581,11 @@ struct ProjectWindow: View {
 
         let session = workflowTab.session
         let slug = action.slug
-        // CR (\r) is what the terminal sends on Enter. claude's TUI treats
-        // \n as a multi-line continuation (Shift+Enter style) and only \r as
-        // submit. The submit \r must arrive as its OWN write, not appended to
-        // the body: claude's paste heuristic treats a body + trailing \r that
-        // land in one read() burst as pasted content and swallows the \r as a
-        // literal newline instead of submitting (this is why a long Plan
-        // command — body inlines the prompt — needed a manual Enter while the
-        // short Implement/Review commands submitted fine). injectLines enqueues
-        // each entry as a separate flush with bodyDelay between them, so
-        // splitting body and "\r" guarantees the Enter is a distinct keystroke.
-        let payloads = lines.flatMap { line -> [String] in
-            [line.replacingOccurrences(of: "\r", with: ""), "\r"]
-        }
-
-        // A long body needs a wider gap before the submit \r or claude's paste
-        // heuristic eats it — see TerminalClaudeSession.injectBodyDelay.
-        let bodyDelay = TerminalClaudeSession.injectBodyDelay(for: payloads)
-
         workflowTask = Task { @MainActor in
-            // Single inject call covers every line: consumePending() runs
-            // exactly once at entry so the prior line can never be silently
-            // drained between iterations (see TerminalClaudeSession.injectLines).
-            let result = await session.injectLines(payloads, bodyDelay: bodyDelay)
+            // injectCommands owns the claude-REPL submit protocol (\r split +
+            // adaptive paste-settle gap); the view just hands it the resolved
+            // lines and reacts to the result.
+            let result = await session.injectCommands(lines)
             switch result {
             case .sessionExited:
                 Self.log.info(
