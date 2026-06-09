@@ -412,6 +412,21 @@ struct TerminalClaudeSessionTests {
         #expect(session.pendingInput.isEmpty)
     }
 
+    @Test("injectCommands splits each line into [body-without-\\r, submit \\r]")
+    func injectCommandsSplitsBodyAndSubmit() async throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        // The embedded \r in the body must be stripped (a malformed template
+        // can't smuggle an early submit) and a standalone "\r" appended as the
+        // distinct Enter keystroke.
+        let result = await session.injectCommands(["/plumage-plan 86\rsmuggled"])
+        #expect(result == .injected)
+        #expect(session.pendingInput == ["/plumage-plan 86smuggled", "\r"])
+    }
+
     // MARK: - reconcileSessionFromDisk
 
     @Test("reconcileSessionFromDisk adopts a fresher non-excluded jsonl and persists")

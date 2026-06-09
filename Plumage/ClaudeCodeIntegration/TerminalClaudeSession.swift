@@ -189,32 +189,40 @@ final class TerminalClaudeSession {
         case cancelled
     }
 
-    // Wait for the session to enter .running (bounded by `timeout`), then
-    // enqueue `slashCommand`. If `followUpBody` is set, sleep `bodyDelay` and
-    // enqueue it. Drops any stale pendingInput entries up front so a quick
-    // second call doesn't tack onto leftover state from a prior failed inject.
-    // Pure session-state orchestration: caller (View) owns logging and the
-    // workflowTask handle, so this method stays free of UI concerns.
-    func inject(
-        slashCommand: String,
-        followUpBody: String? = nil,
-        timeout: Duration = .seconds(5),
-        bodyDelay: Duration = .milliseconds(800)
+    // Inject a sequence of claude-REPL commands, owning the submit dance the
+    // REPL requires. CR (\r) is what the terminal sends on Enter: claude's TUI
+    // treats \n as a multi-line continuation (Shift+Enter style) and only \r as
+    // submit. The submit \r must arrive as its OWN write, not appended to the
+    // body — claude's paste heuristic treats a body + trailing \r that land in
+    // one read() burst as pasted content and swallows the \r as a literal
+    // newline instead of submitting (this is why a long Plan command, whose
+    // body inlines the prompt, needed a manual Enter while the short
+    // Implement/Review commands submitted fine). So each line is split into
+    // [body-without-\r, "\r"] and the gap before the submit scales with the
+    // payload (injectBodyDelay) before delegating to injectLines, which flushes
+    // each entry as its own keystroke. This is the claude-internal submit
+    // knowledge the module boundary keeps out of UI-Feature views; the caller
+    // (View) owns logging and the workflowTask handle, so this stays UI-free.
+    func injectCommands(
+        _ lines: [String],
+        timeout: Duration = .seconds(5)
     ) async -> InjectResult {
-        let lines: [String] = followUpBody.map { [slashCommand, $0] } ?? [slashCommand]
-        return await injectLines(lines, timeout: timeout, bodyDelay: bodyDelay)
+        let payloads = lines.flatMap { line -> [String] in
+            [line.replacingOccurrences(of: "\r", with: ""), "\r"]
+        }
+        return await injectLines(payloads, timeout: timeout, bodyDelay: Self.injectBodyDelay(for: payloads))
     }
 
     // Enqueue every entry in `lines` in order, with a single wait-for-running
     // gate up front and `bodyDelay` between subsequent enqueues. Critically,
-    // consumePending() runs exactly ONCE at entry — looping over inject()
+    // consumePending() runs exactly ONCE at entry — a per-line inject loop
     // would re-consume on every iteration and race the terminal view's
     // pendingInput drain (the prior line could be silently dropped before it
     // ever reached the subprocess).
     func injectLines(
         _ lines: [String],
         timeout: Duration = .seconds(5),
-        bodyDelay: Duration = .milliseconds(800)
+        bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor
     ) async -> InjectResult {
         guard !lines.isEmpty else { return .injected }
         _ = consumePending()
