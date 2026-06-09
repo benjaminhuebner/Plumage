@@ -582,9 +582,6 @@ struct ProjectWindow: View {
         let session = workflowTab.session
         let slug = action.slug
         workflowTask = Task { @MainActor in
-            // injectCommands owns the claude-REPL submit protocol (\r split +
-            // adaptive paste-settle gap); the view just hands it the resolved
-            // lines and reacts to the result.
             let result = await session.injectCommands(lines)
             switch result {
             case .sessionExited:

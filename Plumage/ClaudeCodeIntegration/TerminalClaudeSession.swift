@@ -189,20 +189,13 @@ final class TerminalClaudeSession {
         case cancelled
     }
 
-    // Inject a sequence of claude-REPL commands, owning the submit dance the
-    // REPL requires. CR (\r) is what the terminal sends on Enter: claude's TUI
-    // treats \n as a multi-line continuation (Shift+Enter style) and only \r as
-    // submit. The submit \r must arrive as its OWN write, not appended to the
-    // body — claude's paste heuristic treats a body + trailing \r that land in
-    // one read() burst as pasted content and swallows the \r as a literal
-    // newline instead of submitting (this is why a long Plan command, whose
-    // body inlines the prompt, needed a manual Enter while the short
-    // Implement/Review commands submitted fine). So each line is split into
-    // [body-without-\r, "\r"] and the gap before the submit scales with the
-    // payload (injectBodyDelay) before delegating to injectLines, which flushes
-    // each entry as its own keystroke. This is the claude-internal submit
-    // knowledge the module boundary keeps out of UI-Feature views; the caller
-    // (View) owns logging and the workflowTask handle, so this stays UI-free.
+    // The submit \r must be its OWN entry, never appended to the body: claude's
+    // paste heuristic treats a body + trailing \r landing in one read() burst as
+    // pasted content and swallows the \r as a literal newline instead of
+    // submitting (a long Plan command, whose body inlines the prompt, needed a
+    // manual Enter while short Implement/Review commands submitted fine). Hence
+    // each line splits into [body-without-\r, "\r"], and the pre-submit gap
+    // scales with the payload so the body clears before the \r lands.
     func injectCommands(
         _ lines: [String],
         timeout: Duration = .seconds(5)

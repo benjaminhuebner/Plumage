@@ -419,9 +419,8 @@ struct TerminalClaudeSessionTests {
         let session = env.makeSession()
         session.attach()
         session.markStarted()
-        // The embedded \r in the body must be stripped (a malformed template
-        // can't smuggle an early submit) and a standalone "\r" appended as the
-        // distinct Enter keystroke.
+        // Embedded \r in the input proves it's stripped from the body — a
+        // malformed template can't smuggle an early submit past the split.
         let result = await session.injectCommands(["/plumage-plan 86\rsmuggled"])
         #expect(result == .injected)
         #expect(session.pendingInput == ["/plumage-plan 86smuggled", "\r"])
