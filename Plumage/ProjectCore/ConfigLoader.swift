@@ -50,6 +50,12 @@ nonisolated enum ConfigLoader {
         if let padding = config.issueIdPadding, padding < 1 {
             throw LoadError.invalidJSON(message: "issueIdPadding must be >= 1, got \(padding)")
         }
+        // Reject option-injection at the source: this value flows as a
+        // positional argument into git subprocess calls.
+        if let branch = config.git?.defaultBranch, !GitBranchName.isSafe(branch) {
+            throw LoadError.invalidJSON(
+                message: "git.defaultBranch is not a valid branch name: '\(branch)'")
+        }
         return config
     }
 

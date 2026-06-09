@@ -34,6 +34,10 @@ nonisolated struct GitInitRunner: GitInitializing {
     }
 
     func initRepo(at url: URL, defaultBranch: String = "main") async throws {
+        guard GitBranchName.isSafe(defaultBranch) else {
+            throw GitInitError.nonZeroExit(
+                code: 128, stderr: "invalid branch name: '\(defaultBranch)'")
+        }
         guard let binary = resolveBinary() else { throw GitInitError.gitNotFound }
         let result: GitSpawnResult
         do {

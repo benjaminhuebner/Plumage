@@ -18,7 +18,7 @@ struct GitDiffRunnerTests {
         let mock = MockGitProcessRunner()
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "main"]] = "abc123\n"
-        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD"]] = "diff --git a/x b/x\n"
+        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = "diff --git a/x b/x\n"
         let runner = makeRunner(mock: mock)
         let diff = try await runner.run(repoURL: repo)
         #expect(diff == "diff --git a/x b/x\n")
@@ -75,8 +75,8 @@ struct GitDiffRunnerTests {
         let mock = MockGitProcessRunner()
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "main"]] = "abc\n"
-        mock.exitCodeForArgs[["-C", repo.path, "diff", "main...HEAD"]] = 1
-        mock.stderrForArgs[["-C", repo.path, "diff", "main...HEAD"]] = "fatal\n"
+        mock.exitCodeForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = 1
+        mock.stderrForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = "fatal\n"
         let runner = makeRunner(mock: mock)
         do {
             _ = try await runner.run(repoURL: repo)
@@ -98,7 +98,7 @@ struct GitDiffRunnerTests {
         let mock = MockGitProcessRunner()
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "develop"]] = "abc\n"
-        mock.stdoutForArgs[["-C", repo.path, "diff", "develop...HEAD"]] = "diff content"
+        mock.stdoutForArgs[["-C", repo.path, "diff", "develop...HEAD", "--"]] = "diff content"
         let runner = makeRunner(mock: mock)
         let result = try await runner.run(repoURL: repo, base: "develop")
         #expect(result == "diff content")

@@ -8,10 +8,20 @@ nonisolated enum IssueArchiver {
     static func archive(folderURL: URL, archiveRoot: URL) throws -> URL {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: archiveRoot, withIntermediateDirectories: true)
-        let destination = try nextAvailableDestination(
-            base: folderURL.lastPathComponent, archiveRoot: archiveRoot, fileManager: fileManager)
-        try fileManager.moveItem(at: folderURL, to: destination)
-        return destination
+        // Attempt-then-handle instead of exists-then-move: a pre-scan races
+        // a concurrent writer claiming the same destination (TOCTOU).
+        let base = folderURL.lastPathComponent
+        for suffix in 0...maxArchiveSuffix {
+            let name = suffix == 0 ? base : "\(base)-\(suffix)"
+            let destination = archiveRoot.appendingPathComponent(name, isDirectory: true)
+            do {
+                try fileManager.moveItem(at: folderURL, to: destination)
+                return destination
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                continue
+            }
+        }
+        throw CocoaError(.fileWriteFileExists)
     }
 
     static func trash(folderURL: URL) throws -> URL {
@@ -26,21 +36,5 @@ nonisolated enum IssueArchiver {
             throw CocoaError(.fileWriteUnknown)
         }
         return resulting
-    }
-
-    private static func nextAvailableDestination(
-        base: String, archiveRoot: URL, fileManager: FileManager
-    ) throws -> URL {
-        let candidate = archiveRoot.appendingPathComponent(base, isDirectory: true)
-        if !fileManager.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-        for suffix in 1...maxArchiveSuffix {
-            let suffixed = archiveRoot.appendingPathComponent("\(base)-\(suffix)", isDirectory: true)
-            if !fileManager.fileExists(atPath: suffixed.path) {
-                return suffixed
-            }
-        }
-        throw CocoaError(.fileWriteFileExists)
     }
 }

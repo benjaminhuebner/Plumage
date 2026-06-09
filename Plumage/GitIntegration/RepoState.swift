@@ -53,9 +53,9 @@ nonisolated struct RepoStateReader: Sendable {
     }
 
     func read(repoURL: URL) -> RepoState {
-        let gitDir = repoURL.appendingPathComponent(".git", isDirectory: true)
-        guard fileManager(gitDir) else { return .notARepo }
-        let headURL = gitDir.appendingPathComponent("HEAD")
+        let gitEntry = repoURL.appendingPathComponent(".git")
+        guard fileManager(gitEntry) else { return .notARepo }
+        let headURL = headFileURL(repoURL: repoURL, gitEntry: gitEntry)
         guard let raw = readFile(headURL) else { return .notARepo }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("ref: refs/heads/") {
@@ -71,5 +71,23 @@ nonisolated struct RepoStateReader: Sendable {
         // Bare SHA — detached. Truncate to short form for UI display.
         let short = String(trimmed.prefix(7))
         return .detached(sha: short)
+    }
+
+    // Worktrees and submodules: `.git` is a FILE containing
+    // "gitdir: <path>" — reading the entry as a string fails for the
+    // regular directory layout (→ fall through to .git/HEAD).
+    private func headFileURL(repoURL: URL, gitEntry: URL) -> URL {
+        if let raw = readFile(gitEntry),
+            raw.hasPrefix("gitdir: ")
+        {
+            let target = raw.dropFirst("gitdir: ".count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let dir =
+                target.hasPrefix("/")
+                ? URL(filePath: target, directoryHint: .isDirectory)
+                : repoURL.appendingPathComponent(target, isDirectory: true).standardizedFileURL
+            return dir.appendingPathComponent("HEAD")
+        }
+        return gitEntry.appendingPathComponent("HEAD")
     }
 }

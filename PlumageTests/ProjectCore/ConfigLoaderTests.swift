@@ -138,6 +138,25 @@ struct ConfigLoaderTests {
         }
     }
 
+    @Test func optionShapedGitDefaultBranchRejected() throws {
+        let folder = try TempProject.make(
+            content: """
+                {
+                  "name": "Evil",
+                  "schemaVersion": 2,
+                  "git": { "defaultBranch": "--output=/tmp/x" }
+                }
+                """)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        #expect {
+            try ConfigLoader.load(at: folder)
+        } throws: { error in
+            guard case ConfigLoader.LoadError.invalidJSON(let message) = error else { return false }
+            return message.contains("defaultBranch")
+        }
+    }
+
     @Test func gitDefaultBranchReadsNestedField() throws {
         let folder = try TempProject.make(
             content: """
