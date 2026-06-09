@@ -11,6 +11,7 @@ nonisolated struct Issue: Hashable, Sendable {
     let branch: String
     let labels: [String]
     let model: String?
+    let mergeSubject: String?
     let order: Double?
     let goal: String?
 
@@ -25,6 +26,7 @@ nonisolated struct Issue: Hashable, Sendable {
         branch: String,
         labels: [String],
         model: String?,
+        mergeSubject: String? = nil,
         order: Double? = nil,
         goal: String? = nil
     ) {
@@ -38,6 +40,7 @@ nonisolated struct Issue: Hashable, Sendable {
         self.branch = branch
         self.labels = labels
         self.model = model
+        self.mergeSubject = mergeSubject
         self.order = order
         self.goal = goal
     }

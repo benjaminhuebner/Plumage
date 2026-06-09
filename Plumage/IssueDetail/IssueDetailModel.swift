@@ -237,12 +237,22 @@ final class IssueDetailModel {
         loadState = .loaded
     }
 
-    func mergeToMain(deleteBranch: Bool) async -> Bool {
+    var mergeSubjectPrefill: String {
+        guard let issue else { return "" }
+        return issue.mergeSubject ?? issue.title
+    }
+
+    func mergeToMain(mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool) async -> Bool {
         guard
             let projectURL,
             let specURL,
             let currentIssue = issue
         else { return false }
+
+        let subject = commitSubject?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .squash, subject?.isEmpty != false {
+            return false
+        }
 
         lastMergeError = nil
         lastMergeCriticalError = nil
@@ -265,6 +275,8 @@ final class IssueDetailModel {
                 repoURL: projectURL,
                 defaultBranch: defaultBranch,
                 issueBranch: issueBranch,
+                mode: mode,
+                commitSubject: subject,
                 deleteBranch: deleteBranch
             )
         } catch let error as GitMergeError {
@@ -273,7 +285,7 @@ final class IssueDetailModel {
         } catch {
             // Wrap unknown runner errors into a generic .mergeFailed so the
             // banner still has something to render.
-            lastMergeError = .mergeFailed(stderr: error.localizedDescription)
+            lastMergeError = .mergeFailed(mode: mode, stderr: error.localizedDescription)
             return false
         }
 

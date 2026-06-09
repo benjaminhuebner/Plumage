@@ -422,7 +422,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(deleteBranch: false)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         #expect(model.isMerging == false)
@@ -445,7 +445,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(deleteBranch: true)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
         #expect(model.lastMergeError == .workingTreeDirty(files: ["Plumage/Foo.swift"]))
@@ -465,7 +465,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(deleteBranch: true)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
         #expect(model.lastMergeError == .notFastForward(defaultBranch: "main", issueBranch: "issue/00001-x"))
@@ -486,7 +486,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(deleteBranch: true)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == true)
         #expect(model.lastMergeError == nil)
@@ -505,7 +505,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(deleteBranch: false)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         #expect(
@@ -527,9 +527,108 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(deleteBranch: false)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
         #expect(success == false)
         #expect(mock.recordedCalls.isEmpty)
+    }
+
+    @Test("mergeToMain squash passes mode and subject through to the runner")
+    func mergeToMainSquashPassesSubject() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(
+            mode: .squash, commitSubject: "Add squash mode to issue merge", deleteBranch: false)
+
+        #expect(success == true)
+        #expect(
+            mock.recordedCalls.contains(
+                Self.squashMergeArgs(tmpDir: env.tmpDir, branch: "issue/00001-x")))
+        #expect(
+            mock.recordedCalls.contains(
+                Self.commitArgs(tmpDir: env.tmpDir, subject: "Add squash mode to issue merge")))
+        #expect(model.issue?.status == .done)
+    }
+
+    @Test("mergeToMain squash trims the subject before passing it on")
+    func mergeToMainSquashTrimsSubject() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(
+            mode: .squash, commitSubject: "  Tidy subject  ", deleteBranch: false)
+
+        #expect(success == true)
+        #expect(
+            mock.recordedCalls.contains(
+                Self.commitArgs(tmpDir: env.tmpDir, subject: "Tidy subject")))
+    }
+
+    @Test("mergeToMain squash with empty subject never spawns git")
+    func mergeToMainSquashEmptySubject() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let emptyResult = await model.mergeToMain(mode: .squash, commitSubject: "", deleteBranch: true)
+        let whitespaceResult = await model.mergeToMain(mode: .squash, commitSubject: "  \n", deleteBranch: true)
+        let nilResult = await model.mergeToMain(mode: .squash, commitSubject: nil, deleteBranch: true)
+
+        #expect(emptyResult == false)
+        #expect(whitespaceResult == false)
+        #expect(nilResult == false)
+        #expect(mock.recordedCalls.isEmpty)
+        #expect(model.issue?.status == .waitingForReview)
+    }
+
+    @Test("mergeSubjectPrefill prefers frontmatter mergeSubject over title")
+    func mergeSubjectPrefillFromFrontmatter() async throws {
+        let spec = """
+            ---
+            id: 1
+            title: Sample
+            type: feature
+            status: waiting-for-review
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00001-x
+            labels: []
+            model: null
+            mergeSubject: Add squash mode to issue merge
+            ---
+
+            Some content.
+            """
+        let env = try makeEnvironment(spec: spec)
+        let model = env.makeModel()
+        await model.load()
+
+        #expect(model.mergeSubjectPrefill == "Add squash mode to issue merge")
+    }
+
+    @Test("mergeSubjectPrefill falls back to the issue title")
+    func mergeSubjectPrefillFallsBackToTitle() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let model = env.makeModel()
+        await model.load()
+
+        #expect(model.mergeSubjectPrefill == "Sample")
     }
 
     // MARK: - mergeToMain helpers
@@ -560,6 +659,12 @@ struct IssueDetailModelTests {
     }
     nonisolated static func checkoutArgs(tmpDir: URL, branch: String) -> [String] {
         ["-C", tmpDir.path, "checkout", branch]
+    }
+    nonisolated static func squashMergeArgs(tmpDir: URL, branch: String) -> [String] {
+        ["-C", tmpDir.path, "merge", "--squash", branch]
+    }
+    nonisolated static func commitArgs(tmpDir: URL, subject: String) -> [String] {
+        ["-C", tmpDir.path, "commit", "-m", subject]
     }
     nonisolated static func deleteArgs(tmpDir: URL, branch: String) -> [String] {
         ["-C", tmpDir.path, "branch", "-d", branch]

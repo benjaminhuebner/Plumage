@@ -107,6 +107,16 @@ nonisolated final class TmpGitRepo: Sendable {
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    func commitSubject(branch: String) async throws -> String {
+        let output = try await Self.runGit(["log", "-1", "--format=%s", branch], cwd: tmpDir)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func commitCount(branch: String) async throws -> Int {
+        let output = try await Self.runGit(["rev-list", "--count", branch], cwd: tmpDir)
+        return Int(output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
     func branchExists(_ branch: String) async -> Bool {
         do {
             let result = try await Self.runGitAllowingFailure(

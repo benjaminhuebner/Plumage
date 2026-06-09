@@ -317,6 +317,7 @@ struct IssueDetailView: View {
                         Divider()
                         MergeBranchSection(
                             branch: issue.branch,
+                            subjectPrefill: model.mergeSubjectPrefill,
                             isMerging: model.isMerging,
                             errorMessage: mergeBannerMessage,
                             nonFatalNotice: model.lastMergeNotice,
@@ -325,8 +326,13 @@ struct IssueDetailView: View {
                                 model.clearMergeCriticalError()
                             },
                             onDismissNotice: { model.clearMergeNotice() },
-                            onMerge: { deleteBranch in
-                                Task { await performMerge(deleteBranch: deleteBranch) }
+                            onMerge: { mode, commitSubject, deleteBranch in
+                                Task {
+                                    await performMerge(
+                                        mode: mode,
+                                        commitSubject: commitSubject,
+                                        deleteBranch: deleteBranch)
+                                }
                             }
                         )
                     }
@@ -522,8 +528,11 @@ struct IssueDetailView: View {
         return nil
     }
 
-    private func performMerge(deleteBranch: Bool) async {
-        let success = await model.mergeToMain(deleteBranch: deleteBranch)
+    private func performMerge(
+        mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
+    ) async {
+        let success = await model.mergeToMain(
+            mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
         guard success, let folderName = model.folderName else { return }
         kanban.signalMergeCompleted(folderName: folderName)
     }

@@ -28,7 +28,7 @@ struct MergeIntegrationTests {
         await model.load()
         let kanban = await ProjectKanbanModel()
 
-        let success = await model.mergeToMain(deleteBranch: true)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
         // Mirror the IssueDetailView wiring — on success, fire the kanban
         // signal so the auto-dismiss observer would trigger in real use.
         if success, let folderName = await model.folderName {
@@ -64,6 +64,42 @@ struct MergeIntegrationTests {
     }
 
     @Test(
+        "squash mode lands exactly one new commit on main with the subject and force-deletes the branch",
+        .enabled(if: ToolchainLocator.git() != nil)
+    )
+    func squashMergeProducesSingleCommit() async throws {
+        let repo = try await TmpGitRepo.make()
+        let mainBranch = repo.mainBranch
+        let countBefore = try await repo.commitCount(branch: mainBranch)
+
+        let model = await IssueDetailModel(
+            specURL: repo.specURL,
+            folderName: repo.folderName,
+            projectURL: repo.tmpDir,
+            mergeRunner: GitMergeRunner(),
+            configLoader: { _ in
+                ProjectConfig(
+                    name: "Test", schemaVersion: 2, issueIdPadding: 5,
+                    git: GitConfig(defaultBranch: mainBranch))
+            }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(
+            mode: .squash, commitSubject: "Add squash mode to issue merge", deleteBranch: true)
+
+        #expect(success == true)
+        let countAfter = try await repo.commitCount(branch: mainBranch)
+        #expect(countAfter == countBefore + 1)
+        let subject = try await repo.commitSubject(branch: mainBranch)
+        #expect(subject == "Add squash mode to issue merge")
+        let branchPresent = await repo.branchExists(repo.issueBranch)
+        #expect(branchPresent == false)
+        let modelStatus = await model.issue?.status
+        #expect(modelStatus == .done)
+    }
+
+    @Test(
         "delete-branch=false keeps the branch but still flips spec status",
         .enabled(if: ToolchainLocator.git() != nil)
     )
@@ -84,7 +120,7 @@ struct MergeIntegrationTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(deleteBranch: false)
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         let modelStatus = await model.issue?.status

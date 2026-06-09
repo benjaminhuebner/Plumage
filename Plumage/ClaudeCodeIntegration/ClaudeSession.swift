@@ -1,9 +1,12 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
 final class ClaudeSession {
+    private static let logger = Logger(subsystem: "com.plumage", category: "ClaudeSession")
+
     enum State: Sendable, Equatable {
         case idle
         case starting(cwd: URL)
@@ -371,6 +374,10 @@ final class ClaudeSession {
     }
 
     func stop() {
+        // Clear the terminationHandler before terminate(): this is a
+        // user-initiated stop, and the async handleExit path would race in
+        // and reclassify the SIGTERM exit as "crashed"/"killed".
+        process?.terminationHandler = nil
         try? stdinHandle?.close()
         stdinHandle = nil
         // Without cancelling readTask the AsyncStream's onTermination never
@@ -383,6 +390,13 @@ final class ClaudeSession {
         subcommandTask = nil
         process?.terminate()
         process = nil
+        switch state {
+        case .starting, .running:
+            state = .exited(code: 0, reason: .userClosed)
+        case .idle, .exited:
+            break
+        }
+        awaitingResponse = false
     }
 
     // Restart keeps messages and conversationID — Banner-Restart resumes the
@@ -485,9 +499,11 @@ final class ClaudeSession {
             guard let text = Self.extractText(from: message["content"]),
                 !text.isEmpty
             else { continue }
-            // Drop Plumage- or claude-side <command-…> wrapper payloads;
-            // they're not human-visible turns.
-            if text.hasPrefix("<") && text.contains("</") { continue }
+            // Drop Plumage- or claude-side <command-…>/<local-command-…>
+            // wrapper payloads; they're not human-visible turns. Prefix-match
+            // the known wrappers only — a user message that merely starts
+            // with markup (e.g. pasted HTML) must survive rehydration.
+            if text.hasPrefix("<command-") || text.hasPrefix("<local-command-") { continue }
             hydrated.append(
                 ChatMessage(id: UUID(), role: role, text: text, timestamp: .now)
             )
@@ -533,12 +549,12 @@ final class ClaudeSession {
         }
     }
 
-    func handleExit(code: Int32) {
+    func handleExit(code: Int32, reason: Process.TerminationReason = .exit) {
         switch state {
         case .idle, .exited:
             return
         case .starting, .running:
-            state = .exited(code: code, reason: Self.classify(code))
+            state = .exited(code: code, reason: Self.classify(code: code, reason: reason))
             awaitingResponse = false
             readTask?.cancel()
             readTask = nil
@@ -570,8 +586,9 @@ final class ClaudeSession {
 
         newProcess.terminationHandler = { terminated in
             let code = terminated.terminationStatus
+            let reason = terminated.terminationReason
             Task { @MainActor [weak self] in
-                self?.handleExit(code: code)
+                self?.handleExit(code: code, reason: reason)
             }
         }
 
@@ -623,11 +640,18 @@ final class ClaudeSession {
                 guard let self else { return }
                 guard !line.isEmpty else { continue }
                 guard let data = line.data(using: .utf8) else { continue }
-                guard
-                    let event = try? decoder.decode(
-                        ClaudeStreamEvent.self, from: data)
-                else { continue }
-                self.handleEvent(event)
+                do {
+                    let event = try decoder.decode(ClaudeStreamEvent.self, from: data)
+                    self.handleEvent(event)
+                } catch {
+                    // --verbose interleaves plain-text lines that are fine to
+                    // skip; only `{`-prefixed lines were meant to be events.
+                    if line.hasPrefix("{") {
+                        Self.logger.warning(
+                            "Dropping malformed stream event: \(String(describing: error), privacy: .public)"
+                        )
+                    }
+                }
             }
         }
     }
@@ -639,26 +663,28 @@ final class ClaudeSession {
     // concurrent access is safe even though the compiler can't see it.
     // Removing the lock or relaxing the contract would re-introduce a
     // silent data race on the partial-line buffer. See notes.md.
-    private nonisolated final class LineBuffer: @unchecked Sendable {
+    //
+    // Buffers raw bytes and splits on 0x0A before decoding: decoding whole
+    // chunks drops the entire chunk when a multi-byte UTF-8 character spans
+    // a chunk boundary (String(data:encoding:) returns nil mid-character).
+    // Internal (not private) so tests can pin the chunk-split behavior.
+    nonisolated final class LineBuffer: @unchecked Sendable {
         private let lock = NSLock()
-        private var partial: String = ""
+        private var partial = Data()
 
         func append(_ data: Data) -> [String] {
             lock.lock()
             defer { lock.unlock() }
-            guard let chunk = String(data: data, encoding: .utf8) else { return [] }
-            // `partial += chunk` triggers COW when partial's underlying
-            // storage is shared (e.g. captured by a prior line slice);
-            // append(contentsOf:) reuses the existing storage when refs == 1.
-            partial.append(contentsOf: chunk)
+            partial.append(data)
             var lines: [String] = []
             // Most stdout chunks carry zero or one newline; preallocate
             // for the common case so a streaming burst doesn't trip the
             // array's growth doubling on every chunk.
             lines.reserveCapacity(4)
-            while let nl = partial.range(of: "\n") {
-                lines.append(String(partial[..<nl.lowerBound]))
-                partial.removeSubrange(..<nl.upperBound)
+            while let nl = partial.firstIndex(of: 0x0A) {
+                lines.append(
+                    String(decoding: partial[partial.startIndex..<nl], as: UTF8.self))
+                partial.removeSubrange(partial.startIndex...nl)
             }
             return lines
         }
@@ -666,9 +692,10 @@ final class ClaudeSession {
         func flush() -> String? {
             lock.lock()
             defer { lock.unlock() }
-            let remaining = partial
-            partial = ""
-            return remaining.isEmpty ? nil : remaining
+            guard !partial.isEmpty else { return nil }
+            let remaining = String(decoding: partial, as: UTF8.self)
+            partial = Data()
+            return remaining
         }
     }
 
@@ -710,11 +737,20 @@ final class ClaudeSession {
         }
     }
 
-    private nonisolated static func classify(_ code: Int32) -> ExitReason {
-        switch code {
-        case 0: return .userClosed
-        case 128...159: return .killed
-        default: return .crashed
+    // On .uncaughtSignal, terminationStatus carries the raw signal number —
+    // the 128+n shell convention never applies to a directly-spawned process,
+    // so a plain code-range check misclassifies signal exits.
+    nonisolated static func classify(
+        code: Int32, reason: Process.TerminationReason
+    ) -> ExitReason {
+        switch reason {
+        case .uncaughtSignal:
+            switch code {
+            case SIGTERM, SIGKILL, SIGINT, SIGHUP: return .killed
+            default: return .crashed
+            }
+        default:
+            return code == 0 ? .userClosed : .crashed
         }
     }
 

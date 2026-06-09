@@ -128,6 +128,10 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // A write to a dead claude stdin raises SIGPIPE, whose default action
+        // kills the whole app. Ignoring it surfaces the failure as a thrown
+        // EPIPE from FileHandle.write, which the send paths already handle.
+        signal(SIGPIPE, SIG_IGN)
         // Set the stored appearance before any window is presented; deferring to
         // applicationDidFinishLaunching flashes the system appearance first.
         AppearanceApplier.applyStored()

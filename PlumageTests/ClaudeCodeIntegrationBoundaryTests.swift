@@ -26,7 +26,7 @@ struct ClaudeCodeIntegrationBoundaryTests {
 
         let badFile = tmpDir.appending(path: "BadFile.swift")
         // Use a string that matches exactly one forbidden pattern so the count assertion stays stable.
-        try "let bad = \"~/.claude/local/claude\"\n".write(
+        try "let bad = \"~/.claude/settings.json\"\n".write(
             to: badFile, atomically: true, encoding: .utf8)
 
         let cciRoot = tmpDir.appending(path: "ClaudeCodeIntegration", directoryHint: .isDirectory)
@@ -38,6 +38,35 @@ struct ClaudeCodeIntegrationBoundaryTests {
         #expect(violations.count == 1)
         #expect(violations.first?.contains("BadFile.swift") == true)
         #expect(violations.first?.contains("~/.claude/") == true)
+    }
+
+    @Test("scanner catches home-interpolated .claude paths")
+    func scannerCatchesInterpolatedHome() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appending(path: "PlumageBoundaryProbe-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // The exact shape of the pre-fix environmentForClaude leak: the home
+        // path interpolated in front of /.claude — invisible to the literal
+        // "~/.claude/" pattern.
+        let interpolated = tmpDir.appending(path: "Interpolated.swift")
+        try #"let path = "\(home)/.claude/bin""#.write(
+            to: interpolated, atomically: true, encoding: .utf8)
+        // Concatenation form, no interpolation parenthesis.
+        let concatenated = tmpDir.appending(path: "Concatenated.swift")
+        try #"let path = home + "/.claude/local""#.write(
+            to: concatenated, atomically: true, encoding: .utf8)
+
+        let cciRoot = tmpDir.appending(path: "ClaudeCodeIntegration", directoryHint: .isDirectory)
+        let violations = try BoundaryScanner.scan(
+            root: tmpDir,
+            skipping: cciRoot,
+            forbidden: BoundaryScanner.forbiddenPatterns
+        )
+        #expect(violations.count == 2)
+        #expect(violations.contains { $0.contains("Interpolated.swift") })
+        #expect(violations.contains { $0.contains("Concatenated.swift") })
     }
 
     @Test("scanner ignores files in the skipped subtree")
@@ -72,7 +101,14 @@ struct ClaudeCodeIntegrationBoundaryTests {
 }
 
 enum BoundaryScanner {
-    static let forbiddenPatterns: [String] = ["~/.claude/", "claude --", ".claude/projects"]
+    // ")/.claude" catches home-interpolated paths ("\(home)/.claude/…") that
+    // a literal-substring scan for "~/.claude/" cannot see; "/.claude/local"
+    // catches the concatenation form ('home + "/.claude/local"'). Bare
+    // "/.claude/" stays off the list: project-relative sample paths
+    // ("/tmp/sample/.claude/issues") are legitimate outside CCI.
+    static let forbiddenPatterns: [String] = [
+        "~/.claude/", "claude --", ".claude/projects", "/.claude/local", ")/.claude",
+    ]
 
     struct ScanError: Error { let message: String }
 
