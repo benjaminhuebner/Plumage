@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 @MainActor
 @Observable
@@ -23,14 +24,22 @@ final class NavigatorModel {
     // Derived from `emptyContextFilePaths`, so it only changes when that does.
     private(set) var foldersHidingEmptyContextFile: Set<String> = []
 
-    // Transient sidebar state for the "+ creates a new row with a focused
-    // TextField" interaction. View binds the textfield to `pendingCreate?.name`
-    // and calls commit/cancel based on Enter/Escape/blur.
-    var pendingCreate: PendingCreate?
-
     // Inline rename of an existing row. Set when the user hits Enter or
     // picks "Rename" from the context menu; cleared on commit/cancel.
     var renaming: RenameSession?
+
+    // Expanded folder paths of the sidebar file tree, persisted per project
+    // so expansion survives app restart.
+    var fileTreeExpansion: Set<String> = [] {
+        didSet { persistExpansion() }
+    }
+    private var expansionProject: URL?
+    private var isLoadingExpansion = false
+    private var expansionPersist: Task<Void, Never>?
+
+    // Scroll/expand the sidebar tree to a programmatically created node —
+    // selection alone can't surface a row hidden under a collapsed folder.
+    private(set) var sidebarReveal: FileTreeRevealRequest?
 
     // Set by the Delete key / context-menu "Move to Trash"; the sidebar
     // presents a confirmation dialog for it. Trash is recoverable, but the
@@ -88,6 +97,14 @@ final class NavigatorModel {
     }
 
     func reload(projectURL: URL) async {
+        if expansionProject != projectURL {
+            expansionProject = projectURL
+            isLoadingExpansion = true
+            fileTreeExpansion = await Task.detached(priority: .userInitiated) {
+                SidebarExpansionStore.load(projectURL: projectURL)
+            }.value
+            isLoadingExpansion = false
+        }
         reloadGeneration &+= 1
         let generation = reloadGeneration
         let result = await Task.detached(priority: .userInitiated) {
@@ -121,9 +138,20 @@ final class NavigatorModel {
             : []
         fileInodes = result.index.inodes
         inodeBaselineProject = projectURL
-        // `pendingCreate` is intentionally preserved across reloads — an
-        // FSEvent triggered mid-inline-edit must not collapse the user's
-        // open create row.
+        // `renaming` is intentionally preserved across reloads — an FSEvent
+        // triggered mid-inline-edit must not kill the user's edit session.
+    }
+
+    // Chained off the prior write (RecentProjects discipline): independent
+    // fire-and-forget tasks can land on disk out of order.
+    private func persistExpansion() {
+        guard let projectURL = expansionProject, !isLoadingExpansion else { return }
+        let paths = fileTreeExpansion
+        let prior = expansionPersist
+        expansionPersist = Task.detached(priority: .utility) {
+            await prior?.value
+            SidebarExpansionStore.save(paths, projectURL: projectURL)
+        }
     }
 
     // Flat set of every empty-context file's relative path in a built tree.
@@ -183,45 +211,21 @@ final class NavigatorModel {
         return rewrites
     }
 
-    func beginPendingCreate(parent: URL, isFolder: Bool) {
-        pendingCreate = PendingCreate(
-            section: .treeNode(parent: parent, isFolder: isFolder),
-            name: PendingCreate.Section.treeNode(parent: parent, isFolder: isFolder).defaultName
-        )
-    }
-
-    func cancelPendingCreate() {
-        pendingCreate = nil
-    }
-
-    func isPendingCreate(at section: PendingCreate.Section) -> Bool {
-        pendingCreate?.section == section
-    }
-
+    // Finder's new-file idiom: create with a free default name immediately,
+    // reveal the row, and start inline rename so the user types the real name.
     @discardableResult
-    func commitPendingCreate(projectURL: URL) async -> NavigatorRoute? {
-        guard let pending = pendingCreate else { return nil }
-        let trimmed = pending.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return nil
-        }
+    func createAndReveal(parent: URL, isFolder: Bool, projectURL: URL) async -> NavigatorRoute? {
         do {
             let url = try await Task.detached(priority: .userInitiated) {
-                () -> URL in
-                switch pending.section {
-                case .treeNode(let parent, let isFolder):
-                    if isFolder {
-                        return try ClaudeProjectFiles.createFolderAt(
-                            parent: parent, name: trimmed)
-                    }
-                    return try ClaudeProjectFiles.createFileAt(
-                        parent: parent, name: trimmed)
-                }
+                isFolder
+                    ? try ClaudeProjectFiles.createFolderAt(parent: parent, name: "untitled")
+                    : try ClaudeProjectFiles.createFileAt(parent: parent, name: "untitled.md")
             }.value
-            pendingCreate = nil
-            let route = Self.route(for: pending.section, createdURL: url, projectURL: projectURL)
             await reload(projectURL: projectURL)
-            return route
+            let relativePath = Self.relativePath(from: projectURL, to: url)
+            sidebarReveal = FileTreeRevealRequest(path: relativePath)
+            beginRename(url: url)
+            return .projectFile(relativePath: relativePath)
         } catch {
             showBanner(error.localizedDescription)
             return nil
@@ -230,6 +234,13 @@ final class NavigatorModel {
 
     func beginRename(url: URL) {
         renaming = RenameSession(url: url, name: url.lastPathComponent)
+    }
+
+    // Model-owned binding keeps Binding(get:set:) out of view bodies.
+    var renameNameBinding: Binding<String> {
+        Binding(
+            get: { self.renaming?.name ?? "" },
+            set: { if self.renaming != nil { self.renaming?.name = $0 } })
     }
 
     func cancelRename() {
@@ -402,17 +413,6 @@ final class NavigatorModel {
         return outcome
     }
 
-    private static func route(
-        for section: PendingCreate.Section, createdURL: URL, projectURL: URL
-    ) -> NavigatorRoute? {
-        switch section {
-        case .treeNode(_, let isFolder):
-            guard !isFolder else { return nil }
-            let rel = relativePath(from: projectURL, to: createdURL)
-            return .projectFile(relativePath: rel)
-        }
-    }
-
     private static func routeAfterRename(newURL: URL, projectURL: URL) -> NavigatorRoute? {
         let isDir = (try? newURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         guard !isDir else { return nil }
@@ -427,31 +427,6 @@ final class NavigatorModel {
             return String(urlPath.dropFirst(projectPath.count + 1))
         }
         return url.lastPathComponent
-    }
-}
-
-nonisolated struct PendingCreate: Identifiable, Equatable, Sendable {
-    nonisolated enum Section: Hashable, Sendable {
-        // Generic at-path create used by the unified file tree. `parent` is
-        // the on-disk folder where the new entry lands. `isFolder` toggles
-        // between file and folder creation.
-        case treeNode(parent: URL, isFolder: Bool)
-
-        var defaultName: String {
-            switch self {
-            case .treeNode(_, let isFolder): return isFolder ? "untitled" : "untitled.md"
-            }
-        }
-    }
-
-    let id: UUID
-    let section: Section
-    var name: String
-
-    init(section: Section, name: String) {
-        self.id = UUID()
-        self.section = section
-        self.name = name
     }
 }
 

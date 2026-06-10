@@ -291,9 +291,15 @@ final class FinderFileTreeCoordinator: NSObject {
     func handleReveal(_ request: FileTreeRevealRequest) {
         guard request.id != lastRevealID else { return }
         lastRevealID = request.id
-        reveal(path: request.path)
+        // Called from updateNSView — the expansion/selection callbacks below
+        // must not write SwiftUI state mid view-update.
+        Task { @MainActor [weak self] in
+            self?.reveal(path: request.path)
+        }
     }
 
+    // Selection deliberately reports through onSelect: a reveal makes the
+    // revealed row the current item, and adopters route on that.
     func reveal(path: String) {
         guard let outlineView, let item = itemsByPath[path],
             let ancestors = Self.ancestorChain(to: path, in: currentNodes)
@@ -306,9 +312,7 @@ final class FinderFileTreeCoordinator: NSObject {
         }
         let row = outlineView.row(forItem: item)
         guard row >= 0 else { return }
-        isApplyingSelection = true
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        isApplyingSelection = false
         outlineView.scrollRowToVisible(row)
     }
 

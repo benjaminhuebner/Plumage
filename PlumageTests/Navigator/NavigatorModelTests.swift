@@ -56,63 +56,55 @@ struct NavigatorModelTests {
         #expect(NavigatorModel.collectFoldersHidingEmptyContextPaths([]).isEmpty)
     }
 
-    @Test("beginPendingCreate seeds the default name for files and folders")
-    func beginPendingCreateSeedsName() async throws {
+    @Test("createAndReveal writes an untitled file, reveals it and starts rename")
+    func createAndRevealFile() async throws {
         let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/.keep", content: "")
         let parent = fixture.root.appendingPathComponent(".claude/docs", isDirectory: true)
         let model = NavigatorModel()
 
-        model.beginPendingCreate(parent: parent, isFolder: false)
-        #expect(model.pendingCreate?.name == "untitled.md")
+        let route = await model.createAndReveal(
+            parent: parent, isFolder: false, projectURL: fixture.root)
 
-        model.beginPendingCreate(parent: parent, isFolder: true)
-        #expect(model.pendingCreate?.name == "untitled")
+        let created = parent.appendingPathComponent("untitled.md")
+        #expect(route == .projectFile(relativePath: ".claude/docs/untitled.md"))
+        #expect(FileManager.default.fileExists(atPath: created.path))
+        #expect(model.sidebarReveal?.path == ".claude/docs/untitled.md")
+        #expect(model.renaming?.url == created)
     }
 
-    @Test("commitPendingCreate writes a file and returns its projectFile route")
-    func commitPendingCreateFile() async throws {
+    @Test("createAndReveal walks to a free name on collision")
+    func createAndRevealCollision() async throws {
         let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/docs/untitled.md", content: "taken")
         let parent = fixture.root.appendingPathComponent(".claude/docs", isDirectory: true)
         let model = NavigatorModel()
 
-        model.beginPendingCreate(parent: parent, isFolder: false)
-        model.pendingCreate?.name = "intro.md"
-        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        let route = await model.createAndReveal(
+            parent: parent, isFolder: false, projectURL: fixture.root)
 
-        #expect(route == .projectFile(relativePath: ".claude/docs/intro.md"))
-        #expect(model.pendingCreate == nil)
+        #expect(route == .projectFile(relativePath: ".claude/docs/untitled-1.md"))
         #expect(
             FileManager.default.fileExists(
-                atPath: parent.appendingPathComponent("intro.md").path))
+                atPath: parent.appendingPathComponent("untitled-1.md").path))
     }
 
-    @Test("commitPendingCreate on a folder returns nil (folder is not a selectable route)")
-    func commitPendingCreateFolder() async throws {
+    @Test("createAndReveal creates a folder and starts rename on it")
+    func createAndRevealFolder() async throws {
         let fixture = try NavigatorModelFixture()
+        try fixture.makeFile(at: ".claude/.keep", content: "")
         let parent = fixture.root.appendingPathComponent(".claude", isDirectory: true)
         let model = NavigatorModel()
 
-        model.beginPendingCreate(parent: parent, isFolder: true)
-        model.pendingCreate?.name = "research"
-        let route = await model.commitPendingCreate(projectURL: fixture.root)
+        let route = await model.createAndReveal(
+            parent: parent, isFolder: true, projectURL: fixture.root)
 
-        #expect(route == nil)
+        #expect(route == .projectFile(relativePath: ".claude/untitled"))
         var isDir: ObjCBool = false
         _ = FileManager.default.fileExists(
-            atPath: parent.appendingPathComponent("research").path, isDirectory: &isDir)
+            atPath: parent.appendingPathComponent("untitled").path, isDirectory: &isDir)
         #expect(isDir.boolValue)
-    }
-
-    @Test("commitPendingCreate with empty name is a no-op")
-    func commitPendingCreateEmpty() async throws {
-        let fixture = try NavigatorModelFixture()
-        let parent = fixture.root.appendingPathComponent(".claude/docs", isDirectory: true)
-        let model = NavigatorModel()
-        model.beginPendingCreate(parent: parent, isFolder: false)
-        model.pendingCreate?.name = "   "
-        let route = await model.commitPendingCreate(projectURL: fixture.root)
-        #expect(route == nil)
-        #expect(model.pendingCreate != nil)
+        #expect(model.renaming?.url.path == parent.appendingPathComponent("untitled").path)
     }
 
     @Test("commitRename returns a projectFile route under the new path")

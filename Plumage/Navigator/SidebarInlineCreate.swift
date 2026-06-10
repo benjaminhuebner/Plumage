@@ -1,69 +1,6 @@
 import AppKit
 import SwiftUI
 
-// Inline TextField row for create-new-row interactions (set via
-// `NavigatorModel.beginPendingCreate`).
-struct InlineCreateRow: View {
-    let projectURL: URL
-    let icon: String
-    @Environment(NavigatorModel.self) private var navigator
-    @FocusState private var focused: Bool
-    @State private var didAutoFocus = false
-    @State private var isCommitting = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            TextField(
-                "",
-                text: nameBinding,
-                prompt: Text(navigator.pendingCreate?.section.defaultName ?? "")
-            )
-            .textFieldStyle(.plain)
-            .focused($focused)
-            .onSubmit { commit() }
-            .onExitCommand {
-                navigator.cancelPendingCreate()
-            }
-            .onChange(of: focused) { _, isFocused in
-                guard didAutoFocus, !isFocused else { return }
-                commit()
-            }
-        }
-        // Small delay so the row's TextField is part of the responder chain
-        // before we ask for focus.
-        .task(id: navigator.pendingCreate?.id) {
-            try? await Task.sleep(for: .milliseconds(50))
-            focused = true
-            didAutoFocus = true
-        }
-    }
-
-    private func commit() {
-        // Guard both event paths (onSubmit + blur via onChange) so the second
-        // trigger doesn't issue a redundant async task. `commitPendingCreate`
-        // already short-circuits on a nil pending, but coalescing here keeps
-        // the View layer authoritative on its own lifecycle.
-        guard !isCommitting else { return }
-        isCommitting = true
-        Task { @MainActor in
-            _ = await navigator.commitPendingCreate(projectURL: projectURL)
-        }
-    }
-
-    private var nameBinding: Binding<String> {
-        Binding(
-            get: { navigator.pendingCreate?.name ?? "" },
-            set: { newValue in
-                guard navigator.pendingCreate != nil else { return }
-                navigator.pendingCreate?.name = newValue
-            }
-        )
-    }
-}
-
 // AppKit-backed text field for inline rename. Owns its own focus + stem
 // selection so we don't need a 50 ms sleep + NSApp.keyWindow reach.
 struct StemSelectingTextField: NSViewRepresentable {
