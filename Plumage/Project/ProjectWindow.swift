@@ -389,7 +389,7 @@ struct ProjectWindow: View {
                 }
                 .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
-                    TerminalInspectorView(tabsModel: terminalTabs)
+                    TerminalInspectorView(tabsModel: terminalTabs, isOpen: isTerminalInspectorOpen)
                         .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
                 }
         }

@@ -13,7 +13,16 @@ nonisolated protocol HTTPFetching: Sendable {
 nonisolated struct ProductionHTTPFetcher: HTTPFetching {
     let session: URLSession
 
-    init(session: URLSession = .shared) {
+    // waitsForConnectivity: the pollers fire every 60–90 s for the app's
+    // lifetime — failing fast on a sleeping radio just burns a wake plus an
+    // error path per tick; waiting lets the system batch the request.
+    private static let connectivityWaitingSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+
+    init(session: URLSession = ProductionHTTPFetcher.connectivityWaitingSession) {
         self.session = session
     }
 

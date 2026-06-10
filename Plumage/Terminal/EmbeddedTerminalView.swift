@@ -8,6 +8,9 @@ import SwiftUI
 
 struct EmbeddedTerminalView: View {
     let session: TerminalClaudeSession
+    // False while the inspector is closed or another tab is selected — gates
+    // the cursor keep-alive timer + key monitor (the view stays mounted).
+    var isVisible: Bool = true
 
     var body: some View {
         ZStack {
@@ -24,7 +27,8 @@ struct EmbeddedTerminalView: View {
             SwiftTermBridge(
                 session: session,
                 pendingCount: session.pendingInput.count,
-                isRunning: isRunning
+                isRunning: isRunning,
+                isVisible: isVisible
             )
             .id(session.restartEpoch)
 
@@ -68,11 +72,15 @@ private struct SwiftTermBridge: NSViewRepresentable {
     // reads session.pendingInput directly to perform the flush.
     let pendingCount: Int
     let isRunning: Bool
+    let isVisible: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
     func makeNSView(context: Context) -> PersistentCursorTerminalView {
         let view = PersistentCursorTerminalView(frame: .zero)
+        // Before insertion: a hidden tab's mount must not start the
+        // keep-alive in viewDidMoveToWindow.
+        view.chromeActive = isVisible
         view.processDelegate = context.coordinator
         // Finder file-drop routes through enqueue (not a direct send) so the
         // existing .running gate + updateNSView flush machinery handles a drop
@@ -158,6 +166,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
+        nsView.chromeActive = isVisible
         if context.coordinator.lastColorScheme != colorScheme {
             context.coordinator.lastColorScheme = colorScheme
             nsView.nativeBackgroundColor = .clear
@@ -331,11 +340,21 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     override var fittingSize: NSSize { .zero }
 
+    // Visibility gate for the keep-alive timer + key monitor: the inspector
+    // hides its column instead of unmounting the content, and hidden tabs
+    // stay ZStack-mounted — without this gate every terminal kept its timer
+    // burning behind a closed inspector.
+    var chromeActive = true {
+        didSet {
+            guard chromeActive != oldValue else { return }
+            refreshChrome()
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
-            startCursorKeepAlive()
-            installShiftEnterMonitor()
+            refreshChrome()
             // SwiftTerm registers no dragged types and implements no
             // NSDraggingDestination methods (notes.md #00020), so this is the
             // sole file-drop handler — no super conflict for .fileURL drags.
@@ -347,21 +366,34 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         }
     }
 
+    private func refreshChrome() {
+        if window != nil && chromeActive {
+            startCursorKeepAlive()
+            installShiftEnterMonitor()
+        } else {
+            stopCursorKeepAlive()
+            removeShiftEnterMonitor()
+        }
+    }
+
     private func startCursorKeepAlive() {
         cursorKeepAlive?.invalidate()
         // Schedule on .common modes so the timer survives scroll / event
-        // tracking on the inspector divider, and pick a fast cadence to win
-        // the race against claude's rendering bursts.
+        // tracking on the inspector divider. 120 ms matches the documented
+        // need (class comment: a 120 ms repeater wins the race against
+        // claude's hide bursts); the earlier 50 ms quadrupled the wakeups
+        // for no visible gain. Tolerance lets the kernel coalesce ticks.
         // Timer block is typed @Sendable, but RunLoop.main fires it on the
         // main thread — MainActor.assumeIsolated lets us touch the
         // @MainActor-typed `terminal` property without an extra Task hop per
         // tick. assumeIsolated traps if the assumption is wrong, which it
         // never is for a RunLoop.main-scheduled Timer.
-        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.terminal?.feed(text: "\u{1B}[?25h")
             }
         }
+        timer.tolerance = 0.06
         RunLoop.main.add(timer, forMode: .common)
         cursorKeepAlive = timer
     }
