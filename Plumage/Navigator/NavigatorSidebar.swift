@@ -28,16 +28,24 @@ struct NavigatorSidebar: View {
     // Whether the current .projectFile route was produced by the tree (true)
     // or the PINNED list (false) — the two regions never highlight together.
     @State private var treeOwnsSelection = true
+    @State private var treeContentHeight: CGFloat = 0
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
-        VStack(spacing: 0) {
-            issuesAndPinnedList
-                .frame(maxHeight: listHeightEstimate)
-            SidebarSectionHeader(title: "Files")
-                .padding(.leading, 16)
-                .padding(.trailing, 12)
-            fileTree
+        // One scroll surface for the whole sidebar: the upper List is pinned
+        // to its exact content height and scroll-disabled, the tree reports
+        // its content height — only this ScrollView ever scrolls.
+        ScrollView {
+            VStack(spacing: 0) {
+                issuesAndPinnedList
+                    .frame(height: listHeightEstimate)
+                    .scrollDisabled(true)
+                SidebarSectionHeader(title: "Files")
+                    .padding(.leading, 16)
+                    .padding(.trailing, 12)
+                fileTree
+                    .frame(height: max(treeContentHeight, 1))
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             projectSettingsRow
@@ -92,6 +100,7 @@ struct NavigatorSidebar: View {
                 expandedPaths: Bindable(navigator).fileTreeExpansion,
                 selectedPath: treeSelectedPath,
                 revealRequest: navigator.sidebarReveal,
+                onContentHeightChange: { treeContentHeight = $0 },
                 contextMenu: { nodes in
                     guard !nodes.isEmpty else { return nil }
                     return NSHostingMenu(
@@ -203,6 +212,9 @@ struct NavigatorSidebar: View {
             .padding(.top, 8)
             .padding(.bottom, 10)
         }
+        // The whole sidebar scrolls behind this inset now — without a bar
+        // fill the tree rows shine through the row.
+        .background(.bar)
     }
 
     // Selection must follow window-key state, not a constant accent:

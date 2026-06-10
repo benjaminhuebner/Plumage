@@ -24,6 +24,7 @@ final class FinderFileTreeCoordinator: NSObject {
     var validateDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
     var onDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
     var contextMenu: (([FileNode]) -> NSMenu?)?
+    var onContentHeightChange: ((CGFloat) -> Void)?
     var rowContent: ((FileNode) -> AnyView)?
 
     nonisolated static let internalDragType = NSPasteboard.PasteboardType(
@@ -40,6 +41,40 @@ final class FinderFileTreeCoordinator: NSObject {
     private var lastRevealID: UUID?
     private var lastSelectedPath: String?
     private weak var dropHighlightTarget: FinderFileTreeItem?
+    private var frameObserver: NSObjectProtocol?
+    private var lastReportedHeight: CGFloat = -1
+
+    isolated deinit {
+        if let frameObserver {
+            NotificationCenter.default.removeObserver(frameObserver)
+        }
+    }
+
+    // The outline sizes itself to its rows inside the clip view — its frame
+    // height IS the content height, animations and automatic row heights
+    // included, so observing the frame beats recomputing row rects.
+    func observeContentHeight(of outline: NSOutlineView) {
+        outline.postsFrameChangedNotifications = true
+        frameObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: outline, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reportContentHeight()
+            }
+        }
+    }
+
+    private func reportContentHeight() {
+        guard let outlineView, let onContentHeightChange else { return }
+        let height = outlineView.frame.height
+        guard height != lastReportedHeight else { return }
+        lastReportedHeight = height
+        // Frame changes can land mid layout pass — never write SwiftUI state
+        // synchronously from here.
+        Task { @MainActor in
+            onContentHeightChange(height)
+        }
+    }
 
     func item(forPath path: String) -> FinderFileTreeItem? {
         itemsByPath[path]
@@ -328,7 +363,20 @@ final class FinderFileTreeCoordinator: NSObject {
         let row = outlineView.row(forItem: item)
         guard row >= 0 else { return }
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        scrollRowVisibleThroughAncestors(row)
+    }
+
+    // When the tree is embedded in an outer scroll surface its own scroll
+    // view has no overflow — `scrollRowToVisible` only reaches the inner
+    // clip, so the enclosing scroll view must be driven explicitly.
+    func scrollRowVisibleThroughAncestors(_ row: Int) {
+        guard let outlineView, row >= 0, row < outlineView.numberOfRows else { return }
         outlineView.scrollRowToVisible(row)
+        guard let inner = outlineView.enclosingScrollView,
+            let outerDocument = inner.enclosingScrollView?.documentView
+        else { return }
+        let rect = outerDocument.convert(outlineView.rect(ofRow: row), from: outlineView)
+        outerDocument.scrollToVisible(rect)
     }
 
     // Resolved against the actual tree, not path-string prefixes — ids are
@@ -540,6 +588,9 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
         // Deselects keep the previous anchor: the collapse path needs to know
         // what WAS selected after the outline has already cleared it.
         if let node { lastSelectedPath = node.relativePath }
+        // Keyboard navigation auto-scrolls only the inner clip — follow
+        // through the outer scroll surface too.
+        scrollRowVisibleThroughAncestors(row)
         onSelect?(node)
     }
 

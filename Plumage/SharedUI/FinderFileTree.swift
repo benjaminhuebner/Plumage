@@ -34,6 +34,10 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     @Binding var expandedPaths: Set<String>
     var selectedPath: String?
     var revealRequest: FileTreeRevealRequest?
+    // Set when the tree is embedded in an outer scroll surface: internal
+    // scrolling turns off and the outline's content height is reported so
+    // the host can size the frame.
+    var onContentHeightChange: ((CGFloat) -> Void)?
     var contextMenu: (([FileNode]) -> NSMenu?)?
     var onRenameRequest: ((FileNode) -> Void)?
     var onTrashRequest: (([FileNode]) -> Void)?
@@ -69,10 +73,14 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
 
         let scroll = NSScrollView()
         scroll.documentView = outline
-        scroll.hasVerticalScroller = true
+        scroll.hasVerticalScroller = onContentHeightChange == nil
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
+        if onContentHeightChange != nil {
+            scroll.verticalScrollElasticity = .none
+            context.coordinator.observeContentHeight(of: outline)
+        }
 
         switch style {
         case .sidebar:
@@ -119,6 +127,7 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         coordinator.validateDrop = validateDrop
         coordinator.onDrop = onDrop
         coordinator.contextMenu = contextMenu
+        coordinator.onContentHeightChange = onContentHeightChange
         coordinator.rowContent = { node in AnyView(rowContent(node)) }
         // Expansion state lands before the nodes so a freshly built tree is
         // expanded in the same pass that creates its items.
