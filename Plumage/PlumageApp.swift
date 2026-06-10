@@ -16,7 +16,7 @@ struct PlumageApp: App {
             // welcome panel, not a content surface — the Liquid Glass
             // "no materials on content" rule doesn't apply here.
             WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
-                .containerBackground(.thickMaterial, for: .window)
+                .containerBackground(.ultraThickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
                     drainPendingURLs()

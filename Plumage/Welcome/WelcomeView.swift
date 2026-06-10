@@ -88,9 +88,9 @@ struct WelcomeView: View {
         // Intentional: nudges the icon/title/action block slightly above true
         // center for optical balance against the empty bottom of the pane.
         .padding(.bottom, 24)
-        // Opaque over the window's material: like Xcode's welcome panel,
-        // only the recents side shows behind-window blur.
-        .background(Color(nsColor: .windowBackgroundColor))
+        // Not fully opaque: Xcode's action pane is a soft off-white that lets
+        // a hint of the behind-window material through, not flat white.
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.85))
     }
 
     private var rightPane: some View {
@@ -126,7 +126,13 @@ struct WelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.primary.opacity(0.05))
+        // Gray scrim over the still-visible window material: Xcode's recents
+        // pane keeps the behind-window blur, just toned gray. Must ignore the
+        // safe area or the titlebar strip shows raw material as a lighter bar.
+        .background {
+            Color.primary.opacity(0.02)
+                .ignoresSafeArea()
+        }
     }
 
     private var emptyState: some View {
