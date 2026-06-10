@@ -1,7 +1,10 @@
 import Foundation
+import os
 
 nonisolated enum PinnedFilesStore {
     static let fileName = "pins.json"
+
+    private static let logger = Logger(subsystem: "com.plumage", category: "PinnedFilesStore")
 
     // Small forward-compatible envelope. A future field can be added without
     // breaking older readers (unknown keys are ignored by JSONDecoder).
@@ -15,11 +18,20 @@ nonisolated enum PinnedFilesStore {
     static func load(bundle: URL) -> [String]? {
         let url = bundle.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        guard let decoded = try? JSONDecoder().decode(Stored.self, from: data) else {
+        guard let data = try? Data(contentsOf: url) else {
+            logger.error("pins.json unreadable at \(url.path, privacy: .public)")
             return []
         }
-        return decoded.pinned
+        do {
+            return try JSONDecoder().decode(Stored.self, from: data).pinned
+        } catch {
+            // Fall back to "deliberately empty" so the caller doesn't reseed
+            // over user data — but a corrupt file must not stay invisible.
+            logger.error(
+                "pins.json corrupt at \(url.path, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return []
+        }
     }
 
     // Atomic JSON write. Pretty-printed for human-readability; the array order

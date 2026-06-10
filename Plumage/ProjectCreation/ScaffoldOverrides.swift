@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Per-file override layer: each path resolves to the user's override copy when present,
 // else the bundled original — per-file (not per-directory) so an override is never
@@ -184,10 +185,20 @@ nonisolated struct ScaffoldOverrides: Sendable {
     }
 
     func suppressedRelativePaths() -> Set<String> {
-        guard let tombstonesURL, let data = try? Data(contentsOf: tombstonesURL),
-            let list = try? JSONDecoder().decode([String].self, from: data)
+        guard let tombstonesURL,
+            FileManager.default.fileExists(atPath: tombstonesURL.path)
         else { return [] }
-        return Set(list)
+        do {
+            let data = try Data(contentsOf: tombstonesURL)
+            return Set(try JSONDecoder().decode([String].self, from: data))
+        } catch {
+            // Empty set is also the legitimate "no tombstones" answer — a
+            // corrupt file silently resurrecting suppressed scaffold entries
+            // must at least leave a trace.
+            Logger(subsystem: "com.plumage", category: "ScaffoldOverrides").error(
+                "tombstones.json unreadable: \(String(describing: error), privacy: .public)")
+            return []
+        }
     }
 
     func isSuppressed(relativePath: String) -> Bool {

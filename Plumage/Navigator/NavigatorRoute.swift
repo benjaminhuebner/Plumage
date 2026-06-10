@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case kanban
@@ -47,10 +48,15 @@ nonisolated extension NavigatorRoute {
             self = migrated
             return
         }
-        guard let decoded = try? Self.decoder.decode(NavigatorRoute.self, from: data) else {
+        do {
+            self = try Self.decoder.decode(NavigatorRoute.self, from: data)
+        } catch {
+            // nil falls back to .kanban at the caller — log so a persisted
+            // route silently degrading to the board is diagnosable.
+            Logger(subsystem: "com.plumage", category: "NavigatorRoute").error(
+                "persisted route undecodable: \(String(describing: error), privacy: .public)")
             return nil
         }
-        self = decoded
     }
 
     // Maps pre-#00052 legacy route JSON tags to `.projectFile`. The shape
