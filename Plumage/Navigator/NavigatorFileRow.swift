@@ -11,17 +11,15 @@ struct NavigatorFileRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            icon
             if navigator.renaming?.url == node.url {
+                FinderFileTreeRowIcon(node: node)
                 FinderFileTreeRenameField(
                     text: navigator.renameNameBinding,
                     placeholder: node.name,
                     onCommit: commitRename,
                     onCancel: { navigator.cancelRename() })
             } else {
-                Text(node.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                FinderFileTreeRowLabel(node: node)
                     .accessibilityLabel(accessibilityLabel)
                 warningIcon
                 Spacer(minLength: 0)
@@ -33,15 +31,6 @@ struct NavigatorFileRow: View {
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-    }
-
-    private var icon: some View {
-        Image(
-            nsImage: WorkspaceIconCache.icon(
-                forPath: node.url.path, isDirectory: node.isDirectory)
-        )
-        .resizable()
-        .frame(width: 16, height: 16)
     }
 
     private var isEmptyContextFile: Bool {

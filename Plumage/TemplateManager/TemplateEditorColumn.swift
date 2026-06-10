@@ -42,10 +42,21 @@ struct TemplateEditorColumn: View {
                             .padding(16)
                     }
                 }
+            } else if let folder = model.selectedFile, folder.isDirectory {
+                ContentUnavailableView {
+                    Label(folder.name, systemImage: "folder")
+                } description: {
+                    Text(folderItemCountText(folder))
+                }
             } else {
                 ContentUnavailableView("No File Selected", systemImage: "doc.text")
             }
         }
+    }
+
+    private func folderItemCountText(_ folder: FileNode) -> String {
+        let count = folder.children?.count ?? 0
+        return count == 1 ? "1 item" : "\(count) items"
     }
 
     private func previewHeader(_ file: FileNode) -> some View {

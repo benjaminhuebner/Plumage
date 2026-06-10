@@ -202,17 +202,14 @@ private struct TemplateContentRow: View {
             node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
         HStack(spacing: 6) {
             if model.contentRename?.id == node.id {
-                Label("", systemImage: node.isDirectory ? "folder" : "doc.text")
-                    .labelStyle(.iconOnly)
+                FinderFileTreeRowIcon(node: node)
                 FinderFileTreeRenameField(
                     text: model.contentRenameNameBinding,
                     placeholder: node.name,
                     onCommit: { model.commitContentRename() },
                     onCancel: { model.cancelContentRename() })
             } else {
-                Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                FinderFileTreeRowLabel(node: node)
             }
             Spacer(minLength: 0)
             if needsWiring {

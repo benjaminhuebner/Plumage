@@ -38,6 +38,7 @@ final class FinderFileTreeCoordinator: NSObject {
     private var isApplyingExpansion = false
     private var isApplyingSelection = false
     private var lastRevealID: UUID?
+    private var lastSelectedPath: String?
 
     func item(forPath path: String) -> FinderFileTreeItem? {
         itemsByPath[path]
@@ -286,6 +287,12 @@ final class FinderFileTreeCoordinator: NSObject {
         guard row >= 0, let item = outlineView.item(atRow: row) as? FinderFileTreeItem,
             item.node.isDirectory
         else { return }
+        // Clicks on the disclosure triangle already toggled per click — a
+        // double-click there must not add a third toggle.
+        if let event = NSApp.currentEvent {
+            let point = outlineView.convert(event.locationInWindow, from: nil)
+            if outlineView.frameOfOutlineCell(atRow: row).contains(point) { return }
+        }
         if outlineView.isItemExpanded(item) {
             outlineView.collapseItem(item)
         } else {
@@ -472,6 +479,9 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
         else { return }
         let row = outlineView.selectedRow
         let node = row >= 0 ? (outlineView.item(atRow: row) as? FinderFileTreeItem)?.node : nil
+        // Deselects keep the previous anchor: the collapse path needs to know
+        // what WAS selected after the outline has already cleared it.
+        if let node { lastSelectedPath = node.relativePath }
         onSelect?(node)
     }
 
@@ -489,6 +499,27 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
         else { return }
         expandedPaths.remove(item.node.relativePath)
         onExpansionChange?(expandedPaths)
+        reanchorSelection(afterCollapsing: item)
+    }
+
+    // Finder behavior: collapsing a folder that hides the selection selects
+    // the folder itself — without this the outline just drops the selection
+    // and adopters blank their detail pane.
+    private func reanchorSelection(afterCollapsing item: FinderFileTreeItem) {
+        guard let outlineView, outlineView.selectedRowIndexes.isEmpty,
+            let last = lastSelectedPath, Self.subtree(of: item, contains: last)
+        else { return }
+        let row = outlineView.row(forItem: item)
+        guard row >= 0 else { return }
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    private static func subtree(of item: FinderFileTreeItem, contains path: String) -> Bool {
+        for child in item.children {
+            if child.node.relativePath == path { return true }
+            if subtree(of: child, contains: path) { return true }
+        }
+        return false
     }
 }
 
