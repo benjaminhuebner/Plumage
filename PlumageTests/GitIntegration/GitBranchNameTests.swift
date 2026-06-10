@@ -8,7 +8,7 @@ struct GitBranchNameTests {
     @Test(
         "accepts common branch names",
         arguments: [
-            "main", "develop", "issue/00087-codebase-audit", "feature/foo-bar",
+            "main", "develop", "issue/00042-add-user-auth", "feature/foo-bar",
             "v1.2.3", "user_name/topic", "hotfix-2026",
         ])
     func acceptsValid(name: String) {

@@ -26,8 +26,7 @@ struct CardSurfaceModifier: ViewModifier {
             // with .smooth(0.18)) fired the moment a card materialised
             // under the cursor right after drop, which read as a
             // "fall-down / settling" effect on the just-placed card.
-            // No pointing-hand cursor: HIG reserves it for hyperlinks;
-            // cards/rows are ordinary controls (web-ism, audit #00087).
+            // No pointing-hand cursor — HIG reserves it for hyperlinks.
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
     }
 }

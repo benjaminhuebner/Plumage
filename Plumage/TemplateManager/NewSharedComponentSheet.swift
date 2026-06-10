@@ -75,8 +75,6 @@ struct NewSharedComponentSheet: View {
         .frame(height: 160)
     }
 
-    // Set-membership binding over local @State — extracted from the body so
-    // the get/set pair reads as one named operation (audit #00087).
     private func membershipBinding(for templateID: String) -> Binding<Bool> {
         Binding(
             get: { members.contains(templateID) },

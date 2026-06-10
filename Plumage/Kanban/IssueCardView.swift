@@ -4,9 +4,8 @@ struct IssueCardView: View {
     let issue: Issue
     let padding: Int
 
-    // Read from the model, not an environment VALUE: re-assigning an env
-    // value at the window root re-evaluated the whole detail subtree twice
-    // per highlight; @Observable tracking invalidates only the cards.
+    // Model read, not an env value: re-assigning an env value at the window
+    // root re-evaluated the whole detail subtree twice per highlight.
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

@@ -47,11 +47,9 @@ nonisolated struct NextIssueAllocator: Sendable {
             throw NextIssueAllocatorError.slugCollision(existingFolder: collision)
         }
 
-        // Known race: two project windows allocating simultaneously can both
-        // read the same highestExistingID and mint duplicate IDs. Accepted —
-        // allocation is user-driven, single-user, and the window between scan
-        // and createDirectory is milliseconds; a lock file isn't worth the
-        // stale-lock failure modes. See decisions.md (#00087).
+        // Known race: two windows allocating at once can mint the same ID.
+        // Accepted — single-user, millisecond window; a lock file's
+        // stale-lock failure modes would cost more than the race.
         let highest = highestExistingID()
         let nextID = highest + 1
         let padding = paddingWidth()

@@ -36,8 +36,6 @@ struct NewProjectWindowView: View {
         // so every close must reset it. The save panel is app-modal and doesn't
         // remove this view, so it won't trip this.
         .onDisappear(perform: handleWindowClose)
-        // Success signal from the model — the open/dismiss flow runs from
-        // observed state instead of an unstructured Task in performCreate.
         .onChange(of: model.createdProject) { _, created in
             guard let created else { return }
             didCreate = true

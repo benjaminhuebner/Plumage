@@ -170,9 +170,8 @@ final class ProjectSettingsModel {
         }
     }
 
-    // Model-owned bindings (audit #00087): the view body stays free of
-    // Binding(get:set:) closures, and every write funnels through the
-    // model's save scheduling.
+    // Model-owned bindings: every write funnels through the model's save
+    // scheduling instead of ad-hoc Binding(get:set:) in the view body.
     var projectNameBinding: Binding<String> {
         Binding(
             get: { self.projectName },

@@ -3,10 +3,9 @@ import LanguageSupport
 
 enum DocEditorLanguage {
     static func configuration(for url: URL) -> LanguageConfiguration {
-        // Single extension-to-language mapping lives in LanguageDetector
-        // (rule-of-three trigger reached, #00040/#00087); the editor only
-        // adds the plain-text fallback - CodeEditor wants a named config,
-        // not `.none`.
+        // The extension-to-language mapping lives in LanguageDetector; the
+        // editor only adds the plain-text fallback (CodeEditor wants a
+        // named config, not `.none`).
         let detected = LanguageDetector.configuration(forPath: url.path)
         return detected.name == LanguageConfiguration.none.name ? plain() : detected
     }

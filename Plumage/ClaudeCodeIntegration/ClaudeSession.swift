@@ -499,10 +499,8 @@ final class ClaudeSession {
             guard let text = Self.extractText(from: message["content"]),
                 !text.isEmpty
             else { continue }
-            // Drop Plumage- or claude-side <command-…>/<local-command-…>
-            // wrapper payloads; they're not human-visible turns. Prefix-match
-            // the known wrappers only — a user message that merely starts
-            // with markup (e.g. pasted HTML) must survive rehydration.
+            // Drop only the known wrapper payloads — a user message that
+            // merely starts with markup must survive rehydration.
             if text.hasPrefix("<command-") || text.hasPrefix("<local-command-") { continue }
             hydrated.append(
                 ChatMessage(id: UUID(), role: role, text: text, timestamp: .now)

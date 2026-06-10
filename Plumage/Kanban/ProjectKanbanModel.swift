@@ -321,9 +321,8 @@ final class ProjectKanbanModel {
         scheduleErrorAutoClear()
     }
 
-    // Banner messages clear themselves after a few seconds (NavigatorModel's
-    // showBanner discipline) — a stale error string over the status bar would
-    // otherwise outlive the situation it describes.
+    // Banners clear themselves — a stale error string in the status bar
+    // would outlive the situation it describes.
     private func scheduleErrorAutoClear() {
         errorClearTask?.cancel()
         let clock = highlightClock

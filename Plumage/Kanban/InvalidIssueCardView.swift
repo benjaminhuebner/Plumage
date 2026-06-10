@@ -5,8 +5,7 @@ struct InvalidIssueCardView: View {
     let error: FrontmatterError
     let padding: Int
 
-    // See IssueCardView: model read instead of env value keeps highlight
-    // invalidation scoped to the cards.
+    // Model read, not an env value — see IssueCardView.
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

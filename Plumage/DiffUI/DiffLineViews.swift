@@ -2,8 +2,7 @@ import LanguageSupport
 import SwiftUI
 
 // Shared diff line/hunk rendering for DiffTabView (issue diff) and
-// GitCommitView (staged diff) — the two per-feature copies had already
-// drifted apart (#00087 audit).
+// GitCommitView (staged diff) — the two per-feature copies had drifted.
 
 nonisolated struct DiffLineStyle: Equatable {
     let font: Font

@@ -40,8 +40,8 @@ struct TerminalCommand: Commands {
             .keyboardShortcut("t", modifiers: [.command])
             .disabled(tabs == nil)
 
-            // ⇧⌘W: plain ⌘W is window-close (decided #00087) and ⌥⌘W would
-            // shadow the system "Close All" alternate in the File menu.
+            // ⇧⌘W: plain ⌘W is window-close and ⌥⌘W would shadow the
+            // system "Close All" alternate in the File menu.
             Button("Close Terminal Tab") {
                 tabs?.closeActiveTab()
             }

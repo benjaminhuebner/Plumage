@@ -5,9 +5,7 @@ import Foundation
 nonisolated struct MCPConfigComposer {
     var catalog: TemplateCatalog = .bundledDefault
 
-    // Typed envelope instead of [String: Any] + JSONSerialization: the
-    // compiler now checks the shape, and a future field can't silently
-    // produce mixed-type dictionaries.
+    // Typed envelope instead of [String: Any] — the compiler checks the shape.
     private struct Envelope: Encodable {
         let mcpServers: [String: ServerEntry]
     }

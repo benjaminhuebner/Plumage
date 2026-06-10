@@ -12,9 +12,8 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome to Plumage", id: "welcome") {
-            // System-default window background (decided #00087): the
-            // .thickMaterial container made Welcome the only translucent
-            // window in the app.
+            // No .containerBackground: .thickMaterial made Welcome the
+            // app's only translucent window.
             WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
                 .task {
                     await recentProjects.load()
@@ -27,9 +26,8 @@ struct PlumageApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
-        // No .defaultLaunchBehavior(.presented): Welcome presents only when
-        // no project window restores (Xcode-style, decided #00087). It never
-        // restores itself — it's a launch surface, not persistent state.
+        // Welcome presents only when no project window restores; it never
+        // restores itself — launch surface, not persistent state.
         .restorationBehavior(.disabled)
         .keyboardShortcut("0", modifiers: [.command, .shift])
         .commands {
@@ -96,9 +94,8 @@ struct PlumageApp: App {
             GitCommand()
             TerminalCommand()
         }
-        // Restoration intentionally ON (Xcode-style, decided #00087,
-        // supersedes the earlier disable): the project windows that were
-        // open at quit reopen; Welcome appears only when nothing restores.
+        // Restoration intentionally on: project windows open at quit
+        // reopen; Welcome appears only when nothing restores.
         .environment(recentProjects)
         .environment(migrationRequest)
 

@@ -1,9 +1,9 @@
 import Foundation
 import os
 
-// Owns the find-or-create-tab + inject sequence behind the Plan/Implement/
-// Review buttons. Extracted from ProjectWindow.runWorkflow (audit #00087) so
-// the validation, dedupe and failure handling are testable without a view.
+// The find-or-create-tab + inject sequence behind the Plan/Implement/Review
+// buttons, kept out of ProjectWindow so validation, dedupe and failure
+// handling are testable without a view.
 @MainActor
 @Observable
 final class WorkflowLauncher {
@@ -13,7 +13,7 @@ final class WorkflowLauncher {
 
     // Single in-flight workflow inject. Replacing it cancels the prior task
     // so a quick second button-press doesn't leave the prior task's body
-    // enqueue stranded — see #00034 race fix.
+    // enqueue stranded.
     func cancel() {
         workflowTask?.cancel()
     }

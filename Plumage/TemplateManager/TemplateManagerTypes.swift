@@ -1,7 +1,6 @@
 import Foundation
 
 // Value types shared between TemplateManagerModel and the manager's views.
-// Split out of the 1300-line model file (audit #00087).
 
 // Read-only membership facts for the middle column: for a template, the shared
 // components it includes; for a shared component, the templates that include it.

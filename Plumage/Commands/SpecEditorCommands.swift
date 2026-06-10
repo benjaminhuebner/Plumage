@@ -6,13 +6,9 @@ struct SpecEditorCommands: Commands {
     @FocusedValue(\.specEditorClose) private var close
 
     // `after: .saveItem`, not replacing: replacing wiped the standard Close
-    // (⌘W) from the File menu app-wide. ⌘W is plain window-close everywhere
-    // now (decided #00087, supersedes the #00008 ⌘W-as-Close-Spec choice);
-    // the editor close hook gets its own ⌃⌘W. After the NavigationSplitView
-    // refactor (issue #00024), `\.specEditorClose` no longer pops a stack —
-    // it acts as a save-confirm hook for the focused editor (IssueDetailView
-    // in the create-issue sheet still dismisses; DocEditorView commits the
-    // buffer).
+    // (⌘W) from the File menu app-wide. ⌘W stays plain window-close; the
+    // editor close hook lives on ⌃⌘W. `\.specEditorClose` does not pop a
+    // stack — it is a save-confirm hook for the focused editor.
     var body: some Commands {
         CommandGroup(after: .saveItem) {
             Button("Save Spec") {

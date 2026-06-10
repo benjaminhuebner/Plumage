@@ -134,7 +134,6 @@ struct ProjectWindow: View {
                 WindowFrameAutosaver(autosaveName: "plumage.project.window.\(handle.url.path)")
             )
             .navigationTitle(displayTitle)
-            // Proxy icon: ⌘-click path menu + drag affordance on the title.
             .navigationDocument(handle.url)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
             .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
@@ -656,11 +655,9 @@ struct ProjectWindow: View {
         }
     }
 
-    // SceneStorage survives window reuse across projects — the persisted
-    // payload is prefixed with the project path so a route never bleeds into
-    // another project, and the restore validates the target still exists so
-    // a deleted issue/file falls back to the board instead of restoring into
-    // an error pane.
+    // SceneStorage survives window reuse across projects — the payload is
+    // prefixed with the project path, and the restore validates the target
+    // still exists so deleted issues/files fall back to the board.
     private static func persistedRouteString(_ route: NavigatorRoute, projectURL: URL) -> String {
         projectURL.path + "\n" + route.persistedString
     }

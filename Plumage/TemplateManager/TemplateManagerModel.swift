@@ -1130,8 +1130,7 @@ extension TemplateManagerModel {
         persist(updated)
     }
 
-    // Model-owned bindings (audit #00087): keep Binding(get:set:) out of
-    // view bodies.
+    // Model-owned bindings keep Binding(get:set:) out of view bodies.
     func membershipBinding(componentID: String, templateID: String) -> Binding<Bool> {
         Binding(
             get: { self.isMember(componentID: componentID, templateID: templateID) },

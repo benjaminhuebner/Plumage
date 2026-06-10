@@ -158,8 +158,8 @@ final class NewProjectModel {
 
     // MARK: - Create (State-as-Bridge)
 
-    // Success signal for the view (.onChange) — keeps the open-window /
-    // dismiss flow out of an unstructured view Task (audit #00087).
+    // Success signal the view observes — keeps the open/dismiss flow out
+    // of an unstructured view Task.
     private(set) var createdProject: CreatedProject?
 
     @discardableResult
@@ -180,9 +180,8 @@ final class NewProjectModel {
             let created = try await Task.detached(priority: .userInitiated) {
                 try await ProjectScaffolder().create(spec: spec)
             }.value
-            // Same post-await discipline as MigrateProjectModel.migrate():
-            // a cancelled task (window torn down) must not mutate state or
-            // fire the success signal.
+            // Post-await: a cancelled task (window torn down) must not
+            // mutate state or fire the success signal.
             guard !Task.isCancelled else { return .failure(CancellationError()) }
             createdProject = created
             return .success(created)

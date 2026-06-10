@@ -132,9 +132,8 @@ private struct SwiftTermBridge: NSViewRepresentable {
             return view
         }
         let args = session.shellSpawnArgs(appearanceIsDark: colorScheme == .dark)
-        // Env construction lives in CCI: the PATH augmentation points at
-        // claude-internal install locations only ClaudeCodeIntegration may
-        // know about (enforced by the boundary test).
+        // Env construction lives in CCI — the PATH points at claude-internal
+        // install locations (enforced by the boundary test).
         let env = TerminalClaudeSession.spawnEnvironment()
 
         view.startProcess(
@@ -384,10 +383,9 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     private func startCursorKeepAlive() {
         cursorKeepAlive?.invalidate()
         // Schedule on .common modes so the timer survives scroll / event
-        // tracking on the inspector divider. 120 ms matches the documented
-        // need (class comment: a 120 ms repeater wins the race against
-        // claude's hide bursts); the earlier 50 ms quadrupled the wakeups
-        // for no visible gain. Tolerance lets the kernel coalesce ticks.
+        // tracking on the inspector divider; 120 ms wins the race against
+        // claude's hide bursts (class comment) and tolerance lets the
+        // kernel coalesce ticks.
         // Timer block is typed @Sendable, but RunLoop.main fires it on the
         // main thread — MainActor.assumeIsolated lets us touch the
         // @MainActor-typed `terminal` property without an extra Task hop per

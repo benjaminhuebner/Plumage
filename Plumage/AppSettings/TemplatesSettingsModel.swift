@@ -42,8 +42,7 @@ final class TemplatesSettingsModel {
 
     func isEnabled(_ template: TemplateDescriptor) -> Bool { template.enabled }
 
-    // Model-owned binding (audit #00087): keeps Binding(get:set:) out of
-    // the view body.
+    // Model-owned binding keeps Binding(get:set:) out of the view body.
     func enabledBinding(for template: TemplateDescriptor) -> Binding<Bool> {
         Binding(
             get: { self.isEnabled(template) },

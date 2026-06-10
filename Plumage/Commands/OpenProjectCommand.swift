@@ -97,10 +97,8 @@ enum OpenProjectCommand {
         do {
             let config = try ConfigLoader.load(atBundle: bundle)
             recentProjects.add(url: root, name: config.name)
-            // Feeds the system recents (Dock menu, NSDocumentController) in
-            // addition to Plumage's own store — the bundle is the registered
-            // document type, so LaunchServices routes a Dock-recent click
-            // back through application(_:open:).
+            // The bundle is the registered document type, so a Dock-recent
+            // click routes back through application(_:open:).
             NSDocumentController.shared.noteNewRecentDocumentURL(bundle)
             openWindow(value: ProjectHandle(url: root))
             dismissWindow(id: "welcome")
