@@ -474,6 +474,14 @@ final class ClaudeSession {
         messages = hydrated
     }
 
+    // Explicit list, not a generic "<" heuristic — a real user message may
+    // start with markup and must survive rehydration.
+    nonisolated private static let machineWrapperPrefixes = [
+        "<command-", "<local-command-",
+        "<bash-input>", "<bash-stdout>", "<bash-stderr>",
+        "<system-reminder>",
+    ]
+
     nonisolated private static func parseSessionLog(at file: URL, cap: Int) -> [ChatMessage] {
         guard let data = try? Data(contentsOf: file),
             let raw = String(data: data, encoding: .utf8)
@@ -501,7 +509,7 @@ final class ClaudeSession {
             else { continue }
             // Drop only the known wrapper payloads — a user message that
             // merely starts with markup must survive rehydration.
-            if text.hasPrefix("<command-") || text.hasPrefix("<local-command-") { continue }
+            if Self.machineWrapperPrefixes.contains(where: text.hasPrefix) { continue }
             hydrated.append(
                 ChatMessage(id: UUID(), role: role, text: text, timestamp: .now)
             )

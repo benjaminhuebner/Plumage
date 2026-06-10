@@ -84,6 +84,34 @@ struct GitSyncRunnerPushTests {
         #expect(mock.calls.count == 2)
     }
 
+    @Test("option-shaped branch name skips the --set-upstream retry")
+    func optionShapedBranchSkipsRetry() async throws {
+        let mock = MockGitProcessStreamer()
+        mock.enqueue(
+            args: ["-C", repoURL.path, "push"],
+            lines: [
+                GitStreamLine(
+                    source: .stderr,
+                    text: "fatal: The current branch --force has no upstream branch."),
+                GitStreamLine(
+                    source: .stderr,
+                    text: "    git push --set-upstream origin --force"),
+            ],
+            exitCode: 128
+        )
+        let runner = GitSyncRunner(streamer: mock, resolveBinary: { self.binaryURL })
+
+        let events = await collect(
+            runner.run(operation: .push, repoURL: repoURL, currentBranch: "--force"))
+
+        let retryHit = events.contains { event in
+            if case .retryingWithUpstream = event { return true }
+            return false
+        }
+        #expect(!retryHit)
+        #expect(mock.calls.count == 1)
+    }
+
     @Test("push failure without no-upstream pattern does not retry")
     func nonUpstreamFailureNoRetry() async throws {
         let mock = MockGitProcessStreamer()

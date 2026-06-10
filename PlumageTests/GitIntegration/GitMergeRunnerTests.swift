@@ -109,6 +109,9 @@ struct GitMergeRunnerPreCheckTests {
     static func commitArgs(repoURL: URL, subject: String) -> [String] {
         ["-C", repoURL.path, "commit", "-m", subject]
     }
+    static func resetMergeArgs(repoURL: URL) -> [String] {
+        ["-C", repoURL.path, "reset", "--merge"]
+    }
 }
 
 @Suite("GitMergeRunner merge sequence")
@@ -219,6 +222,51 @@ struct GitMergeRunnerMergeTests {
         #expect(
             mock.recordedCalls.last
                 == GitMergeRunnerPreCheckTests.checkoutArgs(repoURL: repoURL, branch: "issue/x"))
+    }
+
+    @Test("failed squash commit resets the staged squash before restoring the branch")
+    func squashCommitFailureResetsBeforeCheckout() async throws {
+        let mock = cleanMock()
+        mock.stdoutForArgs[GitMergeRunnerPreCheckTests.symbolicRefArgs(repoURL: repoURL)] =
+            "issue/x\n"
+        let commitArgs = GitMergeRunnerPreCheckTests.commitArgs(repoURL: repoURL, subject: "Subj")
+        mock.exitCodeForArgs[commitArgs] = 1
+        mock.stderrForArgs[commitArgs] = "gpg failed to sign the data\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.self) {
+            _ = try await runner.mergeIssueBranch(
+                repoURL: repoURL, defaultBranch: "main",
+                issueBranch: "issue/x", mode: .squash,
+                commitSubject: "Subj", deleteBranch: false)
+        }
+        let tail = mock.recordedCalls.suffix(2)
+        #expect(
+            Array(tail) == [
+                GitMergeRunnerPreCheckTests.resetMergeArgs(repoURL: repoURL),
+                GitMergeRunnerPreCheckTests.checkoutArgs(repoURL: repoURL, branch: "issue/x"),
+            ])
+    }
+
+    @Test("rollback skips branch restore when the merge reset fails")
+    func rollbackSkipsCheckoutWhenResetFails() async throws {
+        let mock = cleanMock()
+        mock.stdoutForArgs[GitMergeRunnerPreCheckTests.symbolicRefArgs(repoURL: repoURL)] =
+            "issue/x\n"
+        let mergeArgs = GitMergeRunnerPreCheckTests.mergeArgs(repoURL: repoURL, branch: "issue/x")
+        mock.exitCodeForArgs[mergeArgs] = 128
+        mock.exitCodeForArgs[GitMergeRunnerPreCheckTests.resetMergeArgs(repoURL: repoURL)] = 1
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.self) {
+            _ = try await runner.mergeIssueBranch(
+                repoURL: repoURL, defaultBranch: "main",
+                issueBranch: "issue/x", mode: .fastForward,
+                commitSubject: nil, deleteBranch: false)
+        }
+        #expect(
+            mock.recordedCalls.last
+                == GitMergeRunnerPreCheckTests.resetMergeArgs(repoURL: repoURL))
     }
 
     @Test("merge-base exit 128 reports branchNotFound, not notFastForward")

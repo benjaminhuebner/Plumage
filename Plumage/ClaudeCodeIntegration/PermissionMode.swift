@@ -8,14 +8,6 @@ nonisolated enum PermissionMode: String, CaseIterable, Codable, Sendable {
     case `default`
     case dontAsk
 
-    // Tolerant Codable path: a mode from a newer claude must not make the
-    // whole project fail to open; .default is the restrictive coercion.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let raw = try container.decode(String.self)
-        self = PermissionMode(rawValue: raw) ?? .default
-    }
-
     var rawCLIValue: String {
         switch self {
         case .plan: "plan"

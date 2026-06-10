@@ -20,20 +20,40 @@ final class QuitCoordinator {
         handlers.removeValue(forKey: id)
     }
 
-    // Bounded: a wedged flush must not make ⌘Q hang forever — after the
-    // timeout the quit proceeds and the remaining work is abandoned.
+    // Bounded: a wedged flush must not make ⌘Q hang forever. Task.value
+    // ignores the awaiting side's cancellation and handlers need not be
+    // cancellation-responsive, so both sides race a resume-once continuation.
     func runAll(timeout: Duration = .seconds(3)) async {
-        let pending = handlers.values
+        let pending = Array(handlers.values)
+        guard !pending.isEmpty else { return }
+        let race = RaceState()
         let work = Task { @MainActor in
-            for handler in pending {
-                await handler()
+            await withTaskGroup(of: Void.self) { group in
+                for handler in pending {
+                    group.addTask { await handler() }
+                }
             }
+            race.finish()
         }
-        let watchdog = Task {
+        let watchdog = Task { @MainActor in
             try? await Task.sleep(for: timeout)
             work.cancel()
+            race.finish()
         }
-        await work.value
+        // Installed before either MainActor task body can run finish().
+        await withCheckedContinuation { continuation in
+            race.continuation = continuation
+        }
         watchdog.cancel()
+    }
+}
+
+@MainActor
+private final class RaceState {
+    var continuation: CheckedContinuation<Void, Never>?
+
+    func finish() {
+        continuation?.resume()
+        continuation = nil
     }
 }

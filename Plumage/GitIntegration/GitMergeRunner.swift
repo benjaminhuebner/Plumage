@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 nonisolated enum GitMergeMode: String, Sendable, Equatable {
     case squash
@@ -62,6 +63,8 @@ nonisolated protocol GitMergeRunning: Sendable {
 }
 
 nonisolated struct GitMergeRunner: GitMergeRunning {
+    private static let logger = Logger(subsystem: "com.plumage", category: "GitMergeRunner")
+
     let runner: any GitProcessRunning
     let resolveBinary: @Sendable () -> URL?
 
@@ -110,10 +113,9 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
                     issueBranch: issueBranch, subject: commitSubject ?? "")
             }
         } catch {
-            if let originalBranch, originalBranch != defaultBranch {
-                _ = try? await callGit(
-                    binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
-            }
+            await rollBack(
+                binary: binary, repoURL: repoURL,
+                originalBranch: originalBranch, defaultBranch: defaultBranch)
             throw error
         }
         let deleteError =
@@ -159,6 +161,28 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         }
         if ffProbe.exitCode != 0 {
             throw GitMergeError.branchNotFound(name: defaultBranch)
+        }
+    }
+
+    // The pre-check guarantees the tree was clean, so anything dirty now is
+    // merge residue — without `reset --merge`, checkout would carry a staged
+    // squash onto the original branch. Restore failures only get logged:
+    // they can't outrank the merge error the caller is about to see.
+    private func rollBack(
+        binary: URL, repoURL: URL, originalBranch: String?, defaultBranch: String
+    ) async {
+        let reset = try? await callGit(
+            binary: binary, repoURL: repoURL, args: ["reset", "--merge"])
+        guard let reset, reset.exitCode == 0 else {
+            Self.logger.error("rollback: reset --merge failed, staying on default branch")
+            return
+        }
+        guard let originalBranch, originalBranch != defaultBranch else { return }
+        let checkout = try? await callGit(
+            binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
+        guard let checkout, checkout.exitCode == 0 else {
+            Self.logger.error("rollback: could not restore original branch, staying on default branch")
+            return
         }
     }
 

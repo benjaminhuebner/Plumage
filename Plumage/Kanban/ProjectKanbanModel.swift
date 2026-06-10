@@ -317,12 +317,27 @@ final class ProjectKanbanModel {
             groupedIssues = Self.group(issues)
         }
         pendingDrop = nil
+        surfaceDropError(error)
+    }
+
+    // Setting one kind clears the other: the view's ?? chain prefers drop
+    // errors, so an older drop error would otherwise mask a fresh removal
+    // error for its whole banner lifetime.
+    private func surfaceDropError(_ error: String) {
         lastDropError = error
+        lastRemovalError = nil
+        scheduleErrorAutoClear()
+    }
+
+    private func surfaceRemovalError(_ error: String) {
+        lastRemovalError = error
+        lastDropError = nil
         scheduleErrorAutoClear()
     }
 
     // Banners clear themselves — a stale error string in the status bar
-    // would outlive the situation it describes.
+    // would outlive the situation it describes. Clearing both slots is
+    // safe: surface… guarantees at most one is set.
     private func scheduleErrorAutoClear() {
         errorClearTask?.cancel()
         let clock = highlightClock
@@ -415,8 +430,7 @@ final class ProjectKanbanModel {
             issues = issues + [priorCard]
             groupedIssues = Self.group(issues)
         }
-        lastRemovalError = error
-        scheduleErrorAutoClear()
+        surfaceRemovalError(error)
     }
 
     nonisolated static func reconcile(

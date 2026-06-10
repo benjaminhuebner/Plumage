@@ -21,9 +21,11 @@ struct EnumDecodeFallbackTests {
         #expect(try decode([IssueType].self, #"["spike"]"#) == [.spike])
     }
 
-    @Test("unknown PermissionMode coerces to the restrictive .default")
-    func permissionModeFallback() throws {
-        #expect(try decode([PermissionMode].self, #"["yolo"]"#) == [.default])
-        #expect(try decode([PermissionMode].self, #"["acceptEdits"]"#) == [.acceptEdits])
+    @Test("unknown permissionMode in a workflow override decodes as nil, not a coerced mode")
+    func workflowOverridePermissionModeFallback() throws {
+        let unknown = try decode(WorkflowOverride.self, #"{"permissionMode":"yolo"}"#)
+        #expect(unknown.permissionMode == nil)
+        let known = try decode(WorkflowOverride.self, #"{"permissionMode":"acceptEdits"}"#)
+        #expect(known.permissionMode == .acceptEdits)
     }
 }

@@ -42,10 +42,17 @@ extension ClaudeStreamEvent {
             let message = try? container.decode(AssistantMessageEnvelope.self, forKey: .message)
             self = .assistant(message?.content ?? [])
         case "result":
-            // Strict on semantic fields: a CLI type change on is_error must
-            // fail the decode (logged upstream) rather than read as success.
-            let isError = try container.decodeIfPresent(Bool.self, forKey: .isError) ?? false
-            let text = try container.decodeIfPresent(String.self, forKey: .result)
+            // The result event is the only thing that ends a turn — a CLI
+            // type drift here must not drop the whole event (the chat would
+            // stay "responding" forever). Drift degrades to error, never to
+            // success.
+            let isError: Bool
+            do {
+                isError = try container.decodeIfPresent(Bool.self, forKey: .isError) ?? false
+            } catch {
+                isError = true
+            }
+            let text = (try? container.decodeIfPresent(String.self, forKey: .result)) ?? nil
             self = .result(isError: isError, text: text)
         case "rate_limit_event":
             self = .rateLimit

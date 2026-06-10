@@ -136,6 +136,32 @@ struct OptimisticArchiveTests {
         #expect(model.lastRemovalError == "boom")
     }
 
+    @Test("a newer removal error replaces an older drop error instead of being masked")
+    func newerRemovalErrorReplacesDropError() async {
+        struct DropError: Error, LocalizedError {
+            var errorDescription: String? { "drop boom" }
+        }
+        struct ArchiveError: Error, LocalizedError {
+            var errorDescription: String? { "archive boom" }
+        }
+        let model = ProjectKanbanModel(
+            mutator: { _, _, _, _ in throw DropError() },
+            archiver: { _, _ in throw ArchiveError() })
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        let issueB = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .approved)
+        model._setIssuesForTesting([.valid(issueA), .valid(issueB)])
+        let projectURL = URL(filePath: "/tmp/probe")
+
+        await model.performDropOptimistic(
+            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            to: .column(.inProgress), projectURL: projectURL)
+        #expect(model.lastDropError == "drop boom")
+
+        await model.performArchiveOptimistic(folderName: "00002-b", projectURL: projectURL)
+        #expect(model.lastRemovalError == "archive boom")
+        #expect(model.lastDropError == nil)
+    }
+
     @Test("rollback after a single removal does not stick lastRemovalError across a clear")
     func errorClearsAfterClearRemovalError() async {
         struct DummyError: Error, LocalizedError {

@@ -78,12 +78,11 @@ struct ClaudeStreamEventTests {
         #expect(event == .result(isError: false, text: "OK"))
     }
 
-    @Test("result with type-changed is_error fails decode instead of reading as success")
-    func resultTypeChangedIsErrorThrows() {
+    @Test("result with type-changed is_error stays deliverable and degrades to error, not success")
+    func resultTypeChangedIsErrorDegradesToError() throws {
         let json = #"{"type":"result","subtype":"error","is_error":"yes"}"#
-        #expect(throws: DecodingError.self) {
-            _ = try decode(json)
-        }
+        let event = try decode(json)
+        #expect(event == .result(isError: true, text: nil))
     }
 
     @Test("rate_limit_event maps to .rateLimit")

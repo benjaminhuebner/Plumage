@@ -96,10 +96,15 @@ struct IssueDetailView: View {
             }
             // ⌘Q doesn't run .onDisappear reliably; the QuitCoordinator
             // awaits this flush before the app terminates. Creating mode
-            // deliberately leaves no disk trace on quit.
-            QuitCoordinator.shared.register(quitFlushID) {
-                guard !model.isCreating else { return }
-                try? await saveAllEditableTabs()
+            // deliberately leaves no disk trace on quit. weak: the registry
+            // is app-lifetime and a strong capture would pin the model graph
+            // whenever .onDisappear (the only unregister) is skipped.
+            QuitCoordinator.shared.register(quitFlushID) { [weak model] in
+                guard let model, !model.isCreating else { return }
+                // try? per buffer: errors are unactionable mid-quit and must
+                // not stop the other buffer's flush.
+                try? await model.saveBody()
+                try? await model.savePrompt()
             }
             refreshBackToBoardCache()
             guard !model.isCreating else { return }
