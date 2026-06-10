@@ -281,9 +281,7 @@ private struct TemplateSidebarDialogs: ViewModifier {
         content
             .confirmationDialog(
                 model.pendingComponentDeletion.map { "Delete “\($0.name)”?" } ?? "",
-                isPresented: Binding(
-                    get: { model.pendingComponentDeletion != nil },
-                    set: { if !$0 { model.pendingComponentDeletion = nil } }),
+                isPresented: model.componentDeletionDialogBinding,
                 titleVisibility: .visible,
                 presenting: model.pendingComponentDeletion
             ) { _ in

@@ -20,7 +20,7 @@ nonisolated struct XcodeRunInputs: Sendable, Equatable {
     let simulatorUDID: String?
 }
 
-nonisolated protocol AppLauncher: Sendable {
+nonisolated protocol AppLaunching: Sendable {
     // Returns the PID of the launched instance, or nil if the launcher can't
     // tell (e.g. test mocks or a no-pid fallback path).
     func openApp(at url: URL) async throws -> Int32?
@@ -29,12 +29,12 @@ nonisolated protocol AppLauncher: Sendable {
 nonisolated struct XcodeRunSession: Sendable {
     let xcodebuildRunner: XcodebuildRunner
     let simulatorCatalog: SimulatorCatalog
-    let appLauncher: any AppLauncher
+    let appLauncher: any AppLaunching
 
     init(
         xcodebuildRunner: XcodebuildRunner = XcodebuildRunner(),
         simulatorCatalog: SimulatorCatalog = SimulatorCatalog(),
-        appLauncher: any AppLauncher
+        appLauncher: any AppLaunching
     ) {
         self.xcodebuildRunner = xcodebuildRunner
         self.simulatorCatalog = simulatorCatalog

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // Reduced Settings → Templates model (#00070). Owns just the per-template enable/
 // disable state of the resolved catalog; all authoring, editing, membership and
@@ -40,6 +41,15 @@ final class TemplatesSettingsModel {
     }
 
     func isEnabled(_ template: TemplateDescriptor) -> Bool { template.enabled }
+
+    // Model-owned binding (audit #00087): keeps Binding(get:set:) out of
+    // the view body.
+    func enabledBinding(for template: TemplateDescriptor) -> Binding<Bool> {
+        Binding(
+            get: { self.isEnabled(template) },
+            set: { self.setEnabled(template.id, $0) }
+        )
+    }
 
     // Flips a template's enabled flag and persists immediately so the New/Migrate
     // grids pick it up. Reloads first so a concurrent Manager edit isn't clobbered.

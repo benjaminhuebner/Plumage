@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-nonisolated struct ProductionAppLauncher: AppLauncher {
+nonisolated struct ProductionAppLauncher: AppLaunching {
     func openApp(at url: URL) async throws -> Int32? {
         // NSWorkspace.openApplication returns the NSRunningApplication so we
         // can both force a new instance (createsNewApplicationInstance) AND

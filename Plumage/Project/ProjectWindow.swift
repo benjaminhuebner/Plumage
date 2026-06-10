@@ -48,10 +48,7 @@ struct ProjectWindow: View {
     // it warns "FocusedValue update tried to update multiple times per
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
-    // Single in-flight workflow inject. Replacing it cancels the prior task
-    // so a quick second button-press doesn't leave the prior task's body
-    // enqueue stranded — see #00034 race fix.
-    @State private var workflowTask: Task<Void, Never>?
+    @State private var workflowLauncher = WorkflowLauncher()
     // SidebarFileWatcher signals on FSEvents for the project root; the
     // consumer task below reloads `navigator.rootNodes` so external mutations
     // (a `claude` subprocess creating a file under .claude/, the user dropping
@@ -237,7 +234,7 @@ struct ProjectWindow: View {
                 // workflow-tab close that races inject() is the right cancel.
                 terminalTabs.onTabClosed = { closed in
                     if closed.isWorkflow {
-                        workflowTask?.cancel()
+                        workflowLauncher.cancel()
                     }
                 }
                 // ⌘Q runs through applicationShouldTerminate, where SwiftUI's
@@ -297,7 +294,7 @@ struct ProjectWindow: View {
                 QuitCoordinator.shared.unregister(quitHandlerID)
                 session.stop()
                 terminalTabs.stopAll()
-                workflowTask?.cancel()
+                workflowLauncher.cancel()
                 xcodeRunController.cancelRun()
                 gitModel.stop()
                 sidebarFileWatcherTask?.cancel()
@@ -695,75 +692,15 @@ struct ProjectWindow: View {
     }
 
     private func runWorkflow(_ action: WorkflowAction, folderName: String) {
-        // Reject folder names that would corrupt the inject: \r submits in
-        // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
-        // exactly these three. Folder names are user-controlled via Finder
-        // rename, so this is a real attack surface, not just defense in depth.
-        guard TerminalClaudeSession.isShellSafe(folderName) else {
-            Self.log.warning(
-                "runWorkflow: refusing inject for \(action.slug, privacy: .public) — folderName contains control chars."
-            )
-            navigator.showBanner(
-                "Can't run workflow: issue folder name contains control characters.")
-            return
-        }
-
-        // Cancel any prior inject still mid-sleep before its next enqueue.
-        workflowTask?.cancel()
-        isTerminalInspectorOpen = true
-
-        // Find-or-create a per-workflow tab so each Plan/Implement/Review
-        // gets its own claude subprocess with the right --permission-mode and
-        // leaves the main terminal free. Title match is exact ("<Action>:
-        // <slug>"); a repeat click on the same action+issue selects the
-        // existing tab without a second inject.
-        if let existing = terminalTabs.findWorkflowTab(action: action, slug: folderName) {
-            terminalTabs.selectedTabID = existing.id
-            return
-        }
-        let workflowTab = terminalTabs.addWorkflowTab(
+        workflowLauncher.run(
             action: action,
-            slug: folderName,
-            override: currentConfig()?.workflows?[action]
+            folderName: folderName,
+            projectURL: handle.url,
+            override: currentConfig()?.workflows?[action],
+            tabs: terminalTabs,
+            openInspector: { isTerminalInspectorOpen = true },
+            showBanner: { navigator.showBanner($0) }
         )
-
-        // Resolve the template (default or per-project override) into the
-        // sequence of lines that need to be injected into claude's REPL.
-        let lines = WorkflowCommandResolver.resolve(
-            action: action,
-            slug: folderName,
-            specURL: IssueLayout.specURL(in: handle.url, folderName: folderName),
-            promptURL: IssueLayout.promptURL(in: handle.url, folderName: folderName),
-            override: currentConfig()?.workflows?[action]
-        )
-        guard !lines.isEmpty else { return }
-
-        let session = workflowTab.session
-        let slug = action.slug
-        let failedTabID = workflowTab.id
-        workflowTask = Task { @MainActor in
-            let result = await session.injectCommands(lines)
-            switch result {
-            case .sessionExited:
-                Self.log.info(
-                    "runWorkflow: session exited mid-inject for \(slug, privacy: .public)."
-                )
-                // Close the dead tab: find-or-create would keep returning it,
-                // silently blocking every retry of this action+issue.
-                terminalTabs.closeTab(id: failedTabID)
-                navigator.showBanner(
-                    "Workflow \(slug) didn't start: claude exited during launch. Try again.")
-            case .timedOut:
-                Self.log.warning(
-                    "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
-                )
-                terminalTabs.closeTab(id: failedTabID)
-                navigator.showBanner(
-                    "Workflow \(slug) didn't start: claude wasn't ready within 5s. Try again.")
-            case .injected, .cancelled:
-                break
-            }
-        }
     }
 
     // Replaces an existing watcher when the window swaps to a different

@@ -121,7 +121,7 @@ final class IssueDetailModel {
         projectURL: URL? = nil,
         allocator: IssueAllocating? = nil,
         writer: SpecWriting = DefaultSpecWriter(),
-        mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
+        mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
@@ -172,7 +172,7 @@ final class IssueDetailModel {
         projectURL: URL,
         allocator: IssueAllocating? = nil,
         writer: SpecWriting = DefaultSpecWriter(),
-        mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
+        mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
@@ -182,7 +182,7 @@ final class IssueDetailModel {
         self.kind = .creating(initialStatus: creatingInitialStatus)
         self.specURL = nil
         self.projectURL = projectURL
-        self.allocator = allocator ?? DefaultIssueAllocating(projectURL: projectURL)
+        self.allocator = allocator ?? DefaultIssueAllocator(projectURL: projectURL)
         self.writer = writer
         self.mutator = mutator
         self.mergeRunner = mergeRunner
@@ -686,7 +686,7 @@ nonisolated protocol FrontmatterMutating: Sendable {
     func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws
 }
 
-nonisolated struct DefaultFrontmatterMutating: FrontmatterMutating {
+nonisolated struct DefaultFrontmatterMutator: FrontmatterMutating {
     func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws {
         try FrontmatterMutator.mutate(specURL: specURL, mutation: mutation, now: now)
     }
@@ -703,7 +703,7 @@ nonisolated protocol IssueAllocating: Sendable {
     ) throws -> URL
 }
 
-nonisolated struct DefaultIssueAllocating: IssueAllocating {
+nonisolated struct DefaultIssueAllocator: IssueAllocating {
     let projectURL: URL
 
     func allocate(

@@ -63,13 +63,7 @@ struct NewSharedComponentSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(catalog.templatesSortedByName) { template in
-                    Toggle(
-                        isOn: Binding(
-                            get: { members.contains(template.id) },
-                            set: { isOn in
-                                if isOn { members.insert(template.id) } else { members.remove(template.id) }
-                            })
-                    ) {
+                    Toggle(isOn: membershipBinding(for: template.id)) {
                         Text(template.name)
                     }
                     .toggleStyle(.checkbox)
@@ -79,5 +73,16 @@ struct NewSharedComponentSheet: View {
             .padding(.horizontal, 4)
         }
         .frame(height: 160)
+    }
+
+    // Set-membership binding over local @State — extracted from the body so
+    // the get/set pair reads as one named operation (audit #00087).
+    private func membershipBinding(for templateID: String) -> Binding<Bool> {
+        Binding(
+            get: { members.contains(templateID) },
+            set: { isOn in
+                if isOn { members.insert(templateID) } else { members.remove(templateID) }
+            }
+        )
     }
 }

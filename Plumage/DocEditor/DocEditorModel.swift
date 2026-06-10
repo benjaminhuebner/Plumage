@@ -86,7 +86,8 @@ final class DocEditorModel {
         try await task.value
     }
 
-    // Called from the view's .onDisappear; see SpecEditorModel.cancelPendingWork.
+    // Called from the view's .onDisappear so a pending debounced save can't
+    // land on a torn-down view.
     func cancelPendingWork() {
         pendingSave?.cancel()
         pendingSave = nil

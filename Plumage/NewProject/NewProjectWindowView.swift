@@ -36,6 +36,19 @@ struct NewProjectWindowView: View {
         // so every close must reset it. The save panel is app-modal and doesn't
         // remove this view, so it won't trip this.
         .onDisappear(perform: handleWindowClose)
+        // Success signal from the model — the open/dismiss flow runs from
+        // observed state instead of an unstructured Task in performCreate.
+        .onChange(of: model.createdProject) { _, created in
+            guard let created else { return }
+            didCreate = true
+            OpenProjectCommand.openConfirmed(
+                url: created.root,
+                recentProjects: recentProjects,
+                openWindow: openWindow,
+                dismissWindow: dismissWindow
+            )
+            dismiss()
+        }
     }
 
     private func handleWindowClose() {
@@ -174,19 +187,10 @@ struct NewProjectWindowView: View {
     }
 
     private func performCreate(at projectDirectory: URL) {
+        // Directory cleanup on failure is the engine's responsibility; the
+        // success path continues in .onChange(of: model.createdProject).
         Task {
-            let result = await model.create(at: projectDirectory)
-            // Directory cleanup on failure is the engine's responsibility.
-            if case .success(let created) = result {
-                didCreate = true
-                OpenProjectCommand.openConfirmed(
-                    url: created.root,
-                    recentProjects: recentProjects,
-                    openWindow: openWindow,
-                    dismissWindow: dismissWindow
-                )
-                dismiss()
-            }
+            await model.create(at: projectDirectory)
         }
     }
 }

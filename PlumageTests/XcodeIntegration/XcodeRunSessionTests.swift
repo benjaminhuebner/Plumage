@@ -121,7 +121,7 @@ struct XcodeRunSessionMacTests {
 }
 
 // Sendable launcher mock used by the macOS tests above.
-final class RecordingAppLauncher: AppLauncher, @unchecked Sendable {
+final class RecordingAppLauncher: AppLaunching, @unchecked Sendable {
     private let lock = NSLock()
     private var _opened: [URL] = []
     private var _pidToReturn: Int32 = 99_999

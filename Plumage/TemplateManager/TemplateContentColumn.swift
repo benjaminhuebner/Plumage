@@ -31,12 +31,8 @@ struct TemplateContentColumn: View {
                 Section("Included in templates") {
                     ForEach(model.catalog.templatesSortedByName) { template in
                         Toggle(
-                            isOn: Binding(
-                                get: { model.isMember(componentID: componentID, templateID: template.id) },
-                                set: {
-                                    model.setMembership(
-                                        componentID: componentID, templateID: template.id, isMember: $0)
-                                })
+                            isOn: model.membershipBinding(
+                                componentID: componentID, templateID: template.id)
                         ) {
                             Text(template.name)
                         }
