@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // NSOutlineView tracks items by object identity — value-type nodes would
 // collapse expansion and selection on every rebuild.
@@ -19,7 +20,13 @@ final class FinderFileTreeCoordinator: NSObject {
     var onExpansionChange: ((Set<String>) -> Void)?
     var onRenameRequest: ((FileNode) -> Void)?
     var onTrashRequest: (([FileNode]) -> Void)?
+    var canDrag: ((FileNode) -> Bool)?
+    var validateDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
+    var onDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
     var rowContent: ((FileNode) -> AnyView)?
+
+    nonisolated static let internalDragType = NSPasteboard.PasteboardType(
+        UTType.plumageFileTreeDrag.identifier)
 
     private(set) var rootItems: [FinderFileTreeItem] = []
     private var itemsByPath: [String: FinderFileTreeItem] = [:]
@@ -280,6 +287,85 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         (item as? FinderFileTreeItem)?.node.isDirectory ?? false
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView, pasteboardWriterForItem item: Any
+    ) -> (any NSPasteboardWriting)? {
+        guard let item = item as? FinderFileTreeItem else { return nil }
+        if let canDrag, !canDrag(item.node) { return nil }
+        guard let data = try? JSONEncoder().encode(FileTreeDragPayload(url: item.node.url))
+        else { return nil }
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setData(data, forType: Self.internalDragType)
+        pasteboardItem.setString(item.node.url.absoluteString, forType: .fileURL)
+        return pasteboardItem
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
+        proposedItem item: Any?, proposedChildIndex index: Int
+    ) -> NSDragOperation {
+        guard let validateDrop, let payload = Self.dropPayload(from: info.draggingPasteboard)
+        else { return [] }
+        let target = dropTargetItem(forProposed: item)
+        // Always drop ON the resolved folder row — native highlight lands
+        // exactly there instead of an insertion line between rows.
+        outlineView.setDropItem(target, dropChildIndex: NSOutlineViewDropOnItemIndex)
+        if case .internalMove(let sources) = payload {
+            let targetURL = target?.node.url
+            for source in sources where Self.isAncestorOrSelf(source, of: targetURL) {
+                return []
+            }
+        }
+        guard validateDrop(payload, target?.node) else { return [] }
+        switch payload {
+        case .internalMove: return .move
+        case .finderCopy: return .copy
+        }
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
+        item: Any?, childIndex index: Int
+    ) -> Bool {
+        guard let onDrop, let payload = Self.dropPayload(from: info.draggingPasteboard)
+        else { return false }
+        let target = item as? FinderFileTreeItem
+        return onDrop(payload, target?.node)
+    }
+
+    private func dropTargetItem(forProposed item: Any?) -> FinderFileTreeItem? {
+        guard let item = item as? FinderFileTreeItem else { return nil }
+        if item.node.isDirectory { return item }
+        return outlineView?.parent(forItem: item) as? FinderFileTreeItem
+    }
+
+    nonisolated static func dropPayload(from pasteboard: NSPasteboard) -> FileTreeDropPayload? {
+        var internalSources: [URL] = []
+        var finderURLs: [URL] = []
+        for item in pasteboard.pasteboardItems ?? [] {
+            if let data = item.data(forType: internalDragType),
+                let payload = try? JSONDecoder().decode(FileTreeDragPayload.self, from: data)
+            {
+                internalSources.append(payload.url)
+            } else if let urlString = item.string(forType: .fileURL),
+                let url = URL(string: urlString)
+            {
+                finderURLs.append(url.standardizedFileURL)
+            }
+        }
+        if !internalSources.isEmpty { return .internalMove(internalSources) }
+        if !finderURLs.isEmpty { return .finderCopy(finderURLs) }
+        return nil
+    }
+
+    // nil target = tree root, which can never sit inside a dragged item.
+    nonisolated static func isAncestorOrSelf(_ source: URL, of target: URL?) -> Bool {
+        guard let target else { return false }
+        let sourcePath = source.standardizedFileURL.path
+        let targetPath = target.standardizedFileURL.path
+        return targetPath == sourcePath || targetPath.hasPrefix(sourcePath + "/")
     }
 }
 

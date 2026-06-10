@@ -7,6 +7,17 @@ enum FinderFileTreeStyle {
     case inset
 }
 
+nonisolated enum FileTreeDropPayload: Equatable, Sendable {
+    case internalMove([URL])
+    case finderCopy([URL])
+
+    var urls: [URL] {
+        switch self {
+        case .internalMove(let urls), .finderCopy(let urls): return urls
+        }
+    }
+}
+
 struct FileTreeRevealRequest: Equatable {
     let id: UUID
     let path: String
@@ -24,6 +35,9 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     var revealRequest: FileTreeRevealRequest?
     var onRenameRequest: ((FileNode) -> Void)?
     var onTrashRequest: (([FileNode]) -> Void)?
+    var canDrag: ((FileNode) -> Bool)?
+    var validateDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
+    var onDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
     let onSelect: (FileNode?) -> Void
     @ViewBuilder let rowContent: (FileNode) -> RowContent
 
@@ -77,6 +91,9 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         outline.onDeleteKey = { [weak coordinator = context.coordinator] in
             coordinator?.requestTrashForSelection() ?? false
         }
+        outline.registerForDraggedTypes([.fileURL, FinderFileTreeCoordinator.internalDragType])
+        outline.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
+        outline.setDraggingSourceOperationMask([], forLocal: false)
         context.coordinator.outlineView = outline
         return scroll
     }
@@ -87,6 +104,9 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         coordinator.onExpansionChange = { expandedPaths = $0 }
         coordinator.onRenameRequest = onRenameRequest
         coordinator.onTrashRequest = onTrashRequest
+        coordinator.canDrag = canDrag
+        coordinator.validateDrop = validateDrop
+        coordinator.onDrop = onDrop
         coordinator.rowContent = { node in AnyView(rowContent(node)) }
         // Expansion state lands before the nodes so a freshly built tree is
         // expanded in the same pass that creates its items.
