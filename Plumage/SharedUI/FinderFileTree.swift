@@ -153,10 +153,11 @@ final class FinderFileTreeOutlineView: NSOutlineView {
         nodes: FinderFileTreePreviewData.nodes,
         style: .sidebar,
         expandedPaths: $expanded,
-        onSelect: { _ in }
-    ) { node in
-        Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
-    }
+        onSelect: { _ in },
+        rowContent: { node in
+            Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
+        }
+    )
     .frame(width: 260, height: 360)
 }
 
@@ -166,10 +167,11 @@ final class FinderFileTreeOutlineView: NSOutlineView {
         nodes: FinderFileTreePreviewData.nodes,
         style: .inset,
         expandedPaths: $expanded,
-        onSelect: { _ in }
-    ) { node in
-        Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
-    }
+        onSelect: { _ in },
+        rowContent: { node in
+            Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
+        }
+    )
     .frame(width: 320, height: 360)
 }
 

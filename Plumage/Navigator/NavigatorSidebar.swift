@@ -117,12 +117,13 @@ struct NavigatorSidebar: View {
                     guard let node else { return }
                     treeOwnsSelection = true
                     selection = .projectFile(relativePath: node.relativePath)
+                },
+                rowContent: { node in
+                    NavigatorFileRow(
+                        node: node, projectURL: projectURL,
+                        navigator: navigator, pinModel: pinnedFiles)
                 }
-            ) { node in
-                NavigatorFileRow(
-                    node: node, projectURL: projectURL,
-                    navigator: navigator, pinModel: pinnedFiles)
-            }
+            )
         }
     }
 

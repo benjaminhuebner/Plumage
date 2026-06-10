@@ -145,10 +145,9 @@ struct TemplateContentColumn: View {
                     return model.importDropped(urls: urls, into: target)
                 }
             },
-            onSelect: { node in model.selectedFile = node }
-        ) { node in
-            TemplateContentRow(model: model, node: node)
-        }
+            onSelect: { node in model.selectedFile = node },
+            rowContent: { node in TemplateContentRow(model: model, node: node) }
+        )
     }
 
     @ViewBuilder
