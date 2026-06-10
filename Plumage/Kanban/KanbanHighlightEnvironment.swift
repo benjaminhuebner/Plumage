@@ -1,7 +1,6 @@
 import SwiftUI
 
 extension EnvironmentValues {
-    @Entry var kanbanHighlightedID: String?
     // Called by IssueCardSwitch when a tap (not a drag) ends on the card.
     // ProjectWindow wires this to the sidebar selection. Routing the tap
     // through here lets the card own its full gesture coordination via

@@ -116,6 +116,7 @@ nonisolated struct TemplateCatalog: Codable, Hashable, Sendable {
 
     var sortedCategories: [TemplateCategory] { categories.sorted { $0.order < $1.order } }
     var sortedSharedComponents: [SharedComponent] { sharedComponents.sorted { $0.order < $1.order } }
+    var templatesSortedByName: [TemplateDescriptor] { templates.sorted { $0.name < $1.name } }
 
     func templates(inCategory categoryID: String) -> [TemplateDescriptor] {
         templates.filter { $0.categoryID == categoryID }.sorted { $0.order < $1.order }

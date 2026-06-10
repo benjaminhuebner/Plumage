@@ -1,6 +1,13 @@
 import Foundation
 import Observation
 
+// Identifiable wrapper for the streaming output list: positional ForEach
+// identity re-identifies every row on each appended line.
+nonisolated struct NumberedStreamLine: Identifiable, Sendable, Equatable {
+    let id: Int
+    let line: GitStreamLine
+}
+
 @Observable
 @MainActor
 final class GitSyncModel {
@@ -15,7 +22,8 @@ final class GitSyncModel {
     let operation: GitSyncOperation
     let currentBranch: String?
 
-    private(set) var lines: [GitStreamLine] = []
+    private(set) var lines: [NumberedStreamLine] = []
+    @ObservationIgnored private var nextLineID = 0
     private(set) var state: RunState = .idle
     private(set) var didRetryWithUpstream = false
 
@@ -101,7 +109,8 @@ final class GitSyncModel {
     private func consume(_ event: GitSyncEvent) {
         switch event {
         case .line(let line):
-            lines.append(line)
+            lines.append(NumberedStreamLine(id: nextLineID, line: line))
+            nextLineID += 1
         case .retryingWithUpstream:
             didRetryWithUpstream = true
         case .authPromptDetected:

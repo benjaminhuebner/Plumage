@@ -29,7 +29,7 @@ struct TemplateContentColumn: View {
 
             if let componentID = model.editingComponentID {
                 Section("Included in templates") {
-                    ForEach(model.catalog.templates.sorted { $0.name < $1.name }) { template in
+                    ForEach(model.catalog.templatesSortedByName) { template in
                         Toggle(
                             isOn: Binding(
                                 get: { model.isMember(componentID: componentID, templateID: template.id) },

@@ -151,9 +151,8 @@ private struct HunkView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             hunkHeader
-            ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-                LineRow(line: line)
-            }
+            DiffHunkLinesView(hunk: hunk, style: .detail)
+                .equatable()
         }
     }
 
@@ -172,87 +171,5 @@ private struct HunkView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-private struct LineRow: View {
-    let line: Line
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(symbol)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(symbolColor)
-                .frame(width: 14, alignment: .leading)
-            tokenizedText
-                .font(.system(.body, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 1)
-        .background(rowTint)
-    }
-
-    private var symbol: String {
-        switch line.kind {
-        case .added: return "+"
-        case .removed: return "−"
-        case .context: return " "
-        }
-    }
-
-    private var symbolColor: Color {
-        switch line.kind {
-        case .added: return .green
-        case .removed: return .red
-        case .context: return .secondary
-        }
-    }
-
-    private var rowTint: Color {
-        switch line.kind {
-        case .added: return Color.green.opacity(0.10)
-        case .removed: return Color.red.opacity(0.10)
-        case .context: return Color.clear
-        }
-    }
-
-    private var tokenizedText: Text {
-        guard !line.tokens.isEmpty else {
-            return Text(line.content)
-        }
-        var attributed = AttributedString(line.content)
-        for token in line.tokens {
-            guard
-                let lower = AttributedString.Index(token.range.lowerBound, within: attributed),
-                let upper = AttributedString.Index(token.range.upperBound, within: attributed)
-            else { continue }
-            attributed[lower..<upper].foregroundColor = color(for: token.kind)
-        }
-        return Text(attributed)
-    }
-
-    private func color(for kind: LanguageConfiguration.Token) -> Color {
-        switch kind {
-        case .keyword: return .purple
-        case .string, .character: return .red
-        case .number: return .blue
-        case .singleLineComment, .nestedCommentOpen, .nestedCommentClose: return .secondary
-        case .identifier(let flavour):
-            guard let flavour else { return .primary }
-            switch flavour {
-            case .type, .typeParameter: return .teal
-            case .function, .method: return .indigo
-            case .macro: return .pink
-            default: return .primary
-            }
-        case .operator: return .orange
-        case .regexp: return .red
-        case .symbol: return .primary
-        case .roundBracketOpen, .roundBracketClose,
-            .squareBracketOpen, .squareBracketClose,
-            .curlyBracketOpen, .curlyBracketClose:
-            return .secondary
-        }
     }
 }

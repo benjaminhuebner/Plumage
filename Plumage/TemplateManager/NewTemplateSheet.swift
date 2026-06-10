@@ -77,7 +77,7 @@ struct NewTemplateSheet: View {
                 }
                 Picker("Start from", selection: $startingPoint) {
                     Text("Empty").tag(TemplateStartingPoint.empty)
-                    ForEach(catalog.templates.sorted { $0.name < $1.name }) { template in
+                    ForEach(catalog.templatesSortedByName) { template in
                         Text("Copy of \(template.name)").tag(TemplateStartingPoint.copy(template.id))
                     }
                 }

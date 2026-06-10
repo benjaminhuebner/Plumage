@@ -222,9 +222,8 @@ private struct CommitDiffHunk: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 4)
-            ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-                CommitDiffLine(line: line)
-            }
+            DiffHunkLinesView(hunk: hunk, style: .compact)
+                .equatable()
         }
         .padding(8)
         .background(.background.secondary)
@@ -233,46 +232,5 @@ private struct CommitDiffHunk: View {
 
     private var hunkHeader: String {
         "@@ -\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@"
-    }
-}
-
-private struct CommitDiffLine: View {
-    let line: Line
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(prefix)
-                .font(.caption.monospaced())
-                .frame(width: 14, alignment: .center)
-                .foregroundStyle(prefixColor)
-            Text(line.content)
-                .font(.caption.monospaced())
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(rowBackground)
-    }
-
-    private var prefix: String {
-        switch line.kind {
-        case .added: "+"
-        case .removed: "-"
-        case .context: " "
-        }
-    }
-
-    private var prefixColor: Color {
-        switch line.kind {
-        case .added: .green
-        case .removed: .red
-        case .context: .secondary
-        }
-    }
-
-    private var rowBackground: Color {
-        switch line.kind {
-        case .added: .green.opacity(0.08)
-        case .removed: .red.opacity(0.08)
-        case .context: .clear
-        }
     }
 }

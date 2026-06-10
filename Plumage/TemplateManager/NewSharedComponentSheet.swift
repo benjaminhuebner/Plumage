@@ -62,7 +62,7 @@ struct NewSharedComponentSheet: View {
     private var membershipList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(catalog.templates.sorted { $0.name < $1.name }) { template in
+                ForEach(catalog.templatesSortedByName) { template in
                     Toggle(
                         isOn: Binding(
                             get: { members.contains(template.id) },

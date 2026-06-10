@@ -467,7 +467,6 @@ struct ProjectWindow: View {
                 // and .task(id:) never fires because model.fileURL never
                 // changes. See axiom-swiftui debugging.md Root Cause 5.
                 .id(selectedRoute)
-                .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
                 .environment(\.openSpec) { route in
                     if selectedRoute == .kanban, case .issue = route {
                         detailOriginRoute = .kanban

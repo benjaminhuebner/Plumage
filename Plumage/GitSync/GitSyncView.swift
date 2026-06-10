@@ -50,10 +50,10 @@ struct GitSyncView: View {
     private var outputView: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
-                ForEach(Array(model.lines.enumerated()), id: \.offset) { _, line in
-                    Text(line.text)
+                ForEach(model.lines) { item in
+                    Text(item.line.text)
                         .font(.caption.monospaced())
-                        .foregroundStyle(line.source == .stderr ? Color.secondary : Color.primary)
+                        .foregroundStyle(item.line.source == .stderr ? Color.secondary : Color.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }

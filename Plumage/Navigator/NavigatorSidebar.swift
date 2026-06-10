@@ -132,33 +132,14 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private func columnRow(_ column: IssueColumn) -> some View {
-        let items = kanban.groupedIssues[column] ?? []
-        DisclosureGroup(isExpanded: expansionBinding(for: column)) {
-            ForEach(items, id: \.id) { issue in
-                issueRow(issue, in: column)
-            }
-        } label: {
-            HStack {
-                Label(column.name, systemImage: column.systemImage)
-                Spacer()
-                Text("\(items.count)")
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-            }
-            .dropDestination(for: IssueDragPayload.self) { payloads, _ in
-                handleColumnDrop(payloads, into: column)
-            }
-        }
-    }
-
-    @discardableResult
-    private func handleColumnDrop(
-        _ payloads: [IssueDragPayload], into column: IssueColumn
-    ) -> Bool {
-        guard let payload = payloads.first else { return false }
-        kanban.applyOptimisticDrop(
-            payload, to: .column(column), projectURL: projectURL)
-        return true
+        // Child view reads the kanban model itself, so an FSEvent snapshot
+        // invalidates only the four column sections — not the whole sidebar
+        // List body (pins + file tree included).
+        SidebarColumnSection(
+            column: column,
+            projectURL: projectURL,
+            isExpanded: expansionBinding(for: column)
+        )
     }
 
     private func expansionBinding(for column: IssueColumn) -> Binding<Bool> {
@@ -170,8 +151,62 @@ struct NavigatorSidebar: View {
         }
     }
 
+    private func handleReturnKey() -> KeyPress.Result {
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
+        }
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
+        navigator.beginRename(url: url)
+        return .handled
+    }
+
+    private func handleDeleteKey() -> KeyPress.Result {
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
+        }
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
+        navigator.requestTrash(url: url)
+        return .handled
+    }
+}
+
+private struct SidebarColumnSection: View {
+    let column: IssueColumn
+    let projectURL: URL
+    @Binding var isExpanded: Bool
+
+    @Environment(ProjectKanbanModel.self) private var kanban
+
+    var body: some View {
+        let items = kanban.groupedIssues[column] ?? []
+        DisclosureGroup(isExpanded: $isExpanded) {
+            ForEach(items, id: \.id) { issue in
+                issueRow(issue)
+            }
+        } label: {
+            HStack {
+                Label(column.name, systemImage: column.systemImage)
+                Spacer()
+                Text("\(items.count)")
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+            .dropDestination(for: IssueDragPayload.self) { payloads, _ in
+                handleColumnDrop(payloads)
+            }
+        }
+    }
+
+    @discardableResult
+    private func handleColumnDrop(_ payloads: [IssueDragPayload]) -> Bool {
+        guard let payload = payloads.first else { return false }
+        kanban.applyOptimisticDrop(
+            payload, to: .column(column), projectURL: projectURL)
+        return true
+    }
+
     @ViewBuilder
-    private func issueRow(_ issue: DiscoveredIssue, in column: IssueColumn) -> some View {
+    private func issueRow(_ issue: DiscoveredIssue) -> some View {
         HStack(spacing: 6) {
             IssueTypePill(type: issue.typeForPill)
             Text(issue.titleForRow)
@@ -206,23 +241,5 @@ struct NavigatorSidebar: View {
         case .invalid(let folder, _):
             return folder
         }
-    }
-
-    private func handleReturnKey() -> KeyPress.Result {
-        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
-            return .ignored
-        }
-        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
-        navigator.beginRename(url: url)
-        return .handled
-    }
-
-    private func handleDeleteKey() -> KeyPress.Result {
-        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
-            return .ignored
-        }
-        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
-        navigator.requestTrash(url: url)
-        return .handled
     }
 }
