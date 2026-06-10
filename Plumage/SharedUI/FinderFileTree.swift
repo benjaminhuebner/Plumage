@@ -53,7 +53,7 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         outline.focusRingType = .none
         outline.rowSizeStyle = .default
         outline.usesAutomaticRowHeights = true
-        outline.allowsMultipleSelection = false
+        outline.allowsMultipleSelection = true
         outline.allowsColumnReordering = false
         outline.allowsColumnResizing = false
         outline.allowsEmptySelection = true

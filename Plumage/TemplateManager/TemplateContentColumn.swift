@@ -69,6 +69,18 @@ struct TemplateContentColumn: View {
         } message: { _ in
             Text("This folder and everything in it will be moved to the Trash.")
         }
+        .confirmationDialog(
+            "Delete \(model.pendingBatchDelete?.count ?? 0) items?",
+            isPresented: Binding(
+                get: { model.pendingBatchDelete != nil },
+                set: { if !$0 { model.pendingBatchDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) { model.confirmPendingBatchDelete() }
+            Button("Cancel", role: .cancel) { model.pendingBatchDelete = nil }
+        } message: {
+            Text("The selected items will be moved to the Trash.")
+        }
     }
 
     @ViewBuilder
@@ -99,14 +111,17 @@ struct TemplateContentColumn: View {
             selectedPath: model.selectedFile?.relativePath,
             revealRequest: model.contentReveal,
             contextMenu: { nodes in
+                if nodes.count > 1 {
+                    guard model.canBatchDelete(nodes) else { return nil }
+                    return NSHostingMenu(
+                        rootView: TemplateContentBatchMenu(model: model, nodes: nodes))
+                }
                 guard let node = nodes.first else { return nil }
                 return NSHostingMenu(
                     rootView: TemplateContentRowMenu(model: model, node: node, addKind: $addKind))
             },
             onRenameRequest: { node in model.beginRenameContent(node) },
-            onTrashRequest: { nodes in
-                if let node = nodes.first { model.requestDelete(node) }
-            },
+            onTrashRequest: { nodes in model.requestDelete(batch: nodes) },
             canDrag: { node in !model.isReadOnlyContentNode(node) },
             validateDrop: { payload, target in
                 switch payload {
@@ -221,6 +236,17 @@ private struct TemplateContentRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct TemplateContentBatchMenu: View {
+    let model: TemplateManagerModel
+    let nodes: [FileNode]
+
+    var body: some View {
+        Button("Move \(nodes.count) Items to Trash", role: .destructive) {
+            model.requestDelete(batch: nodes)
+        }
     }
 }
 

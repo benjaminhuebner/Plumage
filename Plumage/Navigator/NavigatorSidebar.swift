@@ -45,7 +45,7 @@ struct NavigatorSidebar: View {
         // Derived isPresented binding is the standard confirmationDialog
         // shape; the model owns the actual pending state.
         .confirmationDialog(
-            "Move \"\(navigator.pendingTrash?.lastPathComponent ?? "")\" to Trash?",
+            navigator.pendingTrashTitle,
             isPresented: Binding(
                 get: { navigator.pendingTrash != nil },
                 set: { if !$0 { navigator.cancelPendingTrash() } }
@@ -55,7 +55,7 @@ struct NavigatorSidebar: View {
                 Task { await navigator.confirmPendingTrash(projectURL: projectURL) }
             }
         } message: {
-            Text("You can restore it from the Trash.")
+            Text("You can restore from the Trash.")
         }
     }
 
@@ -93,10 +93,10 @@ struct NavigatorSidebar: View {
                 selectedPath: treeSelectedPath,
                 revealRequest: navigator.sidebarReveal,
                 contextMenu: { nodes in
-                    guard let node = nodes.first else { return nil }
+                    guard !nodes.isEmpty else { return nil }
                     return NSHostingMenu(
                         rootView: NavigatorFileMenu(
-                            node: node, projectURL: projectURL,
+                            nodes: nodes, projectURL: projectURL,
                             navigator: navigator, pinModel: pinnedFiles))
                 },
                 onRenameRequest: { node in
@@ -104,8 +104,8 @@ struct NavigatorSidebar: View {
                     navigator.beginRename(url: node.url)
                 },
                 onTrashRequest: { nodes in
-                    guard navigator.renaming == nil, let node = nodes.first else { return }
-                    navigator.requestTrash(url: node.url)
+                    guard navigator.renaming == nil, !nodes.isEmpty else { return }
+                    navigator.requestTrash(urls: nodes.map(\.url))
                 },
                 validateDrop: { _, target in
                     guard let target else { return false }

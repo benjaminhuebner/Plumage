@@ -125,6 +125,22 @@ struct FileTreeDiffTests {
         #expect(FinderFileTreeCoordinator.ancestorChain(to: "missing.md", in: tree) == nil)
     }
 
+    @Test func topmostSourcesDropsDescendantsOfDraggedFolders() {
+        let folder = URL(fileURLWithPath: "/tmp/tree/docs")
+        let child = URL(fileURLWithPath: "/tmp/tree/docs/inner/a.md")
+        let sibling = URL(fileURLWithPath: "/tmp/tree/other.md")
+        let result = FinderFileTreeCoordinator.topmostSources([folder, child, sibling])
+        #expect(result == [folder, sibling])
+    }
+
+    @Test func topmostSourcesKeepsUnrelatedPrefixSiblings() {
+        // "docs-archive" shares the string prefix "docs" but is no descendant.
+        let folder = URL(fileURLWithPath: "/tmp/tree/docs")
+        let lookalike = URL(fileURLWithPath: "/tmp/tree/docs-archive/a.md")
+        let result = FinderFileTreeCoordinator.topmostSources([folder, lookalike])
+        #expect(result == [folder, lookalike])
+    }
+
     // Template Manager trees mix namespaces: folders carry output paths,
     // leaves carry store paths — ancestor resolution must not assume prefixes.
     @Test func ancestorChainSupportsMixedPathNamespaces() {

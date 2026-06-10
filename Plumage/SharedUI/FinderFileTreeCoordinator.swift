@@ -228,6 +228,9 @@ final class FinderFileTreeCoordinator: NSObject {
         // A row hidden under a collapsed ancestor stays unselected — flows
         // that must surface it (create, import) go through reveal instead.
         guard row >= 0 else { return }
+        // A multi-selection that already contains the path stays untouched:
+        // the single bound path is the lead row, not the whole selection.
+        guard !outlineView.selectedRowIndexes.contains(row) else { return }
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     }
 
@@ -415,9 +418,20 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
                 finderURLs.append(url.standardizedFileURL)
             }
         }
-        if !internalSources.isEmpty { return .internalMove(internalSources) }
+        if !internalSources.isEmpty { return .internalMove(topmostSources(internalSources)) }
         if !finderURLs.isEmpty { return .finderCopy(finderURLs) }
         return nil
+    }
+
+    // A selection holding a folder and its own descendant moves only the
+    // folder — moving both would race the descendant against its parent.
+    nonisolated static func topmostSources(_ urls: [URL]) -> [URL] {
+        urls.filter { url in
+            !urls.contains { other in
+                other.standardizedFileURL.path != url.standardizedFileURL.path
+                    && isAncestorOrSelf(other, of: url)
+            }
+        }
     }
 
     // nil target = tree root, which can never sit inside a dragged item.

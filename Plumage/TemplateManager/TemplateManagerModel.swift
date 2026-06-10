@@ -311,6 +311,8 @@ final class TemplateManagerModel {
     // view raises a confirmation dialog when this is set.
     var pendingDeleteConfirmation: FileNode?
 
+    var pendingBatchDelete: [FileNode]?
+
     // Entry point for the Delete affordance: confirm first when the target is a
     // non-empty folder (e.g. a multi-file skill), otherwise delete straight away.
     func requestDelete(_ file: FileNode) {
@@ -320,6 +322,27 @@ final class TemplateManagerModel {
         } else {
             delete(file)
         }
+    }
+
+    // Batch deletes are all-or-nothing on eligibility (mixed selections with
+    // read-only or bundled nodes offer no destructive action) and confirm once.
+    func canBatchDelete(_ nodes: [FileNode]) -> Bool {
+        !nodes.isEmpty && nodes.allSatisfy(isUserAuthored)
+    }
+
+    func requestDelete(batch nodes: [FileNode]) {
+        guard canBatchDelete(nodes) else { return }
+        if nodes.count == 1 {
+            requestDelete(nodes[0])
+            return
+        }
+        pendingBatchDelete = nodes
+    }
+
+    func confirmPendingBatchDelete() {
+        guard let nodes = pendingBatchDelete else { return }
+        pendingBatchDelete = nil
+        for node in nodes { delete(node) }
     }
 
     func confirmPendingDelete() {

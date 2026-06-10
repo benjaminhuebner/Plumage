@@ -2,12 +2,23 @@ import AppKit
 import SwiftUI
 
 struct NavigatorFileMenu: View {
-    let node: FileNode
+    let nodes: [FileNode]
     let projectURL: URL
     let navigator: NavigatorModel
     let pinModel: PinnedFilesModel
 
     var body: some View {
+        if nodes.count == 1, let node = nodes.first {
+            singleItemMenu(node)
+        } else {
+            Button("Move to Trash", role: .destructive) {
+                navigator.requestTrash(urls: nodes.map(\.url))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func singleItemMenu(_ node: FileNode) -> some View {
         if node.isDirectory {
             Button("New File") {
                 Task {

@@ -44,10 +44,15 @@ final class NavigatorModel {
     // Set by the Delete key / context-menu "Move to Trash"; the sidebar
     // presents a confirmation dialog for it. Trash is recoverable, but the
     // file disappears instantly from the project — no unconfirmed destruction.
-    private(set) var pendingTrash: URL?
+    private(set) var pendingTrash: [URL]?
 
     func requestTrash(url: URL) {
-        pendingTrash = url
+        requestTrash(urls: [url])
+    }
+
+    func requestTrash(urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        pendingTrash = urls
     }
 
     func cancelPendingTrash() {
@@ -55,9 +60,17 @@ final class NavigatorModel {
     }
 
     func confirmPendingTrash(projectURL: URL) async {
-        guard let url = pendingTrash else { return }
+        guard let urls = pendingTrash else { return }
         pendingTrash = nil
-        await trash(url: url, projectURL: projectURL)
+        await trash(urls: urls, projectURL: projectURL)
+    }
+
+    var pendingTrashTitle: String {
+        guard let urls = pendingTrash, !urls.isEmpty else { return "" }
+        if urls.count == 1 {
+            return "Move \"\(urls[0].lastPathComponent)\" to Trash?"
+        }
+        return "Move \(urls.count) items to Trash?"
     }
 
     // ~3 s transient banner that surfaces drop/inline rejections in the
@@ -344,16 +357,34 @@ final class NavigatorModel {
     }
 
     func trash(url: URL, projectURL: URL) async {
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                _ = try ClaudeProjectFiles.trashFile(at: url)
-            }.value
-            routeRewrites = [
-                .removed(oldRelativePath: Self.relativePath(from: projectURL, to: url))
-            ]
+        await trash(urls: [url], projectURL: projectURL)
+    }
+
+    // Batch trash with partial-failure semantics: completed trashes stand,
+    // the banner names what failed, the reload reflects on-disk reality.
+    func trash(urls: [URL], projectURL: URL) async {
+        let outcome = await Task.detached(priority: .userInitiated) {
+            () -> (trashed: [URL], failed: [String]) in
+            var trashed: [URL] = []
+            var failed: [String] = []
+            for url in urls {
+                do {
+                    _ = try ClaudeProjectFiles.trashFile(at: url)
+                    trashed.append(url)
+                } catch {
+                    failed.append(url.lastPathComponent)
+                }
+            }
+            return (trashed, failed)
+        }.value
+        if !outcome.trashed.isEmpty {
+            routeRewrites = outcome.trashed.map {
+                .removed(oldRelativePath: Self.relativePath(from: projectURL, to: $0))
+            }
             await reload(projectURL: projectURL)
-        } catch {
-            showBanner("Couldn't move to Trash: \(error.localizedDescription)")
+        }
+        if !outcome.failed.isEmpty {
+            showBanner("Couldn't move to Trash: \(outcome.failed.joined(separator: ", "))")
         }
     }
 
