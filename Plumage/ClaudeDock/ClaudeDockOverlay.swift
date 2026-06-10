@@ -50,7 +50,9 @@ struct ClaudeDockOverlay: View {
     }
 
     private var panelTransition: AnyTransition {
-        .opacity.combined(with: .scale(scale: 0.4, anchor: .bottomTrailing))
+        reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .scale(scale: 0.4, anchor: .bottomTrailing))
     }
 
     private var toggleAnimation: Animation {

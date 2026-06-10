@@ -3,6 +3,7 @@ import SwiftUI
 struct BodyTabPicker: View {
     @Binding var selectedTab: BodyTab
     @Namespace private var underlineNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,7 +24,7 @@ struct BodyTabPicker: View {
     private func tabButton(for tab: BodyTab) -> some View {
         let isActive = selectedTab == tab
         Button {
-            withAnimation(.snappy(duration: 0.18)) {
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.18)) {
                 selectedTab = tab
             }
         } label: {

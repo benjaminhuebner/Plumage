@@ -113,9 +113,11 @@ private struct DockPanelHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // Decorative: statusText carries the state for VoiceOver.
             Circle()
                 .fill(statusColor)
                 .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
             Text(statusText)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)

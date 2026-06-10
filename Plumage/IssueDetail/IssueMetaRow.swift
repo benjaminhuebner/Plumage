@@ -62,6 +62,8 @@ struct IssueMetaRow: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .accessibilityLabel("Status: \(status.label)")
+        .accessibilityHint("Choose a new status")
     }
 
     private var typeMenu: some View {
@@ -85,6 +87,8 @@ struct IssueMetaRow: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .accessibilityLabel("Type: \(type.rawValue.capitalized)")
+        .accessibilityHint("Choose a new type")
     }
 
     @ViewBuilder

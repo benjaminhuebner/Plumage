@@ -248,20 +248,22 @@ struct FileTreeRow: View {
     // of selecting the row.
     @ViewBuilder
     private var pinButton: some View {
-        if hovering {
-            let isPinned = pinModel.contains(node.relativePath)
-            Button {
-                pinModel.toggle(relativePath: node.relativePath, projectURL: projectURL)
-            } label: {
-                Image(systemName: isPinned ? "pin.fill" : "pin")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(isPinned ? "Unpin" : "Pin")
+        let isPinned = pinModel.contains(node.relativePath)
+        Button {
+            pinModel.toggle(relativePath: node.relativePath, projectURL: projectURL)
+        } label: {
+            Image(systemName: isPinned ? "pin.fill" : "pin")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help(isPinned ? "Unpin" : "Pin")
+        .accessibilityLabel(isPinned ? "Unpin" : "Pin")
+        // Opacity, not conditional existence: a hover-only button never
+        // exists for VoiceOver/keyboard users.
+        .opacity(hovering ? 1 : 0)
     }
 
     @ViewBuilder
@@ -290,6 +292,9 @@ struct FileTreeRow: View {
             NSWorkspace.shared.activateFileViewerSelecting([node.url])
         }
         Button("Rename") { navigator.beginRename(url: node.url) }
+        Button(pinModel.contains(node.relativePath) ? "Unpin" : "Pin") {
+            pinModel.toggle(relativePath: node.relativePath, projectURL: projectURL)
+        }
         Button("Move to Trash", role: .destructive) {
             navigator.requestTrash(url: node.url)
         }

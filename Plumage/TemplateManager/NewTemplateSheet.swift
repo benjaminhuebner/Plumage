@@ -117,19 +117,31 @@ struct NewTemplateSheet: View {
     private var symbolGrid: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 36), spacing: 8)], spacing: 8) {
+                // Buttons, not tap gestures: a tap-only grid is invisible to
+                // VoiceOver and unreachable by keyboard, blocking the whole
+                // create flow.
                 ForEach(Self.symbols, id: \.self) { symbol in
-                    Image(systemName: symbol)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(symbol == selectedSymbol ? Color.accentColor.opacity(0.25) : .clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(symbol == selectedSymbol ? Color.accentColor : .clear)
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedSymbol = symbol }
+                    Button {
+                        selectedSymbol = symbol
+                    } label: {
+                        Image(systemName: symbol)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(
+                                        symbol == selectedSymbol
+                                            ? Color.accentColor.opacity(0.25) : .clear)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(
+                                        symbol == selectedSymbol ? Color.accentColor : .clear)
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(symbol)
+                    .accessibilityAddTraits(symbol == selectedSymbol ? .isSelected : [])
                 }
             }
             .padding(2)

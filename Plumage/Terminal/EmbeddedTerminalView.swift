@@ -12,6 +12,8 @@ struct EmbeddedTerminalView: View {
     // the cursor keep-alive timer + key monitor (the view stays mounted).
     var isVisible: Bool = true
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         ZStack {
             // .id(restartEpoch) forces SwiftUI to dismantle + remake the
@@ -37,7 +39,7 @@ struct EmbeddedTerminalView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: showsBootOverlay)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: showsBootOverlay)
     }
 
     private var showsBootOverlay: Bool {

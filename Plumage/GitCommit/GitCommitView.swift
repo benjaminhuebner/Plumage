@@ -160,6 +160,7 @@ private struct FileRow: View {
             }
             .toggleStyle(.checkbox)
             .labelsHidden()
+            .accessibilityLabel("Stage \(file.path)")
             Text(String(file.badge))
                 .font(.caption.monospaced())
                 .padding(.horizontal, 4)
@@ -167,6 +168,7 @@ private struct FileRow: View {
                 .background(badgeBackground)
                 .foregroundStyle(badgeForeground)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
+                .accessibilityLabel(badgeAccessibilityLabel)
             Text(file.path)
                 .font(.caption)
                 .lineLimit(1)
@@ -195,6 +197,19 @@ private struct FileRow: View {
 
     private var badgeForeground: Color {
         .primary
+    }
+
+    private var badgeAccessibilityLabel: String {
+        switch file.badge {
+        case "M": return "Modified"
+        case "A": return "Added"
+        case "D": return "Deleted"
+        case "R": return "Renamed"
+        case "C": return "Copied"
+        case "U": return "Conflict"
+        case "?": return "Untracked"
+        default: return String(file.badge)
+        }
     }
 }
 

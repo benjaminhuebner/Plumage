@@ -35,6 +35,7 @@ struct ProjectStatusBar: View {
                 }
                 HStack(spacing: 6) {
                     statusDot
+                        .accessibilityHidden(true)
                     // Banner messages take priority over the static indicator
                     // label — for the ~3 s window the user sees the rejection
                     // reason instead of "claude X ready".
@@ -72,6 +73,7 @@ struct ProjectStatusBar: View {
         }
     }
 
+    // Decorative: the adjacent label text carries the state for VoiceOver.
     @ViewBuilder
     private var statusDot: some View {
         switch indicatorState {

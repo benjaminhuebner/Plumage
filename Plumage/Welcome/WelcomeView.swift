@@ -39,6 +39,7 @@ struct WelcomeView: View {
             appIcon
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 128, height: 128)
+                .accessibilityHidden(true)
             VStack(spacing: 4) {
                 Text("Welcome to Plumage")
                     .font(.system(size: 28, weight: .semibold))
