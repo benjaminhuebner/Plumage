@@ -12,9 +12,11 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome to Plumage", id: "welcome") {
-            // No .containerBackground: .thickMaterial made Welcome the
-            // app's only translucent window.
+            // Deliberately the app's only translucent window: Xcode-style
+            // welcome panel, not a content surface — the Liquid Glass
+            // "no materials on content" rule doesn't apply here.
             WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
+                .containerBackground(.thickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
                     drainPendingURLs()
