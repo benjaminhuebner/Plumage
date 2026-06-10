@@ -101,7 +101,7 @@ nonisolated struct ProjectScaffolder {
 
     // Reproduce the user's hand-built loose tree — files outside the typed/composition
     // namespaces, at their project-relative positions, composed across the template's
-    // scope roots (#00078). Generated configs already written win a name clash.
+    // scope roots. Generated configs already written win a name clash.
     private func writeArbitraryFiles(spec: NewProjectSpec, root: URL) throws {
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
         for (output, variants) in overrides.composedArbitraryFileVariants(roots: roots) {
@@ -163,7 +163,7 @@ nonisolated struct ProjectScaffolder {
     private func writeSkills(spec: NewProjectSpec, claude: URL) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        // Base ∪ template ∪ member-component skills, most-specific scope winning (#00078).
+        // Base ∪ template ∪ member-component skills, most-specific scope winning.
         let composed = overrides.composedSkillDirs(
             roots: catalog.looseSurfaceRoots(forTemplate: spec.templateID))
         let enabled = Set(toggles.enabledNames(in: .skills, from: composed.map(\.name)))
@@ -176,7 +176,7 @@ nonisolated struct ProjectScaffolder {
     }
 
     // First-time agent scaffolding: Plumage ships no agents, so the catalog is the user's
-    // scope-owned `agents/` files unioned across the template's loose roots (#00078),
+    // scope-owned `agents/` files unioned across the template's loose roots,
     // filtered by the enable toggles. Written into a fresh tree (the scaffolder owns it).
     private func writeAgents(templateID: String, claude: URL) throws {
         let composed = overrides.composedLooseFileVariants(

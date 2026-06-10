@@ -5,7 +5,7 @@ nonisolated enum DiscoveredIssue: Identifiable, Equatable, Sendable {
     case invalid(folder: URL, error: FrontmatterError)
 
     // Folder-keyed: same folder keeps the same id across valid↔invalid flips,
-    // so SwiftUI morphs the card in place instead of remove+insert (#00006).
+    // so SwiftUI morphs the card in place instead of remove+insert.
     var id: String {
         switch self {
         case .valid(let issue):

@@ -3,7 +3,7 @@ import Testing
 
 @testable import Plumage
 
-// The display-leak fix (#00078): loose files authored in one tier show only in that
+// The display-leak fix: loose files authored in one tier show only in that
 // tier's tree, and Base never dumps a sibling tier's subtree.
 @MainActor
 @Suite("TemplateManager scope-owned content tree (#00078)")

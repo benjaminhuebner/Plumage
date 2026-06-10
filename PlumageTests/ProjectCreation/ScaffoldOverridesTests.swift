@@ -309,7 +309,7 @@ struct ScaffoldOverridesTests {
         #expect(!files.contains { $0.contains(".DS_Store") })
     }
 
-    // MARK: - Scope-rooted enumerators (#00078)
+    // MARK: - Scope-rooted enumerators
 
     @Test("Scoped skill-dir names read only inside the scope subtree")
     func scopedSkillDirNames() throws {

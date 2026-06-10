@@ -221,7 +221,7 @@ nonisolated enum SpecParser {
             )
         case .dataCorrupted(let context):
             // Yams 5.4 wraps its own scanner/parser/composer errors as DecodingError.dataCorrupted —
-            // unwrap once to recover line/column. See notes.md (#00004-frontmatter-errors).
+            // unwrap once to recover line/column.
             if let yamlErr = context.underlyingError as? YamlError {
                 mapYamlError(yamlErr)
             } else {

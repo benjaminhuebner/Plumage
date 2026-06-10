@@ -9,7 +9,7 @@ import os
 //
 // NOTE: unlike SessionLogWatcher, stop() deliberately does NOT add a
 // `queue.sync {}` drain barrier — that deadlocks reproducibly (EXC_BREAKPOINT
-// in __DISPATCH_WAIT_FOR_QUEUE__, verified 2026-06-02, see notes.md). The
+// in __DISPATCH_WAIT_FOR_QUEUE__, verified 2026-06-02). The
 // dangling-callback race is closed via CF refcounting instead: the stream
 // context retains `self` (retain/release callbacks below), so an in-flight
 // callback can never see a freed pointer. Consequence: while a stream is

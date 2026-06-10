@@ -33,10 +33,9 @@ nonisolated extension NavigatorRoute {
         return string
     }
 
-    // Decodes a SceneStorage-persisted route. Tries to migrate legacy
-    // JSON shapes first (file-routes from pre-#00052 builds → `.projectFile`)
-    // so existing windows reopen without a fallback to `.kanban`. Anything
-    // unrecognised returns nil; callers default to `.kanban`.
+    // Decodes a SceneStorage-persisted route. Tries to migrate legacy JSON
+    // shapes first so existing windows reopen without a fallback to `.kanban`.
+    // Anything unrecognised returns nil; callers default to `.kanban`.
     init?(persistedString: String) {
         guard
             !persistedString.isEmpty,
@@ -59,7 +58,7 @@ nonisolated extension NavigatorRoute {
         }
     }
 
-    // Maps pre-#00052 legacy route JSON tags to `.projectFile`. The shape
+    // Maps legacy route JSON tags to `.projectFile`. The shape
     // of each tag mirrors what Swift's auto-Codable wrote for that case.
     fileprivate static func migrateLegacyJSON(data: Data) -> NavigatorRoute? {
         guard

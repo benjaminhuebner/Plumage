@@ -19,7 +19,7 @@ extension TemplateManagerModel {
     // a hook is always shown under `.claude/hooks` and a CLAUDE.md fragment as
     // `.claude/CLAUDE.md`, never a flat layer name. What populates it differs: Base shows
     // the full project surfaces; a Template and a Shared Component each show only their
-    // own deltas — the files that tier owns, nothing inherited (#00084 / #00078).
+    // own deltas — the files that tier owns, nothing inherited.
     func buildContentTree(for item: TemplateCatalogItem) -> [FileNode] {
         let scope = ManagerScope.scope(for: item)
         var leaves = leafSpecs(for: item).compactMap { spec in
@@ -30,7 +30,7 @@ extension TemplateManagerModel {
             leaves += ManagerConfig.allCases.map { ($0.relativePath, configNode($0)) }
         }
         // User-created (possibly empty) folders show at their output positions — read
-        // inside the scope subtree (#00078) and mapped back to the project layout.
+        // inside the scope subtree and mapped back to the project layout.
         let root = scope.storageRoot
         let directories =
             showsLooseSurfaces(item)
@@ -42,7 +42,7 @@ extension TemplateManagerModel {
     }
 
     // Only Base carries the generated project configs (settings, gitignore, …). A
-    // Template shows just its own deltas (#00084 delta view) and a Shared Component is a
+    // Template shows just its own deltas and a Shared Component is a
     // focused sub-bundle — neither repeats Base's generated configs.
     private func showsConfigs(_ item: TemplateCatalogItem) -> Bool {
         switch item {
@@ -53,7 +53,7 @@ extension TemplateManagerModel {
 
     // Every tier owns and shows its own loose files (docs/skills/agents/arbitrary) and
     // user-created folders — that ownership is what stops a file leaking into all
-    // templates (#00078).
+    // templates.
     private func showsLooseSurfaces(_ item: TemplateCatalogItem) -> Bool { true }
 
     private func leafSpecs(for item: TemplateCatalogItem) -> [LeafSpec] {
@@ -65,7 +65,7 @@ extension TemplateManagerModel {
                 claudeMdStorage: catalog.base.claudeMdRelativePath)
         case .template(let id):
             guard let template = catalog.template(id: id) else { return [] }
-            // A Template shows only its own deltas (#00084): its own CLAUDE.md layer (no
+            // A Template shows only its own deltas: its own CLAUDE.md layer (no
             // Base fallback) plus the loose files it owns under `templates/<id>/`. No Base
             // hooks, no issues slot, no generated configs — those are inherited, not the
             // template's, so two templates render visibly distinct minimal trees.
@@ -88,7 +88,7 @@ extension TemplateManagerModel {
 
     // Inverse of `outputPath(forStorageDir:)`: output-tree paths and override-store
     // paths are distinct spaces, so a dropped/created item maps back before it's written.
-    // The `scope` prefixes the resulting store dir with the owning tier's root (#00078);
+    // The `scope` prefixes the resulting store dir with the owning tier's root;
     // `.base` (the default) keeps the historical un-prefixed store paths.
     nonisolated static func storageDir(
         forOutputFolder output: String, scope: ManagerScope = .base
@@ -100,14 +100,14 @@ extension TemplateManagerModel {
             baseDir = ""
         } else if output == ".claude" {
             // The real `.claude/` root: arbitrary loose files live directly under it
-            // (`.claude/bla.md`), distinct from the store root (#00084).
+            // (`.claude/bla.md`), distinct from the store root.
             baseDir = ".claude"
         } else if output.hasPrefix(".claude/") {
             let rest = String(output.dropFirst(".claude/".count))
             let head = rest.split(separator: "/").first.map(String.init) ?? rest
             // Typed namespaces (docs/skills/agents, plus hooks/issues at Base) are hoisted
             // out of `.claude/` in the store; any other `.claude/` path is arbitrary and
-            // keeps the prefix — the strict inverse of `outputPath` (#00084).
+            // keeps the prefix — the strict inverse of `outputPath`.
             baseDir = claudeHoistedTopLevel(for: scope).contains(head) ? rest : ".claude/\(rest)"
         } else {
             // An arbitrary project-root folder maps to the same store path (the inverse
@@ -122,9 +122,8 @@ extension TemplateManagerModel {
     // The store top-level dirs whose contents are hoisted out of `.claude/` in the output:
     // typed loose namespaces shown under `.claude/<name>` but stored without the prefix.
     // At Base every loose `.claude` namespace; inside a tier only docs/skills/agents
-    // (`hooks`/`issues` aren't loose there, so a tier folder so named is arbitrary, #00078).
     // Couples `storageDir` ⇄ `outputPath`; the arbitrary `.claude/<path>` namespace is the
-    // complement that is *not* hoisted and lives under `<scopeRoot>/.claude/` (#00084).
+    // complement that is *not* hoisted and lives under `<scopeRoot>/.claude/`.
     nonisolated static func claudeHoistedTopLevel(for scope: ManagerScope) -> Set<String> {
         switch scope {
         case .base: return ["hooks", "docs", "skills", "agents", "issues"]
@@ -135,7 +134,7 @@ extension TemplateManagerModel {
     // Surfaced through their own typed walks (or internal), so the arbitrary-root-files
     // scan must skip them to avoid showing the same file twice. `.claude` is deliberately
     // *not* here: it is now a real arbitrary namespace (`<root>/.claude/<path>`) the scan
-    // must surface so a loose file dropped onto `.claude` stays visible (#00084).
+    // must surface so a loose file dropped onto `.claude` stays visible.
     static let typedStoreTopLevel: Set<String> = [
         "hooks", "docs", "skills", "agents", "issues",
         "templates", "components", "template-images", "configs",
@@ -144,7 +143,7 @@ extension TemplateManagerModel {
     // The output position a stored directory shows at, or nil for store dirs that are
     // not surfaces of `scope` (template layers, gitignore fragments, imported images, or
     // a sibling tier's subtree). The scope root is stripped first so a tier's loose dir
-    // lands at the same `.claude/...` position regardless of which tier owns it (#00078).
+    // lands at the same `.claude/...` position regardless of which tier owns it.
     static func outputPath(forStorageDir storage: String, scope: ManagerScope = .base) -> String? {
         let root = scope.storageRoot
         let stripped: String
@@ -162,10 +161,10 @@ extension TemplateManagerModel {
         // `templates`/`components` guard Base's scan from dumping sibling-tier subtrees.
         if ["templates", "components", "template-images", "configs"].contains(first) { return nil }
         // A real `.claude/` store path (arbitrary loose files, or the `.claude` dir itself)
-        // already carries the prefix the output uses — map it straight back (#00084).
+        // already carries the prefix the output uses — map it straight back.
         if first == ".claude" { return stripped }
         // Typed loose namespaces are stored without the `.claude/` prefix but shown under
-        // it; the hoisted set is scope-aware and shared with `storageDir` (#00078/#00084).
+        // it; the hoisted set is scope-aware and shared with `storageDir`.
         if claudeHoistedTopLevel(for: scope).contains(first) { return ".claude/\(stripped)" }
         return stripped  // arbitrary store-root directory → project root
     }
@@ -242,7 +241,7 @@ extension TemplateManagerModel {
     // project configs are added by the caller (`showsConfigs(item)`) and Swift tooling
     // configs are component-owned, so neither belongs here despite the historical coupling.
     // Loose surfaces are read inside the scope's store root so a file belongs to one tier
-    // only (#00078).
+    // only.
     private func surfaceSpecs(
         scope: ManagerScope, showsCompositionSlots: Bool, hookFiles: [String] = [],
         claudeMdStorage: String? = nil
@@ -296,7 +295,7 @@ extension TemplateManagerModel {
     // A Shared Component's tree: its composition refs (layer → `.claude/CLAUDE.md`, hook
     // → `.claude/hooks/<name>.sh`, plus legacy skill/config memberships) followed by the
     // loose files it owns under `components/<id>/` — read through the same scoped
-    // surface machinery as Base/Templates, just without the project configs (#00078).
+    // surface machinery as Base/Templates, just without the project configs.
     private func componentLeafSpecs(_ component: SharedComponent) -> [LeafSpec] {
         let suppressed = overrides.suppressedRelativePaths()
         var specs: [LeafSpec] = []

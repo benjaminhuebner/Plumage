@@ -4,13 +4,13 @@ import Foundation
 // the bundled default). Lives under Application Support, never the Claude config
 // directory (CCI boundary stays intact).
 //
-// Overlay semantics (#00069): the stored arrays are upserts over the bundled
+// Overlay semantics: the stored arrays are upserts over the bundled
 // default — an entry whose id matches a bundled item overrides it, a new id adds
 // an item — and `tombstones` subtracts deleted predefined items. The resolved
 // catalog is `bundled-default` merged with this overlay (see `TemplateCatalog`).
 //
 // Forward-compat: unknown keys written by a newer Plumage are ignored on decode;
-// a missing `tombstones` key (a #00067-era manifest) decodes to no tombstones.
+// a missing `tombstones` key decodes to no tombstones.
 // A manifest that fails to decode is handled by the store (falls back to bundled).
 nonisolated struct TemplateManifest: Codable, Hashable, Sendable {
     static let currentSchemaVersion = 1

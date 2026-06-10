@@ -19,7 +19,7 @@ struct FileTreeView: View {
 // One row in the tree. Folders render as a hand-rolled chevron+button
 // disclosure with their children below; files render as an icon+label row
 // tagged with the projectFile route. The hand-rolled pattern is required —
-// see notes.md #00028: `DisclosureGroup` in `List(.sidebar)` loses its
+// `DisclosureGroup` in `List(.sidebar)` loses its
 // chevron and click-toggle whenever the label isn't a stock `Label`.
 struct FileTreeRow: View {
     let node: FileNode

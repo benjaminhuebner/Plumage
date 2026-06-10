@@ -163,10 +163,10 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
             ClaudeThemeInstaller.installIfNeeded()
         }
         // One-time, idempotent store migrations, in order: first move flat layer
-        // overrides to the folder-per-layer layout (#00071 D1) so saved layer edits keep
+        // overrides to the folder-per-layer layout so saved layer edits keep
         // applying, then rewrite legacy open-only layer blocks to the closed-marker
-        // format (#00082) so they still fill placeholders, then move user-authored
-        // component skills into scope ownership (#00078). All pure file I/O, in sequence.
+        // format so they still fill placeholders, then move user-authored
+        // component skills into scope ownership. All pure file I/O, in sequence.
         Task.detached(priority: .utility) {
             TemplateOverrideMigration.migrateStandard()
             TemplateLayerFormatMigration.migrateStandard()

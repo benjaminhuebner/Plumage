@@ -22,7 +22,7 @@ struct WelcomeView: View {
         // Scopes the "New Project… ⌘N" menu command to the focused Welcome scene.
         .focusedSceneValue(\.newProjectAvailable, true)
         // min == ideal == max: the Window scene clobbers styleMask overrides,
-        // and a hard width/height frame wedges XCUITest terminate (notes.md).
+        // and a hard width/height frame wedges XCUITest terminate.
         .frame(
             minWidth: Self.windowWidth, idealWidth: Self.windowWidth,
             maxWidth: Self.windowWidth,

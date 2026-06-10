@@ -4,7 +4,7 @@ import Testing
 @testable import Plumage
 
 // Authoring writes into the active tier's scope root, and only a hook still joins a
-// component's manifest membership (#00078).
+// component's manifest membership.
 @MainActor
 @Suite("TemplateManager scope-rooted authoring (#00078)")
 struct TemplateManagerScopeAddTests {

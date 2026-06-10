@@ -272,7 +272,7 @@ final class IssueDetailModel {
         let now = clock()
 
         // Sync read of a small TOML file — matches the established ConfigLoader-
-        // on-MainActor convention (notes.md 2026-05-12, RecentProjects pattern).
+        // on-MainActor convention.
         let defaultBranch = configLoader(projectURL)?.gitDefaultBranch ?? "main"
 
         let outcome: GitMergeOutcome

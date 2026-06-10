@@ -176,7 +176,7 @@ nonisolated extension TemplateCatalog {
 
     // Removes a typed file from a component's `files`. Used by the loose-file scope
     // migration to drop a legacy `.skill` membership once its folder has moved to the
-    // component's own subtree (#00078). A no-op for an unknown component or file.
+    // component's own subtree. A no-op for an unknown component or file.
     mutating func removeFile(fromComponentID componentID: String, kind: SharedComponentKind, fileName: String) {
         guard let index = sharedComponents.firstIndex(where: { $0.id == componentID }) else { return }
         sharedComponents[index].files.removeAll { $0.kind == kind && $0.name == fileName }

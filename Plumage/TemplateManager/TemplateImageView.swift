@@ -1,8 +1,8 @@
 import SwiftUI
 
 // One renderer for both `TemplateImage` cases: an SF Symbol, or an imported image
-// file resolved through the override store. Used by the sidebar (and, after #00070,
-// the New/Migrate grids) so a custom template's image shows everywhere.
+// file resolved through the override store. Used by the sidebar and the
+// New/Migrate grids so a custom template's image shows everywhere.
 struct TemplateImageView: View {
     let image: TemplateImage
     let resolve: (String) -> URL?

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Reduced Settings → Templates tab (#00070): an enable/disable list of the catalog's
+// Reduced Settings → Templates tab: an enable/disable list of the catalog's
 // templates plus the "Open Template Manager…" button. Authoring, editing, membership
 // and preview live in the Template Manager window now. A disabled template is hidden
 // from the New Project and Migrate grids but stays in the Manager, where it is

@@ -1,15 +1,15 @@
 import Foundation
 import SwiftUI
 
-// Reduced Settings → Templates model (#00070). Owns just the per-template enable/
+// Reduced Settings → Templates model. Owns just the per-template enable/
 // disable state of the resolved catalog; all authoring, editing, membership and
-// preview moved to the Template Manager window (#00067–#00069). State-as-bridge:
+// preview moved to the Template Manager window. State-as-bridge:
 // the catalog load and the enable persistence funnel through this @MainActor type.
 //
 // The `enabled` flag lives on the template's manifest record, so persistence reuses
 // the shared `TemplateCatalogStore`. To avoid clobbering a concurrent Template
 // Manager structural edit, each toggle reloads the catalog from disk before flipping
-// the single field and saving (the residual cross-window race is noted in notes.md).
+// the single field and saving.
 @MainActor
 @Observable
 final class TemplatesSettingsModel {

@@ -1,7 +1,7 @@
 import Foundation
 
-// One-time migration of the per-user override store to the folder-per-layer layout
-// (#00071 / decision D1): a flat layer override `templates/<layer>.md` moves to
+// One-time migration of the per-user override store to the folder-per-layer
+// layout: a flat layer override `templates/<layer>.md` moves to
 // `templates/<layer>/CLAUDE.md`, matching where the composer now reads it. Without
 // this, an upgrading user's saved layer edits would be silently ignored.
 //

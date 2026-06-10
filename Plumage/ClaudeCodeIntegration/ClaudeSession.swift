@@ -305,8 +305,8 @@ final class ClaudeSession {
         process.standardInput = FileHandle.nullDevice
 
         // Await exit via terminationHandler, not waitUntilExit() — the latter
-        // deadlocks on the Swift cooperative pool (#00057 root cause, #00058
-        // applies the fix here). Reuses ProcessRunning's ClaudeProcessTermination.
+        // deadlocks on the Swift cooperative pool. Reuses ProcessRunning's
+        // ClaudeProcessTermination.
         let termination = ClaudeProcessTermination()
         process.terminationHandler = { finished in
             termination.complete(finished.terminationStatus)
@@ -668,7 +668,7 @@ final class ClaudeSession {
     // teardown. NSLock serializes every read and write of `partial`, so
     // concurrent access is safe even though the compiler can't see it.
     // Removing the lock or relaxing the contract would re-introduce a
-    // silent data race on the partial-line buffer. See notes.md.
+    // silent data race on the partial-line buffer.
     //
     // Buffers raw bytes and splits on 0x0A before decoding: decoding whole
     // chunks drops the entire chunk when a multi-byte UTF-8 character spans

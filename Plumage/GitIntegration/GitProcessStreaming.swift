@@ -56,7 +56,7 @@ nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
         // hanging the subprocess (we detect the error pattern downstream).
         process.standardInput = FileHandle.nullDevice
 
-        // Same fix as ProductionGitProcessRunner (#00057): await exit via
+        // Same fix as ProductionGitProcessRunner: await exit via
         // terminationHandler, not Task.detached { waitUntilExit() }. The latter
         // spins a CFRunLoop on a cooperative-pool thread whose wakeup races with
         // Foundation's child-monitoring queue and is lost, hanging forever.

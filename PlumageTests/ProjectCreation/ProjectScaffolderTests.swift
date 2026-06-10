@@ -225,7 +225,7 @@ struct ProjectScaffolderTests {
             fm.fileExists(atPath: dir.appending(path: ".claude/skills/plumage-implement/SKILL.md").path))
     }
 
-    // #00070 reconciliation: the legacy `ScaffoldToggles` stays the artifact disable
+    // Reconciliation: the legacy `ScaffoldToggles` stays the artifact disable
     // carrier even though Settings no longer exposes per-hook toggles. A hook the user
     // disabled (persisted to scaffold-toggles.json) must stay absent — from the tree
     // and from settings.json — through the catalog-driven path.

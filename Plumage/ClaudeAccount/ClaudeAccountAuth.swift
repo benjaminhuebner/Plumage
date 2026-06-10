@@ -37,7 +37,7 @@ nonisolated struct ProductionKeychainReader: KeychainReading {
         // errSecItemNotFound for items written by another signed app (the
         // claude CLI) even though the item is visible to an existence-check.
         // Data-only avoids that path; we don't need the attributes for the
-        // OAuth-only payload. (#00031, notes.md 2026-05-20.)
+        // OAuth-only payload.
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,

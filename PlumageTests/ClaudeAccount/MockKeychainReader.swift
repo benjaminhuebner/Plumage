@@ -3,7 +3,7 @@ import Foundation
 @testable import Plumage
 
 // @unchecked Sendable: outcome mutated through NSLock; same rationale as
-// MockProcessRunner in CCI (decisions.md 2026-05-15 #00019).
+// MockProcessRunner in CCI.
 final class MockKeychainReader: KeychainReading, @unchecked Sendable {
     enum Outcome: Sendable {
         case token(OAuthToken)

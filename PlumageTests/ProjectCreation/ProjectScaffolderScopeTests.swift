@@ -5,7 +5,7 @@ import Testing
 
 // Scaffolding composes loose files from Base ∪ template ∪ member components, with the
 // most-specific scope winning a clash — so a file authored in one tier reaches only the
-// projects that own it (#00078).
+// projects that own it.
 @Suite("ProjectScaffolder scope composition (#00078)")
 struct ProjectScaffolderScopeTests {
     private func makeOverrideRoot() -> URL {
@@ -85,7 +85,7 @@ struct ProjectScaffolderScopeTests {
         let ov = makeOverrideRoot()
         defer { try? FileManager.default.removeItem(at: ov) }
         // `t.md`: base vs template — template wins. `c.md`: base/component/template — the
-        // template wins over the member component now (#00084 flips #00078's rule).
+        // template wins over the member component now.
         try write("BASE-T", to: ov, rel: "docs/t.md")
         try write("MAC-T", to: ov, rel: "templates/macOS/docs/t.md")
         try write("BASE-C", to: ov, rel: "docs/c.md")

@@ -79,7 +79,7 @@ final class XcodeRunModel {
 
         discoveryState = .discovering
         // Task.detached for synchronous Disk-I/O off MainActor — same pattern
-        // as ProjectModel.reload (see notes.md 2026-05-13, #00004). `Task { }`
+        // as ProjectModel.reload. `Task { }`
         // without detach would keep findAll on MainActor because the helper
         // is sync nonisolated.
         let projects = await Task.detached(priority: .userInitiated) {

@@ -1,8 +1,8 @@
 import Foundation
 
-// Without this, upgraders' chat sessions silently start fresh: chat-id lived at
-// `<root>/.plumage/sessions/chat-id` before #00076, state now lives in the
-// bundle. terminal-id is intentionally not migrated — already ephemeral (#00037).
+// Without this, upgraders' chat sessions silently start fresh: chat-id used
+// to live at `<root>/.plumage/sessions/chat-id`, state now lives in the
+// bundle. terminal-id is intentionally not migrated — already ephemeral.
 nonisolated enum LegacySessionStateMigration {
     static func migrate(root: URL, bundle: URL) {
         // Resolution can fall back to the root itself; nothing to migrate then.

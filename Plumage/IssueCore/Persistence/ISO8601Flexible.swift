@@ -4,8 +4,8 @@ import Foundation
 //
 // ISO8601DateFormatter is NOT documented by Apple as thread-safe — the
 // reentrancy guarantee covers DateFormatter, not this subclass. After repeated
-// cached-formatter rollbacks (notes.md 2026-05-13 / 2026-05-14) the project
-// standardized on per-call construction: the allocation is negligible against
+// cached-formatter rollbacks the project standardized on per-call
+// construction: the allocation is negligible against
 // the surrounding YAML/JSON decode, and it sidesteps the data race a shared
 // `nonisolated(unsafe)` instance would expose under concurrent Task.detached
 // parses. One home for the primary/fallback pair that was duplicated across

@@ -365,8 +365,7 @@ nonisolated public enum DiffParser {
 
     // Per-line tokenisation. Multi-line constructs (multi-line strings, nested
     // comments) are intentionally not stitched across diff lines — the start
-    // state resets to `.tokenisingCode` per call. Acceptable for diff fragments;
-    // documented in notes.md.
+    // state resets to `.tokenisingCode` per call. Acceptable for diff fragments.
     private static func tokenise(
         _ content: String,
         with tokeniser: LanguageConfiguration.Tokeniser?

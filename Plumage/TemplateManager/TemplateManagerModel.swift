@@ -206,7 +206,7 @@ final class TemplateManagerModel {
     }
 
     // The override-store path of any tree node: a file leaf already carries it; a folder
-    // carries its *output* path, so it is mapped back through the active scope (#00078).
+    // carries its *output* path, so it is mapped back through the active scope.
     func nodeStorePath(_ node: FileNode) -> String {
         node.isDirectory
             ? Self.storageDir(forOutputFolder: node.relativePath, scope: activeScope)
@@ -518,7 +518,7 @@ final class TemplateManagerModel {
             let joinsComponentAsHook =
                 !plan.isDirectory && !plan.isSkill && ["sh", "py"].contains(droppedExtension)
                 && membershipComponentID(forKind: .hook) != nil
-            // A skill is a scope-owned loose folder under `<root>/skills` (#00078); a hook
+            // A skill is a scope-owned loose folder under `<root>/skills`; a hook
             // joining a component stays global; everything else uses the scoped target dir.
             let directory: String
             if joinsComponentAsHook {
@@ -740,8 +740,8 @@ final class TemplateManagerModel {
 
     // The kinds the user can author — available in every selection, since the content
     // tree is a file manager for Base, Templates and Shared Components alike. Loose
-    // kinds (doc/agent/skill/file/folder) are owned by the active tier's subtree
-    // (#00078); a `.hook` is the one composition asset and joins the selected
+    // kinds (doc/agent/skill/file/folder) are owned by the active tier's
+    // subtree; a `.hook` is the one composition asset and joins the selected
     // component's membership instead of being scope-owned.
     var addableKinds: [UserTemplateKind] {
         [.hook, .skill, .doc, .agent, .file, .folder]
@@ -768,7 +768,7 @@ final class TemplateManagerModel {
         return id
     }
 
-    // The tier that owns loose files authored in the current selection (#00078).
+    // The tier that owns loose files authored in the current selection.
     var activeScope: ManagerScope { selection.map(ManagerScope.scope(for:)) ?? .base }
 
     private func registerMembership(
@@ -782,7 +782,7 @@ final class TemplateManagerModel {
 
     // The override-store directory a new/dropped item lands in: the given node (a
     // dropped-on row) or the current selection — a folder targets itself, a file its
-    // parent, and nothing selected the active tier's scope root (#00078). A file leaf's
+    // parent, and nothing selected the active tier's scope root. A file leaf's
     // `relativePath` is already a scoped store path; a folder's is an output path mapped
     // back through the active scope. A selected node *outside* the active scope subtree
     // (e.g. a component's layer `CLAUDE.md` under `templates/<layer>`, or a global

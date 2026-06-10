@@ -11,10 +11,9 @@ actor ClaudeUsageClient {
     // The CLI OAuth token is accepted at api.anthropic.com with a Bearer
     // header plus the `anthropic-version` API-version header. The
     // `/api/oauth/usage` endpoint returns per-window utilization without
-    // requiring an organization-ID lookup. Discovered empirically on
-    // 2026-05-20 (#00031, notes.md); the claude.ai/api/organizations/{id}/usage
-    // endpoint the original spec referenced rejects this token with 403
-    // account_session_invalid.
+    // requiring an organization-ID lookup. Discovered empirically; the
+    // claude.ai/api/organizations/{id}/usage endpoint the original spec
+    // referenced rejects this token with 403 account_session_invalid.
     static let usageEndpointString = "https://api.anthropic.com/api/oauth/usage"
     static let usageEndpoint: URL = {
         guard let url = URL(string: usageEndpointString) else {
@@ -31,7 +30,6 @@ actor ClaudeUsageClient {
     // item's ACL and silently drops Plumage's "Always Allow" grant — so reading
     // on every poll re-prompts the user after each refresh. Hence caching it.
     // In-memory only: persisting a copy would be "own credential handling"
-    // (decisions.md 2026-05-20 #00031).
     private var cachedToken: OAuthToken?
 
     init(

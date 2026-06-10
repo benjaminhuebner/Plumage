@@ -5,7 +5,7 @@ import os
 // and rewrites `config.name` so the display name and the folder stay in sync.
 // The project root (the user's git working dir) is deliberately left alone —
 // renaming it would break window identity, the subprocess cwd, the Recents URL
-// and the per-cwd Claude session-log key (#00077).
+// and the per-cwd Claude session-log key.
 //
 // nonisolated + static-throws, mirroring IssueArchiver / ConfigWriter: the
 // caller offloads it off the main actor.
@@ -31,7 +31,7 @@ nonisolated enum ProjectRenamer {
     // the move back so disk is never left half-renamed. Returns the new bundle
     // URL. No-op move when the folder is already named `<newName>.plumage`
     // (still rewrites config.name to repair a Finder-renamed bundle whose
-    // config.name drifted — the #00010 legacy case).
+    // config.name drifted — the legacy case).
     @discardableResult
     static func rename(projectRoot: URL, newName: String) throws -> URL {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)

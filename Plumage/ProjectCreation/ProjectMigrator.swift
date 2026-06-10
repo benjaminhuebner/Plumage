@@ -209,7 +209,7 @@ nonisolated struct ProjectMigrator {
     }
 
     // Reproduce the user's hand-built loose tree (files outside the typed/composition
-    // namespaces) at their project-relative positions, additively (#00078).
+    // namespaces) at their project-relative positions, additively.
     private func writeArbitraryFiles(spec: NewProjectSpec, root: URL, into report: inout Report) throws {
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
         for (output, variants) in overrides.composedArbitraryFileVariants(roots: roots) {
@@ -232,7 +232,7 @@ nonisolated struct ProjectMigrator {
     }
 
     // Agents parity with the scaffolder, additive: each enabled user agent (composed
-    // across the template's loose roots, #00078) is written only if it isn't already
+    // across the template's loose roots) is written only if it isn't already
     // present in the target's `.claude/agents/`.
     private func writeAgents(templateID: String, claude: URL, into report: inout Report) throws {
         let composed = overrides.composedLooseFileVariants(
