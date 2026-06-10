@@ -88,6 +88,9 @@ struct WelcomeView: View {
         // Intentional: nudges the icon/title/action block slightly above true
         // center for optical balance against the empty bottom of the pane.
         .padding(.bottom, 24)
+        // Opaque over the window's material: like Xcode's welcome panel,
+        // only the recents side shows behind-window blur.
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var rightPane: some View {
