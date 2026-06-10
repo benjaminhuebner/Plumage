@@ -3,8 +3,10 @@ import Testing
 
 @testable import Plumage
 
+// No .serialized: every test builds its own session + per-test temp store
+// (makeSession), so there is no shared state to serialize over.
 @MainActor
-@Suite("ClaudeSession state machine", .serialized)
+@Suite("ClaudeSession state machine")
 struct ClaudeSessionTests {
     @Test("starts in .idle")
     func initialState() {

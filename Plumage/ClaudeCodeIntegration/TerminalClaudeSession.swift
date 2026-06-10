@@ -199,15 +199,19 @@ final class TerminalClaudeSession {
     func injectCommands(
         _ lines: [String],
         timeout: Duration = .seconds(5),
-        // Test seam: the gap floors at 800 ms, so without an override every
-        // injectCommands test pays a real ~second of sleep.
-        bodyDelay: Duration? = nil
+        // Test seams: the gap floors at 800 ms, so without an override every
+        // injectCommands test pays a real ~second of sleep; the injectable
+        // clock lets a ManualClock test pin the bodyDelay>0 path itself.
+        bodyDelay: Duration? = nil,
+        clock: any Clock<Duration> = ContinuousClock()
     ) async -> InjectResult {
         let payloads = lines.flatMap { line -> [String] in
             [line.replacingOccurrences(of: "\r", with: ""), "\r"]
         }
         return await injectLines(
-            payloads, timeout: timeout, bodyDelay: bodyDelay ?? Self.injectBodyDelay(for: payloads))
+            payloads, timeout: timeout,
+            bodyDelay: bodyDelay ?? Self.injectBodyDelay(for: payloads),
+            clock: clock)
     }
 
     // Enqueue every entry in `lines` in order, with a single wait-for-running
@@ -219,7 +223,8 @@ final class TerminalClaudeSession {
     private func injectLines(
         _ lines: [String],
         timeout: Duration = .seconds(5),
-        bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor
+        bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor,
+        clock: any Clock<Duration> = ContinuousClock()
     ) async -> InjectResult {
         guard !lines.isEmpty else { return .injected }
         _ = consumePending()
@@ -235,7 +240,7 @@ final class TerminalClaudeSession {
 
         for (index, line) in lines.enumerated() {
             if index > 0 {
-                try? await Task.sleep(for: bodyDelay)
+                try? await clock.sleep(for: bodyDelay)
                 if Task.isCancelled { return .cancelled }
                 if case .exited = state { return .sessionExited }
             }
