@@ -4,6 +4,9 @@ import Foundation
 // MCP opt-ins don't belong in a generated, shared project.
 nonisolated struct SettingsComposer {
     var catalog: TemplateCatalog = .bundledDefault
+    // Resolves the template's scope-owned user hooks. The default carries no override
+    // store, so user wirings only land when a caller passes its real store.
+    var overrides: ScaffoldOverrides = ScaffoldOverrides()
 
     // Canonical hook wiring. Order within an event is intentional: Bash safety
     // hooks before content scans; format before lint.
@@ -50,10 +53,13 @@ nonisolated struct SettingsComposer {
                     hooks: [.init(command: Self.command(forFileName: "\(wiring.name).sh"))]))
         }
 
-        // User wirings: not gated by the kind profile (they fire in every project),
-        // only by the hooks toggle. Appended after the built-ins per event. The wiring
-        // carries the real filename so a `.py` hook points at `…/hooks/<name>.py`.
-        for wiring in userWirings where toggles.isEnabled(.hooks, wiring.name) {
+        // User wirings: gated by the template's scope-owned user hooks (directory =
+        // membership) and the hooks toggle. Appended after the built-ins per event. The
+        // wiring carries the real filename so a `.py` hook points at `…/hooks/<name>.py`.
+        let userHookBases = Set(
+            catalog.effectiveUserHooks(forTemplate: templateID, overrides: overrides).map(\.base))
+        for wiring in userWirings
+        where userHookBases.contains(wiring.name) && toggles.isEnabled(.hooks, wiring.name) {
             groupsByEvent[wiring.event, default: []].append(
                 Settings.HookGroup(
                     matcher: wiring.matcher,
@@ -70,6 +76,29 @@ nonisolated struct SettingsComposer {
 
     func localSettingsJSON() -> Data {
         Data("{}\n".utf8)
+    }
+
+    // The hooks-only settings fragment one tier contributes — the manager's per-tier
+    // read-only preview. Built-ins resolve through the static wirings table.
+    func tierHooksJSON(builtinNames: [String], userWirings: [HookWiring]) throws -> Data {
+        var groupsByEvent: [HookEvent: [Settings.HookGroup]] = [:]
+        let selected = Set(builtinNames)
+        for wiring in Self.wirings where selected.contains(wiring.name) {
+            guard let event = HookEvent(rawValue: wiring.event) else { continue }
+            groupsByEvent[event, default: []].append(
+                Settings.HookGroup(
+                    matcher: wiring.matcher,
+                    hooks: [.init(command: Self.command(forFileName: "\(wiring.name).sh"))]))
+        }
+        for wiring in userWirings {
+            groupsByEvent[wiring.event, default: []].append(
+                Settings.HookGroup(
+                    matcher: wiring.matcher,
+                    hooks: [.init(command: Self.command(forFileName: wiring.fileName))]))
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(HooksOnly(hooks: Settings.Hooks(groupsByEvent: groupsByEvent)))
     }
 
     func write(
@@ -111,6 +140,10 @@ nonisolated struct SettingsComposer {
     private static func command(forFileName fileName: String) -> String {
         "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/\(fileName)"
     }
+}
+
+private nonisolated struct HooksOnly: Encodable {
+    let hooks: Settings.Hooks
 }
 
 private nonisolated struct Settings: Encodable {

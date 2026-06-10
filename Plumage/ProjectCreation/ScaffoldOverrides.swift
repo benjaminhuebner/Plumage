@@ -468,6 +468,54 @@ nonisolated struct ScaffoldOverrides: Sendable {
         return winner.keys.sorted().compactMap { name in winner[name].map { (name, $0) } }
     }
 
+    // User hooks are scope-owned: `hooks/` (Base), `components/<id>/hooks/`,
+    // `templates/<id>/hooks/`. A base file whose stem matches a bundled hook is a
+    // content override of a built-in, not a user hook. Later roots win a stem clash.
+    func scopedUserHookFiles(roots: [String]) -> [(base: String, relativePath: String)] {
+        let bundledStems = Set(
+            Self.regularFileNames(in: bundledRoot.appending(path: "hooks", directoryHint: .isDirectory))
+                .map { ($0 as NSString).deletingPathExtension })
+        var pathByBase: [String: String] = [:]
+        var order: [String] = []
+        for root in roots {
+            let dir = root.isEmpty ? "hooks" : "\(root)/hooks"
+            for file in overrideFileNames(inRelativeDir: dir) {
+                let base = (file as NSString).deletingPathExtension
+                if root.isEmpty, bundledStems.contains(base) { continue }
+                if pathByBase[base] == nil { order.append(base) }
+                pathByBase[base] = "\(dir)/\(file)"
+            }
+        }
+        return order.compactMap { base in pathByBase[base].map { (base, $0) } }
+    }
+
+    // One hook name maps to one file and one wiring, so a new hook's stem must be
+    // free across every scope hook dir and the bundled built-ins — not just its tier.
+    func allScopeHookStems() -> Set<String> {
+        var dirs = ["hooks"]
+        if let overrideRoot {
+            for parent in ["components", "templates"] {
+                let parentURL = overrideRoot.appending(path: parent, directoryHint: .isDirectory)
+                let subs =
+                    (try? FileManager.default.contentsOfDirectory(
+                        at: parentURL, includingPropertiesForKeys: [.isDirectoryKey],
+                        options: [.skipsHiddenFiles])) ?? []
+                for sub in subs
+                where (try? sub.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    dirs.append("\(parent)/\(sub.lastPathComponent)/hooks")
+                }
+            }
+        }
+        var stems = Set(
+            Self.regularFileNames(in: bundledRoot.appending(path: "hooks", directoryHint: .isDirectory))
+                .map { ($0 as NSString).deletingPathExtension })
+        for dir in dirs {
+            stems.formUnion(
+                overrideFileNames(inRelativeDir: dir).map { ($0 as NSString).deletingPathExtension })
+        }
+        return stems
+    }
+
     // MARK: - Resolved tree copy (shared by scaffolder + migrator)
 
     static let bundledSkillNames = ["plumage-plan", "plumage-implement", "plumage-review"]

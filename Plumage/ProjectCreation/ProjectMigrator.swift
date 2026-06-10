@@ -88,22 +88,23 @@ nonisolated struct ProjectMigrator {
         self.catalog = catalog
     }
 
-    // The bundled-or-user hooks enabled for a template, as (base name, real filename)
-    // pairs. Built-ins resolve to `<base>.sh`; a user override hook keeps its real
-    // extension (e.g. `.py`). The toggle key stays the base name — built-ins toggle by
-    // base — so recognition is extension-agnostic while identity is unchanged.
-    private func enabledHookFiles(forTemplate templateID: String) -> [(base: String, fileName: String)] {
+    // The hooks enabled for a template, as (base name, store path) pairs: built-ins
+    // (a content override wins by stem, carrying its extension) plus the template's
+    // scope-owned user hooks. The toggle key stays the base name.
+    private func enabledHookFiles(forTemplate templateID: String) -> [(base: String, relativePath: String)] {
         let effective = catalog.effectiveHooks(forTemplate: templateID)
-        var fileByBase: [String: String] = [:]
-        for base in effective { fileByBase[base] = "\(base).sh" }
-        var userBases: [String] = []
+        var pathByBase: [String: String] = [:]
+        for base in effective { pathByBase[base] = "hooks/\(base).sh" }
         for file in overrides.overrideFileNames(inRelativeDir: "hooks") {
             let base = (file as NSString).deletingPathExtension
-            if fileByBase[base] == nil { userBases.append(base) }
-            fileByBase[base] = file  // the real override file wins, carrying its extension
+            if pathByBase[base] != nil { pathByBase[base] = "hooks/\(file)" }
         }
-        return toggles.enabledNames(in: .hooks, from: effective + userBases)
-            .map { ($0, fileByBase[$0] ?? "\($0).sh") }
+        let effectiveSet = Set(effective)
+        let userHooks = catalog.effectiveUserHooks(forTemplate: templateID, overrides: overrides)
+            .filter { !effectiveSet.contains($0.base) }
+        for hook in userHooks { pathByBase[hook.base] = hook.relativePath }
+        return toggles.enabledNames(in: .hooks, from: effective + userHooks.map(\.base))
+            .map { ($0, pathByBase[$0] ?? "hooks/\($0).sh") }
     }
 
     private var fileManager: FileManager { .default }
@@ -224,10 +225,11 @@ nonisolated struct ProjectMigrator {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
         for hook in enabledHookFiles(forTemplate: spec.templateID) {
+            let fileName = (hook.relativePath as NSString).lastPathComponent
             try copyIfMissing(
-                from: overrides.url(forRelative: "hooks/\(hook.fileName)"),
-                to: hooksDir.appending(path: hook.fileName),
-                rel: ".claude/hooks/\(hook.fileName)", executable: true, into: &report)
+                from: overrides.url(forRelative: hook.relativePath),
+                to: hooksDir.appending(path: fileName),
+                rel: ".claude/hooks/\(fileName)", executable: true, into: &report)
         }
     }
 
@@ -250,16 +252,31 @@ nonisolated struct ProjectMigrator {
     }
 
     private func writeSettings(templateID: String, claude: URL, into report: inout Report) throws {
-        let composer = SettingsComposer(catalog: catalog)
+        let composer = SettingsComposer(catalog: catalog, overrides: overrides)
         // A user override wins over generation (B2), same as the scaffolder.
         let settingsData = try overrides.resolvedConfigData(forRelative: ".claude/settings.json") {
             try composer.settingsJSON(
                 forTemplate: templateID, toggles: toggles, userWirings: hookWirings)
         }
-        try writeIfMissing(
-            settingsData,
-            to: claude.appending(path: "settings.json"),
-            rel: ".claude/settings.json", into: &report)
+        let dest = claude.appending(path: "settings.json")
+        if fileManager.fileExists(atPath: dest.path) {
+            // A present settings.json takes a structured merge of the missing hook
+            // groups instead of being skipped wholesale.
+            switch SettingsHookMerge.merge(existing: try Data(contentsOf: dest), generated: settingsData) {
+            case .unchanged:
+                report.skipped.append(".claude/settings.json")
+            case .merged(let merged, let addedCommands):
+                try merged.write(to: dest, options: .atomic)
+                report.added += addedCommands.map {
+                    ".claude/settings.json (hook: \(($0 as NSString).lastPathComponent))"
+                }
+            case .unparseable:
+                report.skipped.append(".claude/settings.json (unparseable)")
+            }
+        } else {
+            try settingsData.write(to: dest, options: .atomic)
+            report.added.append(".claude/settings.json")
+        }
         try writeIfMissing(
             composer.localSettingsJSON(), to: claude.appending(path: "settings.local.json"),
             rel: ".claude/settings.local.json", into: &report)

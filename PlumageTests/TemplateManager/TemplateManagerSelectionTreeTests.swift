@@ -125,19 +125,19 @@ struct TemplateManagerSelectionTreeTests {
         #expect(!ctx.model.aggregateNeedsWiring(hooksFolder))
     }
 
-    @Test("Adding a hook while a hook component is selected joins it and shows under .claude/hooks")
-    func addHookJoinsComponent() throws {
+    @Test("Adding a hook while a hook component is selected scopes it and shows under .claude/hooks")
+    func addHookScopesToComponent() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
         ctx.model.selection = .sharedComponent("swift-shared")
         ctx.model.refreshContent()
 
         let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-extra-hook"))
-        #expect(node.relativePath == "hooks/my-extra-hook.sh")
-        // It is now part of the component's hook membership…
+        #expect(node.relativePath == "components/swift-shared/hooks/my-extra-hook.sh")
+        // It is scope-owned, not a manifest membership…
         #expect(
             ctx.model.catalog.sharedComponent(id: "swift-shared")?
-                .files(ofKind: .hook).contains("my-extra-hook") == true)
+                .files(ofKind: .hook).contains("my-extra-hook") == false)
         // …and shows under .claude/hooks in the component tree.
         #expect(find(ctx.model.contentTree, [".claude", "hooks", "my-extra-hook.sh"]) != nil)
     }

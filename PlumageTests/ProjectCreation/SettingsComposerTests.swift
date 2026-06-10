@@ -114,12 +114,36 @@ struct SettingsComposerTests {
         (obj["hooks"] as? [String: Any])?[event] as? [[String: Any]]
     }
 
-    @Test("A user wiring lands under its event with its matcher and command")
+    // A composer over a real override store seeded with the given hook files, so the
+    // scope-owned user-hook scan finds them.
+    private func storeComposer(
+        hookFiles: [String]
+    ) throws -> (
+        composer: SettingsComposer, cleanup: () -> Void
+    ) {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "SettingsComposer-\(UUID().uuidString)", directoryHint: .isDirectory)
+        for rel in hookFiles {
+            let url = root.appending(path: rel)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "#!/bin/sh\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+        let overrides = ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: root)
+        return (
+            SettingsComposer(overrides: overrides),
+            { try? FileManager.default.removeItem(at: root) }
+        )
+    }
+
+    @Test("A Base user wiring lands under its event with its matcher and command")
     func userWiringWired() throws {
+        let ctx = try storeComposer(hookFiles: ["hooks/my-hook.sh"])
+        defer { ctx.cleanup() }
         let wiring = HookWiring(name: "my-hook", event: .preToolUse, matcher: "Edit|Write")
         let obj = try #require(
             try JSONSerialization.jsonObject(
-                with: composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
+                with: ctx.composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
         #expect(try hookNames(obj).contains("my-hook"))
         let preGroups = try #require(groups(obj, event: "PreToolUse"))
         let mine = preGroups.first { group in
@@ -132,11 +156,13 @@ struct SettingsComposerTests {
 
     @Test("A .py user wiring points its command at the .py file")
     func pythonUserWiringCommand() throws {
+        let ctx = try storeComposer(hookFiles: ["hooks/my-hook.py"])
+        defer { ctx.cleanup() }
         let wiring = HookWiring(
             name: "my-hook", event: .preToolUse, matcher: "Edit", fileName: "my-hook.py")
         let obj = try #require(
             try JSONSerialization.jsonObject(
-                with: composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
+                with: ctx.composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
         let preGroups = try #require(groups(obj, event: "PreToolUse"))
         let commands = preGroups.flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }
             .compactMap { $0["command"] as? String }
@@ -144,13 +170,15 @@ struct SettingsComposerTests {
         #expect(!commands.contains { $0.hasSuffix("my-hook.sh") })
     }
 
-    @Test("A user hook fires regardless of the kind profile")
-    func userHookIgnoresProfile() throws {
+    @Test("A Base user hook fires regardless of the kind profile")
+    func baseUserHookIgnoresProfile() throws {
+        let ctx = try storeComposer(hookFiles: ["hooks/my-hook.sh"])
+        defer { ctx.cleanup() }
         let wiring = HookWiring(name: "my-hook", event: .stop)
         let obj = try #require(
             try JSONSerialization.jsonObject(
-                with: composer.settingsJSON(for: .other, userWirings: [wiring])) as? [String: Any])
-        // .other carries no Swift hooks, but the user hook still appears under Stop.
+                with: ctx.composer.settingsJSON(for: .other, userWirings: [wiring])) as? [String: Any])
+        // .other carries no Swift hooks, but the Base user hook still appears under Stop.
         let stopGroups = try #require(groups(obj, event: "Stop"))
         #expect(!stopGroups.isEmpty)
         #expect(stopGroups.first?["matcher"] == nil)  // no-matcher event → null/absent
@@ -158,13 +186,60 @@ struct SettingsComposerTests {
 
     @Test("A disabled user hook is not wired")
     func disabledUserHookNotWired() throws {
+        let ctx = try storeComposer(hookFiles: ["hooks/my-hook.sh"])
+        defer { ctx.cleanup() }
         var toggles = ScaffoldToggles()
         toggles.setEnabled(.hooks, "my-hook", false)
         let wiring = HookWiring(name: "my-hook", event: .preToolUse, matcher: "Bash")
         let obj = try #require(
             try JSONSerialization.jsonObject(
-                with: composer.settingsJSON(for: .macOS, toggles: toggles, userWirings: [wiring]))
+                with: ctx.composer.settingsJSON(for: .macOS, toggles: toggles, userWirings: [wiring]))
                 as? [String: Any])
         #expect(!(try hookNames(obj).contains("my-hook")))
+    }
+
+    @Test("A component hook is wired for member templates only")
+    func componentHookMembersOnly() throws {
+        let ctx = try storeComposer(hookFiles: ["components/swift-shared/hooks/comp-hook.sh"])
+        defer { ctx.cleanup() }
+        let wiring = HookWiring(name: "comp-hook", event: .stop)
+
+        let member = try #require(
+            try JSONSerialization.jsonObject(
+                with: ctx.composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
+        #expect(try hookNames(member).contains("comp-hook"))
+
+        let nonMember = try #require(
+            try JSONSerialization.jsonObject(
+                with: ctx.composer.settingsJSON(for: .other, userWirings: [wiring])) as? [String: Any])
+        #expect(!(try hookNames(nonMember).contains("comp-hook")))
+    }
+
+    @Test("A template hook is wired for that template only")
+    func templateHookOwnTemplateOnly() throws {
+        let ctx = try storeComposer(hookFiles: ["templates/macOS/hooks/tmpl-hook.sh"])
+        defer { ctx.cleanup() }
+        let wiring = HookWiring(name: "tmpl-hook", event: .stop)
+
+        let own = try #require(
+            try JSONSerialization.jsonObject(
+                with: ctx.composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
+        #expect(try hookNames(own).contains("tmpl-hook"))
+
+        let sibling = try #require(
+            try JSONSerialization.jsonObject(
+                with: ctx.composer.settingsJSON(for: .iOS, userWirings: [wiring])) as? [String: Any])
+        #expect(!(try hookNames(sibling).contains("tmpl-hook")))
+    }
+
+    @Test("A wiring without a matching hook file anywhere is not wired")
+    func orphanWiringNotWired() throws {
+        let ctx = try storeComposer(hookFiles: [])
+        defer { ctx.cleanup() }
+        let wiring = HookWiring(name: "ghost", event: .stop)
+        let obj = try #require(
+            try JSONSerialization.jsonObject(
+                with: ctx.composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
+        #expect(!(try hookNames(obj).contains("ghost")))
     }
 }

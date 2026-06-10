@@ -16,4 +16,13 @@ nonisolated extension TemplateCatalog {
         roots.append("templates/\(templateID)")
         return roots
     }
+
+    // The user hooks a project built from `templateID` carries, resolved from the
+    // scope hook dirs (directory = truth, no manifest membership). Built-in hooks
+    // stay `effectiveHooks(forTemplate:)`.
+    func effectiveUserHooks(
+        forTemplate templateID: String, overrides: ScaffoldOverrides
+    ) -> [(base: String, relativePath: String)] {
+        overrides.scopedUserHookFiles(roots: looseSurfaceRoots(forTemplate: templateID))
+    }
 }

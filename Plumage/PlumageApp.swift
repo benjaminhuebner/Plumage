@@ -166,11 +166,12 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         // overrides to the folder-per-layer layout so saved layer edits keep
         // applying, then rewrite legacy open-only layer blocks to the closed-marker
         // format so they still fill placeholders, then move user-authored
-        // component skills into scope ownership. All pure file I/O, in sequence.
+        // component skills and hooks into scope ownership. All pure file I/O, in sequence.
         Task.detached(priority: .utility) {
             TemplateOverrideMigration.migrateStandard()
             TemplateLayerFormatMigration.migrateStandard()
             LooseFileScopeMigration.migrateStandard()
+            HookScopeMigration.migrateStandard()
         }
     }
 }

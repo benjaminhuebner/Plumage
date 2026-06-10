@@ -22,10 +22,10 @@ struct ProjectScaffolderScopeTests {
         try body.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private func scaffolder(overrideRoot: URL) -> ProjectScaffolder {
+    private func scaffolder(overrideRoot: URL, wirings: [HookWiring] = []) -> ProjectScaffolder {
         ProjectScaffolder(
             assetsRoot: RepoAssets.root, overrideRoot: overrideRoot,
-            toggles: ScaffoldToggles(), hookWirings: [],
+            toggles: ScaffoldToggles(), hookWirings: wirings,
             configCreator: ProjectConfigCreator(createdWithPlumageVersion: "9.9.9"),
             gitInitRunner: GitInitRunner())
     }
@@ -35,9 +35,11 @@ struct ProjectScaffolderScopeTests {
             path: "ScopeProj-\(UUID().uuidString)/App", directoryHint: .isDirectory)
     }
 
-    private func create(_ kind: ProjectKind, overrideRoot: URL) async throws -> URL {
+    private func create(
+        _ kind: ProjectKind, overrideRoot: URL, wirings: [HookWiring] = []
+    ) async throws -> URL {
         let dir = projectDir()
-        _ = try await scaffolder(overrideRoot: overrideRoot).create(
+        _ = try await scaffolder(overrideRoot: overrideRoot, wirings: wirings).create(
             spec: NewProjectSpec(kind: kind, name: "App", tagline: "tl", projectDirectory: dir))
         return dir
     }
@@ -144,6 +146,59 @@ struct ProjectScaffolderScopeTests {
         // Template-scoped `.claude/` reaches only its own template's projects.
         #expect(fm.fileExists(atPath: macDir.appending(path: ".claude/tmac.md").path))
         #expect(!fm.fileExists(atPath: otherDir.appending(path: ".claude/tmac.md").path))
+    }
+
+    @Test("A component-owned hook lands as file and settings entry in member projects only")
+    func componentHookReachesMembersOnly() async throws {
+        let ov = makeOverrideRoot()
+        defer { try? FileManager.default.removeItem(at: ov) }
+        try write("#!/bin/sh\n", to: ov, rel: "components/swift-shared/hooks/comp-hook.sh")
+        let wirings = [HookWiring(name: "comp-hook", event: .stop)]
+
+        let macDir = try await create(.macOS, overrideRoot: ov, wirings: wirings)
+        let otherDir = try await create(.other, overrideRoot: ov, wirings: wirings)
+        defer {
+            try? FileManager.default.removeItem(at: macDir.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: otherDir.deletingLastPathComponent())
+        }
+        let fm = FileManager.default
+        #expect(fm.fileExists(atPath: macDir.appending(path: ".claude/hooks/comp-hook.sh").path))
+        #expect(!fm.fileExists(atPath: otherDir.appending(path: ".claude/hooks/comp-hook.sh").path))
+        let macSettings = try String(
+            contentsOf: macDir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        let otherSettings = try String(
+            contentsOf: otherDir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(macSettings.contains("comp-hook.sh"))
+        #expect(!otherSettings.contains("comp-hook.sh"))
+    }
+
+    @Test("A template-owned hook lands as file and settings entry in its own projects only")
+    func templateHookReachesOwnProjectsOnly() async throws {
+        let ov = makeOverrideRoot()
+        defer { try? FileManager.default.removeItem(at: ov) }
+        try write("#!/bin/sh\n", to: ov, rel: "templates/macOS/hooks/tmpl-hook.sh")
+        try write("#!/bin/sh\n", to: ov, rel: "hooks/base-hook.sh")
+        let wirings = [
+            HookWiring(name: "tmpl-hook", event: .stop),
+            HookWiring(name: "base-hook", event: .stop),
+        ]
+
+        let macDir = try await create(.macOS, overrideRoot: ov, wirings: wirings)
+        let iosDir = try await create(.iOS, overrideRoot: ov, wirings: wirings)
+        defer {
+            try? FileManager.default.removeItem(at: macDir.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: iosDir.deletingLastPathComponent())
+        }
+        let fm = FileManager.default
+        #expect(fm.fileExists(atPath: macDir.appending(path: ".claude/hooks/tmpl-hook.sh").path))
+        #expect(!fm.fileExists(atPath: iosDir.appending(path: ".claude/hooks/tmpl-hook.sh").path))
+        // The Base hook keeps firing everywhere.
+        #expect(fm.fileExists(atPath: macDir.appending(path: ".claude/hooks/base-hook.sh").path))
+        #expect(fm.fileExists(atPath: iosDir.appending(path: ".claude/hooks/base-hook.sh").path))
+        let iosSettings = try String(
+            contentsOf: iosDir.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(!iosSettings.contains("tmpl-hook.sh"))
+        #expect(iosSettings.contains("base-hook.sh"))
     }
 
     @Test("A component-owned skill scaffolds into member projects only")

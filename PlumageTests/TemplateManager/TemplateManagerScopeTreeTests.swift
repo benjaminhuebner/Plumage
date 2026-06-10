@@ -115,12 +115,12 @@ struct TemplateManagerScopeTreeTests {
         }
     }
 
-    @Test("A scope folder named hooks/issues maps to project root, not .claude")
+    @Test("A scope hooks folder is hoisted; an issues folder maps to project root")
     func scopeReservedTypedNameFolderMapsToRoot() {
         let scope = ManagerScope.template("macOS")
         #expect(
             TemplateManagerModel.outputPath(forStorageDir: "templates/macOS/hooks", scope: scope)
-                == "hooks")
+                == ".claude/hooks")
         #expect(
             TemplateManagerModel.outputPath(forStorageDir: "templates/macOS/issues", scope: scope)
                 == "issues")

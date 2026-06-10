@@ -3,8 +3,8 @@ import Testing
 
 @testable import Plumage
 
-// Authoring writes into the active tier's scope root, and only a hook still joins a
-// component's manifest membership.
+// Authoring writes into the active tier's scope root — hooks included; nothing
+// joins a manifest membership anymore.
 @MainActor
 @Suite("TemplateManager scope-rooted authoring (#00078)")
 struct TemplateManagerScopeAddTests {
@@ -116,36 +116,92 @@ struct TemplateManagerScopeAddTests {
                 atPath: ctx.override.appending(path: "components/swift-shared/skills/my-skill").path))
     }
 
-    @Test("A hook authored under a component stays global and still joins membership")
-    func addHookInComponentStillGlobalAndJoins() throws {
+    @Test("A hook authored under a component is scope-owned, with no manifest membership")
+    func addHookInComponentScopeOwned() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
         ctx.model.selection = .sharedComponent("swift-shared")
         ctx.model.refreshContent()
+        let filesBefore = ctx.model.catalog.sharedComponent(id: "swift-shared")?.files
 
         let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-hook"))
-        #expect(node.relativePath == "hooks/my-hook.sh")  // global composition asset
-        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/my-hook.sh"))
-        #expect(
-            ctx.model.catalog.sharedComponent(id: "swift-shared")?
-                .files(ofKind: .hook).contains("my-hook") == true)
+        #expect(node.relativePath == "components/swift-shared/hooks/my-hook.sh")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "components/swift-shared/hooks/my-hook.sh"))
+        #expect(ctx.model.catalog.sharedComponent(id: "swift-shared")?.files == filesBefore)
+        // The fresh hook still raises the wiring sheet and carries the ⚠ marker.
+        #expect(ctx.model.pendingHookWiring?.relativePath == node.relativePath)
+        #expect(ctx.model.needsWiring(node))
     }
 
-    @Test("A .py hook under a component is a base-name member resolved to its real filename")
-    func addPythonHookInComponentResolvesFilename() throws {
+    @Test("A hook authored under a template lands in that template's hooks dir")
+    func addHookInTemplateScopeOwned() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
-        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.selection = .template("macOS")
         ctx.model.refreshContent()
 
         let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "py-hook.py"))
-        #expect(node.relativePath == "hooks/py-hook.py")  // real extension on disk
-        #expect(ctx.model.overrides.hasOverride(forRelative: "hooks/py-hook.py"))
-        // The membership key stays the base name; the real filename is resolved from it.
+        #expect(node.relativePath == "templates/macOS/hooks/py-hook.py")
+        #expect(ctx.model.overrides.hasOverride(forRelative: "templates/macOS/hooks/py-hook.py"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "hooks/py-hook.py"))
+    }
+
+    @Test("Hook stems are unique across all scope hook dirs")
+    func hookStemUniqueAcrossTiers() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+        let base = try #require(ctx.model.addUserFile(kind: .hook, rawName: "dup"))
+        #expect(base.relativePath == "hooks/dup.sh")
+
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+        let walked = try #require(ctx.model.addUserFile(kind: .hook, rawName: "dup"))
+        #expect(walked.relativePath == "templates/macOS/hooks/dup-1.sh")
+    }
+
+    @Test("Deleting a scoped hook drops its wiring")
+    func deleteScopedHookDropsWiring() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .template("macOS")
+        ctx.model.refreshContent()
+        let node = try #require(ctx.model.addUserFile(kind: .hook, rawName: "my-hook"))
+        ctx.model.saveWiring(forHook: node, event: .stop, matcher: nil)
+        #expect(ctx.model.hookWirings.wiring(named: "my-hook") != nil)
+
+        ctx.model.delete(node)
+
+        #expect(ctx.model.hookWirings.wiring(named: "my-hook") == nil)
         #expect(
-            ctx.model.catalog.sharedComponent(id: "swift-shared")?
-                .files(ofKind: .hook).contains("py-hook") == true)
-        #expect(ctx.model.relativePath(for: .hook, file: "py-hook") == "hooks/py-hook.py")
+            !FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: "templates/macOS/hooks/my-hook.sh").path))
+    }
+
+    @Test("Dropping a hook script onto a component lands in its hooks dir, no membership")
+    func dropHookOntoComponentIsScoped() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        let fm = FileManager.default
+        let src = fm.temporaryDirectory.appending(
+            path: "DropHook-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        let script = src.appending(path: "dropped.sh")
+        try "#!/bin/sh\n".write(to: script, atomically: true, encoding: .utf8)
+        defer { try? fm.removeItem(at: src) }
+
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+        let filesBefore = ctx.model.catalog.sharedComponent(id: "swift-shared")?.files
+        _ = ctx.model.importDropped(urls: [script])
+
+        #expect(ctx.model.overrides.hasOverride(forRelative: "components/swift-shared/hooks/dropped.sh"))
+        #expect(!ctx.model.overrides.hasOverride(forRelative: "hooks/dropped.sh"))
+        #expect(ctx.model.catalog.sharedComponent(id: "swift-shared")?.files == filesBefore)
+        // The imported hook is unwired — the sheet is raised for it.
+        #expect(
+            ctx.model.pendingHookWiring?.relativePath == "components/swift-shared/hooks/dropped.sh")
     }
 
     @Test("A typeless folder authored under a template lands in the template's scope")

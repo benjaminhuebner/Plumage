@@ -119,14 +119,23 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         return collapsed
     }
 
-    // The hook base name (toggle key / wiring name) for any file directly under
-    // `hooks/`. Recognition is extension-agnostic — the base name drops whatever
-    // extension the file carries (or none); only the shebang gates whether it runs.
+    // The hook base name (toggle key / wiring name) for any file directly under a
+    // scope hook dir (`hooks/`, `components/<id>/hooks/`, `templates/<id>/hooks/`).
+    // Recognition is extension-agnostic; only the shebang gates whether it runs.
     static func hookBaseName(forRelativePath rel: String) -> String? {
-        guard rel.hasPrefix("hooks/") else { return nil }
-        let leaf = String(rel.dropFirst("hooks/".count))
-        guard !leaf.isEmpty else { return nil }
+        let parts = rel.split(separator: "/").map(String.init)
+        guard let leaf = parts.last,
+            isHookDirectory(parts.dropLast().joined(separator: "/"))
+        else { return nil }
         return (leaf as NSString).deletingPathExtension
+    }
+
+    // Whether a store directory is one of the scope hook dirs.
+    static func isHookDirectory(_ dir: String) -> Bool {
+        let parts = dir.split(separator: "/").map(String.init)
+        if parts == ["hooks"] { return true }
+        return parts.count == 3 && ["components", "templates"].contains(parts[0])
+            && parts[2] == "hooks"
     }
 
     // Resolve a stored hook reference (a typed name or a legacy base-name membership)

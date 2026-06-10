@@ -28,6 +28,9 @@ extension TemplateManagerModel {
         if showsConfigs(item) {
             // Generated configs always show (even with no override yet).
             leaves += ManagerConfig.allCases.map { ($0.relativePath, configNode($0)) }
+        } else if let preview = tierSettingsPreviewNode(for: scope) {
+            // A tier shows a read-only preview of the settings entries it contributes.
+            leaves.append((".claude/settings.json", preview))
         }
         // User-created (possibly empty) folders show at their output positions — read
         // inside the scope subtree and mapped back to the project layout.
@@ -121,13 +124,13 @@ extension TemplateManagerModel {
 
     // The store top-level dirs whose contents are hoisted out of `.claude/` in the output:
     // typed loose namespaces shown under `.claude/<name>` but stored without the prefix.
-    // At Base every loose `.claude` namespace; inside a tier only docs/skills/agents
+    // At Base every loose `.claude` namespace; inside a tier docs/skills/agents/hooks.
     // Couples `storageDir` ⇄ `outputPath`; the arbitrary `.claude/<path>` namespace is the
     // complement that is *not* hoisted and lives under `<scopeRoot>/.claude/`.
     nonisolated static func claudeHoistedTopLevel(for scope: ManagerScope) -> Set<String> {
         switch scope {
         case .base: return ["hooks", "docs", "skills", "agents", "issues"]
-        case .template, .component: return ["docs", "skills", "agents"]
+        case .template, .component: return ["hooks", "docs", "skills", "agents"]
         }
     }
 
@@ -228,12 +231,12 @@ extension TemplateManagerModel {
     }
 
     // The typed top-level dirs of a `scope`'s arbitrary-file scan: at the store root
-    // (Base) every typed namespace; inside a tier subtree only the loose category dirs
-    // (the composition dirs — hooks, configs — never live under a scope root).
+    // (Base) every typed namespace; inside a tier subtree the loose category dirs
+    // including the tier-owned `hooks/`.
     private static func scopedTypedTopLevel(for scope: ManagerScope) -> Set<String> {
         switch scope {
         case .base: return typedStoreTopLevel
-        case .template, .component: return ["docs", "skills", "agents"]
+        case .template, .component: return ["hooks", "docs", "skills", "agents"]
         }
     }
 
@@ -268,6 +271,12 @@ extension TemplateManagerModel {
             }
             for file in hookFiles { add(output: ".claude/hooks/\(file)", relative: "hooks/\(file)") }
             add(output: ".claude/issues/_TEMPLATE.md", relative: "issues/_TEMPLATE.md")
+        }
+        // A tier's own hooks (Base hook slots come in via `hookFiles` instead).
+        if !root.isEmpty {
+            for hook in overrides.overrideFileNames(inRelativeDir: scoped("hooks")) {
+                add(output: ".claude/hooks/\(hook)", relative: scoped("hooks/\(hook)"))
+            }
         }
         for doc in overrides.unionFileNames(inRelativeDir: scoped("docs")) {
             add(output: ".claude/docs/\(doc)", relative: scoped("docs/\(doc)"))
