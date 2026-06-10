@@ -93,6 +93,9 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         outline.onDeleteKey = { [weak coordinator = context.coordinator] in
             coordinator?.requestTrashForSelection() ?? false
         }
+        // The native feedback paints a wider fill than the custom group
+        // region and pokes out around it — all drop drawing is row-view-owned.
+        outline.draggingDestinationFeedbackStyle = .none
         outline.registerForDraggedTypes([.fileURL, FinderFileTreeCoordinator.internalDragType])
         outline.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
         outline.setDraggingSourceOperationMask([], forLocal: false)
