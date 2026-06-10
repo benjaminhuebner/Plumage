@@ -29,14 +29,10 @@ struct TemplateContentColumn: View {
 
             if let componentID = model.editingComponentID {
                 Section("Included in templates") {
-                    ForEach(model.catalog.templates.sorted { $0.name < $1.name }) { template in
+                    ForEach(model.catalog.templatesSortedByName) { template in
                         Toggle(
-                            isOn: Binding(
-                                get: { model.isMember(componentID: componentID, templateID: template.id) },
-                                set: {
-                                    model.setMembership(
-                                        componentID: componentID, templateID: template.id, isMember: $0)
-                                })
+                            isOn: model.membershipBinding(
+                                componentID: componentID, templateID: template.id)
                         ) {
                             Text(template.name)
                         }
@@ -77,7 +73,7 @@ struct TemplateContentColumn: View {
                     .font(.callout)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
+                    .background(.background.secondary, in: Capsule())
                     .padding(.bottom, 12)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }

@@ -146,9 +146,12 @@ nonisolated struct GitSyncRunner: GitSyncing {
         }
 
         // Auto-retry path: push without upstream → `--set-upstream origin <branch>`.
+        // isSafe: the branch is on-disk data (.git/HEAD) reaching git as a
+        // positional arg — same option-injection guard as the other runners.
         if operation == .push,
             result.exitCode != 0,
             let branch = currentBranch,
+            GitBranchName.isSafe(branch),
             NoUpstreamDetector.looksLikeMissingUpstream(result.stderrLines)
         {
             continuation.yield(.retryingWithUpstream(branch: branch))

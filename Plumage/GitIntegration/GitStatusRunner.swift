@@ -166,6 +166,8 @@ nonisolated struct GitStatusRunner: GitStatusRunning {
 
 #if DEBUG
 // Test-only stub for higher-level features (GitCommitModel, ProjectStatusBar).
+// @unchecked Sendable: all mutable state lives inside the
+// OSAllocatedUnfairLock<State>; every access goes through withLock.
 nonisolated final class MockGitStatusRunner: GitStatusRunning, @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private struct State: Sendable {

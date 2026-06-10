@@ -138,6 +138,23 @@ struct ConfigLoaderTests {
         }
     }
 
+    @Test func optionShapedGitDefaultBranchStillOpensProject() throws {
+        let folder = try TempProject.make(
+            content: """
+                {
+                  "name": "Evil",
+                  "schemaVersion": 2,
+                  "git": { "defaultBranch": "--output=/tmp/x" }
+                }
+                """)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        // Injection is rejected at use (runner isSafe guards), not at load.
+        let config = try ConfigLoader.load(at: folder)
+        #expect(config.git?.defaultBranch == "--output=/tmp/x")
+        #expect(!GitBranchName.isSafe(config.gitDefaultBranch))
+    }
+
     @Test func gitDefaultBranchReadsNestedField() throws {
         let folder = try TempProject.make(
             content: """

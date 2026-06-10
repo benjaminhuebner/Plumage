@@ -8,11 +8,14 @@ import Foundation
 // system fires "FocusedValue update tried to update multiple times per frame".
 // Wrapping the closure in a UUID-keyed value gives the focus system a stable
 // identity to compare across renders.
-struct EditorAction: Equatable, @unchecked Sendable {
+struct EditorAction: Equatable, Sendable {
     let id: UUID
-    let run: () -> Void
+    // @MainActor-typed instead of @unchecked Sendable on the struct: the
+    // actions mutate view state and are only ever invoked from Commands /
+    // menu paths, which run on the MainActor anyway.
+    let run: @MainActor @Sendable () -> Void
 
-    init(_ run: @escaping () -> Void) {
+    init(_ run: @escaping @MainActor @Sendable () -> Void) {
         self.id = UUID()
         self.run = run
     }

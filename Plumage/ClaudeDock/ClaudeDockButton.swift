@@ -33,7 +33,7 @@ struct ClaudeDockButton: View {
         }
         .buttonStyle(.plain)
         .tint(.accentColor)
-        .glassEffect(in: Circle())
+        .glassEffect(.regular, in: Circle())
         .shadow(color: .accentColor.opacity(0.28), radius: 10, y: 2)
         .overlay(
             Circle().strokeBorder(

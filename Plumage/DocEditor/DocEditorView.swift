@@ -33,6 +33,7 @@ struct DocEditorView: View {
     @State private var publishedDirtyName: String?
     @State private var publishedDirty: Bool?
     @State private var publishedSaveAction: EditorAction?
+    @State private var quitFlushID = UUID()
 
     private let language: LanguageConfiguration
     private let editorLayout = CodeEditor.LayoutConfiguration(showMinimap: false, wrapText: true)
@@ -96,6 +97,11 @@ struct DocEditorView: View {
             if publishedSaveAction == nil {
                 publishedSaveAction = EditorAction { attemptSave() }
             }
+            // ⌘Q doesn't run .onDisappear reliably; the QuitCoordinator
+            // awaits this flush before the app terminates.
+            QuitCoordinator.shared.register(quitFlushID) { [weak model] in
+                try? await model?.saveIfDirty()
+            }
             loadFailed = nil
             do {
                 try await model.load()
@@ -124,6 +130,7 @@ struct DocEditorView: View {
             }
         }
         .onDisappear {
+            QuitCoordinator.shared.unregister(quitFlushID)
             // attemptSave is fire-and-forget; cancelPendingWork ensures any
             // earlier queued saves are cancelled rather than landing post-pop.
             // The latest save still runs because attemptSave queues a new

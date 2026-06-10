@@ -14,8 +14,13 @@ final class PinnedFilesModel {
     // routeRewrites observer) has no projectURL to pass — can still persist a
     // followed rename. Always set before any rewrite can arrive.
     private var projectURL: URL?
+    private var pendingPersist: Task<Void, Never>?
 
     private nonisolated static let log = Logger(subsystem: "com.plumage", category: "PinnedFiles")
+
+    isolated deinit {
+        pendingPersist?.cancel()
+    }
 
     func contains(_ relativePath: String) -> Bool {
         pinned.contains(relativePath)
@@ -98,7 +103,12 @@ final class PinnedFilesModel {
     }
 
     private func persist(_ paths: [String], projectURL: URL) {
-        Task.detached(priority: .utility) {
+        // Chained off the prior write (RecentProjects discipline): independent
+        // fire-and-forget tasks can land on disk out of order, persisting a
+        // stale pin set over a newer one.
+        let prior = pendingPersist
+        pendingPersist = Task.detached(priority: .utility) {
+            await prior?.value
             guard let bundle = try? BundleResolver.resolve(from: projectURL).bundle else {
                 Self.log.error("persist skipped: no bundle for \(projectURL.path, privacy: .public)")
                 return

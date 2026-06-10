@@ -5,7 +5,8 @@ struct InvalidIssueCardView: View {
     let error: FrontmatterError
     let padding: Int
 
-    @Environment(\.kanbanHighlightedID) private var highlightedID: String?
+    // Model read, not an env value — see IssueCardView.
+    @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -16,7 +17,7 @@ struct InvalidIssueCardView: View {
     }
 
     private var isHighlighted: Bool {
-        highlightedID == folderName
+        kanban.highlightedIssueID == folderName
     }
 
     var body: some View {
@@ -104,4 +105,5 @@ struct InvalidIssueCardView: View {
     }
     .padding()
     .frame(width: 280)
+    .environment(ProjectKanbanModel())
 }

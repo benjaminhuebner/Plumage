@@ -8,6 +8,7 @@ actor IssueSnapshotProducer {
     private let watcher: IssueWatcher
     private var lastSnapshot: [DiscoveredIssue]?
     private var pumpTask: Task<Void, Never>?
+    private var hasStarted = false
     private(set) var hasStopped: Bool = false
 
     init(
@@ -38,9 +39,19 @@ actor IssueSnapshotProducer {
         self.watcher = watcher
     }
 
-    func start() {
-        guard pumpTask == nil else { return }
-        let initial = discover(projectURL)
+    func start() async {
+        // hasStarted (not pumpTask) gates re-entry: the detached await below
+        // suspends before pumpTask is assigned, so a second start() racing in
+        // could otherwise pass a pumpTask-only guard.
+        guard !hasStarted else { return }
+        hasStarted = true
+        // Detached: discoverIssues does N file reads + YAML decodes — keep
+        // that off this actor's executor (and off the caller's).
+        let discover = self.discover
+        let projectURL = self.projectURL
+        let initial = await Task.detached(priority: .userInitiated) {
+            discover(projectURL)
+        }.value
         lastSnapshot = initial
         continuation.yield(initial)
 
@@ -53,8 +64,12 @@ actor IssueSnapshotProducer {
         }
     }
 
-    private func pumpOnce() {
-        let next = discover(projectURL)
+    private func pumpOnce() async {
+        let discover = self.discover
+        let projectURL = self.projectURL
+        let next = await Task.detached(priority: .utility) {
+            discover(projectURL)
+        }.value
         if next != lastSnapshot {
             lastSnapshot = next
             continuation.yield(next)

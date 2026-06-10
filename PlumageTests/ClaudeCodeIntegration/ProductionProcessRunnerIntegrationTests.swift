@@ -48,7 +48,9 @@ struct ProductionProcessRunnerIntegrationTests {
         let task = Task {
             try await ProductionProcessRunner.spawnAt(binaryURL: sleepURL, args: ["60"])
         }
-        // Let the child boot, then cancel.
+        // Best-effort 100 ms so the cancel exercises the SIGTERM-mid-flight
+        // path; /bin/sleep emits nothing to handshake on, and a late spawn
+        // degrades to the pre-start cancel, which the assertions accept too.
         try await Task.sleep(for: .milliseconds(100))
         task.cancel()
 

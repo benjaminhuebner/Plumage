@@ -30,6 +30,18 @@ final class ProjectKanbanModel {
         let expectedOrder: SetValue<Double?>
     }
 
+    // Archive/trash wait for a confirmation dialog before they run — both
+    // remove the card instantly (and archive has no restore UI), so an
+    // unconfirmed context-menu click must not destroy state.
+    nonisolated struct PendingRemoval: Equatable, Sendable {
+        enum Kind: Equatable, Sendable {
+            case archive
+            case trash
+        }
+        let kind: Kind
+        let folderName: String
+    }
+
     typealias Mutator = @Sendable (URL, IssueStatus?, SetValue<Double?>, Date) throws -> Void
     typealias Archiver = @Sendable (_ folderURL: URL, _ archiveRoot: URL) throws -> URL
     typealias Trasher = @Sendable (_ folderURL: URL) throws -> URL
@@ -54,6 +66,10 @@ final class ProjectKanbanModel {
     // a distinct event.
     private(set) var lastMergeCompleted: String?
     private(set) var pendingDrop: PendingDrop?
+    private(set) var pendingRemoval: PendingRemoval?
+    // Non-nil when the issues directory itself is missing — distinguishes a
+    // broken project from a legitimately empty board.
+    private(set) var boardError: String?
 
     var pendingDropFolderName: String? { pendingDrop?.folderName }
     var pendingDropExpectedStatus: IssueStatus? { pendingDrop?.expectedStatus }
@@ -68,6 +84,7 @@ final class ProjectKanbanModel {
     private var highlightTask: Task<Void, Never>?
     private var dropTask: Task<Void, Never>?
     private var removalTask: Task<Void, Never>?
+    private var errorClearTask: Task<Void, Never>?
 
     init(
         producerFactory: @escaping @Sendable (URL) -> IssueSnapshotProducer = {
@@ -102,9 +119,11 @@ final class ProjectKanbanModel {
         highlightTask?.cancel()
         dropTask?.cancel()
         removalTask?.cancel()
+        errorClearTask?.cancel()
     }
 
     func run(projectURL: URL) async {
+        refreshBoardError(projectURL: projectURL)
         let producer = producerFactory(projectURL)
         await producer.start()
         for await snapshot in producer.snapshots {
@@ -119,8 +138,44 @@ final class ProjectKanbanModel {
             if reconciled.pendingCleared {
                 pendingDrop = nil
             }
+            refreshBoardError(projectURL: projectURL)
         }
         await producer.stop()
+    }
+
+    // One stat call per (debounced) snapshot: an empty array from a missing
+    // issues directory must read as an error, not as an empty board.
+    private func refreshBoardError(projectURL: URL) {
+        let issuesDir = IssueLayout.issuesDirectory(in: projectURL)
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: issuesDir.path, isDirectory: &isDirectory)
+        boardError =
+            (exists && isDirectory.boolValue)
+            ? nil
+            : "Issues folder missing: .claude/issues — the board can't load."
+    }
+
+    func requestArchive(folderName: String) {
+        pendingRemoval = PendingRemoval(kind: .archive, folderName: folderName)
+    }
+
+    func requestTrash(folderName: String) {
+        pendingRemoval = PendingRemoval(kind: .trash, folderName: folderName)
+    }
+
+    func cancelPendingRemoval() {
+        pendingRemoval = nil
+    }
+
+    func confirmRemoval(_ removal: PendingRemoval, projectURL: URL) {
+        pendingRemoval = nil
+        switch removal.kind {
+        case .archive:
+            applyOptimisticArchive(folderName: removal.folderName, projectURL: projectURL)
+        case .trash:
+            applyOptimisticTrash(folderName: removal.folderName, projectURL: projectURL)
+        }
     }
 
     func highlight(folderName: String) {
@@ -186,8 +241,10 @@ final class ProjectKanbanModel {
         projectURL: URL
     ) {
         guard let issue = lookupValidIssue(payload.folderName) else { return }
+        // groupedIssues is already column-filtered and kanban-sorted — no
+        // need to re-derive both from the flat snapshot per drop.
         let mutation = Self.computeMutation(
-            issue: issue, target: target, snapshot: issues)
+            issue: issue, target: target, grouped: groupedIssues)
         guard case .apply(let newStatus, let newOrder) = mutation else { return }
 
         let priorIssues = issues
@@ -226,7 +283,8 @@ final class ProjectKanbanModel {
                 // would overwrite the newer state with our old snapshot.
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticDrop(
-                    to: priorIssues, error: error.localizedDescription)
+                    to: priorIssues, folderName: issue.folderName,
+                    error: error.localizedDescription)
             }
         }
     }
@@ -244,13 +302,51 @@ final class ProjectKanbanModel {
         await task?.value
     }
 
-    private func rollbackOptimisticDrop(to prior: [DiscoveredIssue], error: String) {
+    private func rollbackOptimisticDrop(
+        to prior: [DiscoveredIssue], folderName: String, error: String
+    ) {
+        // Targeted, not whole-array: restoring the full prior snapshot would
+        // resurrect cards that were archived/trashed while the drop write was
+        // in flight, and clobber other cards' newer optimistic state.
         // Mutate-only; view-side `.animation(.smooth, value: kanban.issues)`
         // handles the visual transition. See `run` for the same reasoning.
-        issues = prior
-        groupedIssues = Self.group(prior)
+        if let priorCard = prior.first(where: { $0.id == folderName }),
+            issues.contains(where: { $0.id == folderName })
+        {
+            issues = Self.replace(issues, folderName: folderName, with: priorCard)
+            groupedIssues = Self.group(issues)
+        }
         pendingDrop = nil
+        surfaceDropError(error)
+    }
+
+    // Setting one kind clears the other: the view's ?? chain prefers drop
+    // errors, so an older drop error would otherwise mask a fresh removal
+    // error for its whole banner lifetime.
+    private func surfaceDropError(_ error: String) {
         lastDropError = error
+        lastRemovalError = nil
+        scheduleErrorAutoClear()
+    }
+
+    private func surfaceRemovalError(_ error: String) {
+        lastRemovalError = error
+        lastDropError = nil
+        scheduleErrorAutoClear()
+    }
+
+    // Banners clear themselves — a stale error string in the status bar
+    // would outlive the situation it describes. Clearing both slots is
+    // safe: surface… guarantees at most one is set.
+    private func scheduleErrorAutoClear() {
+        errorClearTask?.cancel()
+        let clock = highlightClock
+        errorClearTask = Task { [weak self] in
+            try? await clock.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.lastDropError = nil
+            self?.lastRemovalError = nil
+        }
     }
 
     func applyOptimisticArchive(folderName: String, projectURL: URL) {
@@ -277,7 +373,8 @@ final class ProjectKanbanModel {
                 // already deleted in the second action.
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticRemoval(
-                    to: priorIssues, error: error.localizedDescription)
+                    to: priorIssues, folderName: folderName,
+                    error: error.localizedDescription)
             }
         }
     }
@@ -306,7 +403,8 @@ final class ProjectKanbanModel {
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticRemoval(
-                    to: priorIssues, error: error.localizedDescription)
+                    to: priorIssues, folderName: folderName,
+                    error: error.localizedDescription)
             }
         }
     }
@@ -320,10 +418,19 @@ final class ProjectKanbanModel {
     // Mirror of rollbackOptimisticDrop for archive/trash. Kept duplicated
     // intentionally — generalizing the two would force callers to share an
     // error surface and obscure which kind of removal failed.
-    private func rollbackOptimisticRemoval(to prior: [DiscoveredIssue], error: String) {
-        issues = prior
-        groupedIssues = Self.group(prior)
-        lastRemovalError = error
+    private func rollbackOptimisticRemoval(
+        to prior: [DiscoveredIssue], folderName: String, error: String
+    ) {
+        // Targeted: only the card whose removal failed comes back; the rest
+        // of the prior snapshot may be stale relative to concurrent drops.
+        // Append suffices — group() re-sorts per column.
+        if let priorCard = prior.first(where: { $0.id == folderName }),
+            !issues.contains(where: { $0.id == folderName })
+        {
+            issues = issues + [priorCard]
+            groupedIssues = Self.group(issues)
+        }
+        surfaceRemovalError(error)
     }
 
     nonisolated static func reconcile(
@@ -343,7 +450,7 @@ final class ProjectKanbanModel {
         case .keep:
             orderMatch = true
         case .set(let expected):
-            orderMatch = item.order == expected
+            orderMatch = ordersEqual(item.order, expected)
         }
         if statusMatch && orderMatch {
             return (incoming, true)
@@ -367,10 +474,38 @@ final class ProjectKanbanModel {
         return (snapshot, false)
     }
 
+    // Epsilon, not exact: spec files written by older Plumage builds carry
+    // %g-rounded order values (6 significant digits), so an exact compare
+    // left pendingDrop stuck and re-patched stale status on every snapshot.
+    // 1e-5 relative matches the %g precision loss.
+    nonisolated private static func ordersEqual(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case (let left?, let right?):
+            return abs(left - right) <= max(1e-9, abs(left) * 1e-5)
+        default:
+            return false
+        }
+    }
+
     nonisolated static func computeMutation(
         issue: Issue,
         target: DropTarget,
         snapshot: [DiscoveredIssue]
+    ) -> DropMutation {
+        computeMutation(
+            issue: issue,
+            target: target,
+            grouped: Dictionary(grouping: snapshot, by: \.column)
+                .mapValues { $0.sortedForKanban() }
+        )
+    }
+
+    nonisolated static func computeMutation(
+        issue: Issue,
+        target: DropTarget,
+        grouped: [IssueColumn: [DiscoveredIssue]]
     ) -> DropMutation {
         let issueColumn = issue.column
 
@@ -386,7 +521,7 @@ final class ProjectKanbanModel {
                 issueColumn: issueColumn,
                 targetFolderName: folderName,
                 targetColumn: column,
-                snapshot: snapshot,
+                sortedColumnItems: grouped[column] ?? [],
                 insertAbove: true
             )
 
@@ -397,7 +532,7 @@ final class ProjectKanbanModel {
                 issueColumn: issueColumn,
                 targetFolderName: folderName,
                 targetColumn: column,
-                snapshot: snapshot,
+                sortedColumnItems: grouped[column] ?? [],
                 insertAbove: false
             )
         }
@@ -408,13 +543,10 @@ final class ProjectKanbanModel {
         issueColumn: IssueColumn,
         targetFolderName: String,
         targetColumn: IssueColumn,
-        snapshot: [DiscoveredIssue],
+        sortedColumnItems: [DiscoveredIssue],
         insertAbove: Bool
     ) -> DropMutation {
-        let columnItems =
-            snapshot
-            .filter { $0.column == targetColumn && $0.id != issue.folderName }
-            .sortedForKanban()
+        let columnItems = sortedColumnItems.filter { $0.id != issue.folderName }
         guard let targetIndex = columnItems.firstIndex(where: { $0.id == targetFolderName }) else {
             return .noop
         }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 nonisolated enum GitMergeMode: String, Sendable, Equatable {
     case squash
@@ -62,6 +63,8 @@ nonisolated protocol GitMergeRunning: Sendable {
 }
 
 nonisolated struct GitMergeRunner: GitMergeRunning {
+    private static let logger = Logger(subsystem: "com.plumage", category: "GitMergeRunner")
+
     let runner: any GitProcessRunning
     let resolveBinary: @Sendable () -> URL?
 
@@ -84,17 +87,36 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         guard let binary = resolveBinary() else {
             throw GitMergeError.gitNotFound
         }
+        // Both names reach git as positional args — reject option-shaped
+        // values (frontmatter `branch:` is agent-written, config is on disk).
+        guard GitBranchName.isSafe(defaultBranch) else {
+            throw GitMergeError.branchNotFound(name: defaultBranch)
+        }
+        guard GitBranchName.isSafe(issueBranch) else {
+            throw GitMergeError.branchNotFound(name: issueBranch)
+        }
         try await runPreChecks(
             binary: binary, repoURL: repoURL,
             defaultBranch: defaultBranch, issueBranch: issueBranch)
+        // Remember where the user was: a failed merge must not strand them
+        // on the default branch when they started somewhere else.
+        let originalBranch = await currentBranch(binary: binary, repoURL: repoURL)
         try await checkout(binary: binary, repoURL: repoURL, branch: defaultBranch)
-        switch mode {
-        case .fastForward:
-            try await fastForwardMerge(binary: binary, repoURL: repoURL, issueBranch: issueBranch)
-        case .squash:
-            try await squashMerge(
+        do {
+            switch mode {
+            case .fastForward:
+                try await fastForwardMerge(
+                    binary: binary, repoURL: repoURL, issueBranch: issueBranch)
+            case .squash:
+                try await squashMerge(
+                    binary: binary, repoURL: repoURL,
+                    issueBranch: issueBranch, subject: commitSubject ?? "")
+            }
+        } catch {
+            await rollBack(
                 binary: binary, repoURL: repoURL,
-                issueBranch: issueBranch, subject: commitSubject ?? "")
+                originalBranch: originalBranch, defaultBranch: defaultBranch)
+            throw error
         }
         let deleteError =
             deleteBranch
@@ -127,14 +149,55 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         }
 
         // 3. Fast-forward must be possible: defaultBranch must be an ancestor
-        //    of issueBranch. merge-base --is-ancestor: 0 = yes, 1 = no.
+        //    of issueBranch. merge-base --is-ancestor: 0 = yes, 1 = no,
+        //    anything else (128: bad ref) is a different failure — reporting
+        //    it as "not fast-forward" sent users rebasing for a typo.
         let ffProbe = try await callGit(
             binary: binary, repoURL: repoURL,
             args: ["merge-base", "--is-ancestor", defaultBranch, issueBranch])
-        if ffProbe.exitCode != 0 {
+        if ffProbe.exitCode == 1 {
             throw GitMergeError.notFastForward(
                 defaultBranch: defaultBranch, issueBranch: issueBranch)
         }
+        if ffProbe.exitCode != 0 {
+            throw GitMergeError.branchNotFound(name: defaultBranch)
+        }
+    }
+
+    // The pre-check guarantees the tree was clean, so anything dirty now is
+    // merge residue — without `reset --merge`, checkout would carry a staged
+    // squash onto the original branch. Restore failures only get logged:
+    // they can't outrank the merge error the caller is about to see.
+    private func rollBack(
+        binary: URL, repoURL: URL, originalBranch: String?, defaultBranch: String
+    ) async {
+        let reset = try? await callGit(
+            binary: binary, repoURL: repoURL, args: ["reset", "--merge"])
+        guard let reset, reset.exitCode == 0 else {
+            Self.logger.error("rollback: reset --merge failed, staying on default branch")
+            return
+        }
+        guard let originalBranch, originalBranch != defaultBranch else { return }
+        let checkout = try? await callGit(
+            binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
+        guard let checkout, checkout.exitCode == 0 else {
+            Self.logger.error("rollback: could not restore original branch, staying on default branch")
+            return
+        }
+    }
+
+    // Best-effort: nil when HEAD is detached or rev-parse fails — the
+    // rollback path simply skips restoring in that case.
+    private func currentBranch(binary: URL, repoURL: URL) async -> String? {
+        guard
+            let result = try? await callGit(
+                binary: binary, repoURL: repoURL,
+                args: ["symbolic-ref", "--short", "-q", "HEAD"]),
+            result.exitCode == 0
+        else { return nil }
+        let name = String(decoding: result.stdout, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 
     // MARK: - Merge sequence

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MissingClaudeView: View {
     let state: StatusIndicatorModel.IndicatorState
+    var onRecheck: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -24,6 +25,10 @@ struct MissingClaudeView: View {
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.quaternary, in: .rect(cornerRadius: 6))
+            }
+
+            if let onRecheck {
+                Button("Check Again", action: onRecheck)
             }
 
             Spacer(minLength: 0)

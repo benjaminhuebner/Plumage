@@ -25,7 +25,6 @@ struct NavigatorSidebar: View {
             }
             Label("Board", systemImage: "rectangle.3.group.fill")
                 .tag(NavigatorRoute.kanban)
-                .clickableSidebarRow()
             ForEach(IssueColumn.allCases) { column in
                 columnRow(column)
             }
@@ -44,6 +43,21 @@ struct NavigatorSidebar: View {
         }
         .onDeleteCommand {
             _ = handleDeleteKey()
+        }
+        // Derived isPresented binding is the standard confirmationDialog
+        // shape; the model owns the actual pending state.
+        .confirmationDialog(
+            "Move \"\(navigator.pendingTrash?.lastPathComponent ?? "")\" to Trash?",
+            isPresented: Binding(
+                get: { navigator.pendingTrash != nil },
+                set: { if !$0 { navigator.cancelPendingTrash() } }
+            )
+        ) {
+            Button("Move to Trash", role: .destructive) {
+                Task { await navigator.confirmPendingTrash(projectURL: projectURL) }
+            }
+        } message: {
+            Text("You can restore it from the Trash.")
         }
     }
 
@@ -79,7 +93,6 @@ struct NavigatorSidebar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Project Settings")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .clickableSidebarRow()
             .onHover { settingsHovering = $0 }
             .padding(.leading, 15)
             .padding(.trailing, 8)
@@ -103,7 +116,11 @@ struct NavigatorSidebar: View {
 
     private func settingsRowTextColor(isSelected: Bool) -> Color {
         guard isSelected else { return .primary }
-        return controlActiveState == .key ? .white : .primary
+        // Semantic, not .white: the system color adapts to accent/contrast
+        // settings the literal can't follow.
+        return controlActiveState == .key
+            ? Color(nsColor: .alternateSelectedControlTextColor)
+            : .primary
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {
@@ -115,34 +132,14 @@ struct NavigatorSidebar: View {
 
     @ViewBuilder
     private func columnRow(_ column: IssueColumn) -> some View {
-        let items = kanban.groupedIssues[column] ?? []
-        DisclosureGroup(isExpanded: expansionBinding(for: column)) {
-            ForEach(items, id: \.id) { issue in
-                issueRow(issue, in: column)
-            }
-        } label: {
-            HStack {
-                Label(column.name, systemImage: column.systemImage)
-                Spacer()
-                Text("\(items.count)")
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-            }
-            .clickableSidebarRow()
-            .dropDestination(for: IssueDragPayload.self) { payloads, _ in
-                handleColumnDrop(payloads, into: column)
-            }
-        }
-    }
-
-    @discardableResult
-    private func handleColumnDrop(
-        _ payloads: [IssueDragPayload], into column: IssueColumn
-    ) -> Bool {
-        guard let payload = payloads.first else { return false }
-        kanban.applyOptimisticDrop(
-            payload, to: .column(column), projectURL: projectURL)
-        return true
+        // Child view reads the kanban model itself, so an FSEvent snapshot
+        // invalidates only the four column sections — not the whole sidebar
+        // List body (pins + file tree included).
+        SidebarColumnSection(
+            column: column,
+            projectURL: projectURL,
+            isExpanded: expansionBinding(for: column)
+        )
     }
 
     private func expansionBinding(for column: IssueColumn) -> Binding<Bool> {
@@ -154,8 +151,62 @@ struct NavigatorSidebar: View {
         }
     }
 
+    private func handleReturnKey() -> KeyPress.Result {
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
+        }
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
+        navigator.beginRename(url: url)
+        return .handled
+    }
+
+    private func handleDeleteKey() -> KeyPress.Result {
+        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
+            return .ignored
+        }
+        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
+        navigator.requestTrash(url: url)
+        return .handled
+    }
+}
+
+private struct SidebarColumnSection: View {
+    let column: IssueColumn
+    let projectURL: URL
+    @Binding var isExpanded: Bool
+
+    @Environment(ProjectKanbanModel.self) private var kanban
+
+    var body: some View {
+        let items = kanban.groupedIssues[column] ?? []
+        DisclosureGroup(isExpanded: $isExpanded) {
+            ForEach(items, id: \.id) { issue in
+                issueRow(issue)
+            }
+        } label: {
+            HStack {
+                Label(column.name, systemImage: column.systemImage)
+                Spacer()
+                Text("\(items.count)")
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+            .dropDestination(for: IssueDragPayload.self) { payloads, _ in
+                handleColumnDrop(payloads)
+            }
+        }
+    }
+
+    @discardableResult
+    private func handleColumnDrop(_ payloads: [IssueDragPayload]) -> Bool {
+        guard let payload = payloads.first else { return false }
+        kanban.applyOptimisticDrop(
+            payload, to: .column(column), projectURL: projectURL)
+        return true
+    }
+
     @ViewBuilder
-    private func issueRow(_ issue: DiscoveredIssue, in column: IssueColumn) -> some View {
+    private func issueRow(_ issue: DiscoveredIssue) -> some View {
         HStack(spacing: 6) {
             IssueTypePill(type: issue.typeForPill)
             Text(issue.titleForRow)
@@ -163,7 +214,6 @@ struct NavigatorSidebar: View {
                 .truncationMode(.tail)
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
-        .clickableSidebarRow()
         .modifier(IssueRowDraggable(issue: issue, column: column))
         .overlay(alignment: .top) {
             ReorderDropZone(
@@ -191,25 +241,5 @@ struct NavigatorSidebar: View {
         case .invalid(let folder, _):
             return folder
         }
-    }
-
-    private func handleReturnKey() -> KeyPress.Result {
-        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
-            return .ignored
-        }
-        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
-        navigator.beginRename(url: url)
-        return .handled
-    }
-
-    private func handleDeleteKey() -> KeyPress.Result {
-        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
-            return .ignored
-        }
-        guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
-        Task { @MainActor in
-            await navigator.trash(url: url, projectURL: projectURL)
-        }
-        return .handled
     }
 }

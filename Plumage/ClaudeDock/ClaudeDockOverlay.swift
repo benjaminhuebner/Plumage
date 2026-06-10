@@ -3,6 +3,7 @@ import SwiftUI
 struct ClaudeDockOverlay: View {
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
+    var onRecheck: (() -> Void)?
     @Binding var isOpen: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -16,6 +17,7 @@ struct ClaudeDockOverlay: View {
                 ClaudeDockPanel(
                     session: session,
                     indicatorState: indicatorState,
+                    onRecheck: onRecheck,
                     isOpen: $isOpen
                 )
                 .background {
@@ -48,7 +50,9 @@ struct ClaudeDockOverlay: View {
     }
 
     private var panelTransition: AnyTransition {
-        .opacity.combined(with: .scale(scale: 0.4, anchor: .bottomTrailing))
+        reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .scale(scale: 0.4, anchor: .bottomTrailing))
     }
 
     private var toggleAnimation: Animation {

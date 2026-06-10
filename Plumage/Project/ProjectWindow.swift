@@ -48,16 +48,15 @@ struct ProjectWindow: View {
     // it warns "FocusedValue update tried to update multiple times per
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
-    // Single in-flight workflow inject. Replacing it cancels the prior task
-    // so a quick second button-press doesn't leave the prior task's body
-    // enqueue stranded — see #00034 race fix.
-    @State private var workflowTask: Task<Void, Never>?
+    @State private var workflowLauncher = WorkflowLauncher()
     // SidebarFileWatcher signals on FSEvents for the project root; the
     // consumer task below reloads `navigator.rootNodes` so external mutations
     // (a `claude` subprocess creating a file under .claude/, the user dropping
     // a doc via Finder, …) show up in the sidebar without a manual refresh.
     @State private var sidebarFileWatcher: SidebarFileWatcher?
     @State private var sidebarFileWatcherTask: Task<Void, Never>?
+    // Identity for this window's QuitCoordinator registration (⌘Q flush).
+    @State private var quitHandlerID = UUID()
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -129,8 +128,13 @@ struct ProjectWindow: View {
             // margin. Lower values clip the panel's close button behind the
             // titlebar.
             .frame(minWidth: 1100, minHeight: 620)
-            .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
+            // Per-project autosave name: a single shared name makes every
+            // project window land on the last-moved frame.
+            .background(
+                WindowFrameAutosaver(autosaveName: "plumage.project.window.\(handle.url.path)")
+            )
             .navigationTitle(displayTitle)
+            .navigationDocument(handle.url)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
             .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
             .focusedSceneValue(\.chatDockToggle, $isDockOpen)
@@ -145,7 +149,9 @@ struct ProjectWindow: View {
                     legacyTerminalPaneMode = ""
                     hasMigratedLegacyPaneMode = true
                 }
-                if let restored = NavigatorRoute(persistedString: persistedRouteData) {
+                if let restored = Self.restoredRoute(
+                    from: persistedRouteData, projectURL: handle.url)
+                {
                     selectedRoute = restored
                 }
                 // @State ignores re-assignment from init, so a window reused
@@ -163,7 +169,18 @@ struct ProjectWindow: View {
                 // Load config synchronously so the initial sessions pick up
                 // per-project model overrides before attach(). The async
                 // model.reload below covers the @Observable view-state path.
-                let initialConfig = try? ConfigLoader.load(at: handle.url)
+                let initialConfig: ProjectConfig?
+                do {
+                    initialConfig = try ConfigLoader.load(at: handle.url)
+                } catch {
+                    // Sessions fall back to default models; model.reload below
+                    // surfaces the failure in the UI — but leave a trace for
+                    // the silent window-reuse path.
+                    Self.log.error(
+                        "Window task: config load failed for \(handle.url.path, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                    initialConfig = nil
+                }
                 let chatModel =
                     initialConfig?.models?.chat ?? ModelsConfig.chatDefault
                 let terminalsModel =
@@ -216,8 +233,15 @@ struct ProjectWindow: View {
                 // workflow-tab close that races inject() is the right cancel.
                 terminalTabs.onTabClosed = { closed in
                     if closed.isWorkflow {
-                        workflowTask?.cancel()
+                        workflowLauncher.cancel()
                     }
+                }
+                // ⌘Q runs through applicationShouldTerminate, where SwiftUI's
+                // .onDisappear teardown isn't guaranteed to fire — register
+                // the subprocess stop so quitting never orphans claude.
+                QuitCoordinator.shared.register(quitHandlerID) { [weak session, weak terminalTabs] in
+                    session?.stop()
+                    terminalTabs?.stopAll()
                 }
                 session.attach()
                 // Terminal sessions don't get explicit attach() here —
@@ -266,9 +290,10 @@ struct ProjectWindow: View {
                 persistedDestinationID = destination?.id ?? ""
             }
             .onDisappear {
+                QuitCoordinator.shared.unregister(quitHandlerID)
                 session.stop()
                 terminalTabs.stopAll()
-                workflowTask?.cancel()
+                workflowLauncher.cancel()
                 xcodeRunController.cancelRun()
                 gitModel.stop()
                 sidebarFileWatcherTask?.cancel()
@@ -276,7 +301,7 @@ struct ProjectWindow: View {
                 sidebarFileWatcher = nil
             }
             .onChange(of: selectedRoute) { _, new in
-                persistedRouteData = new.persistedString
+                persistedRouteData = Self.persistedRouteString(new, projectURL: handle.url)
                 if case .issue = new {
                 } else {
                     detailOriginRoute = nil
@@ -307,6 +332,9 @@ struct ProjectWindow: View {
                 // Sheets present in their own SwiftUI tree and don't inherit
                 // the presenter's environment. IssueDetailView's
                 // @Environment(ProjectKanbanModel.self) crashes without these.
+                // openSpec stays deliberately unwired here (defaults to no-op):
+                // the create sheet navigates via onIssueCreated + dismiss(),
+                // never by routing the window behind itself.
                 .environment(kanban)
                 .environment(navigator)
                 .environment(\.onIssueCreated) { folderName in
@@ -349,12 +377,15 @@ struct ProjectWindow: View {
                     ClaudeDockOverlay(
                         session: session,
                         indicatorState: indicator.state,
+                        onRecheck: {
+                            Task { await indicator.detect(using: processRunner) }
+                        },
                         isOpen: $isDockOpen
                     )
                 }
                 .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
-                    TerminalInspectorView(tabsModel: terminalTabs)
+                    TerminalInspectorView(tabsModel: terminalTabs, isOpen: isTerminalInspectorOpen)
                         .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
                 }
         }
@@ -432,10 +463,14 @@ struct ProjectWindow: View {
                 // and .task(id:) never fires because model.fileURL never
                 // changes. See axiom-swiftui debugging.md Root Cause 5.
                 .id(selectedRoute)
-                .environment(\.kanbanHighlightedID, kanban.highlightedIssueID)
                 .environment(\.openSpec) { route in
                     if selectedRoute == .kanban, case .issue = route {
                         detailOriginRoute = .kanban
+                    } else if case .issue = route {
+                        // Issue→issue navigation: the new issue wasn't opened
+                        // from the board, so the back-to-board affordance
+                        // must not survive the hop.
+                        detailOriginRoute = nil
                     }
                     selectedRoute = route
                 }
@@ -482,7 +517,42 @@ struct ProjectWindow: View {
                     statusModel: claudeStatus,
                     repoState: gitModel.repoState,
                     banner: navigator.dropRejectMessage
+                        ?? kanban.lastDropError.map { "Drop failed: \($0)" }
+                        ?? kanban.lastRemovalError.map { "Remove failed: \($0)" }
+                        ?? kanban.boardError
                 )
+            }
+            // Derived isPresented binding is the standard confirmationDialog
+            // shape; the kanban model owns the pending state so the card
+            // context menus (board + sidebar) share one dialog.
+            .confirmationDialog(
+                removalDialogTitle,
+                isPresented: Binding(
+                    get: { kanban.pendingRemoval != nil },
+                    set: { if !$0 { kanban.cancelPendingRemoval() } }
+                ),
+                presenting: kanban.pendingRemoval
+            ) { removal in
+                switch removal.kind {
+                case .archive:
+                    Button("Archive") {
+                        kanban.confirmRemoval(removal, projectURL: handle.url)
+                    }
+                case .trash:
+                    Button("Move to Trash", role: .destructive) {
+                        kanban.confirmRemoval(removal, projectURL: handle.url)
+                    }
+                }
+            } message: { removal in
+                switch removal.kind {
+                case .archive:
+                    Text(
+                        "The issue folder moves to .claude/issues/archive/. "
+                            + "Restoring means moving it back in Finder."
+                    )
+                case .trash:
+                    Text("You can restore it from the Trash.")
+                }
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
@@ -490,6 +560,15 @@ struct ProjectWindow: View {
                     .font(.headline)
                 Text(Self.message(for: error))
                     .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Try Again") {
+                        Task { await model.reload(at: handle.url) }
+                    }
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([handle.url])
+                    }
+                }
+                .padding(.top, 4)
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -501,6 +580,14 @@ struct ProjectWindow: View {
         return handle.url.lastPathComponent
     }
 
+    private var removalDialogTitle: String {
+        guard let removal = kanban.pendingRemoval else { return "" }
+        switch removal.kind {
+        case .archive: return "Archive \"\(removal.folderName)\"?"
+        case .trash: return "Move \"\(removal.folderName)\" to Trash?"
+        }
+    }
+
     private var backToOriginAction: (() -> Void)? {
         guard let origin = detailOriginRoute, origin == .kanban else { return nil }
         return { selectedRoute = .kanban }
@@ -509,8 +596,19 @@ struct ProjectWindow: View {
     // Keeps the open detail pane in sync when the sidebar renames/moves/trashes
     // the file (or an ancestor folder of the file) currently shown. Moves
     // re-point the selection to the new path; removals fall back to the board.
+    // `.issue` routes follow their folder under .claude/issues/ the same way.
     private func applyRouteRewrites(_ rewrites: [RouteRewrite]) {
-        guard case .projectFile(let current) = selectedRoute else { return }
+        switch selectedRoute {
+        case .projectFile(let current):
+            applyFileRouteRewrites(rewrites, current: current)
+        case .issue(let folderName):
+            applyIssueRouteRewrites(rewrites, folderName: folderName)
+        case .kanban, .projectSettings:
+            return
+        }
+    }
+
+    private func applyFileRouteRewrites(_ rewrites: [RouteRewrite], current: String) {
         for rewrite in rewrites {
             switch rewrite {
             case .moved(let old, let new):
@@ -532,70 +630,74 @@ struct ProjectWindow: View {
         }
     }
 
+    private func applyIssueRouteRewrites(_ rewrites: [RouteRewrite], folderName: String) {
+        let issuesPrefix = ".claude/issues/"
+        let issuePath = issuesPrefix + folderName
+        for rewrite in rewrites {
+            switch rewrite {
+            case .moved(let old, let new):
+                guard old == issuePath || issuePath.hasPrefix(old + "/") else { continue }
+                let renamed = new.hasPrefix(issuesPrefix) ? String(new.dropFirst(issuesPrefix.count)) : ""
+                if old == issuePath, !renamed.isEmpty, !renamed.contains("/") {
+                    selectedRoute = .issue(folderName: renamed)
+                } else {
+                    // Moved out of the issues directory (or an ancestor moved):
+                    // the route can't follow — fall back to the board.
+                    selectedRoute = .kanban
+                }
+                return
+            case .removed(let old):
+                if old == issuePath || issuePath.hasPrefix(old + "/") {
+                    selectedRoute = .kanban
+                    return
+                }
+            }
+        }
+    }
+
+    // SceneStorage survives window reuse across projects — the payload is
+    // prefixed with the project path, and the restore validates the target
+    // still exists so deleted issues/files fall back to the board.
+    private static func persistedRouteString(_ route: NavigatorRoute, projectURL: URL) -> String {
+        projectURL.path + "\n" + route.persistedString
+    }
+
+    private static func restoredRoute(from data: String, projectURL: URL) -> NavigatorRoute? {
+        let parts = data.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0] == projectURL.path,
+            let route = NavigatorRoute(persistedString: String(parts[1]))
+        else { return nil }
+        return routeTargetExists(route, projectURL: projectURL) ? route : nil
+    }
+
+    private static func routeTargetExists(_ route: NavigatorRoute, projectURL: URL) -> Bool {
+        let fm = FileManager.default
+        switch route {
+        case .kanban, .projectSettings:
+            return true
+        case .issue(let folderName):
+            return fm.fileExists(
+                atPath: IssueLayout.specURL(in: projectURL, folderName: folderName).path)
+        case .projectFile(let rel):
+            return fm.fileExists(atPath: projectURL.appendingPathComponent(rel).path)
+        }
+    }
+
     private var isLoaded: Bool {
         if case .loaded = model.state { return true }
         return false
     }
 
     private func runWorkflow(_ action: WorkflowAction, folderName: String) {
-        // Reject folder names that would corrupt the inject: \r submits in
-        // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
-        // exactly these three. Folder names are user-controlled via Finder
-        // rename, so this is a real attack surface, not just defense in depth.
-        guard TerminalClaudeSession.isShellSafe(folderName) else {
-            Self.log.warning(
-                "runWorkflow: refusing inject for \(action.slug, privacy: .public) — folderName contains control chars."
-            )
-            return
-        }
-
-        // Cancel any prior inject still mid-sleep before its next enqueue.
-        workflowTask?.cancel()
-        isTerminalInspectorOpen = true
-
-        // Find-or-create a per-workflow tab so each Plan/Implement/Review
-        // gets its own claude subprocess with the right --permission-mode and
-        // leaves the main terminal free. Title match is exact ("<Action>:
-        // <slug>"); a repeat click on the same action+issue selects the
-        // existing tab without a second inject.
-        if let existing = terminalTabs.findWorkflowTab(action: action, slug: folderName) {
-            terminalTabs.selectedTabID = existing.id
-            return
-        }
-        let workflowTab = terminalTabs.addWorkflowTab(
+        workflowLauncher.run(
             action: action,
-            slug: folderName,
-            override: currentConfig()?.workflows?[action]
+            folderName: folderName,
+            projectURL: handle.url,
+            override: currentConfig()?.workflows?[action],
+            tabs: terminalTabs,
+            openInspector: { isTerminalInspectorOpen = true },
+            showBanner: { navigator.showBanner($0) }
         )
-
-        // Resolve the template (default or per-project override) into the
-        // sequence of lines that need to be injected into claude's REPL.
-        let lines = WorkflowCommandResolver.resolve(
-            action: action,
-            slug: folderName,
-            specURL: IssueLayout.specURL(in: handle.url, folderName: folderName),
-            promptURL: IssueLayout.promptURL(in: handle.url, folderName: folderName),
-            override: currentConfig()?.workflows?[action]
-        )
-        guard !lines.isEmpty else { return }
-
-        let session = workflowTab.session
-        let slug = action.slug
-        workflowTask = Task { @MainActor in
-            let result = await session.injectCommands(lines)
-            switch result {
-            case .sessionExited:
-                Self.log.info(
-                    "runWorkflow: session exited mid-inject for \(slug, privacy: .public)."
-                )
-            case .timedOut:
-                Self.log.warning(
-                    "runWorkflow: session never reached .running within 5s; abort inject for \(slug, privacy: .public)."
-                )
-            case .injected, .cancelled:
-                break
-            }
-        }
     }
 
     // Replaces an existing watcher when the window swaps to a different

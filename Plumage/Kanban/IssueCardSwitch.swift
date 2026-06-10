@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct IssueCardSwitch: View {
@@ -43,6 +42,16 @@ struct IssueCardSwitch: View {
         }
     }
 
+    private func columnNeighbor(of value: Issue, offset: Int) -> String? {
+        let items = kanban.groupedIssues[value.column] ?? []
+        guard let index = items.firstIndex(where: { $0.id == value.folderName }) else {
+            return nil
+        }
+        let neighbor = index + offset
+        guard items.indices.contains(neighbor) else { return nil }
+        return items[neighbor].id
+    }
+
     @ViewBuilder
     private func validBody(_ value: Issue) -> some View {
         let isLocked = dirtyFolderName == value.folderName
@@ -71,6 +80,26 @@ struct IssueCardSwitch: View {
             // to the gesture-bearing wrapper, not the rendering view.
             .accessibilityAddTraits(.isButton)
             .accessibilityActions {
+                // Within-column reorder is otherwise gesture-only — these
+                // actions are the keyboard/VoiceOver path to the same drop.
+                if let above = columnNeighbor(of: value, offset: -1) {
+                    Button("Move Up") {
+                        guard !isLocked else { return }
+                        kanban.dispatchDrop(
+                            payload,
+                            to: .aboveCard(folderName: above, column: value.column),
+                            projectURL: projectURL)
+                    }
+                }
+                if let below = columnNeighbor(of: value, offset: 1) {
+                    Button("Move Down") {
+                        guard !isLocked else { return }
+                        kanban.dispatchDrop(
+                            payload,
+                            to: .belowCard(folderName: below, column: value.column),
+                            projectURL: projectURL)
+                    }
+                }
                 ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
                     Button("Move to \(target.name)") {
                         guard !isLocked else { return }

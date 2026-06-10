@@ -37,7 +37,7 @@ struct DiffTabModelTests {
     func reloadsToDiff() async throws {
         let mock = MockGitProcessRunner()
         wireBaseChecks(mock)
-        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD"]] = """
+        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = """
             diff --git a/x b/x
             index 1111111..2222222 100644
             --- a/x
@@ -62,7 +62,7 @@ struct DiffTabModelTests {
     func reloadsToEmpty() async throws {
         let mock = MockGitProcessRunner()
         wireBaseChecks(mock)
-        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD"]] = ""
+        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = ""
         let model = makeModel(mock: mock)
         model.reload()
         try await waitForState(model) { $0 == .empty }
@@ -98,7 +98,7 @@ struct DiffTabModelTests {
 
         let mock = MockGitProcessRunner()
         wireBaseChecks(mock)
-        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD"]] = fixture
+        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = fixture
         let model = makeModel(mock: mock)
         model.reload()
         try await waitForState(model) {
@@ -140,13 +140,13 @@ struct DiffTabModelTests {
     func rapidReloadsCancel() async throws {
         let mock = MockGitProcessRunner()
         wireBaseChecks(mock)
-        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD"]] = ""
+        mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = ""
         let model = makeModel(mock: mock)
         for _ in 0..<5 { model.reload() }
         try await waitForState(model) { $0 == .empty }
         // Each reload sequence issues 3 calls (git-dir, rev-parse, diff).
         // With cancellation, the recorded call count varies but the last
         // recorded triple still ends in the diff call.
-        #expect(mock.recordedCalls.last == ["-C", repo.path, "diff", "main...HEAD"])
+        #expect(mock.recordedCalls.last == ["-C", repo.path, "diff", "main...HEAD", "--"])
     }
 }

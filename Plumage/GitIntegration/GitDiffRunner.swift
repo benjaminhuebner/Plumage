@@ -36,6 +36,11 @@ nonisolated struct GitDiffRunner: Sendable {
     }
 
     func run(repoURL: URL, base: String = "main") async throws -> String {
+        // `base` flows positionally into rev-parse and the diff range —
+        // reject option-shaped values from config/frontmatter.
+        guard GitBranchName.isSafe(base) else {
+            throw GitDiffError.baseBranchMissing(base)
+        }
         guard let binary = resolveBinary() else {
             throw GitDiffError.gitNotFound
         }
@@ -81,7 +86,7 @@ nonisolated struct GitDiffRunner: Sendable {
         do {
             result = try await runner.run(
                 binaryURL: binary,
-                args: ["-C", repoURL.path, "diff", "\(base)...HEAD"],
+                args: ["-C", repoURL.path, "diff", "\(base)...HEAD", "--"],
                 cwd: nil
             )
         } catch let error as GitProcessRunnerError {

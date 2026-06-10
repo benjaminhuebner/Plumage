@@ -29,9 +29,9 @@ struct BuildLogPopover: View {
                 .keyboardShortcut(.cancelAction)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(Array(model.tailLog.enumerated()), id: \.offset) { _, line in
-                        Text(line)
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(model.tailLog) { line in
+                        Text(line.text)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)

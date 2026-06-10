@@ -39,6 +39,7 @@ struct WelcomeView: View {
             appIcon
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 128, height: 128)
+                .accessibilityHidden(true)
             VStack(spacing: 4) {
                 Text("Welcome to Plumage")
                     .font(.system(size: 28, weight: .semibold))
@@ -105,6 +106,16 @@ struct WelcomeView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(item.name)
                     .accessibilityHint("Opens the project")
+                    .contextMenu {
+                        Button("Show in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([item.url])
+                        }
+                        // The only way out for stale entries (moved/deleted
+                        // projects) — without it they stick forever.
+                        Button("Remove from Recents") {
+                            recentProjects.remove(url: item.url)
+                        }
+                    }
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
                 }

@@ -38,6 +38,49 @@ struct SpecParserTests {
         #expect(issue.updated == isoFractional("2026-05-12T09:15:30.123Z"))
     }
 
+    @Test("parses CRLF line endings")
+    func crlfLineEndings() throws {
+        let content = """
+            ---
+            id: 9
+            title: CRLF spec
+            type: chore
+            status: approved
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00009-crlf
+            ---
+
+            Body.
+            """
+            .replacingOccurrences(of: "\n", with: "\r\n")
+        let issue = try requireSuccess(SpecParser.parse(content: content, folderName: "00009-crlf"))
+        #expect(issue.id == 9)
+        #expect(issue.title == "CRLF spec")
+        #expect(SpecParser.validate(content: content) == nil)
+    }
+
+    @Test("tolerates leading blank lines before the opening delimiter")
+    func leadingBlankLines() throws {
+        let content = """
+
+
+            ---
+            id: 10
+            title: t
+            type: chore
+            status: approved
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00010-x
+            ---
+
+            Body.
+            """
+        let issue = try requireSuccess(SpecParser.parse(content: content, folderName: "00010-x"))
+        #expect(issue.id == 10)
+    }
+
     @Test("parses optional mergeSubject when present")
     func mergeSubjectPresent() throws {
         let content = """

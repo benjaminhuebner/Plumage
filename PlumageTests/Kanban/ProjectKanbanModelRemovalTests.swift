@@ -108,6 +108,60 @@ struct OptimisticArchiveTests {
         #expect(model.lastRemovalCompleted == nil)
     }
 
+    @Test("failed removal restores only its own card, not the whole prior snapshot")
+    func failedRemovalRestoresOnlyOwnCard() async throws {
+        struct DummyError: Error, LocalizedError {
+            var errorDescription: String? { "boom" }
+        }
+        let model = ProjectKanbanModel(archiver: { _, _ in throw DummyError() })
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        let issueB = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .approved)
+        model._setIssuesForTesting([.valid(issueA), .valid(issueB)])
+        let projectURL = URL(filePath: "/tmp/probe")
+
+        model.applyOptimisticArchive(folderName: "00001-a", projectURL: projectURL)
+        // Another card moves while the failing archive is in flight; the
+        // rollback must not clobber its newer state with the prior snapshot.
+        let issueBMoved = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .done)
+        model._setIssuesForTesting([.valid(issueBMoved)])
+        await model.performArchiveOptimistic(folderName: "00001-a", projectURL: projectURL)
+
+        #expect(model.issues.contains { $0.id == "00001-a" })
+        let cardB = try #require(model.issues.first { $0.id == "00002-b" })
+        guard case .valid(let restoredB) = cardB else {
+            Issue.record("expected .valid card for 00002-b, got \(cardB)")
+            return
+        }
+        #expect(restoredB.status == .done)
+        #expect(model.lastRemovalError == "boom")
+    }
+
+    @Test("a newer removal error replaces an older drop error instead of being masked")
+    func newerRemovalErrorReplacesDropError() async {
+        struct DropError: Error, LocalizedError {
+            var errorDescription: String? { "drop boom" }
+        }
+        struct ArchiveError: Error, LocalizedError {
+            var errorDescription: String? { "archive boom" }
+        }
+        let model = ProjectKanbanModel(
+            mutator: { _, _, _, _ in throw DropError() },
+            archiver: { _, _ in throw ArchiveError() })
+        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        let issueB = OptimisticDropTests.makeIssue(id: 2, folder: "00002-b", status: .approved)
+        model._setIssuesForTesting([.valid(issueA), .valid(issueB)])
+        let projectURL = URL(filePath: "/tmp/probe")
+
+        await model.performDropOptimistic(
+            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            to: .column(.inProgress), projectURL: projectURL)
+        #expect(model.lastDropError == "drop boom")
+
+        await model.performArchiveOptimistic(folderName: "00002-b", projectURL: projectURL)
+        #expect(model.lastRemovalError == "archive boom")
+        #expect(model.lastDropError == nil)
+    }
+
     @Test("rollback after a single removal does not stick lastRemovalError across a clear")
     func errorClearsAfterClearRemovalError() async {
         struct DummyError: Error, LocalizedError {

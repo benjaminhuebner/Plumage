@@ -226,7 +226,7 @@ struct TemplateCatalogSidebar: View {
                 .multilineTextAlignment(.center)
                 .padding(10)
                 .frame(maxWidth: .infinity)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
                 .padding(8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -281,9 +281,7 @@ private struct TemplateSidebarDialogs: ViewModifier {
         content
             .confirmationDialog(
                 model.pendingComponentDeletion.map { "Delete “\($0.name)”?" } ?? "",
-                isPresented: Binding(
-                    get: { model.pendingComponentDeletion != nil },
-                    set: { if !$0 { model.pendingComponentDeletion = nil } }),
+                isPresented: model.componentDeletionDialogBinding,
                 titleVisibility: .visible,
                 presenting: model.pendingComponentDeletion
             ) { _ in

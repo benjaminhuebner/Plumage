@@ -10,11 +10,13 @@ struct IssueContextMenuItems: View {
 
     var body: some View {
         Group {
+            // Both route through a confirmation dialog (ProjectWindow) — the
+            // card disappears instantly and archive has no restore UI.
             Button("Archive") {
-                kanban.applyOptimisticArchive(folderName: folderName, projectURL: projectURL)
+                kanban.requestArchive(folderName: folderName)
             }
             Button("Move to Trash", role: .destructive) {
-                kanban.applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
+                kanban.requestTrash(folderName: folderName)
             }
             Divider()
             Button("Reveal in Finder") {

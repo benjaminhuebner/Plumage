@@ -97,6 +97,9 @@ enum OpenProjectCommand {
         do {
             let config = try ConfigLoader.load(atBundle: bundle)
             recentProjects.add(url: root, name: config.name)
+            // The bundle is the registered document type, so a Dock-recent
+            // click routes back through application(_:open:).
+            NSDocumentController.shared.noteNewRecentDocumentURL(bundle)
             openWindow(value: ProjectHandle(url: root))
             dismissWindow(id: "welcome")
         } catch let error as ConfigLoader.LoadError {
@@ -161,6 +164,37 @@ enum OpenProjectCommand {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+}
+
+struct OpenRecentMenu: View {
+    // Injected, not @Environment: CommandGroup views don't inherit the scene environment.
+    let recentProjects: RecentProjects
+
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+
+    var body: some View {
+        Menu("Open Recent") {
+            ForEach(recentProjects.items) { item in
+                Button(item.name) {
+                    OpenProjectCommand.openFromBundleURL(
+                        item.url,
+                        recentProjects: recentProjects,
+                        openWindow: openWindow,
+                        dismissWindow: dismissWindow
+                    )
+                }
+            }
+            if !recentProjects.items.isEmpty {
+                Divider()
+                Button("Clear Menu") {
+                    recentProjects.clear()
+                    NSDocumentController.shared.clearRecentDocuments(nil)
+                }
+            }
+        }
+        .disabled(recentProjects.items.isEmpty)
     }
 }
 

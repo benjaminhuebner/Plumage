@@ -55,7 +55,7 @@ private struct MigrateProjectFlowView: View {
             } else {
                 stepContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if let error = model.error {
+                if let error = model.errorMessage {
                     errorBanner(error)
                 }
             }

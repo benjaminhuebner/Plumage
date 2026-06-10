@@ -31,7 +31,7 @@ final class MigrateProjectModel {
     var createGitignore: Bool = true
 
     var isMigrating: Bool = false
-    var error: String?
+    var errorMessage: String?
     var report: MigrationReport?
     private(set) var migratedProject: CreatedProject?
 
@@ -196,12 +196,12 @@ final class MigrateProjectModel {
 
     func migrate() async {
         guard let spec = assembledSpec() else {
-            error = Self.message(for: MigrateProjectError.incompleteForm)
+            errorMessage = Self.message(for: MigrateProjectError.incompleteForm)
             return
         }
 
         isMigrating = true
-        error = nil
+        errorMessage = nil
         defer { isMigrating = false }
 
         do {
@@ -217,7 +217,7 @@ final class MigrateProjectModel {
             report = result.1
         } catch {
             guard !Task.isCancelled else { return }
-            self.error = Self.message(for: error)
+            self.errorMessage = Self.message(for: error)
         }
     }
 

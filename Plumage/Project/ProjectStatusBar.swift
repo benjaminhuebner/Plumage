@@ -35,6 +35,7 @@ struct ProjectStatusBar: View {
                 }
                 HStack(spacing: 6) {
                     statusDot
+                        .accessibilityHidden(true)
                     // Banner messages take priority over the static indicator
                     // label — for the ~3 s window the user sees the rejection
                     // reason instead of "claude X ready".
@@ -55,7 +56,9 @@ struct ProjectStatusBar: View {
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 22)
-            .background(.bar)
+            // Solid fill, not .bar: bar material is navigation-layer chrome;
+            // this strip sits on the content layer below the detail pane.
+            .background(.background.secondary)
             .help(banner ?? tooltip)
             .accessibilityElement(children: .contain)
         }
@@ -70,6 +73,7 @@ struct ProjectStatusBar: View {
         }
     }
 
+    // Decorative: the adjacent label text carries the state for VoiceOver.
     @ViewBuilder
     private var statusDot: some View {
         switch indicatorState {

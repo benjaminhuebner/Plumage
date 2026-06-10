@@ -27,6 +27,13 @@ final class XcodeRunModel {
         }
     }
 
+    // Identifiable wrapper for the streaming log: positional ForEach identity
+    // re-identifies every visible row whenever the cap/tail window shifts.
+    nonisolated struct BuildLogLine: Identifiable, Sendable, Equatable {
+        let id: Int
+        let text: String
+    }
+
     private(set) var projectRef: XcodeProjectRef?
     private(set) var schemes: [String] = []
     private(set) var selectedScheme: String?
@@ -35,7 +42,8 @@ final class XcodeRunModel {
     private(set) var selectedDestination: XcodeDestination?
     private(set) var discoveryState: DiscoveryState = .idle
     private(set) var runState: RunState = .idle
-    private(set) var logBuffer: [String] = []
+    private(set) var logBuffer: [BuildLogLine] = []
+    @ObservationIgnored private var nextLogLineID = 0
     private(set) var multipleProjectsFound: Bool = false
     private(set) var toolchainAvailable: Bool = true
     private(set) var schemeCompatibility: [String: SchemeCompatibility] = [:]
@@ -201,7 +209,8 @@ final class XcodeRunModel {
     }
 
     func appendLog(_ line: String) {
-        logBuffer.append(line)
+        logBuffer.append(BuildLogLine(id: nextLogLineID, text: line))
+        nextLogLineID += 1
         if logBuffer.count > Self.logCap {
             logBuffer = Array(logBuffer.suffix(Self.logCap))
         }
@@ -215,7 +224,7 @@ final class XcodeRunModel {
         runState = state
     }
 
-    var tailLog: [String] {
+    var tailLog: [BuildLogLine] {
         Array(logBuffer.suffix(Self.logTail))
     }
 
@@ -227,7 +236,7 @@ final class XcodeRunModel {
     }
 
     var fullLogText: String {
-        logBuffer.joined(separator: "\n")
+        logBuffer.map(\.text).joined(separator: "\n")
     }
 
     var installXcodeURL: URL? {

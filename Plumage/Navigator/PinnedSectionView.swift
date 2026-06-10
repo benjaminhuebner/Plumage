@@ -69,7 +69,6 @@ struct PinnedRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .tag(NavigatorRoute.projectFile(relativePath: relativePath))
-        .clickableSidebarRow()
         .contextMenu {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -82,18 +81,20 @@ struct PinnedRow: View {
 
     @ViewBuilder
     private var unpinButton: some View {
-        if hovering {
-            Button {
-                pinModel.unpin(relativePath: relativePath, projectURL: projectURL)
-            } label: {
-                Image(systemName: "pin.fill")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Unpin")
+        Button {
+            pinModel.unpin(relativePath: relativePath, projectURL: projectURL)
+        } label: {
+            Image(systemName: "pin.fill")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help("Unpin")
+        .accessibilityLabel("Unpin")
+        // Opacity, not conditional existence: a hover-only button never
+        // exists for VoiceOver/keyboard users.
+        .opacity(hovering ? 1 : 0)
     }
 }

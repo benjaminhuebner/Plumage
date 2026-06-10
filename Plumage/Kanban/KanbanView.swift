@@ -13,6 +13,10 @@ struct KanbanView: View {
     @State private var kanbanFrame: CGRect = .zero
     @State private var kanbanDrag = KanbanDragController()
     @State private var autoScroll = KanbanAutoScroll()
+    // Source-filtered columns, computed once per lift instead of per cursor
+    // move (resolveDropTarget fires on every drag frame). Invalidated on
+    // drag end and on any grouped-snapshot change mid-drag.
+    @State private var dragFilteredIssues: [IssueColumn: [DiscoveredIssue]]?
 
     var body: some View {
         @Bindable var autoScroll = autoScroll
@@ -58,6 +62,7 @@ struct KanbanView: View {
         .onChange(of: kanbanDrag.isActive) { _, active in
             if !active {
                 autoScroll.stop()
+                dragFilteredIssues = nil
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -77,6 +82,7 @@ struct KanbanView: View {
                 }
             }
             frames.pruneCards(keeping: live)
+            dragFilteredIssues = nil
         }
         // .onKeyPress(.escape) does not reliably fire while a mouse drag holds
         // the responder chain; a local NSEvent monitor catches the keystroke
@@ -144,11 +150,18 @@ struct KanbanView: View {
 
     private func updateResolvedTarget() {
         guard kanbanDrag.isActive, let source = kanbanDrag.sourceFolderName else { return }
+        let filtered: [IssueColumn: [DiscoveredIssue]]
+        if let cached = dragFilteredIssues {
+            filtered = cached
+        } else {
+            filtered = grouped.mapValues { items in items.filter { $0.id != source } }
+            dragFilteredIssues = filtered
+        }
         let resolved = resolveDropTarget(
             cursor: kanbanDrag.cursorLocation,
             cardFrames: frames.cards,
             columnFrames: frames.columns,
-            sortedIssues: grouped,
+            sortedIssues: filtered,
             sourceFolderName: source
         )
         guard kanbanDrag.target != resolved else { return }

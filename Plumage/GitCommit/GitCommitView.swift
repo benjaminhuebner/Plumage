@@ -160,6 +160,7 @@ private struct FileRow: View {
             }
             .toggleStyle(.checkbox)
             .labelsHidden()
+            .accessibilityLabel("Stage \(file.path)")
             Text(String(file.badge))
                 .font(.caption.monospaced())
                 .padding(.horizontal, 4)
@@ -167,6 +168,7 @@ private struct FileRow: View {
                 .background(badgeBackground)
                 .foregroundStyle(badgeForeground)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
+                .accessibilityLabel(badgeAccessibilityLabel)
             Text(file.path)
                 .font(.caption)
                 .lineLimit(1)
@@ -196,6 +198,19 @@ private struct FileRow: View {
     private var badgeForeground: Color {
         .primary
     }
+
+    private var badgeAccessibilityLabel: String {
+        switch file.badge {
+        case "M": return "Modified"
+        case "A": return "Added"
+        case "D": return "Deleted"
+        case "R": return "Renamed"
+        case "C": return "Copied"
+        case "U": return "Conflict"
+        case "?": return "Untracked"
+        default: return String(file.badge)
+        }
+    }
 }
 
 private struct CommitDiffFileSection: View {
@@ -222,9 +237,8 @@ private struct CommitDiffHunk: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 4)
-            ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-                CommitDiffLine(line: line)
-            }
+            DiffHunkLinesView(hunk: hunk, style: .compact)
+                .equatable()
         }
         .padding(8)
         .background(.background.secondary)
@@ -233,46 +247,5 @@ private struct CommitDiffHunk: View {
 
     private var hunkHeader: String {
         "@@ -\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@"
-    }
-}
-
-private struct CommitDiffLine: View {
-    let line: Line
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(prefix)
-                .font(.caption.monospaced())
-                .frame(width: 14, alignment: .center)
-                .foregroundStyle(prefixColor)
-            Text(line.content)
-                .font(.caption.monospaced())
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(rowBackground)
-    }
-
-    private var prefix: String {
-        switch line.kind {
-        case .added: "+"
-        case .removed: "-"
-        case .context: " "
-        }
-    }
-
-    private var prefixColor: Color {
-        switch line.kind {
-        case .added: .green
-        case .removed: .red
-        case .context: .secondary
-        }
-    }
-
-    private var rowBackground: Color {
-        switch line.kind {
-        case .added: .green.opacity(0.08)
-        case .removed: .red.opacity(0.08)
-        case .context: .clear
-        }
     }
 }

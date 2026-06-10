@@ -53,6 +53,23 @@ struct FrontmatterMutatorTests {
         #expect(!output.contains("order: 7.0"))
     }
 
+    @Test("fractional order survives at full precision (no %g rounding)")
+    func orderFullPrecision() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            newStatus: nil,
+            newOrder: .set(1234.5678),
+            now: now
+        )
+        #expect(output.contains("order: 1234.5678"))
+    }
+
+    @Test("title with newline is escaped into quoted YAML")
+    func titleNewlineEscaped() {
+        #expect(FrontmatterMutator.formatTitleValue("a\nb") == #""a\nb""#)
+    }
+
     @Test("order .set(nil) removes the order line")
     func orderRemove() throws {
         let input = baseSpec(status: "approved", order: "3.5")

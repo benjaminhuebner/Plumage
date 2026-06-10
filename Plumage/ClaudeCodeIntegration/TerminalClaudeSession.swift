@@ -199,15 +199,19 @@ final class TerminalClaudeSession {
     func injectCommands(
         _ lines: [String],
         timeout: Duration = .seconds(5),
-        // Test seam: the gap floors at 800 ms, so without an override every
-        // injectCommands test pays a real ~second of sleep.
-        bodyDelay: Duration? = nil
+        // Test seams: the gap floors at 800 ms, so without an override every
+        // injectCommands test pays a real ~second of sleep; the injectable
+        // clock lets a ManualClock test pin the bodyDelay>0 path itself.
+        bodyDelay: Duration? = nil,
+        clock: any Clock<Duration> = ContinuousClock()
     ) async -> InjectResult {
         let payloads = lines.flatMap { line -> [String] in
             [line.replacingOccurrences(of: "\r", with: ""), "\r"]
         }
         return await injectLines(
-            payloads, timeout: timeout, bodyDelay: bodyDelay ?? Self.injectBodyDelay(for: payloads))
+            payloads, timeout: timeout,
+            bodyDelay: bodyDelay ?? Self.injectBodyDelay(for: payloads),
+            clock: clock)
     }
 
     // Enqueue every entry in `lines` in order, with a single wait-for-running
@@ -219,7 +223,8 @@ final class TerminalClaudeSession {
     private func injectLines(
         _ lines: [String],
         timeout: Duration = .seconds(5),
-        bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor
+        bodyDelay: Duration = TerminalClaudeSession.injectBodyDelayFloor,
+        clock: any Clock<Duration> = ContinuousClock()
     ) async -> InjectResult {
         guard !lines.isEmpty else { return .injected }
         _ = consumePending()
@@ -235,7 +240,7 @@ final class TerminalClaudeSession {
 
         for (index, line) in lines.enumerated() {
             if index > 0 {
-                try? await Task.sleep(for: bodyDelay)
+                try? await clock.sleep(for: bodyDelay)
                 if Task.isCancelled { return .cancelled }
                 if case .exited = state { return .sessionExited }
             }
@@ -375,9 +380,11 @@ final class TerminalClaudeSession {
         guard sessionIDStoreURL != nil else { return }
         let watcher = SessionLogWatcher(directory: sessionLogDirectory()) { [weak self] in
             // FSEvents callback fires on the watcher's own dispatch queue;
-            // hop to MainActor before touching @Observable state.
+            // hop to MainActor before touching @Observable state. The async
+            // variant keeps the directory scan itself off the MainActor —
+            // this path fires repeatedly while claude streams to its log.
             Task { @MainActor [weak self] in
-                self?.reconcileSessionFromDisk()
+                await self?.reconcileSessionFromDiskAsync()
             }
         }
         watcher.start()
@@ -403,7 +410,41 @@ final class TerminalClaudeSession {
         // avoid.
         guard sessionIDStoreURL != nil else { return }
         guard let launchInstant else { return }
+        let bestID = Self.scanAdoptableSession(
+            in: sessionLogDirectory(),
+            currentID: conversationID,
+            excluded: excludedSessionIDs(),
+            since: launchInstant
+        )
+        guard let bestID else { return }
+        conversationID = bestID
+        Self.persistID(bestID, to: sessionIDStoreURL)
+    }
+
+    // FSEvents hot-path variant: the directory scan (N stat calls) runs
+    // detached so streaming-log bursts don't pile sync disk I/O onto the
+    // MainActor. stop()/markStarted() keep the sync version — their one-shot
+    // reconcile must complete before teardown/return.
+    func reconcileSessionFromDiskAsync() async {
+        guard sessionIDStoreURL != nil else { return }
+        guard let launchInstant else { return }
         let dir = sessionLogDirectory()
+        let currentID = conversationID
+        let excluded = excludedSessionIDs()
+        let bestID = await Task.detached(priority: .utility) {
+            Self.scanAdoptableSession(
+                in: dir, currentID: currentID, excluded: excluded, since: launchInstant)
+        }.value
+        // Re-check after the await: a /clear or stop() may have rotated or
+        // torn down the session while the scan ran.
+        guard let bestID, bestID != conversationID, self.launchInstant != nil else { return }
+        conversationID = bestID
+        Self.persistID(bestID, to: sessionIDStoreURL)
+    }
+
+    private nonisolated static func scanAdoptableSession(
+        in dir: URL, currentID: String, excluded: Set<String>, since launchInstant: Date
+    ) -> String? {
         let fm = FileManager.default
         guard
             let entries = try? fm.contentsOfDirectory(
@@ -411,13 +452,12 @@ final class TerminalClaudeSession {
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             )
-        else { return }
-        let excluded = excludedSessionIDs()
+        else { return nil }
         var bestID: String?
         var bestMTime: Date?
         for entry in entries where entry.pathExtension == "jsonl" {
             let id = entry.deletingPathExtension().lastPathComponent
-            if id == conversationID { continue }
+            if id == currentID { continue }
             if excluded.contains(id) { continue }
             guard
                 let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey]),
@@ -428,9 +468,7 @@ final class TerminalClaudeSession {
             bestMTime = mtime
             bestID = id
         }
-        guard let bestID else { return }
-        conversationID = bestID
-        Self.persistID(bestID, to: sessionIDStoreURL)
+        return bestID
     }
 
     private nonisolated static func loadPersistedID(from url: URL?) -> String? {

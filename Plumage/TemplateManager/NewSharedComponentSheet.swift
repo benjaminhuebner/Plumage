@@ -62,14 +62,8 @@ struct NewSharedComponentSheet: View {
     private var membershipList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(catalog.templates.sorted { $0.name < $1.name }) { template in
-                    Toggle(
-                        isOn: Binding(
-                            get: { members.contains(template.id) },
-                            set: { isOn in
-                                if isOn { members.insert(template.id) } else { members.remove(template.id) }
-                            })
-                    ) {
+                ForEach(catalog.templatesSortedByName) { template in
+                    Toggle(isOn: membershipBinding(for: template.id)) {
                         Text(template.name)
                     }
                     .toggleStyle(.checkbox)
@@ -79,5 +73,14 @@ struct NewSharedComponentSheet: View {
             .padding(.horizontal, 4)
         }
         .frame(height: 160)
+    }
+
+    private func membershipBinding(for templateID: String) -> Binding<Bool> {
+        Binding(
+            get: { members.contains(templateID) },
+            set: { isOn in
+                if isOn { members.insert(templateID) } else { members.remove(templateID) }
+            }
+        )
     }
 }

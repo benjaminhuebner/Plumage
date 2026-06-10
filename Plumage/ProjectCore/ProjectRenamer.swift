@@ -52,11 +52,12 @@ nonisolated enum ProjectRenamer {
         if target.standardizedFileURL == oldBundle.standardizedFileURL {
             didMove = false
         } else {
-            guard !fm.fileExists(atPath: target.path) else {
-                throw RenameError.bundleExists(target)
-            }
+            // Attempt-then-handle instead of exists-then-move: a pre-check
+            // races concurrent writers creating the same target (TOCTOU).
             do {
                 try fm.moveItem(at: oldBundle, to: target)
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                throw RenameError.bundleExists(target)
             } catch {
                 throw RenameError.moveFailed(message: error.localizedDescription)
             }

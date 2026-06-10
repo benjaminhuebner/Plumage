@@ -32,6 +32,25 @@ final class NavigatorModel {
     // picks "Rename" from the context menu; cleared on commit/cancel.
     var renaming: RenameSession?
 
+    // Set by the Delete key / context-menu "Move to Trash"; the sidebar
+    // presents a confirmation dialog for it. Trash is recoverable, but the
+    // file disappears instantly from the project — no unconfirmed destruction.
+    private(set) var pendingTrash: URL?
+
+    func requestTrash(url: URL) {
+        pendingTrash = url
+    }
+
+    func cancelPendingTrash() {
+        pendingTrash = nil
+    }
+
+    func confirmPendingTrash(projectURL: URL) async {
+        guard let url = pendingTrash else { return }
+        pendingTrash = nil
+        await trash(url: url, projectURL: projectURL)
+    }
+
     // ~3 s transient banner that surfaces drop/inline rejections in the
     // status bar. Mutators always set + auto-reset via `bannerResetTask`.
     private(set) var dropRejectMessage: String?

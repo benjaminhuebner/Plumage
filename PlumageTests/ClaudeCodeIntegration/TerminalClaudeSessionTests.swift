@@ -426,6 +426,49 @@ struct TerminalClaudeSessionTests {
         #expect(session.pendingInput == ["/plumage-plan 86smuggled", "\r"])
     }
 
+    @Test("bodyDelay>0: the submit \\r waits out the gap before enqueueing")
+    func injectBodyDelayGapsEnqueues() async throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        let clock = ManualClock()
+        let task = Task {
+            await session.injectCommands(
+                ["/plumage-plan 86"], bodyDelay: .milliseconds(800), clock: clock)
+        }
+        // Body enqueues immediately; the \r is parked on the clock.
+        try await clock.waitForWaiterCount(1)
+        #expect(session.pendingInput == ["/plumage-plan 86"])
+
+        clock.advance(by: .milliseconds(800))
+        let result = await task.value
+        #expect(result == .injected)
+        #expect(session.pendingInput == ["/plumage-plan 86", "\r"])
+    }
+
+    @Test("session exit during the bodyDelay aborts with .sessionExited")
+    func injectAbortsOnExitDuringBodyDelay() async throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        let clock = ManualClock()
+        let task = Task {
+            await session.injectCommands(
+                ["/plumage-plan 86"], bodyDelay: .milliseconds(800), clock: clock)
+        }
+        try await clock.waitForWaiterCount(1)
+        session.markExited(code: 1)
+        clock.advance(by: .milliseconds(800))
+        let result = await task.value
+        #expect(result == .sessionExited)
+        // The submit \r must never land in a dead session's queue.
+        #expect(session.pendingInput == ["/plumage-plan 86"])
+    }
+
     // MARK: - reconcileSessionFromDisk
 
     @Test("reconcileSessionFromDisk adopts a fresher non-excluded jsonl and persists")

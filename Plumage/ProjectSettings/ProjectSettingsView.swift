@@ -78,7 +78,7 @@ struct ProjectSettingsView: View {
             Spacer()
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -127,7 +127,7 @@ struct ProjectSettingsView: View {
         )
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                TextField("Project name", text: projectNameBinding)
+                TextField("Project name", text: model.projectNameBinding)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 320)
                     .onSubmit {
@@ -180,7 +180,7 @@ struct ProjectSettingsView: View {
             .accessibilityLabel("Dismiss")
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -191,9 +191,9 @@ struct ProjectSettingsView: View {
                 "Custom slash-commands for the three workflow buttons. The placeholders `<slug>`, `<prompt>`, `<spec>` are substituted at run time. An empty prompt.md substitutes to an empty string."
         )
         VStack(alignment: .leading, spacing: 18) {
-            workflowEditor(for: .plan, binding: bindings.planCommand)
-            workflowEditor(for: .implement, binding: bindings.implementCommand)
-            workflowEditor(for: .review, binding: bindings.reviewCommand)
+            workflowEditor(for: .plan, binding: model.commandBinding(for: .plan))
+            workflowEditor(for: .implement, binding: model.commandBinding(for: .implement))
+            workflowEditor(for: .review, binding: model.commandBinding(for: .review))
         }
     }
 
@@ -253,7 +253,7 @@ struct ProjectSettingsView: View {
             ForEach(WorkflowAction.allCases, id: \.self) { action in
                 WorkflowModePickerRow(
                     label: action.settingsLabel,
-                    mode: permissionModeBinding(for: action),
+                    mode: model.permissionModeBinding(for: action),
                     fallback: model.resolvedFallbackMode(for: action)
                 )
             }
@@ -277,7 +277,7 @@ struct ProjectSettingsView: View {
             ForEach(ModelSlot.allCases, id: \.self) { slot in
                 ModelPickerRow(
                     label: slot.label,
-                    choice: modelBinding(for: slot),
+                    choice: model.modelBinding(for: slot),
                     fallback: ModelsConfig.slotDefault(for: slot)
                 )
             }
@@ -327,66 +327,14 @@ struct ProjectSettingsView: View {
             .accessibilityLabel("Dismiss")
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
         .padding(16)
-    }
-
-    private var bindings: ProjectSettingsBindings {
-        ProjectSettingsBindings(model: model)
-    }
-
-    private var projectNameBinding: Binding<String> {
-        Binding(
-            get: { model.projectName },
-            set: { model.projectName = $0 }
-        )
-    }
-
-    private func modelBinding(for slot: ModelSlot) -> Binding<ModelChoice> {
-        Binding(
-            get: { model.model(for: slot) },
-            set: { model.setModel($0, for: slot) }
-        )
-    }
-
-    private func permissionModeBinding(for action: WorkflowAction) -> Binding<PermissionMode?> {
-        Binding(
-            get: { model.permissionMode(for: action) },
-            set: { model.setPermissionMode($0, for: action) }
-        )
     }
 
     private func insertPlaceholder(_ placeholder: WorkflowPlaceholder, into binding: Binding<String>) {
         let current = binding.wrappedValue
         let suffix = current.hasSuffix(" ") || current.isEmpty ? "" : " "
         binding.wrappedValue = current + suffix + placeholder.token
-    }
-}
-
-// Compact binding object so the view body stays terse — every editable
-// command field funnels through ProjectSettingsModel.setCommand which
-// schedules the debounced disk write.
-@MainActor
-private struct ProjectSettingsBindings {
-    let model: ProjectSettingsModel
-
-    var planCommand: Binding<String> {
-        Binding(
-            get: { model.planCommand },
-            set: { model.setCommand($0, for: .plan) }
-        )
-    }
-    var implementCommand: Binding<String> {
-        Binding(
-            get: { model.implementCommand },
-            set: { model.setCommand($0, for: .implement) }
-        )
-    }
-    var reviewCommand: Binding<String> {
-        Binding(
-            get: { model.reviewCommand },
-            set: { model.setCommand($0, for: .review) }
-        )
     }
 }
 

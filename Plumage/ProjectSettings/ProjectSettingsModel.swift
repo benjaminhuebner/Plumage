@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 @Observable
 @MainActor
@@ -167,6 +168,36 @@ final class ProjectSettingsModel {
         case .implement: implementCommand
         case .review: reviewCommand
         }
+    }
+
+    // Model-owned bindings: every write funnels through the model's save
+    // scheduling instead of ad-hoc Binding(get:set:) in the view body.
+    var projectNameBinding: Binding<String> {
+        Binding(
+            get: { self.projectName },
+            set: { self.projectName = $0 }
+        )
+    }
+
+    func commandBinding(for action: WorkflowAction) -> Binding<String> {
+        Binding(
+            get: { self.command(for: action) },
+            set: { self.setCommand($0, for: action) }
+        )
+    }
+
+    func modelBinding(for slot: ModelSlot) -> Binding<ModelChoice> {
+        Binding(
+            get: { self.model(for: slot) },
+            set: { self.setModel($0, for: slot) }
+        )
+    }
+
+    func permissionModeBinding(for action: WorkflowAction) -> Binding<PermissionMode?> {
+        Binding(
+            get: { self.permissionMode(for: action) },
+            set: { self.setPermissionMode($0, for: action) }
+        )
     }
 
     func setCommand(_ value: String, for action: WorkflowAction) {

@@ -23,9 +23,7 @@ struct TemplatesSettingsTab: View {
                     Section(group.category.name) {
                         ForEach(group.templates) { template in
                             Toggle(
-                                isOn: Binding(
-                                    get: { model.isEnabled(template) },
-                                    set: { model.setEnabled(template.id, $0) })
+                                isOn: model.enabledBinding(for: template)
                             ) {
                                 Label {
                                     Text(template.name)

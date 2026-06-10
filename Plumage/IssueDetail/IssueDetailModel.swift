@@ -121,7 +121,7 @@ final class IssueDetailModel {
         projectURL: URL? = nil,
         allocator: IssueAllocating? = nil,
         writer: SpecWriting = DefaultSpecWriter(),
-        mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
+        mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
@@ -139,16 +139,22 @@ final class IssueDetailModel {
         self.clock = clock
         // Pre-load synchronously so the view renders content immediately on
         // first mount — avoids the ProgressView flash caused by idle→loaded
-        // transition after the async load() task fires. Capped at 64 KB so a
-        // pathological spec on a slow volume (network mount, encrypted disk)
-        // can't stall view construction; oversize specs fall back to the
-        // async load() path with the ProgressView placeholder.
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: specURL.path),
+        // transition after the async load() task fires. Local volumes only:
+        // even the stat can stall on a network mount; remote specs take the
+        // async load() path with the ProgressView placeholder. Capped at
+        // 64 KB so a pathological spec can't stall view construction.
+        if Self.volumeIsLocal(specURL),
+            let attrs = try? FileManager.default.attributesOfItem(atPath: specURL.path),
             let size = attrs[.size] as? Int, size <= Self.preloadByteCap,
             let content = try? String(contentsOf: specURL, encoding: .utf8)
         {
             applyLoaded(content: content)
         }
+    }
+
+    private nonisolated static func volumeIsLocal(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.volumeIsLocalKey])
+        return values?.volumeIsLocal ?? false
     }
 
     // Safety net for abnormal teardown paths where .onDisappear is skipped.
@@ -166,7 +172,7 @@ final class IssueDetailModel {
         projectURL: URL,
         allocator: IssueAllocating? = nil,
         writer: SpecWriting = DefaultSpecWriter(),
-        mutator: FrontmatterMutating = DefaultFrontmatterMutating(),
+        mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
@@ -176,7 +182,7 @@ final class IssueDetailModel {
         self.kind = .creating(initialStatus: creatingInitialStatus)
         self.specURL = nil
         self.projectURL = projectURL
-        self.allocator = allocator ?? DefaultIssueAllocating(projectURL: projectURL)
+        self.allocator = allocator ?? DefaultIssueAllocator(projectURL: projectURL)
         self.writer = writer
         self.mutator = mutator
         self.mergeRunner = mergeRunner
@@ -424,6 +430,12 @@ final class IssueDetailModel {
             }.value
         }
         pendingFormWrite = task
+        // Identity-checked reset: a newer write may have replaced the slot
+        // while we awaited. Leaving the finished task in place permanently
+        // disabled the external-change auto-reload (it gates on nil).
+        defer {
+            if pendingFormWrite == task { pendingFormWrite = nil }
+        }
         try await task.value
         await reloadFromDiskAfterOwnWrite()
     }
@@ -674,7 +686,7 @@ nonisolated protocol FrontmatterMutating: Sendable {
     func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws
 }
 
-nonisolated struct DefaultFrontmatterMutating: FrontmatterMutating {
+nonisolated struct DefaultFrontmatterMutator: FrontmatterMutating {
     func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws {
         try FrontmatterMutator.mutate(specURL: specURL, mutation: mutation, now: now)
     }
@@ -691,7 +703,7 @@ nonisolated protocol IssueAllocating: Sendable {
     ) throws -> URL
 }
 
-nonisolated struct DefaultIssueAllocating: IssueAllocating {
+nonisolated struct DefaultIssueAllocator: IssueAllocating {
     let projectURL: URL
 
     func allocate(

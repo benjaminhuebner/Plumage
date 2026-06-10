@@ -45,7 +45,10 @@ final class ClaudeUsageModel {
         await refresh(using: client)
         while !Task.isCancelled {
             do {
-                try await Task.sleep(for: interval)
+                // Low Power Mode halves the polling rate — usage freshness
+                // is a nicety, battery is not.
+                let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+                try await Task.sleep(for: lowPower ? interval * 2 : interval)
             } catch {
                 return
             }

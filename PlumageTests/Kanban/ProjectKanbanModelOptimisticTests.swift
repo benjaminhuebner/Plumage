@@ -75,6 +75,28 @@ struct OptimisticDropTests {
         #expect(model.lastDropError == nil)
     }
 
+    @Test("failed drop does not resurrect a card removed while the write was in flight")
+    func dropFailureDoesNotResurrectRemovedCard() async {
+        struct DummyError: Error, LocalizedError {
+            var errorDescription: String? { "boom" }
+        }
+        let model = ProjectKanbanModel(mutator: { _, _, _, _ in throw DummyError() })
+        let issueA = Self.makeIssue(id: 1, folder: "00001-a", status: .approved)
+        model._setIssuesForTesting([.valid(issueA)])
+        let payload = IssueDragPayload(folderName: "00001-a", currentStatus: .approved)
+        let projectURL = URL(filePath: "/tmp/probe")
+
+        model.applyOptimisticDrop(payload, to: .column(.inProgress), projectURL: projectURL)
+        // Card disappears (archived/trashed) while the failing write is
+        // still in flight — the rollback must not bring it back.
+        model._setIssuesForTesting([])
+        // Second apply no-ops (card gone); this just awaits the original task.
+        await model.performDropOptimistic(payload, to: .column(.inProgress), projectURL: projectURL)
+
+        #expect(model.issues.isEmpty)
+        #expect(model.lastDropError == "boom")
+    }
+
     nonisolated static func makeIssue(
         id: Int, folder: String, status: IssueStatus, order: Double? = nil
     ) -> Plumage.Issue {
@@ -142,6 +164,23 @@ struct ReconcileTests {
         }
         #expect(patched.status == .inProgress)
         #expect(patched.order == 20)
+    }
+
+    @Test("%g-rounded order from older builds still clears pending")
+    func epsilonOrderMatch() {
+        // 1234.5678 written by an old build came back as 1234.57 (%g, six
+        // significant digits); an exact compare kept pending stuck forever.
+        let issue = OptimisticDropTests.makeIssue(
+            id: 1, folder: "00001-a", status: .inProgress, order: 1234.57)
+        let result = ProjectKanbanModel.reconcile(
+            incoming: [.valid(issue)],
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(1234.5678)
+            )
+        )
+        #expect(result.pendingCleared == true)
     }
 
     @Test("pending issue absent from disk clears pending")

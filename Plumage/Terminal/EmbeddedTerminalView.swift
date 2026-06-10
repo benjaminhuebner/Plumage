@@ -8,6 +8,11 @@ import SwiftUI
 
 struct EmbeddedTerminalView: View {
     let session: TerminalClaudeSession
+    // False while the inspector is closed or another tab is selected — gates
+    // the cursor keep-alive timer + key monitor (the view stays mounted).
+    var isVisible: Bool = true
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -24,7 +29,8 @@ struct EmbeddedTerminalView: View {
             SwiftTermBridge(
                 session: session,
                 pendingCount: session.pendingInput.count,
-                isRunning: isRunning
+                isRunning: isRunning,
+                isVisible: isVisible
             )
             .id(session.restartEpoch)
 
@@ -33,7 +39,7 @@ struct EmbeddedTerminalView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: showsBootOverlay)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: showsBootOverlay)
     }
 
     private var showsBootOverlay: Bool {
@@ -56,7 +62,10 @@ struct EmbeddedTerminalView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        // Solid hierarchical fill, not .regularMaterial: the overlay sits
+        // inside the glass inspector panel and a material would stack a
+        // second blur on the glass (ExitBanner discipline next door).
+        .background(.quaternary)
     }
 }
 
@@ -68,11 +77,15 @@ private struct SwiftTermBridge: NSViewRepresentable {
     // reads session.pendingInput directly to perform the flush.
     let pendingCount: Int
     let isRunning: Bool
+    let isVisible: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
     func makeNSView(context: Context) -> PersistentCursorTerminalView {
         let view = PersistentCursorTerminalView(frame: .zero)
+        // Before insertion: a hidden tab's mount must not start the
+        // keep-alive in viewDidMoveToWindow.
+        view.chromeActive = isVisible
         view.processDelegate = context.coordinator
         // Finder file-drop routes through enqueue (not a direct send) so the
         // existing .running gate + updateNSView flush machinery handles a drop
@@ -119,9 +132,8 @@ private struct SwiftTermBridge: NSViewRepresentable {
             return view
         }
         let args = session.shellSpawnArgs(appearanceIsDark: colorScheme == .dark)
-        // Env construction lives in CCI: the PATH augmentation points at
-        // claude-internal install locations only ClaudeCodeIntegration may
-        // know about (enforced by the boundary test).
+        // Env construction lives in CCI — the PATH points at claude-internal
+        // install locations (enforced by the boundary test).
         let env = TerminalClaudeSession.spawnEnvironment()
 
         view.startProcess(
@@ -158,6 +170,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
+        nsView.chromeActive = isVisible
         if context.coordinator.lastColorScheme != colorScheme {
             context.coordinator.lastColorScheme = colorScheme
             nsView.nativeBackgroundColor = .clear
@@ -291,14 +304,27 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     deinit {
         // Fallback for the abnormal path where dismantleNSView was skipped.
         // Normal teardown nils both properties on MainActor via dismantleNSView,
-        // making this a no-op — Timer.invalidate / NSEvent.removeMonitor are
-        // not documented as thread-safe and must not run from a nonisolated
-        // deinit in the normal path.
-        cursorKeepAlive?.invalidate()
+        // making this a no-op. Timer.invalidate / NSEvent.removeMonitor are
+        // main-thread APIs and a nonisolated deinit can run off-main — ferry
+        // the references onto the main queue instead of calling them inline.
+        guard cursorKeepAlive != nil || shiftEnterMonitor != nil else { return }
+        // @unchecked Sendable: only carries the main-thread-bound references
+        // across the queue hop; nothing reads them concurrently. See notes.md.
+        struct Teardown: @unchecked Sendable {
+            let timer: Timer?
+            let token: Any?
+        }
+        let teardown = Teardown(timer: cursorKeepAlive, token: shiftEnterMonitor)
         cursorKeepAlive = nil
-        if let token = shiftEnterMonitor {
-            NSEvent.removeMonitor(token)
-            shiftEnterMonitor = nil
+        shiftEnterMonitor = nil
+        if Thread.isMainThread {
+            teardown.timer?.invalidate()
+            if let token = teardown.token { NSEvent.removeMonitor(token) }
+        } else {
+            DispatchQueue.main.async {
+                teardown.timer?.invalidate()
+                if let token = teardown.token { NSEvent.removeMonitor(token) }
+            }
         }
     }
 
@@ -318,11 +344,21 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     override var fittingSize: NSSize { .zero }
 
+    // Visibility gate for the keep-alive timer + key monitor: the inspector
+    // hides its column instead of unmounting the content, and hidden tabs
+    // stay ZStack-mounted — without this gate every terminal kept its timer
+    // burning behind a closed inspector.
+    var chromeActive = true {
+        didSet {
+            guard chromeActive != oldValue else { return }
+            refreshChrome()
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
-            startCursorKeepAlive()
-            installShiftEnterMonitor()
+            refreshChrome()
             // SwiftTerm registers no dragged types and implements no
             // NSDraggingDestination methods (notes.md #00020), so this is the
             // sole file-drop handler — no super conflict for .fileURL drags.
@@ -334,21 +370,33 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         }
     }
 
+    private func refreshChrome() {
+        if window != nil && chromeActive {
+            startCursorKeepAlive()
+            installShiftEnterMonitor()
+        } else {
+            stopCursorKeepAlive()
+            removeShiftEnterMonitor()
+        }
+    }
+
     private func startCursorKeepAlive() {
         cursorKeepAlive?.invalidate()
         // Schedule on .common modes so the timer survives scroll / event
-        // tracking on the inspector divider, and pick a fast cadence to win
-        // the race against claude's rendering bursts.
+        // tracking on the inspector divider; 120 ms wins the race against
+        // claude's hide bursts (class comment) and tolerance lets the
+        // kernel coalesce ticks.
         // Timer block is typed @Sendable, but RunLoop.main fires it on the
         // main thread — MainActor.assumeIsolated lets us touch the
         // @MainActor-typed `terminal` property without an extra Task hop per
         // tick. assumeIsolated traps if the assumption is wrong, which it
         // never is for a RunLoop.main-scheduled Timer.
-        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.terminal?.feed(text: "\u{1B}[?25h")
             }
         }
+        timer.tolerance = 0.06
         RunLoop.main.add(timer, forMode: .common)
         cursorKeepAlive = timer
     }

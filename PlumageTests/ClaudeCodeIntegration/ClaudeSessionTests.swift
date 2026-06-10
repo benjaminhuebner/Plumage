@@ -3,8 +3,10 @@ import Testing
 
 @testable import Plumage
 
+// No .serialized: every test builds its own session + per-test temp store
+// (makeSession), so there is no shared state to serialize over.
 @MainActor
-@Suite("ClaudeSession state machine", .serialized)
+@Suite("ClaudeSession state machine")
 struct ClaudeSessionTests {
     @Test("starts in .idle")
     func initialState() {
@@ -493,7 +495,7 @@ struct ClaudeSessionTests {
         #expect(session.messages[1].text == "hello")
     }
 
-    @Test("rehydrate skips sidechain, attachments, and <command-…> wrappers")
+    @Test("rehydrate skips sidechain, attachments, and machine wrapper turns")
     func rehydrateFilters() async throws {
         let temp = try makeTempLogRoot()
         defer { try? FileManager.default.removeItem(at: temp) }
@@ -503,6 +505,9 @@ struct ClaudeSessionTests {
             {"type":"user","isSidechain":true,"message":{"role":"user","content":"sidechain"}}
             {"type":"user","attachment":{"path":"x"},"message":{"role":"user","content":"file"}}
             {"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+            {"type":"user","message":{"role":"user","content":"<bash-input>ls -la</bash-input>"}}
+            {"type":"user","message":{"role":"user","content":"<bash-stdout>total 0</bash-stdout>"}}
+            {"type":"user","message":{"role":"user","content":"<system-reminder>hook context</system-reminder>"}}
             {"type":"user","message":{"role":"user","content":"real turn"}}
             """
         try writeSessionLog(

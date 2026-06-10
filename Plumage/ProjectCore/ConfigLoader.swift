@@ -50,6 +50,9 @@ nonisolated enum ConfigLoader {
         if let padding = config.issueIdPadding, padding < 1 {
             throw LoadError.invalidJSON(message: "issueIdPadding must be >= 1, got \(padding)")
         }
+        // git.defaultBranch is deliberately not validated here: the git
+        // runners guard with GitBranchName.isSafe at use, and failing the
+        // load would make the whole project unopenable with no in-app fix.
         return config
     }
 

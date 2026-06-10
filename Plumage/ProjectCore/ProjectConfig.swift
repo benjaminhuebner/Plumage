@@ -58,9 +58,11 @@ nonisolated struct WorkflowOverride: Codable, Hashable, Sendable {
         // command is optional in JSON — old configs only have a command string,
         // new configs may have only permissionMode. Default to "" when absent.
         command = try container.decodeIfPresent(String.self, forKey: .command) ?? ""
-        permissionMode = try container.decodeIfPresent(
-            PermissionMode.self, forKey: .permissionMode
-        )
+        // Unknown modes decode as nil, not a coerced concrete mode: coercion
+        // would override the action's safer mode (plan) and get persisted
+        // back over the user's hand-authored value.
+        let rawMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        permissionMode = rawMode.flatMap { PermissionMode(rawValue: $0) }
     }
 
     func encode(to encoder: Encoder) throws {

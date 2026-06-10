@@ -47,6 +47,9 @@ nonisolated struct NextIssueAllocator: Sendable {
             throw NextIssueAllocatorError.slugCollision(existingFolder: collision)
         }
 
+        // Known race: two windows allocating at once can mint the same ID.
+        // Accepted — single-user, millisecond window; a lock file's
+        // stale-lock failure modes would cost more than the race.
         let highest = highestExistingID()
         let nextID = highest + 1
         let padding = paddingWidth()
@@ -217,7 +220,9 @@ nonisolated struct NextIssueAllocator: Sendable {
                 lines[index] = "type: \(type.rawValue)"
             }
             if lines[index] == "labels: []" {
-                lines[index] = "labels: [\(labels.joined(separator: ", "))]"
+                // Same quoting as the edit path — raw joining produced
+                // invalid YAML (red card) for labels containing `:` or `#`.
+                lines[index] = "labels: \(FrontmatterMutator.formatLabels(labels))"
             }
         }
         return lines.joined(separator: "\n")

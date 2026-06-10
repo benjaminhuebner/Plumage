@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // The Claude Code hook events a user-authored hook can bind to. Raw values are the
 // exact keys Claude Code reads from `settings.json`, so they round-trip verbatim.
@@ -98,19 +99,50 @@ nonisolated struct HookWiringStore: Sendable, Equatable {
     }
 
     // Throws on a present-but-malformed file; returns an empty store when absent.
+    // Element decode is lossy: a wiring with an unknown hook event (written
+    // by a newer build) is skipped instead of discarding the whole store.
     static func load(from url: URL) throws -> HookWiringStore {
         guard FileManager.default.fileExists(atPath: url.path) else { return HookWiringStore() }
         let data = try Data(contentsOf: url)
-        return HookWiringStore(wirings: try JSONDecoder().decode([HookWiring].self, from: data))
+        return HookWiringStore(
+            wirings: try JSONDecoder().decode(LossyWirings.self, from: data).wirings)
+    }
+
+    private struct LossyWirings: Decodable {
+        let wirings: [HookWiring]
+
+        init(from decoder: Decoder) throws {
+            var container = try decoder.unkeyedContainer()
+            var result: [HookWiring] = []
+            while !container.isAtEnd {
+                if let wiring = try? container.decode(HookWiring.self) {
+                    result.append(wiring)
+                } else {
+                    // Must still advance past the unreadable element —
+                    // Discard's no-op init succeeds for any value shape.
+                    _ = try? container.decode(Discard.self)
+                }
+            }
+            self.wirings = result
+        }
+
+        private struct Discard: Decodable {
+            init(from decoder: Decoder) throws {}
+        }
     }
 
     // Production-safe load: any failure falls back to an empty store rather than
-    // blocking project creation.
+    // blocking project creation — but leave a trace, a silently-empty store
+    // looks identical to "user has no hooks".
     static func loadStandard() -> HookWiringStore {
-        guard let url = try? standardURL(), let store = try? load(from: url) else {
+        do {
+            return try load(from: standardURL())
+        } catch {
+            Logger(subsystem: "com.plumage", category: "HookWiring").error(
+                "loadStandard failed, using empty store: \(String(describing: error), privacy: .public)"
+            )
             return HookWiringStore()
         }
-        return store
     }
 
     func save(to url: URL) throws {

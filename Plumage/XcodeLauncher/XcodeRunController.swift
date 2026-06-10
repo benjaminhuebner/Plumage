@@ -126,7 +126,7 @@ final class XcodeRunController {
             }
             model.setRunState(.running)
         case .buildFailed(let exitCode):
-            let errorCount = countErrors(in: model.logBuffer)
+            let errorCount = countErrors(in: model.logBuffer.map(\.text))
             let message =
                 errorCount > 0
                 ? "Failed (\(errorCount) errors)" : "Failed (exit \(exitCode))"

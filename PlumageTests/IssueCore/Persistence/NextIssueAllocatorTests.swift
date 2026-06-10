@@ -89,6 +89,39 @@ struct NextIssueAllocatorPureTests {
         #expect(!rendered.contains("<<<"))
     }
 
+    @Test("labels with YAML-dangerous characters are quoted on create")
+    func labelsQuotedOnCreate() throws {
+        let template = """
+            ---
+            id: <<<ID>>>
+            title: <<<TITLE>>>
+            type: feature
+            status: draft
+            created: <<<CREATED>>>
+            updated: <<<CREATED>>>
+            branch: issue/<<<ID_PADDED>>>-<<<SLUG>>>
+            labels: []
+            model: null
+            ---
+            """
+        let rendered = NextIssueAllocator.substituteTemplate(
+            template,
+            id: 3,
+            idPadded: "00003",
+            title: "T",
+            slug: "t",
+            created: "2026-05-13T07:00:00Z",
+            type: .chore,
+            labels: ["api: v2", "#hot"]
+        )
+        #expect(rendered.contains("labels: [\"api: v2\", \"#hot\"]"))
+        // The created card must survive its own re-parse — the unquoted form
+        // rendered as an invalid (red) card.
+        let parsed = SpecParser.parse(content: rendered, folderName: "00003-t")
+        let issue = try parsed.get()
+        #expect(issue.labels == ["api: v2", "#hot"])
+    }
+
     @Test("substituteTemplate keeps feature type when type is .feature and empty labels stay empty")
     func substituteTemplateDefaults() {
         let template = """

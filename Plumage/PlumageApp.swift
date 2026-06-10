@@ -12,8 +12,9 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome to Plumage", id: "welcome") {
+            // No .containerBackground: .thickMaterial made Welcome the
+            // app's only translucent window.
             WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
-                .containerBackground(.thickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
                     drainPendingURLs()
@@ -25,7 +26,9 @@ struct PlumageApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
-        .defaultLaunchBehavior(.presented)
+        // Welcome presents only when no project window restores; it never
+        // restores itself — launch surface, not persistent state.
+        .restorationBehavior(.disabled)
         .keyboardShortcut("0", modifiers: [.command, .shift])
         .commands {
             ProjectFileCommands(recentProjects: recentProjects, migrationRequest: migrationRequest)
@@ -91,7 +94,8 @@ struct PlumageApp: App {
             GitCommand()
             TerminalCommand()
         }
-        .restorationBehavior(.disabled)
+        // Restoration intentionally on: project windows open at quit
+        // reopen; Welcome appears only when nothing restores.
         .environment(recentProjects)
         .environment(migrationRequest)
 
@@ -135,6 +139,16 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         // Set the stored appearance before any window is presented; deferring to
         // applicationDidFinishLaunching flashes the system appearance first.
         AppearanceApplier.applyStored()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let coordinator = QuitCoordinator.shared
+        guard !coordinator.isEmpty else { return .terminateNow }
+        Task { @MainActor in
+            await coordinator.runAll()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

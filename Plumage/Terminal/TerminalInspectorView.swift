@@ -2,6 +2,9 @@ import SwiftUI
 
 struct TerminalInspectorView: View {
     let tabsModel: TerminalTabsModel
+    // The inspector hides its column instead of unmounting it — the host
+    // passes its open state down so hidden terminals stop their timers.
+    var isOpen: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,10 +15,13 @@ struct TerminalInspectorView: View {
                 // tear its PTY buffer down. Visibility is opacity-flipped, hit
                 // testing and accessibility scoped to the active tab.
                 ForEach(tabsModel.tabs) { tab in
-                    EmbeddedTerminalView(session: tab.session)
-                        .opacity(tab.id == tabsModel.selectedTabID ? 1 : 0)
-                        .allowsHitTesting(tab.id == tabsModel.selectedTabID)
-                        .accessibilityHidden(tab.id != tabsModel.selectedTabID)
+                    EmbeddedTerminalView(
+                        session: tab.session,
+                        isVisible: isOpen && tab.id == tabsModel.selectedTabID
+                    )
+                    .opacity(tab.id == tabsModel.selectedTabID ? 1 : 0)
+                    .allowsHitTesting(tab.id == tabsModel.selectedTabID)
+                    .accessibilityHidden(tab.id != tabsModel.selectedTabID)
                 }
             }
             .padding(.horizontal, 6)

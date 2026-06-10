@@ -109,6 +109,9 @@ private func waitFor(
         try await waitUntil(timeout: timeout, condition: condition)
     } catch {
         Issue.record("condition not satisfied in time")
+        // Rethrow: swallowing the timeout let follow-up assertions fire
+        // against a state the test never reached.
+        throw error
     }
 }
 

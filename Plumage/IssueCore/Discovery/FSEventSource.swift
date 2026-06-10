@@ -5,20 +5,16 @@ import os
 // @unchecked Sendable: the `stream` ref is guarded by an OSAllocatedUnfairLock
 // instead of an actor so the synchronous IssueWatcher.init + onTermination
 // closure call sites stay synchronous. The FSEvents callback only reads the
-// immutable `onChange` closure (which is @Sendable). FSEventStreamStop is
-// documented to flush in-flight callbacks before returning, so the read-side
-// races settle before mutation in stop().
+// immutable `onChange` closure (which is @Sendable).
 //
-// NOTE: unlike SessionLogWatcher, stop()/deinit deliberately do NOT add a
-// `queue.sync {}` drain barrier. This source's `onChange` is consumed by the
-// IssueWatcher live-sync pipeline, which hops onto the MainActor; a blocking
-// `queue.sync` from the MainActor (where stop()/deinit run) deadlocks against
-// an in-flight callback that is itself waiting on the MainActor — verified by
-// a dispatch_sync deadlock (EXC_BREAKPOINT in __DISPATCH_WAIT_FOR_QUEUE__).
-// SessionLogWatcher can drain safely because its callback only enqueues an
-// async `Task { @MainActor }` and returns immediately. If the unretained-self
-// race ever proves real here, the fix is passRetained + a release callback in
-// FSEventStreamContext (CF-style refcounting), not a blocking drain.
+// NOTE: unlike SessionLogWatcher, stop() deliberately does NOT add a
+// `queue.sync {}` drain barrier — that deadlocks reproducibly (EXC_BREAKPOINT
+// in __DISPATCH_WAIT_FOR_QUEUE__, verified 2026-06-02, see notes.md). The
+// dangling-callback race is closed via CF refcounting instead: the stream
+// context retains `self` (retain/release callbacks below), so an in-flight
+// callback can never see a freed pointer. Consequence: while a stream is
+// live, the stream holds +1 on self and deinit cannot run — every owner MUST
+// call stop() for teardown (all four watcher pipelines do, via onTeardown).
 nonisolated final class FSEventSource: @unchecked Sendable {
     // FSEventStreamRef is an OpaquePointer (not Sendable) — wrap it so the
     // lock's state type satisfies Sendable. FSEvents stream refs are
@@ -47,8 +43,15 @@ nonisolated final class FSEventSource: @unchecked Sendable {
             var context = FSEventStreamContext(
                 version: 0,
                 info: Unmanaged.passUnretained(self).toOpaque(),
-                retain: nil,
-                release: nil,
+                retain: { info in
+                    guard let info else { return nil }
+                    return UnsafeRawPointer(
+                        Unmanaged<FSEventSource>.fromOpaque(info).retain().toOpaque())
+                },
+                release: { info in
+                    guard let info else { return }
+                    Unmanaged<FSEventSource>.fromOpaque(info).release()
+                },
                 copyDescription: nil
             )
             let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
@@ -86,16 +89,6 @@ nonisolated final class FSEventSource: @unchecked Sendable {
         }
     }
 
-    deinit {
-        // Safe: deinit only runs once all other refs are dropped, so no
-        // concurrent caller can observe the lock during teardown.
-        streamLock.withLock { box in
-            if let current = box.ref {
-                FSEventStreamStop(current)
-                FSEventStreamInvalidate(current)
-                FSEventStreamRelease(current)
-                box.ref = nil
-            }
-        }
-    }
+    // No deinit teardown: the live stream's context retains self, so deinit
+    // is unreachable until stop() has already released the stream.
 }

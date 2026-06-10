@@ -79,17 +79,24 @@ nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
         // Two detached readers, one per pipe. Each finishes when the pipe
         // closes (process exits or our cancellation kills it). A counter
         // tracks "both readers done" to close the merged stream.
+        // markDone must fire even when bytes.lines throws (read error mid-
+        // stream) — a skipped markDone leaves the merged stream open and the
+        // consumer awaiting the outcome forever.
         let pipeDone = PipeDoneCounter()
         Task.detached {
-            for try await line in stdoutHandle.bytes.lines {
-                lineCont.yield(GitStreamLine(source: .stdout, text: line))
-            }
+            do {
+                for try await line in stdoutHandle.bytes.lines {
+                    lineCont.yield(GitStreamLine(source: .stdout, text: line))
+                }
+            } catch {}
             await pipeDone.markDone(streamer: lineCont)
         }
         Task.detached {
-            for try await line in stderrHandle.bytes.lines {
-                lineCont.yield(GitStreamLine(source: .stderr, text: line))
-            }
+            do {
+                for try await line in stderrHandle.bytes.lines {
+                    lineCont.yield(GitStreamLine(source: .stderr, text: line))
+                }
+            } catch {}
             await pipeDone.markDone(streamer: lineCont)
         }
 

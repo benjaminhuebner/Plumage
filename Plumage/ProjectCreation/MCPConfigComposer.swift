@@ -5,16 +5,28 @@ import Foundation
 nonisolated struct MCPConfigComposer {
     var catalog: TemplateCatalog = .bundledDefault
 
+    // Typed envelope instead of [String: Any] — the compiler checks the shape.
+    private struct Envelope: Encodable {
+        let mcpServers: [String: ServerEntry]
+    }
+
+    private struct ServerEntry: Encodable {
+        let command: String
+        let args: [String]?
+        let env: [String: String]?
+    }
+
     func mcpJSON(forTemplate templateID: String) throws -> Data {
-        var servers: [String: Any] = [:]
+        var servers: [String: ServerEntry] = [:]
         for server in catalog.effectiveMCPServers(forTemplate: templateID) {
-            var entry: [String: Any] = ["command": server.command]
-            if !server.args.isEmpty { entry["args"] = server.args }
-            if !server.env.isEmpty { entry["env"] = server.env }
-            servers[server.name] = entry
+            servers[server.name] = ServerEntry(
+                command: server.command,
+                args: server.args.isEmpty ? nil : server.args,
+                env: server.env.isEmpty ? nil : server.env
+            )
         }
-        return try JSONSerialization.data(
-            withJSONObject: ["mcpServers": servers],
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(Envelope(mcpServers: servers))
     }
 }

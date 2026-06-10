@@ -34,6 +34,7 @@ struct IssueDetailView: View {
     @State private var publishedSaveAction: EditorAction?
     @State private var publishedCloseAction: EditorAction?
     @State private var publishedBackToBoardAction: EditorAction?
+    @State private var quitFlushID = UUID()
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -93,6 +94,18 @@ struct IssueDetailView: View {
                 publishedSaveAction = EditorAction { attemptSave() }
                 publishedCloseAction = EditorAction { triggerPop() }
             }
+            // ⌘Q doesn't run .onDisappear reliably; the QuitCoordinator
+            // awaits this flush before the app terminates. Creating mode
+            // deliberately leaves no disk trace on quit. weak: the registry
+            // is app-lifetime and a strong capture would pin the model graph
+            // whenever .onDisappear (the only unregister) is skipped.
+            QuitCoordinator.shared.register(quitFlushID) { [weak model] in
+                guard let model, !model.isCreating else { return }
+                // try? per buffer: errors are unactionable mid-quit and must
+                // not stop the other buffer's flush.
+                try? await model.saveBody()
+                try? await model.savePrompt()
+            }
             refreshBackToBoardCache()
             guard !model.isCreating else { return }
             await model.load()
@@ -114,13 +127,13 @@ struct IssueDetailView: View {
             model.observeKanban(currentIssue: current)
         }
         .onChange(of: kanban.lastRemovalCompleted) { _, completed in
-            if let completed, completed == model.folderName { dismiss() }
+            if let completed, completed == model.folderName { popToBoard() }
         }
         .onChange(of: kanban.lastMergeCompleted) { _, completed in
-            if let completed, completed == model.folderName { dismiss() }
+            if let completed, completed == model.folderName { popToBoard() }
         }
         .onChange(of: model.conflict) { _, conflict in
-            if conflict == .fileDeleted { dismiss() }
+            if conflict == .fileDeleted { popToBoard() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Auto-save on background only applies in loaded mode. In creating
@@ -145,9 +158,19 @@ struct IssueDetailView: View {
             Text(alert.message)
         }
         .onDisappear {
+            QuitCoordinator.shared.unregister(quitFlushID)
             model.cancelPendingWork()
             diffTabModel?.stop()
         }
+    }
+
+    // dismiss() is a no-op when this view is the split-view detail (nothing
+    // is presented there), and openSpec defaults to a no-op inside the create
+    // sheet (deliberately unwired). Firing both means exactly one acts in
+    // either context.
+    private func popToBoard() {
+        openSpec(.kanban)
+        dismiss()
     }
 
     @ViewBuilder
@@ -157,10 +180,22 @@ struct IssueDetailView: View {
             ProgressView().controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            Text(message)
-                .foregroundStyle(.secondary)
-                .padding(32)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(message)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Try Again") {
+                        Task {
+                            await model.load()
+                            await model.loadPrompt()
+                            await model.loadPR()
+                        }
+                    }
+                    Button("Back to Board") { popToBoard() }
+                }
+            }
+            .padding(32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .loaded:
             if model.isCreating || model.issue != nil {
                 renderedDetail()

@@ -62,6 +62,8 @@ struct IssueMetaRow: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .accessibilityLabel("Status: \(status.label)")
+        .accessibilityHint("Choose a new status")
     }
 
     private var typeMenu: some View {
@@ -85,6 +87,8 @@ struct IssueMetaRow: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .accessibilityLabel("Type: \(type.rawValue.capitalized)")
+        .accessibilityHint("Choose a new type")
     }
 
     @ViewBuilder
@@ -103,10 +107,13 @@ struct IssueMetaRow: View {
         .font(.caption)
     }
 
+    // dateStyle/timeStyle, not a hardcoded pattern: "HH:mm" forced 24-hour
+    // time regardless of the user's locale/12-hour preference.
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .autoupdatingCurrent
-        formatter.dateFormat = "d MMM, HH:mm"
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
         return formatter
     }()
 }
