@@ -241,8 +241,10 @@ final class ProjectKanbanModel {
         projectURL: URL
     ) {
         guard let issue = lookupValidIssue(payload.folderName) else { return }
+        // groupedIssues is already column-filtered and kanban-sorted — no
+        // need to re-derive both from the flat snapshot per drop.
         let mutation = Self.computeMutation(
-            issue: issue, target: target, snapshot: issues)
+            issue: issue, target: target, grouped: groupedIssues)
         guard case .apply(let newStatus, let newOrder) = mutation else { return }
 
         let priorIssues = issues
@@ -479,6 +481,19 @@ final class ProjectKanbanModel {
         target: DropTarget,
         snapshot: [DiscoveredIssue]
     ) -> DropMutation {
+        computeMutation(
+            issue: issue,
+            target: target,
+            grouped: Dictionary(grouping: snapshot, by: \.column)
+                .mapValues { $0.sortedForKanban() }
+        )
+    }
+
+    nonisolated static func computeMutation(
+        issue: Issue,
+        target: DropTarget,
+        grouped: [IssueColumn: [DiscoveredIssue]]
+    ) -> DropMutation {
         let issueColumn = issue.column
 
         switch target {
@@ -493,7 +508,7 @@ final class ProjectKanbanModel {
                 issueColumn: issueColumn,
                 targetFolderName: folderName,
                 targetColumn: column,
-                snapshot: snapshot,
+                sortedColumnItems: grouped[column] ?? [],
                 insertAbove: true
             )
 
@@ -504,7 +519,7 @@ final class ProjectKanbanModel {
                 issueColumn: issueColumn,
                 targetFolderName: folderName,
                 targetColumn: column,
-                snapshot: snapshot,
+                sortedColumnItems: grouped[column] ?? [],
                 insertAbove: false
             )
         }
@@ -515,13 +530,10 @@ final class ProjectKanbanModel {
         issueColumn: IssueColumn,
         targetFolderName: String,
         targetColumn: IssueColumn,
-        snapshot: [DiscoveredIssue],
+        sortedColumnItems: [DiscoveredIssue],
         insertAbove: Bool
     ) -> DropMutation {
-        let columnItems =
-            snapshot
-            .filter { $0.column == targetColumn && $0.id != issue.folderName }
-            .sortedForKanban()
+        let columnItems = sortedColumnItems.filter { $0.id != issue.folderName }
         guard let targetIndex = columnItems.firstIndex(where: { $0.id == targetFolderName }) else {
             return .noop
         }

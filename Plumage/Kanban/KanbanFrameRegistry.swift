@@ -18,14 +18,11 @@ final class KanbanFrameRegistry {
     // KanbanView whenever the issue list changes.
     func pruneCards(keeping ids: Set<String>) {
         guard !cards.isEmpty else { return }
-        // Single-pass: only rebuild `cards` if at least one stale entry is
-        // present. Avoids the intermediate `[String]` allocation of the
-        // prior filter+loop approach. Mutating `cards` reassigns the
-        // @Observable storage; the early-return when nothing is stale keeps
-        // FSEvent-frequent calls free of unnecessary notifications.
-        let filtered = cards.filter { ids.contains($0.key) }
-        if filtered.count != cards.count {
-            cards = filtered
+        // Targeted removeValue instead of rebuilding the dictionary: a
+        // typical change has zero or one stale entry, and the no-stale case
+        // stays mutation-free (no spurious @Observable notification).
+        for key in cards.keys where !ids.contains(key) {
+            cards.removeValue(forKey: key)
         }
     }
 }

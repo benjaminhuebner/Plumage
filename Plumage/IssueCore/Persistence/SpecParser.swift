@@ -93,6 +93,9 @@ nonisolated enum SpecParser {
     }
 
     static func extractGoal(from content: String) -> String? {
+        // Cheap substring probe before the full line walk — most non-spec
+        // markdown has no Goal heading at all ("# Goal" also matches "## Goal").
+        guard content.contains("# Goal") else { return nil }
         let normalized =
             content
             .replacingOccurrences(of: "\r\n", with: "\n")

@@ -139,16 +139,22 @@ final class IssueDetailModel {
         self.clock = clock
         // Pre-load synchronously so the view renders content immediately on
         // first mount — avoids the ProgressView flash caused by idle→loaded
-        // transition after the async load() task fires. Capped at 64 KB so a
-        // pathological spec on a slow volume (network mount, encrypted disk)
-        // can't stall view construction; oversize specs fall back to the
-        // async load() path with the ProgressView placeholder.
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: specURL.path),
+        // transition after the async load() task fires. Local volumes only:
+        // even the stat can stall on a network mount; remote specs take the
+        // async load() path with the ProgressView placeholder. Capped at
+        // 64 KB so a pathological spec can't stall view construction.
+        if Self.volumeIsLocal(specURL),
+            let attrs = try? FileManager.default.attributesOfItem(atPath: specURL.path),
             let size = attrs[.size] as? Int, size <= Self.preloadByteCap,
             let content = try? String(contentsOf: specURL, encoding: .utf8)
         {
             applyLoaded(content: content)
         }
+    }
+
+    private nonisolated static func volumeIsLocal(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.volumeIsLocalKey])
+        return values?.volumeIsLocal ?? false
     }
 
     // Safety net for abnormal teardown paths where .onDisappear is skipped.
