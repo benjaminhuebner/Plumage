@@ -1,6 +1,6 @@
 import Foundation
 
-// One-time migration (#00078): pre-#00078 a component's skill was the shared global
+// One-time migration: previously a component's skill was the shared global
 // `skills/<name>/` tracked by a `.skill` membership; the new model makes each component
 // own its copy under `components/<id>/skills/`. Only membership-backed component skills
 // move — global loose files and composition assets are deliberately left untouched, since

@@ -10,8 +10,8 @@ nonisolated enum TemplateContentDropResolver {
     // user surface — dropping onto them (or onto a file living in them) is rejected.
     static let nonTargetStoreRoots: Set<String> = ["configs", "templates", "components", "template-images"]
 
-    // The override-store path of a node: a folder's output path mapped back to the store
-    // (through the active `scope`, #00078), a file leaf's already-stored relative path.
+    // The override-store path of a node: a folder's output path mapped back
+    // through the active scope, a file leaf's already-stored relative path.
     static func storePath(for node: FileNode, scope: ManagerScope = .base) -> String {
         node.isDirectory
             ? TemplateManagerModel.storageDir(forOutputFolder: node.relativePath, scope: scope)
@@ -23,7 +23,7 @@ nonisolated enum TemplateContentDropResolver {
     // the movable managed surfaces (the store's internal namespaces). The internal-
     // namespace guard checks the *scope-relative* head, so a tier's own subtree
     // (`templates/<id>/box`, `components/<id>/box`) is movable while the shared layer /
-    // config namespaces are not (#00078).
+    // config namespaces are not.
     static func targetStoreDir(for node: FileNode, scope: ManagerScope = .base) -> String? {
         let store = storePath(for: node, scope: scope)
         let dir = node.isDirectory ? store : (store as NSString).deletingLastPathComponent

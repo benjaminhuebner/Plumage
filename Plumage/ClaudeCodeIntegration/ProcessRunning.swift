@@ -89,7 +89,7 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
         // cooperative pool that child-termination wakeup races with Foundation's
         // child-monitoring queue and is lost, blocking forever. terminationHandler
         // fires on Foundation's own queue, no runloop, no thread affinity.
-        // Same fix as ProductionGitProcessRunner (#00057); applied here per #00058.
+        // Same fix as ProductionGitProcessRunner.
         let termination = ClaudeProcessTermination()
         process.terminationHandler = { finished in
             termination.complete(finished.terminationStatus)
@@ -139,10 +139,9 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
 // Bridges Process.terminationHandler — which Foundation may invoke on its own
 // queue before OR after the awaiting continuation is installed — to a single
 // continuation resume. The lock makes the early-vs-late ordering race-free.
-// Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool
-// (#00057 root cause, #00058 applies the fix to the Claude runner). Per-domain
-// copy of GitProcessTermination — decisions.md 2026-05-25 #00042 keeps the
-// subprocess runners duplicated per domain rather than extracting a shared box.
+// Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool.
+// Deliberate per-domain copy of GitProcessTermination — the subprocess
+// runners stay duplicated per domain rather than extracting a shared box.
 nonisolated final class ClaudeProcessTermination: Sendable {
     private struct State {
         var status: Int32?

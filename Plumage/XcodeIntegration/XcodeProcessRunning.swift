@@ -62,7 +62,7 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
         // waitUntilExit() spins a CFRunLoop on the calling thread; on the Swift
         // cooperative pool that wakeup races with Foundation's child-monitoring
         // queue and is lost, blocking forever. terminationHandler fires on
-        // Foundation's own queue. Same fix as #00057's git runner; #00058 here.
+        // Foundation's own queue. Same fix as the git runner.
         let termination = XcodeProcessTermination()
         process.terminationHandler = { finished in
             termination.complete(finished.terminationStatus)
@@ -111,7 +111,7 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
         process.standardInput = FileHandle.nullDevice
 
         // Await exit via terminationHandler, not waitUntilExit() — same
-        // cooperative-pool deadlock fix as run() above (#00057 / #00058).
+        // cooperative-pool deadlock fix as run above.
         let termination = XcodeProcessTermination()
         process.terminationHandler = { finished in
             termination.complete(finished.terminationStatus)
@@ -170,7 +170,7 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
         // (kernel can hand the same pid to an unrelated process once Foundation
         // has reaped our child). Double-scheduling this task (rapid cancel/run
         // cycles) is harmless — the second SIGKILL no-ops because the first
-        // run already cleared isRunning. See notes.md 2026-05-15 (#00019).
+        // run already cleared isRunning.
         if process.isRunning { process.terminate() }
         let pid = process.processIdentifier
         Task.detached { [process] in
@@ -185,10 +185,9 @@ nonisolated struct ProductionXcodeProcessRunner: XcodeProcessRunning {
 // Bridges Process.terminationHandler — which Foundation may invoke on its own
 // queue before OR after the awaiting continuation is installed — to a single
 // continuation resume. The lock makes the early-vs-late ordering race-free.
-// Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool
-// (#00057 root cause, #00058 applies the fix to the Xcode runner). Per-domain
-// copy of GitProcessTermination — decisions.md 2026-05-25 #00042 keeps the
-// subprocess runners duplicated per domain rather than extracting a shared box.
+// Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool.
+// Deliberate per-domain copy of GitProcessTermination — the subprocess
+// runners stay duplicated per domain rather than extracting a shared box.
 nonisolated final class XcodeProcessTermination: Sendable {
     private struct State {
         var status: Int32?

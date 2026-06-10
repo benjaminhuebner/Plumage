@@ -3,7 +3,7 @@ import Foundation
 @testable import Plumage
 
 // @unchecked Sendable: outcome mutated through NSLock; same rationale as
-// MockProcessRunner in CCI (decisions.md 2026-05-15 #00019).
+// MockProcessRunner in CCI.
 final class MockKeychainReader: KeychainReading, @unchecked Sendable {
     enum Outcome: Sendable {
         case token(OAuthToken)
@@ -25,7 +25,7 @@ final class MockKeychainReader: KeychainReading, @unchecked Sendable {
 
     var readCount: Int { lock.withLock { _readCount } }
 
-    func readToken() throws -> OAuthToken {
+    func readToken() async throws -> OAuthToken {
         let current: Outcome = lock.withLock {
             _readCount += 1
             return _outcome

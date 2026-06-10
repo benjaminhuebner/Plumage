@@ -14,7 +14,7 @@ struct TemplateEnabledFlagTests {
 
     @Test("A descriptor JSON without an `enabled` key decodes to enabled (back-compat)")
     func legacyDescriptorDecodesEnabled() throws {
-        // Encode a real descriptor, then strip `enabled` to mimic a #00069-era record.
+        // Encode a real descriptor, then strip `enabled` to mimic an older record.
         let descriptor = try #require(
             TemplateCatalog.bundledDefault.template(id: ProjectKind.macOS.rawValue))
         let data = try JSONEncoder().encode(descriptor)

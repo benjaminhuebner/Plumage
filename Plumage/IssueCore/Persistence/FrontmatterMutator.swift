@@ -166,7 +166,7 @@ nonisolated enum FrontmatterMutator {
     }
 
     // Drop-path back-compat wrapper. ProjectKanbanModel's Mutator typealias
-    // pins this exact signature; keep it green so #00015 callers compile
+    // pins this exact signature; keep it green so callers compile
     // unchanged. Internally routes through the new mutation entry point.
     static func mutate(
         specURL: URL,

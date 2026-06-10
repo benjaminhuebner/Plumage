@@ -36,7 +36,7 @@ final class ProjectSettingsModel {
     // Plumage-owned mutable settings — every field round-trips through
     // ConfigWriter on commit(). View binds via @Bindable. The editors start
     // pre-filled with the spec'd default templates; per-slot models start at
-    // ModelsConfig.slotDefault so users see concrete model names, not "Default".
+    // ModelsConfig.slotDefault (Default = let the CLI resolve the model).
     var planCommand: String = ProjectSettingsModel.planDefault
     var implementCommand: String = ProjectSettingsModel.implementDefault
     var reviewCommand: String = ProjectSettingsModel.reviewDefault

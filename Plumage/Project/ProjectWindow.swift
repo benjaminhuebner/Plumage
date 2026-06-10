@@ -32,7 +32,7 @@ struct ProjectWindow: View {
     @State private var showBuildLog = false
     @SceneStorage("claudeDock.open") private var isDockOpen = false
     @SceneStorage("inspector.terminal.open") private var isTerminalInspectorOpen = false
-    // Pre-#00032 the dock panel hosted a Chat/Terminal mode switcher whose
+    // Previously the dock panel hosted a Chat/Terminal mode switcher whose
     // selection persisted under "terminalPaneMode". This branch moved the
     // terminal out into an inspector with its own storage key; the one-shot
     // migration below maps a legacy "terminal" selection forward so users
@@ -82,8 +82,7 @@ struct ProjectWindow: View {
         // plumbing inside TerminalTabsModel can only filter Plumage's own
         // tabs, not arbitrary external callers — so the safer choice is
         // to never persist or reconcile at all. Trade-off: window-reopen
-        // drops the user's terminal history. Accepted (2026-05-25, #00037
-        // post-review).
+        // drops the user's terminal history. Accepted trade-off.
         let initialTerminalSession = TerminalClaudeSession(
             cwd: handle.url, binaryURL: binary, stateDirectory: stateDirectory,
             persistConversationID: false
@@ -461,7 +460,7 @@ struct ProjectWindow: View {
                 // position-based, so the same struct slot re-uses the same
                 // @State on every re-render. New URL into init() is ignored
                 // and .task(id:) never fires because model.fileURL never
-                // changes. See axiom-swiftui debugging.md Root Cause 5.
+                // changes.
                 .id(selectedRoute)
                 .environment(\.openSpec) { route in
                     if selectedRoute == .kanban, case .issue = route {

@@ -3,7 +3,7 @@ import Foundation
 // concurrency — its `LanguageConfiguration.Token` enum isn't Sendable. The
 // enum's payload is itself a value-type (`Flavour`), so wrapping it in our
 // Sendable `DiffToken` is runtime-safe; we need `@preconcurrency` only to
-// silence the compile-time check (notes.md 2026-05-13 #00008).
+// silence the compile-time check.
 @preconcurrency import LanguageSupport
 
 nonisolated public struct Hunk: Sendable, Equatable, Hashable {

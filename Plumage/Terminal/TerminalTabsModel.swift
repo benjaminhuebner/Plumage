@@ -176,7 +176,6 @@ final class TerminalTabsModel {
     // don't need to filter self out here. Currently dead wiring because all
     // tabs are ephemeral and reconcile early-returns on sessionIDStoreURL ==
     // nil — but defense-in-depth for a future re-armed reconcile path
-    // (decisions.md 2026-05-25 #00037 post-review).
     private func installExclusionClosure(on session: TerminalClaudeSession) {
         session.setExcludedSessionIDs { [weak self] in
             guard let self else { return [] }

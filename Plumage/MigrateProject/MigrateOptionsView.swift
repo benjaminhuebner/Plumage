@@ -59,7 +59,7 @@ struct MigrateOptionsView: View {
         }
         .formStyle(.grouped)
         // Auto-focus is dropped if assigned during the present animation frame;
-        // a short hop lands it reliably (notes.md 2026-05-14 #00017).
+        // a short hop lands it reliably.
         .task {
             try? await Task.sleep(for: .milliseconds(50))
             focused = .name

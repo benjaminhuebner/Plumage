@@ -201,7 +201,7 @@ final class ProjectKanbanModel {
     // Cross-model signal fired by IssueDetailView after a successful merge.
     // Detail views observe this via .onChange and dismiss themselves when
     // the value matches their own folderName. Pattern duplicated from
-    // lastRemovalCompleted (#00018); generalizing them would obscure which
+    // lastRemovalCompleted; generalizing them would obscure which
     // kind of completion fired.
     func signalMergeCompleted(folderName: String) {
         lastMergeCompleted = folderName
@@ -367,7 +367,7 @@ final class ProjectKanbanModel {
                 self?.lastRemovalCompleted = folderName
             } catch {
                 // Same cancellation discipline as applyOptimisticDrop's catch
-                // block (notes.md 2026-05-14): if a newer removal cancelled us,
+                // block: if a newer removal cancelled us,
                 // priorIssues is stale relative to the newer removal's snapshot
                 // and writing it back would resurrect a card that the user
                 // already deleted in the second action.

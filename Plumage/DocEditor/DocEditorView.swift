@@ -1,6 +1,6 @@
 // @preconcurrency: CodeEditorView exposes its default themes as plain
 // `static var` (effectively constant). Reading them under Swift 6 strict
-// concurrency errors out; the module isn't concurrency-audited. See notes.md.
+// concurrency errors out; the module isn't concurrency-audited.
 @preconcurrency import CodeEditorView
 import LanguageSupport
 import SwiftUI

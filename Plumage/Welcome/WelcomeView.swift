@@ -21,14 +21,13 @@ struct WelcomeView: View {
         }
         // Scopes the "New Project… ⌘N" menu command to the focused Welcome scene.
         .focusedSceneValue(\.newProjectAvailable, true)
-        // min/ideal pair instead of a hard width/height: a hard `.frame(width:height:)`
-        // on a Window scene root historically wedged XCUITest auto-terminate
-        // (notes.md 00002-open-project), and a non-resizable window also
-        // truncates long recent-project paths with no way to widen. Min equals
-        // Ideal so the default opening size is unchanged.
+        // min == ideal == max: the Window scene clobbers styleMask overrides,
+        // and a hard width/height frame wedges XCUITest terminate.
         .frame(
             minWidth: Self.windowWidth, idealWidth: Self.windowWidth,
-            minHeight: Self.windowHeight, idealHeight: Self.windowHeight
+            maxWidth: Self.windowWidth,
+            minHeight: Self.windowHeight, idealHeight: Self.windowHeight,
+            maxHeight: Self.windowHeight
         )
         .background(WindowChromeCustomizer(windowAlphaHidden: windowAlphaHidden))
     }
@@ -89,6 +88,9 @@ struct WelcomeView: View {
         // Intentional: nudges the icon/title/action block slightly above true
         // center for optical balance against the empty bottom of the pane.
         .padding(.bottom, 24)
+        // Not fully opaque: Xcode's action pane is a soft off-white that lets
+        // a hint of the behind-window material through, not flat white.
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.85))
     }
 
     private var rightPane: some View {
@@ -124,7 +126,13 @@ struct WelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.primary.opacity(0.05))
+        // Gray scrim over the still-visible window material: Xcode's recents
+        // pane keeps the behind-window blur, just toned gray. Must ignore the
+        // safe area or the titlebar strip shows raw material as a lighter bar.
+        .background {
+            Color.primary.opacity(0.02)
+                .ignoresSafeArea()
+        }
     }
 
     private var emptyState: some View {

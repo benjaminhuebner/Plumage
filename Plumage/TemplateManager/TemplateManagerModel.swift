@@ -152,11 +152,22 @@ final class TemplateManagerModel {
 
     // MARK: - Editing
 
+    // The generated read-only text shown for a tier's settings preview node; non-nil
+    // puts the right column into read-only mode (no override slot, no editor).
+    private(set) var editingPreviewText: String?
+
     // No disk write: the editor reads via the bundled fallback and only a save creates
     // an override, so opening a file never pins it to its current bundled content.
     // Called on every right-column selection change (an event boundary, not `body`).
     func beginEditing(_ file: FileNode?) {
         isEditorDirty = false
+        editingPreviewText = nil
+        if let file, Self.isTierSettingsPreviewPath(file.relativePath) {
+            editingFileURL = nil
+            editingFallbackURL = nil
+            editingPreviewText = tierSettingsPreviewContent(for: activeScope)
+            return
+        }
         guard let file, !file.isDirectory,
             let overrideURL = overrides.overrideURL(forRelative: file.relativePath)
         else {
@@ -206,7 +217,7 @@ final class TemplateManagerModel {
     }
 
     // The override-store path of any tree node: a file leaf already carries it; a folder
-    // carries its *output* path, so it is mapped back through the active scope (#00078).
+    // carries its *output* path, so it is mapped back through the active scope.
     func nodeStorePath(_ node: FileNode) -> String {
         node.isDirectory
             ? Self.storageDir(forOutputFolder: node.relativePath, scope: activeScope)
@@ -237,6 +248,7 @@ final class TemplateManagerModel {
     // and checks authorship against that — never the output path.
     private func isUserAuthoredStore(_ storePath: String) -> Bool {
         if managerConfig(forRelative: storePath) != nil { return false }
+        if Self.isTierSettingsPreviewPath(storePath) { return false }
         return !overrides.hasBundledOriginal(forRelative: storePath)
     }
 
@@ -509,20 +521,18 @@ final class TemplateManagerModel {
                 rejected.append(url.lastPathComponent)
                 continue
             }
-            // A standalone hook script (Bash or Python) dropped onto a Shared Component
-            // joins it as a hook — its bytes land in `hooks/`, not the component's
-            // selected folder. Restricted to the two supported hook languages so a doc
-            // or skill file dropped onto a component still routes to its own surface.
-            // Outside a component a dropped file stays verbatim in the target folder.
+            // A hook script dropped onto a Template/Component joins that tier as a hook
+            // (bytes land in the tier's `hooks/`, not the selected folder). Restricted to
+            // the two hook languages so a doc/skill file still routes to its own surface.
             let droppedExtension = (plan.name as NSString).pathExtension
-            let joinsComponentAsHook =
+            let joinsTierAsHook =
                 !plan.isDirectory && !plan.isSkill && ["sh", "py"].contains(droppedExtension)
-                && membershipComponentID(forKind: .hook) != nil
-            // A skill is a scope-owned loose folder under `<root>/skills` (#00078); a hook
-            // joining a component stays global; everything else uses the scoped target dir.
+                && !activeScope.storageRoot.isEmpty
+            // Skills and tier-joining hooks are scope-owned loose files under
+            // `<root>/skills` / `<root>/hooks`; everything else uses the target dir.
             let directory: String
-            if joinsComponentAsHook {
-                directory = "hooks"
+            if joinsTierAsHook {
+                directory = "\(activeScope.storageRoot)/hooks"
             } else if plan.isSkill {
                 let root = activeScope.storageRoot
                 directory = root.isEmpty ? "skills" : "\(root)/skills"
@@ -534,11 +544,13 @@ final class TemplateManagerModel {
                 ? overrideRoot : overrideRoot.appending(path: directory, directoryHint: .isDirectory)
             do {
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-                // A file dropped into `hooks/` is unique by base name across extensions
-                // (the hook identity), so it walks the stem rather than the full name.
+                // A file dropped into a hooks dir is unique by base name across
+                // extensions and across all scope hook dirs (the hook identity), so it
+                // walks the stem rather than the full name.
                 let target =
-                    directory == "hooks"
-                    ? try ClaudeProjectFiles.findFreeStemName(in: parent, base: plan.name)
+                    UserTemplateKind.isHookDirectory(directory)
+                    ? try ClaudeProjectFiles.findFreeStemName(
+                        in: parent, base: plan.name, alsoTaken: overrides.allScopeHookStems())
                     : try ClaudeProjectFiles.findFreeName(in: parent, base: plan.name)
                 guard target.standardizedFileURL.path.hasPrefix(parent.standardizedFileURL.path + "/")
                 else {
@@ -551,19 +563,6 @@ final class TemplateManagerModel {
                 let storage = plan.isSkill ? "\(dir)\(leaf)/SKILL.md" : "\(dir)\(leaf)"
                 importedStoragePaths.insert(storage)
                 if first == nil { first = (storage, plan.isDirectory && !plan.isSkill) }
-                // Dropping a hook script onto a component joins it as a hook (the only
-                // membership-backed kind); a dropped skill is now a scope-owned folder.
-                let importKind: UserTemplateKind? = joinsComponentAsHook ? .hook : nil
-                if let importKind, let componentKind = Self.sharedComponentKind(for: importKind),
-                    let componentID = membershipComponentID(forKind: importKind)
-                {
-                    // A hook is a member by its base name (extension-agnostic); the real
-                    // filename is resolved from the override store when it's used.
-                    registerMembership(
-                        componentID, kind: componentKind,
-                        fileName: importKind == .hook
-                            ? (leaf as NSString).deletingPathExtension : leaf)
-                }
             } catch {
                 rejected.append(url.lastPathComponent)
             }
@@ -572,8 +571,8 @@ final class TemplateManagerModel {
         selectImported(first)
         // An imported hook still needs wiring: raise the sheet for the first unwired one.
         if let hookNode = contentFiles.first(where: { node in
-            node.relativePath.hasPrefix("hooks/") && importedStoragePaths.contains(node.relativePath)
-                && needsWiring(node)
+            UserTemplateKind.hookBaseName(forRelativePath: node.relativePath) != nil
+                && importedStoragePaths.contains(node.relativePath) && needsWiring(node)
         }) {
             pendingHookWiring = hookNode
         }
@@ -739,50 +738,18 @@ final class TemplateManagerModel {
     // MARK: - Add
 
     // The kinds the user can author — available in every selection, since the content
-    // tree is a file manager for Base, Templates and Shared Components alike. Loose
-    // kinds (doc/agent/skill/file/folder) are owned by the active tier's subtree
-    // (#00078); a `.hook` is the one composition asset and joins the selected
-    // component's membership instead of being scope-owned.
+    // tree is a file manager for Base, Templates and Shared Components alike. Every
+    // kind, hooks included, is owned by the active tier's subtree.
     var addableKinds: [UserTemplateKind] {
         [.hook, .skill, .doc, .agent, .file, .folder]
     }
 
-    // The composition component kind a `UserTemplateKind` joins by manifest membership.
-    // Only `.hook` qualifies: it feeds `effectiveHooks` and stays a global, membership-
-    // tracked asset. Skills and everything else are now scope-owned loose files on disk
-    // (no membership) — legacy `.skill` memberships still decode, just aren't created.
-    static func sharedComponentKind(for kind: UserTemplateKind) -> SharedComponentKind? {
-        switch kind {
-        case .hook: return .hook
-        default: return nil
-        }
-    }
-
-    // The selected component a hook add or drop should join (the only membership-backed
-    // kind; loose kinds are owned by the component's `components/<id>/` subtree instead).
-    private func membershipComponentID(forKind kind: UserTemplateKind) -> String? {
-        guard case .sharedComponent(let id) = selection,
-            catalog.sharedComponent(id: id) != nil,
-            Self.sharedComponentKind(for: kind) != nil
-        else { return nil }
-        return id
-    }
-
-    // The tier that owns loose files authored in the current selection (#00078).
+    // The tier that owns loose files authored in the current selection.
     var activeScope: ManagerScope { selection.map(ManagerScope.scope(for:)) ?? .base }
-
-    private func registerMembership(
-        _ componentID: String?, kind: SharedComponentKind, fileName: String
-    ) {
-        guard let componentID else { return }
-        var updated = catalog
-        updated.addFile(toComponentID: componentID, kind: kind, fileName: fileName)
-        persist(updated)
-    }
 
     // The override-store directory a new/dropped item lands in: the given node (a
     // dropped-on row) or the current selection — a folder targets itself, a file its
-    // parent, and nothing selected the active tier's scope root (#00078). A file leaf's
+    // parent, and nothing selected the active tier's scope root. A file leaf's
     // `relativePath` is already a scoped store path; a folder's is an output path mapped
     // back through the active scope. A selected node *outside* the active scope subtree
     // (e.g. a component's layer `CLAUDE.md` under `templates/<layer>`, or a global
@@ -826,13 +793,10 @@ final class TemplateManagerModel {
         // created inside it (what the user asked for). With no folder selected the kind
         // falls back to its sensible home — a typed kind to its canonical dir within the
         // scope (so docs/skills/agents stay functional by default), a typeless one to the
-        // scope root. A hook is always the global `hooks/` composition asset (+ wiring).
+        // scope root. A hook always lands in the active tier's `hooks/` dir (+ wiring).
         let scope = activeScope
-        let componentID = membershipComponentID(forKind: kind)
         let baseDir: String
-        if kind == .hook {
-            baseDir = kind.directory
-        } else if let selected = selectedFile, selected.isDirectory {
+        if kind != .hook, let selected = selectedFile, selected.isDirectory {
             baseDir = addTargetStorageDir()
         } else if kind.usesTargetDirectory {
             baseDir = scope.storageRoot
@@ -859,19 +823,14 @@ final class TemplateManagerModel {
                 beginEditing(node)
                 return node
             default:
-                // A hook is unique by base name across extensions, so `foo.py` can't
-                // shadow an existing `foo.sh` (and vice versa) — it walks to `foo-1`.
+                // A hook is unique by base name across extensions and across all scope
+                // hook dirs — one name, one hook, one wiring — so it walks to `foo-1`.
                 let url = try ClaudeProjectFiles.createFileAt(
                     parent: parent, name: kind.fileName(forSanitized: name),
-                    stemUnique: kind == .hook)
+                    stemUnique: kind == .hook,
+                    alsoTakenStems: kind == .hook ? overrides.allScopeHookStems() : [])
                 try kind.starter(forLeaf: url.lastPathComponent).write(
                     to: url, atomically: true, encoding: .utf8)
-                // A hook joining a component is registered by its base name (any ext).
-                if kind == .hook {
-                    registerMembership(
-                        componentID, kind: .hook,
-                        fileName: (url.lastPathComponent as NSString).deletingPathExtension)
-                }
                 return selectCreatedFile(storagePath: storagePath(url.lastPathComponent), kind: kind)
             }
         } catch {

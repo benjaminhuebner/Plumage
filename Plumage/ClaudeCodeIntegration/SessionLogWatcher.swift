@@ -14,7 +14,7 @@ import os
 // docs only spec the flush on same-queue calls), so the barrier is load-
 // bearing — do not remove. Kept as a separate type from FSEventSource (not
 // extracted to a shared utility): two callers is below the "rule of three"
-// extraction trigger — see decisions.md.
+// extraction trigger.
 nonisolated final class SessionLogWatcher: @unchecked Sendable {
     private struct StreamBox: @unchecked Sendable {
         var ref: FSEventStreamRef?

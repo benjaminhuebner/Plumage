@@ -2,8 +2,8 @@ import Foundation
 
 nonisolated enum ToolchainLocator {
     // /usr/bin/xcodebuild and /usr/bin/xcrun are shims provided by macOS and
-    // always sit in the system default PATH (unlike the `claude` CLI — see
-    // notes.md 2026-05-15). They resolve to the active Xcode via xcode-select.
+    // always sit in the system default PATH (unlike the `claude` CLI). They
+    // resolve to the active Xcode via xcode-select.
     static let knownXcodebuildPaths: [String] = [
         "/usr/bin/xcodebuild",
         "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild",

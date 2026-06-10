@@ -190,14 +190,13 @@ struct TerminalTabsModelTests {
         #expect(model.tabs[0].id == mainID)
     }
 
-    @Test("plan tab with default model uses --permission-mode plan and Opus")
+    @Test("plan tab with default model uses --permission-mode plan and no --model flag")
     func addWorkflowTabPlanDefaultUsesPlanMode() {
         let model = makeModel()
-        // No modelsConfig → falls back to slot default (now .opus).
         let tab = model.addWorkflowTab(action: .plan, slug: "x")
         let cmd = tab.session.shellSpawnArgs()[1]
         #expect(cmd.contains("'--permission-mode' 'plan'"))
-        #expect(cmd.contains("'--model' 'opus'"))
+        #expect(!cmd.contains("--model"))
     }
 
     @Test("plan tab keeps plan mode regardless of chosen model")

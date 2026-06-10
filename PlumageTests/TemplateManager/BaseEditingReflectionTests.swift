@@ -3,8 +3,8 @@ import Testing
 
 @testable import Plumage
 
-// Base editing is wired by #00068 (the Base entry is selectable and its files edit
-// to the override store). This locks the #00069 Done-when criterion that a Base
+// Base editing (the Base entry is selectable and its files edit to the
+// override store) is wired elsewhere. This locks the criterion that a Base
 // edit reflects across templates: an override of the overarching `templates/CLAUDE.md`
 // must appear in every template's composed CLAUDE.md, since the composer reads the
 // base through the same override store the manager writes to.

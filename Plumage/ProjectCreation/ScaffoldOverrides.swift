@@ -46,7 +46,7 @@ nonisolated struct ScaffoldOverrides: Sendable {
         ScaffoldOverrides(bundledRoot: bundledRoot, overrideRoot: standardOverrideRoot())
     }
 
-    // Single source of truth for a layer's store path (folder-per-layer, #00071 D1) so
+    // Single source of truth for a layer's store path so
     // the composer, manager, scaffolder and migration can't drift between read and write.
     static func layerRelativePath(_ layer: String) -> String { "templates/\(layer)/CLAUDE.md" }
 
@@ -268,7 +268,7 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // Top-level directory names under the override `<root>/skills/` that contain a
     // `SKILL.md` — i.e. user-authored skills (and any bundled skill the user has
-    // overridden). `inRoot` scopes the lookup to a manager tier's subtree (#00078);
+    // overridden). `inRoot` scopes the lookup to a manager tier's subtree;
     // empty (the default) is the historical store-root behaviour. Empty with no store.
     func overrideSkillDirNames(inRoot root: String = "") -> [String] {
         guard let overrideRoot else { return [] }
@@ -297,7 +297,7 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // Excludes the typed category dirs (surfaced through their own walks) and noise,
     // leaving the arbitrary files a user authored or dropped anywhere in the tree.
-    // Returned paths are relative to `inRoot` (the scope subtree, #00078); suppression
+    // Returned paths are relative to `inRoot`; suppression
     // and the tombstones-metadata skip are checked against the full store path so a
     // scoped scan still honours store-root tombstones. `inRoot: ""` (the default) is the
     // historical store-root scan, byte-identical to before.
@@ -333,7 +333,7 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // So the content tree can show user-created folders even when still empty. Noise/VCS
     // dirs (`.git`) are skipped, matching the file walks. `inRoot` scopes the walk to a
-    // manager tier's subtree (#00078); returned paths are relative to that root. Empty
+    // manager tier's subtree; returned paths are relative to that root. Empty
     // (the default) is the historical store-root walk.
     func overrideDirectoryPaths(inRoot root: String = "") -> [String] {
         guard let overrideRoot else { return [] }
@@ -386,10 +386,10 @@ nonisolated struct ScaffoldOverrides: Sendable {
             .filter { !Self.isNoise($0) }
     }
 
-    // MARK: - Scope-composed loose surfaces (#00078, shared by scaffolder + migrator)
+    // MARK: - Scope-composed loose surfaces
 
     // Variants are ordered earliest/least-specific root first (conflict rule
-    // Base < Component < Template, #00084) because `resolveLooseFile` relies on that order:
+    // Base < Component < Template) because `resolveLooseFile` relies on that order:
     // earliest is the merge skeleton, latest is the file-level winner.
     func composedLooseFileVariants(category: String, roots: [String]) -> [(name: String, variants: [String])] {
         var variants: [String: [String]] = [:]
@@ -417,7 +417,7 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // Resolve same-named `variants` (earliest root first) to final content. The earliest
     // variant is the skeleton: if it carries `<<<keyword>>>` placeholders, every variant
     // is harvested for `%% keyword %%` blocks and merged into it; otherwise the latest
-    // variant wins verbatim (file-level override, #00078/#00084) — so a non-placeholder
+    // variant wins verbatim — so a non-placeholder
     // or binary file is unchanged. The placeholder merge is opt-in and additive.
     func resolveLooseFile(variants: [String]) throws -> ResolvedLooseFile {
         guard let skeletonRel = variants.first else { return .merged(Data()) }
@@ -435,7 +435,7 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // The typed/composition namespaces handled by their own scaffold steps; the
     // arbitrary-file copy skips them so it only reproduces the user's hand-built tree.
     // Mirrors the manager's `typedStoreTopLevel` — `.claude` is intentionally absent so a
-    // loose `.claude/<path>` file is reproduced at `<project>/.claude/<path>` (#00084).
+    // loose `.claude/<path>` file is reproduced at `<project>/.claude/<path>`.
     static let compositionTopLevel: Set<String> = [
         "hooks", "docs", "skills", "agents", "issues",
         "templates", "components", "template-images", "configs",
@@ -443,7 +443,7 @@ nonisolated struct ScaffoldOverrides: Sendable {
 
     // The arbitrary-file counterpart of `composedLooseFileVariants` (same earliest-first
     // ordering), for files outside the typed/composition namespaces — the user's hand-built
-    // tree, reproduced verbatim at the project root (#00078).
+    // tree, reproduced verbatim at the project root.
     func composedArbitraryFileVariants(roots: [String]) -> [(output: String, variants: [String])] {
         var variants: [String: [String]] = [:]
         for root in roots {
@@ -466,6 +466,54 @@ nonisolated struct ScaffoldOverrides: Sendable {
             for name in overrideSkillDirNames(inRoot: root) { winner[name] = "\(prefix)/\(name)" }
         }
         return winner.keys.sorted().compactMap { name in winner[name].map { (name, $0) } }
+    }
+
+    // User hooks are scope-owned: `hooks/` (Base), `components/<id>/hooks/`,
+    // `templates/<id>/hooks/`. A base file whose stem matches a bundled hook is a
+    // content override of a built-in, not a user hook. Later roots win a stem clash.
+    func scopedUserHookFiles(roots: [String]) -> [(base: String, relativePath: String)] {
+        let bundledStems = Set(
+            Self.regularFileNames(in: bundledRoot.appending(path: "hooks", directoryHint: .isDirectory))
+                .map { ($0 as NSString).deletingPathExtension })
+        var pathByBase: [String: String] = [:]
+        var order: [String] = []
+        for root in roots {
+            let dir = root.isEmpty ? "hooks" : "\(root)/hooks"
+            for file in overrideFileNames(inRelativeDir: dir) {
+                let base = (file as NSString).deletingPathExtension
+                if root.isEmpty, bundledStems.contains(base) { continue }
+                if pathByBase[base] == nil { order.append(base) }
+                pathByBase[base] = "\(dir)/\(file)"
+            }
+        }
+        return order.compactMap { base in pathByBase[base].map { (base, $0) } }
+    }
+
+    // One hook name maps to one file and one wiring, so a new hook's stem must be
+    // free across every scope hook dir and the bundled built-ins — not just its tier.
+    func allScopeHookStems() -> Set<String> {
+        var dirs = ["hooks"]
+        if let overrideRoot {
+            for parent in ["components", "templates"] {
+                let parentURL = overrideRoot.appending(path: parent, directoryHint: .isDirectory)
+                let subs =
+                    (try? FileManager.default.contentsOfDirectory(
+                        at: parentURL, includingPropertiesForKeys: [.isDirectoryKey],
+                        options: [.skipsHiddenFiles])) ?? []
+                for sub in subs
+                where (try? sub.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    dirs.append("\(parent)/\(sub.lastPathComponent)/hooks")
+                }
+            }
+        }
+        var stems = Set(
+            Self.regularFileNames(in: bundledRoot.appending(path: "hooks", directoryHint: .isDirectory))
+                .map { ($0 as NSString).deletingPathExtension })
+        for dir in dirs {
+            stems.formUnion(
+                overrideFileNames(inRelativeDir: dir).map { ($0 as NSString).deletingPathExtension })
+        }
+        return stems
     }
 
     // MARK: - Resolved tree copy (shared by scaffolder + migrator)

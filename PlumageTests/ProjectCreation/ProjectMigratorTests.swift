@@ -253,6 +253,66 @@ struct ProjectMigratorTests {
         #expect(!settings.contains("py-hook.sh"))
     }
 
+    @Test("Migrating onto an existing settings.json merges missing hook entries, idempotently")
+    func existingSettingsTakesHookMerge() async throws {
+        let overrideRoot = fileManager.temporaryDirectory.appending(
+            path: "MigrateMerge-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: overrideRoot) }
+        let hookURL = overrideRoot.appending(path: "hooks/my-hook.sh")
+        try fileManager.createDirectory(
+            at: hookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: hookURL, atomically: true, encoding: .utf8)
+        let wirings = [HookWiring(name: "my-hook", event: .stop)]
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let claudeDir = root.appending(path: ".claude", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        let handMade = "{\n  \"permissions\":   { \"allow\": [\"Bash(mine:*)\"] },\n  \"hooks\": {}\n}\n"
+        try handMade.write(
+            to: claudeDir.appending(path: "settings.json"), atomically: true, encoding: .utf8)
+
+        let (_, report) = try await migrator(overrideRoot: overrideRoot, hookWirings: wirings)
+            .migrate(spec: spec(root: root, kind: .macOS))
+
+        let merged = try String(
+            contentsOf: claudeDir.appending(path: "settings.json"), encoding: .utf8)
+        #expect(merged.contains("my-hook.sh"))
+        // Hand-made content stays byte-identical (odd spacing included).
+        #expect(merged.contains("\"permissions\":   { \"allow\": [\"Bash(mine:*)\"] }"))
+        #expect(report.added.contains { $0.hasPrefix(".claude/settings.json (hook:") })
+
+        // Re-migrating adds nothing and leaves the file byte-identical.
+        try? fileManager.removeItem(at: root.appending(path: "Acme.plumage"))
+        let (_, second) = try await migrator(overrideRoot: overrideRoot, hookWirings: wirings)
+            .migrate(spec: spec(root: root, kind: .macOS))
+        #expect(second.skipped.contains(".claude/settings.json"))
+        #expect(!second.added.contains { $0.hasPrefix(".claude/settings.json") })
+        let after = try String(
+            contentsOf: claudeDir.appending(path: "settings.json"), encoding: .utf8)
+        #expect(after == merged)
+    }
+
+    @Test("An unparseable settings.json is left untouched; migration completes with a skip report")
+    func unparseableSettingsSkipped() async throws {
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let claudeDir = root.appending(path: ".claude", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        let broken = "{ this is not json\n"
+        try broken.write(
+            to: claudeDir.appending(path: "settings.json"), atomically: true, encoding: .utf8)
+
+        let (_, report) = try await migrator().migrate(spec: spec(root: root))
+
+        #expect(
+            try String(contentsOf: claudeDir.appending(path: "settings.json"), encoding: .utf8)
+                == broken)
+        #expect(report.skipped.contains(".claude/settings.json (unparseable)"))
+        // The rest of the migration still ran.
+        #expect(report.added.contains("Acme.plumage/config.json"))
+    }
+
     @Test("A user-authored skill is migrated from the override store and reported added")
     func userSkillMigrates() async throws {
         let overrideRoot = fileManager.temporaryDirectory.appending(

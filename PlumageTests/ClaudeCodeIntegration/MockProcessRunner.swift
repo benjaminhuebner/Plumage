@@ -5,7 +5,6 @@ import Foundation
 // @unchecked Sendable because the conformance is enforced manually via NSLock:
 // outcome stores and the spawn callback are mutated under `lock`, so concurrent
 // access from test setup and the async-called protocol methods is safe.
-// See notes.md 2026-05-15 (#00019).
 final class MockProcessRunner: ProcessRunning, @unchecked Sendable {
     enum DetectOutcome: Sendable {
         case success(VersionCheck)

@@ -12,9 +12,11 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome to Plumage", id: "welcome") {
-            // No .containerBackground: .thickMaterial made Welcome the
-            // app's only translucent window.
+            // Deliberately the app's only translucent window: Xcode-style
+            // welcome panel, not a content surface — the Liquid Glass
+            // "no materials on content" rule doesn't apply here.
             WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
+                .containerBackground(.ultraThickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
                     drainPendingURLs()
@@ -161,14 +163,15 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
             ClaudeThemeInstaller.installIfNeeded()
         }
         // One-time, idempotent store migrations, in order: first move flat layer
-        // overrides to the folder-per-layer layout (#00071 D1) so saved layer edits keep
+        // overrides to the folder-per-layer layout so saved layer edits keep
         // applying, then rewrite legacy open-only layer blocks to the closed-marker
-        // format (#00082) so they still fill placeholders, then move user-authored
-        // component skills into scope ownership (#00078). All pure file I/O, in sequence.
+        // format so they still fill placeholders, then move user-authored
+        // component skills and hooks into scope ownership. All pure file I/O, in sequence.
         Task.detached(priority: .utility) {
             TemplateOverrideMigration.migrateStandard()
             TemplateLayerFormatMigration.migrateStandard()
             LooseFileScopeMigration.migrateStandard()
+            HookScopeMigration.migrateStandard()
         }
     }
 }

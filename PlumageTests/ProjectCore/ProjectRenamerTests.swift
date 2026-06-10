@@ -80,7 +80,7 @@ struct ProjectRenamerTests {
 
     @Test("folder already named correctly but config.name drifted: rewrites name, no move")
     func legacyFolderNameMatchesConfigDrifted() throws {
-        // Mirrors the #00010 case: the user renamed the bundle in Finder, so the
+        // Mirrors the legacy case: the user renamed the bundle in Finder, so the
         // folder is `Renamed.plumage` but config.name is still the old value.
         let root = try makeProject(bundleName: "Renamed", configName: "Old")
         defer { try? FileManager.default.removeItem(at: root) }

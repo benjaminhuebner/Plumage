@@ -200,7 +200,6 @@ struct OpenRecentMenu: View {
 
 struct OpenProjectMenuButton: View {
     // Injected, not @Environment: CommandGroup views don't inherit the scene environment.
-    // See notes.md (#00002-open-project).
     let recentProjects: RecentProjects
 
     @Environment(\.openWindow) private var openWindow

@@ -277,8 +277,7 @@ struct ProjectSettingsView: View {
             ForEach(ModelSlot.allCases, id: \.self) { slot in
                 ModelPickerRow(
                     label: slot.label,
-                    choice: model.modelBinding(for: slot),
-                    fallback: ModelsConfig.slotDefault(for: slot)
+                    choice: model.modelBinding(for: slot)
                 )
             }
             Label(

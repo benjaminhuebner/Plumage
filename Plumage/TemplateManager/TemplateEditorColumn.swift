@@ -30,10 +30,37 @@ struct TemplateEditorColumn: View {
                     // after a reset to remount and reseed from the bundled original.
                     .id("\(fileURL.path)#\(model.editorReloadToken)")
                 }
+            } else if let preview = model.editingPreviewText, let file = model.selectedFile {
+                VStack(spacing: 0) {
+                    previewHeader(file)
+                    Divider()
+                    ScrollView {
+                        Text(preview)
+                            .font(.body.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                    }
+                }
             } else {
                 ContentUnavailableView("No File Selected", systemImage: "doc.text")
             }
         }
+    }
+
+    private func previewHeader(_ file: FileNode) -> some View {
+        HStack {
+            Text(file.name)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Text("Generated · read-only")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private func header(_ file: FileNode) -> some View {

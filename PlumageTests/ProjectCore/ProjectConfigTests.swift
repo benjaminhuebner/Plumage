@@ -74,6 +74,19 @@ struct ProjectConfigTests {
         #expect(models.workflow(.review) == .opus)
     }
 
+    @Test("every slot falls back to .default when nothing is set on disk")
+    func slotFallbacksAreDefault() {
+        let empty = ModelsConfig()
+        #expect(empty.chatResolved == .default)
+        #expect(empty.terminalsResolved == .default)
+        #expect(empty.workflowResolved(.plan) == .default)
+        #expect(empty.workflowResolved(.implement) == .default)
+        #expect(empty.workflowResolved(.review) == .default)
+        for slot in ModelSlot.allCases {
+            #expect(ModelsConfig.slotDefault(for: slot) == .default)
+        }
+    }
+
     @Test("round-trip encode/decode preserves additive fields")
     func roundTrip() throws {
         let original = ProjectConfig(

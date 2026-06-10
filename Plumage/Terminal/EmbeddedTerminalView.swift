@@ -2,7 +2,7 @@ import AppKit
 // @preconcurrency: SwiftTerm 1.13.0 (swift-tools 5.9) has no Swift 6 Sendable
 // annotations. LocalProcess defaults its dispatch queue to DispatchQueue.main,
 // so all LocalProcessTerminalViewDelegate callbacks arrive on the main thread —
-// the @MainActor Coordinator below is safe. See notes.md #00021-embedded-terminal.
+// the @MainActor Coordinator below is safe.
 @preconcurrency import SwiftTerm
 import SwiftUI
 
@@ -162,7 +162,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // SwiftTerm starts unfocused inside an NSViewRepresentable. Without
         // a firstResponder hand-off the caret renders as a hollow outline
         // (drawCursor uses TerminalView.hasFocus) and keystrokes can be
-        // dropped (notes.md 2026-05-12 #00020-spike entry). Window may
+        // dropped. Window may
         // still be nil during the first layout pass — the responder hop
         // is best-effort, not load-bearing.
         view.window?.makeFirstResponder(view)
@@ -289,7 +289,7 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
     // calls dismantleNSView (which invokes stopCursorKeepAlive) before drop,
     // but the deinit guards against the case where the host short-circuits
     // teardown — Swift 6 rejects a MainActor deinit reading isolated state,
-    // hence the unsafe storage. See notes.md #00021-embedded-terminal.
+    // hence the unsafe storage.
     nonisolated(unsafe) private var cursorKeepAlive: Timer?
 
     override init(frame: CGRect) {
@@ -309,7 +309,7 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         // the references onto the main queue instead of calling them inline.
         guard cursorKeepAlive != nil || shiftEnterMonitor != nil else { return }
         // @unchecked Sendable: only carries the main-thread-bound references
-        // across the queue hop; nothing reads them concurrently. See notes.md.
+        // across the queue hop; nothing reads them concurrently.
         struct Teardown: @unchecked Sendable {
             let timer: Timer?
             let token: Any?
@@ -360,7 +360,7 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         if window != nil {
             refreshChrome()
             // SwiftTerm registers no dragged types and implements no
-            // NSDraggingDestination methods (notes.md #00020), so this is the
+            // NSDraggingDestination methods, so this is the
             // sole file-drop handler — no super conflict for .fileURL drags.
             registerForDraggedTypes([.fileURL])
         } else {

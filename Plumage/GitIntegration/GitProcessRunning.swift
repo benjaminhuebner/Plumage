@@ -56,7 +56,7 @@ nonisolated struct ProductionGitProcessRunner: GitProcessRunning {
         // so the call blocks forever even after the child has exited and both
         // reads have EOF'd. terminationHandler fires on Foundation's own queue
         // with no runloop dependency. Root-caused with a standalone repro:
-        // leaky form hung 2/2, this form passed 6/6 (#00057, notes.md/decisions.md).
+        // leaky form hung 2/2, this form passed 6/6.
         let termination = GitProcessTermination()
         process.terminationHandler = { finished in
             termination.complete(finished.terminationStatus)
@@ -88,9 +88,8 @@ nonisolated struct ProductionGitProcessRunner: GitProcessRunning {
     }
 
     static func cancelProcess(_ process: Process) {
-        // SIGTERM → 2 s grace → SIGKILL. Mirrors the pattern documented in
-        // notes.md 2026-05-15 (#00019) — process.isRunning re-check closes the
-        // PID-recycling race after Foundation reaps the child.
+        // SIGTERM → 2 s grace → SIGKILL — the process.isRunning re-check
+        // closes the PID-recycling race after Foundation reaps the child.
         if process.isRunning { process.terminate() }
         let pid = process.processIdentifier
         Task.detached { [process] in
@@ -106,7 +105,6 @@ nonisolated struct ProductionGitProcessRunner: GitProcessRunning {
 // queue before OR after the awaiting continuation is installed — to a single
 // continuation resume. The lock makes the early-vs-late ordering race-free.
 // Replaces waitUntilExit(), which deadlocks on the Swift cooperative pool
-// (#00057).
 nonisolated final class GitProcessTermination: Sendable {
     private struct State {
         var status: Int32?

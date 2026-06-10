@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os
 
 nonisolated struct OAuthToken: Sendable, Equatable {
     let value: String
@@ -8,55 +9,137 @@ nonisolated struct OAuthToken: Sendable, Equatable {
 
 nonisolated enum ClaudeAccountAuthError: Error, Sendable, Equatable {
     case notLoggedIn
-    case keychainFailure(OSStatus)
+    case readFailed(String)
     case malformedItem(String)
 }
 
 nonisolated protocol KeychainReading: Sendable {
-    func readToken() throws -> OAuthToken
+    func readToken() async throws -> OAuthToken
 }
 
 nonisolated enum ClaudeKeychain {
     // Empirically observed service name used by the `claude` CLI when it
-    // stores its OAuth token in the macOS Keychain. Same value the
-    // `Claude-Usage-Tracker` MIT project reads from. If the CLI ever rotates
-    // this, `ProductionKeychainReader` returns `.notLoggedIn` and the user
-    // sees the LoggedOut path — no crash, no stale data.
+    // stores its OAuth token in the macOS Keychain. If the CLI ever rotates
+    // this, the reader returns `.notLoggedIn` — no crash, no stale data.
     static let serviceName = "Claude Code-credentials"
+    static let itemNotFoundExit: Int32 = 44
+}
+
+nonisolated struct KeychainServiceCandidate: Sendable, Equatable {
+    let service: String
+    let modifiedAt: Date?
+}
+
+nonisolated protocol KeychainServiceDiscovering: Sendable {
+    func candidateServices(prefix: String) -> [KeychainServiceCandidate]
+}
+
+nonisolated struct ProductionKeychainServiceDiscovery: KeychainServiceDiscovering {
+    func candidateServices(prefix: String) -> [KeychainServiceCandidate] {
+        // Attribute-only enumeration: the ACL guards the secret, not the
+        // attributes, so this never prompts — unlike any kSecReturnData read.
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnAttributes as String: true,
+        ]
+        var items: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &items)
+        guard status == errSecSuccess, let attributes = items as? [[String: Any]] else {
+            return []
+        }
+        return attributes.compactMap { item in
+            guard let service = item[kSecAttrService as String] as? String,
+                service.hasPrefix(prefix)
+            else { return nil }
+            return KeychainServiceCandidate(
+                service: service,
+                modifiedAt: item[kSecAttrModificationDate as String] as? Date)
+        }
+    }
 }
 
 nonisolated struct ProductionKeychainReader: KeychainReading {
     let serviceName: String
+    private let runner: any SecurityToolRunning
+    private let discovery: any KeychainServiceDiscovering
+    // Copies share the lock allocation — intended: one reader per client,
+    // and the resolved name must survive across readToken() calls.
+    private let resolvedService = OSAllocatedUnfairLock<String?>(initialState: nil)
 
-    init(serviceName: String = ClaudeKeychain.serviceName) {
+    init(
+        serviceName: String = ClaudeKeychain.serviceName,
+        runner: any SecurityToolRunning = ProductionSecurityToolRunner(),
+        discovery: any KeychainServiceDiscovering = ProductionKeychainServiceDiscovery()
+    ) {
         self.serviceName = serviceName
+        self.runner = runner
+        self.discovery = discovery
     }
 
-    func readToken() throws -> OAuthToken {
-        // Requesting both kSecReturnData AND kSecReturnAttributes triggered
-        // errSecItemNotFound for items written by another signed app (the
-        // claude CLI) even though the item is visible to an existence-check.
-        // Data-only avoids that path; we don't need the attributes for the
-        // OAuth-only payload. (#00031, notes.md 2026-05-20.)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+    func readToken() async throws -> OAuthToken {
+        if let cached = resolvedService.withLock({ $0 }) {
+            do {
+                return try await read(service: cached)
+            } catch ClaudeAccountAuthError.notLoggedIn {
+                resolvedService.withLock { $0 = nil }
+            }
+        }
+        do {
+            let token = try await read(service: serviceName)
+            resolvedService.withLock { $0 = serviceName }
+            return token
+        } catch ClaudeAccountAuthError.notLoggedIn {
+            return try await readHashedFallback()
+        }
+    }
 
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound {
+    // Claude Code may store under `Claude Code-credentials-<hash>` instead of
+    // the legacy name; discover it once and pin it for this reader's lifetime.
+    private func readHashedFallback() async throws -> OAuthToken {
+        let candidates = discovery.candidateServices(prefix: serviceName + "-")
+        let best = candidates.max { lhs, rhs in
+            (lhs.modifiedAt ?? .distantPast) < (rhs.modifiedAt ?? .distantPast)
+        }
+        guard let best else {
             throw ClaudeAccountAuthError.notLoggedIn
         }
-        guard status == errSecSuccess else {
-            throw ClaudeAccountAuthError.keychainFailure(status)
+        let token = try await read(service: best.service)
+        resolvedService.withLock { $0 = best.service }
+        return token
+    }
+
+    private func read(service: String) async throws -> OAuthToken {
+        // Read via `security`, not SecItemCopyMatching: the CLI rewrites its
+        // item on every OAuth refresh, resetting the ACL, so an app-direct
+        // read re-prompts forever — Apple's tool stays permitted persistently.
+        let result: SecurityToolResult
+        do {
+            result = try await runner.run(args: [
+                "find-generic-password", "-s", service, "-a", NSUserName(), "-w",
+            ])
+        } catch let error as SecurityToolError {
+            switch error {
+            case .timedOut:
+                throw ClaudeAccountAuthError.readFailed("security timed out")
+            case .spawnFailed(let description):
+                throw ClaudeAccountAuthError.readFailed(
+                    "failed to launch security: \(description)")
+            }
         }
-        guard let data = item as? Data else {
-            throw ClaudeAccountAuthError.malformedItem("missing v_Data")
+        if result.exitCode == ClaudeKeychain.itemNotFoundExit {
+            throw ClaudeAccountAuthError.notLoggedIn
         }
-        return try Self.decode(data: data)
+        guard result.exitCode == 0 else {
+            throw ClaudeAccountAuthError.readFailed(
+                "security exited with code \(result.exitCode)")
+        }
+        let payload = String(decoding: result.stdout, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else {
+            throw ClaudeAccountAuthError.notLoggedIn
+        }
+        return try Self.decode(data: Data(payload.utf8))
     }
 
     static func decode(data: Data) throws -> OAuthToken {

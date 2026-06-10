@@ -29,7 +29,7 @@ struct ClaudeDockPanel: View {
         // swallows AppKit drag-destination delivery, so a .dropDestination (or
         // any registerForDraggedTypes NSView) placed inside the glass never
         // receives the drop. Applied after the glass, it inserts the dropped
-        // paths into the chat draft (#00059).
+        // paths into the chat draft.
         .dropDestination(for: URL.self) { urls, _ in
             // Only accept when the chat input is actually on screen — see
             // `acceptsFileDrop`. Otherwise the drop would write into a

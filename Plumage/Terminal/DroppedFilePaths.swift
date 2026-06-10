@@ -8,7 +8,7 @@ import Foundation
 // would only inject literal quote noise into the prompt — and the `'\''` dance
 // would actively corrupt any path containing an apostrophe. Instead we insert
 // the plain absolute path, wrapped in double quotes only when it contains
-// whitespace (issue #00059 "Chat escaping mismatch" edge case). SwiftUI-free so
+// whitespace. SwiftUI-free so
 // both the AppKit terminal view and the SwiftUI chat field can share it.
 nonisolated enum DroppedFilePaths {
     // Space-joined, each path quoted only when it contains whitespace, with a

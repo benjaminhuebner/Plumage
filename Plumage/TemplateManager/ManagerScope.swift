@@ -2,7 +2,7 @@ import Foundation
 
 // Which template-manager tier owns a loose (untyped) file. Each tier roots its loose
 // files under a distinct store prefix, so a file authored in one tier no longer leaks
-// into every template (#00078). Base keeps the historical flat root (`""`); a Template
+// into every template. Base keeps the historical flat root (`""`); a Template
 // and a Shared Component each own a private subtree. The composition assets (layers,
 // hooks, configs) are *not* scoped through here — they stay membership-correct as-is.
 nonisolated enum ManagerScope: Hashable, Sendable {

@@ -58,7 +58,7 @@ nonisolated struct TemplateDescriptor: Codable, Hashable, Sendable, Identifiable
         self.xcodeMcpLine = xcodeMcpLine
     }
 
-    // Forward-compat: a #00067–#00069-era manifest record has no `enabled` key and
+    // Forward-compat: an older manifest record has no `enabled` key and
     // decodes to enabled (the default). Other keys decode normally; `encode` stays
     // synthesized over `CodingKeys`.
     init(from decoder: any Decoder) throws {

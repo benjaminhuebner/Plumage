@@ -39,22 +39,23 @@ nonisolated struct ProjectScaffolder {
         self.catalog = catalog
     }
 
-    // The bundled-or-user hooks enabled for a template, as (base name, real filename)
-    // pairs. Built-ins resolve to `<base>.sh`; a user override hook keeps its real
-    // extension (e.g. `.py`). The toggle key stays the base name — built-ins toggle by
-    // base — so recognition is extension-agnostic while identity is unchanged.
-    private func enabledHookFiles(forTemplate templateID: String) -> [(base: String, fileName: String)] {
+    // The hooks enabled for a template, as (base name, store path) pairs: built-ins
+    // (a content override wins by stem, carrying its extension) plus the template's
+    // scope-owned user hooks. The toggle key stays the base name.
+    private func enabledHookFiles(forTemplate templateID: String) -> [(base: String, relativePath: String)] {
         let effective = catalog.effectiveHooks(forTemplate: templateID)
-        var fileByBase: [String: String] = [:]
-        for base in effective { fileByBase[base] = "\(base).sh" }
-        var userBases: [String] = []
+        var pathByBase: [String: String] = [:]
+        for base in effective { pathByBase[base] = "hooks/\(base).sh" }
         for file in overrides.overrideFileNames(inRelativeDir: "hooks") {
             let base = (file as NSString).deletingPathExtension
-            if fileByBase[base] == nil { userBases.append(base) }
-            fileByBase[base] = file  // the real override file wins, carrying its extension
+            if pathByBase[base] != nil { pathByBase[base] = "hooks/\(file)" }
         }
-        return toggles.enabledNames(in: .hooks, from: effective + userBases)
-            .map { ($0, fileByBase[$0] ?? "\($0).sh") }
+        let effectiveSet = Set(effective)
+        let userHooks = catalog.effectiveUserHooks(forTemplate: templateID, overrides: overrides)
+            .filter { !effectiveSet.contains($0.base) }
+        for hook in userHooks { pathByBase[hook.base] = hook.relativePath }
+        return toggles.enabledNames(in: .hooks, from: effective + userHooks.map(\.base))
+            .map { ($0, pathByBase[$0] ?? "hooks/\($0).sh") }
     }
 
     private var fileManager: FileManager { .default }
@@ -101,7 +102,7 @@ nonisolated struct ProjectScaffolder {
 
     // Reproduce the user's hand-built loose tree — files outside the typed/composition
     // namespaces, at their project-relative positions, composed across the template's
-    // scope roots (#00078). Generated configs already written win a name clash.
+    // scope roots. Generated configs already written win a name clash.
     private func writeArbitraryFiles(spec: NewProjectSpec, root: URL) throws {
         let roots = catalog.looseSurfaceRoots(forTemplate: spec.templateID)
         for (output, variants) in overrides.composedArbitraryFileVariants(roots: roots) {
@@ -151,7 +152,7 @@ nonisolated struct ProjectScaffolder {
     // A user override of `.claude/settings.json` wins over generation (B2); the
     // minimal local settings file is always generated.
     private func writeSettings(spec: NewProjectSpec, claude: URL) throws {
-        let composer = SettingsComposer(catalog: catalog)
+        let composer = SettingsComposer(catalog: catalog, overrides: overrides)
         let data = try overrides.resolvedConfigData(forRelative: ".claude/settings.json") {
             try composer.settingsJSON(
                 forTemplate: spec.templateID, toggles: toggles, userWirings: hookWirings)
@@ -163,7 +164,7 @@ nonisolated struct ProjectScaffolder {
     private func writeSkills(spec: NewProjectSpec, claude: URL) throws {
         let skillsDir = claude.appending(path: "skills", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: skillsDir, withIntermediateDirectories: true)
-        // Base ∪ template ∪ member-component skills, most-specific scope winning (#00078).
+        // Base ∪ template ∪ member-component skills, most-specific scope winning.
         let composed = overrides.composedSkillDirs(
             roots: catalog.looseSurfaceRoots(forTemplate: spec.templateID))
         let enabled = Set(toggles.enabledNames(in: .skills, from: composed.map(\.name)))
@@ -176,7 +177,7 @@ nonisolated struct ProjectScaffolder {
     }
 
     // First-time agent scaffolding: Plumage ships no agents, so the catalog is the user's
-    // scope-owned `agents/` files unioned across the template's loose roots (#00078),
+    // scope-owned `agents/` files unioned across the template's loose roots,
     // filtered by the enable toggles. Written into a fresh tree (the scaffolder owns it).
     private func writeAgents(templateID: String, claude: URL) throws {
         let composed = overrides.composedLooseFileVariants(
@@ -196,9 +197,10 @@ nonisolated struct ProjectScaffolder {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
         for hook in enabledHookFiles(forTemplate: spec.templateID) {
+            let fileName = (hook.relativePath as NSString).lastPathComponent
             try copy(
-                from: overrides.url(forRelative: "hooks/\(hook.fileName)"),
-                to: hooksDir.appending(path: hook.fileName),
+                from: overrides.url(forRelative: hook.relativePath),
+                to: hooksDir.appending(path: fileName),
                 executable: true)
         }
     }

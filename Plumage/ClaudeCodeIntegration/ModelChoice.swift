@@ -1,42 +1,68 @@
 import Foundation
 
-nonisolated enum ModelChoice: String, CaseIterable, Sendable, Codable {
+nonisolated enum ModelChoice: Hashable, Sendable, Codable {
     case `default`
+    case fable
     case opus
     case sonnet
     case haiku
+    case custom(String)
+
+    // `opusplan` always meant Opus; its plan-mode semantics now apply automatically.
+    // Other unknown strings stay verbatim — they may be valid CLI model names.
+    init(storageValue: String) {
+        switch storageValue {
+        case "default": self = .default
+        case "fable": self = .fable
+        case "opus": self = .opus
+        case "sonnet": self = .sonnet
+        case "haiku": self = .haiku
+        case "opusplan": self = .opus
+        case "": self = .default
+        default: self = .custom(storageValue)
+        }
+    }
+
+    var storageValue: String {
+        switch self {
+        case .default: "default"
+        case .fable: "fable"
+        case .opus: "opus"
+        case .sonnet: "sonnet"
+        case .haiku: "haiku"
+        case .custom(let value): value
+        }
+    }
 
     var cliArg: [String] {
         switch self {
         case .default: []
+        case .fable: ["--model", "fable"]
         case .opus: ["--model", "opus"]
         case .sonnet: ["--model", "sonnet"]
         case .haiku: ["--model", "haiku"]
+        case .custom(let value): ["--model", value]
         }
     }
 
     var displayName: String {
         switch self {
         case .default: "Default"
+        case .fable: "Fable"
         case .opus: "Opus"
         case .sonnet: "Sonnet"
         case .haiku: "Haiku"
+        case .custom(let value): value
         }
     }
 
-    // `opusplan` is migrated to `.opus` rather than dropped: it always meant
-    // the Opus model, and its plan-mode semantics now apply automatically.
-    // Other unknown raw values coerce to `.default` so a stale config.json
-    // from an older build still loads instead of failing per-project.
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        let raw = try container.decode(String.self)
-        if let known = ModelChoice(rawValue: raw) {
-            self = known
-        } else if raw == "opusplan" {
-            self = .opus
-        } else {
-            self = .default
-        }
+        self.init(storageValue: try container.decode(String.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(storageValue)
     }
 }
