@@ -69,7 +69,6 @@ struct PinnedRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .tag(NavigatorRoute.projectFile(relativePath: relativePath))
-        .clickableSidebarRow()
         .contextMenu {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])

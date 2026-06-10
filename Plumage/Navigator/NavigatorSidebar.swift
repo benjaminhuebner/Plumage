@@ -25,7 +25,6 @@ struct NavigatorSidebar: View {
             }
             Label("Board", systemImage: "rectangle.3.group.fill")
                 .tag(NavigatorRoute.kanban)
-                .clickableSidebarRow()
             ForEach(IssueColumn.allCases) { column in
                 columnRow(column)
             }
@@ -94,7 +93,6 @@ struct NavigatorSidebar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Project Settings")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .clickableSidebarRow()
             .onHover { settingsHovering = $0 }
             .padding(.leading, 15)
             .padding(.trailing, 8)
@@ -118,7 +116,11 @@ struct NavigatorSidebar: View {
 
     private func settingsRowTextColor(isSelected: Bool) -> Color {
         guard isSelected else { return .primary }
-        return controlActiveState == .key ? .white : .primary
+        // Semantic, not .white: the system color adapts to accent/contrast
+        // settings the literal can't follow.
+        return controlActiveState == .key
+            ? Color(nsColor: .alternateSelectedControlTextColor)
+            : .primary
     }
 
     private var selectionBinding: Binding<NavigatorRoute?> {
@@ -143,7 +145,6 @@ struct NavigatorSidebar: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
-            .clickableSidebarRow()
             .dropDestination(for: IssueDragPayload.self) { payloads, _ in
                 handleColumnDrop(payloads, into: column)
             }
@@ -178,7 +179,6 @@ struct NavigatorSidebar: View {
                 .truncationMode(.tail)
         }
         .tag(NavigatorRoute.issue(folderName: issue.id))
-        .clickableSidebarRow()
         .modifier(IssueRowDraggable(issue: issue, column: column))
         .overlay(alignment: .top) {
             ReorderDropZone(

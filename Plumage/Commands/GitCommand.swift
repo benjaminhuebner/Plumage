@@ -13,8 +13,12 @@ struct GitCommand: Commands {
 
     var body: some Commands {
         CommandMenu("Git") {
+            // ⌥⌘K, not ⌘K: ⌘K is clear-terminal muscle memory and the menu
+            // chord would steal it from the embedded terminal. (Xcode's
+            // commit chord ⌥⌘C is off-limits — NSTextView's copyStyle:,
+            // see TerminalCommand.)
             Button("Commit…") { commitAction?.run() }
-                .keyboardShortcut("k", modifiers: .command)
+                .keyboardShortcut("k", modifiers: [.command, .option])
                 .disabled(commitAction == nil)
             Button("Push") { pushAction?.run() }
                 .keyboardShortcut("p", modifiers: [.command, .option])

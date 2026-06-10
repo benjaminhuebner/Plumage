@@ -1,37 +1,6 @@
 import AppKit
 import SwiftUI
 
-private struct ClickableSidebarRowModifier: ViewModifier {
-    @State private var pushed = false
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { hovering in
-                if hovering {
-                    if !pushed {
-                        NSCursor.pointingHand.push()
-                        pushed = true
-                    }
-                } else if pushed {
-                    NSCursor.pop()
-                    pushed = false
-                }
-            }
-            .onDisappear {
-                if pushed {
-                    NSCursor.pop()
-                    pushed = false
-                }
-            }
-    }
-}
-
-extension View {
-    func clickableSidebarRow() -> some View {
-        modifier(ClickableSidebarRowModifier())
-    }
-}
-
 extension DiscoveredIssue {
     var typeForPill: IssueType {
         switch self {

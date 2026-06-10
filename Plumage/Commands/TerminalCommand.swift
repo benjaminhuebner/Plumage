@@ -7,10 +7,12 @@ struct TerminalCommand: Commands {
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
+            // ⌃⌥⌘T: plain ⌥⌘T is the system Show/Hide Toolbar chord and
+            // would shadow it in every window with a toolbar.
             Button("Toggle Terminal Inspector") {
                 inspector?.toggle()
             }
-            .keyboardShortcut("t", modifiers: [.command, .option])
+            .keyboardShortcut("t", modifiers: [.command, .option, .control])
             .disabled(inspector == nil)
 
             // ⌥⌘J chosen over ⌥⌘C: AppKit's NSTextView reserves ⌥⌘C for
@@ -24,7 +26,11 @@ struct TerminalCommand: Commands {
             }
             .keyboardShortcut("j", modifiers: [.command, .option])
             .disabled(chatDock == nil)
+        }
 
+        // Tab management is content manipulation, not view chrome — its own
+        // menu instead of the View menu.
+        CommandMenu("Terminal") {
             Button("New Terminal Tab") {
                 // Open the inspector so the new tab is actually visible
                 // (and its SwiftTermBridge mounts so the PTY can spawn).
@@ -34,25 +40,28 @@ struct TerminalCommand: Commands {
             .keyboardShortcut("t", modifiers: [.command])
             .disabled(tabs == nil)
 
-            // ⌥⌘W instead of ⌘W: plain ⌘W also bound by SpecEditorCommands
-            // (Close Spec) and AppKit's default Close Window. SwiftUI does
-            // NOT route by focus when two Commands share a chord — it picks
-            // whichever happens to be enabled by .disabled(). With ⌥⌘W
-            // there's no collision; the user gets an explicit terminal-tab
-            // close that doesn't fight the editor or the window.
+            // ⇧⌘W: plain ⌘W is window-close (decided #00087) and ⌥⌘W would
+            // shadow the system "Close All" alternate in the File menu.
             Button("Close Terminal Tab") {
                 tabs?.closeActiveTab()
             }
-            .keyboardShortcut("w", modifiers: [.command, .option])
+            .keyboardShortcut("w", modifiers: [.command, .shift])
             .disabled(!(tabs?.canCloseActiveTab ?? false))
 
+            Divider()
+
+            // ⌥⌘digit: plain ⌘1-9 is conventionally window/navigator
+            // switching (Finder, Safari, Xcode) — don't take it app-wide.
             ForEach(1...9, id: \.self) { number in
                 Button(menuTitle(for: number)) {
+                    // Opening the inspector makes the switch visible —
+                    // selecting a hidden tab read as a silent no-op.
+                    inspector = true
                     tabs?.selectTab(number - 1)
                 }
                 .keyboardShortcut(
                     KeyEquivalent(Character("\(number)")),
-                    modifiers: [.command]
+                    modifiers: [.command, .option]
                 )
                 .disabled((tabs?.count ?? 0) < number)
             }

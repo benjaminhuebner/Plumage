@@ -18,6 +18,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
@@ -89,7 +91,7 @@
 			<key>CFBundleTypeName</key>
 			<string>Plumage Project</string>
 			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
+			<string>Editor</string>
 			<key>CFBundleTypeIconFile</key>
 			<string>PlumageDocument</string>
 			<key>LSHandlerRank</key>
