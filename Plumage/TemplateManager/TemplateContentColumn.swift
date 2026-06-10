@@ -11,19 +11,11 @@ struct TemplateContentColumn: View {
     var body: some View {
         VStack(spacing: 0) {
             contentArea
+            // A SwiftUI drop zone on the shared container swallows every drag
+            // before the outline sees it (no highlight, no internal moves) —
+            // import zones live only on the regions the tree doesn't cover.
             membershipArea
-        }
-        // Finder files dropped outside the tree (membership area, empty state)
-        // import into the current selection; drops on tree rows are handled by
-        // the outline view itself. Internal tree drags also carry a file URL —
-        // they must never degrade into a Finder-style copy here.
-        .dropDestination(for: DroppableTreeItem.self) { items, _ in
-            let urls = items.compactMap { item -> URL? in
-                if case .finderURL(let url) = item { return url }
-                return nil
-            }
-            guard !urls.isEmpty, urls.count == items.count else { return false }
-            return model.importDropped(urls: urls)
+                .modifier(FinderImportDrop(model: model))
         }
         .overlay(alignment: .bottom) {
             if let banner = model.dropBanner {
@@ -101,9 +93,14 @@ struct TemplateContentColumn: View {
                 .padding(.bottom, 4)
             fileTree
         } else if model.membership == nil && model.editingComponentID == nil {
-            Spacer(minLength: 0)
-            Text("No files").foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+            VStack {
+                Spacer(minLength: 0)
+                Text("No files").foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .modifier(FinderImportDrop(model: model))
         } else {
             Spacer(minLength: 0)
         }
@@ -112,7 +109,7 @@ struct TemplateContentColumn: View {
     private var fileTree: some View {
         FinderFileTree(
             nodes: model.contentTree,
-            style: .inset,
+            style: .sidebar,
             expandedPaths: $model.contentExpandedPaths,
             selectedPath: model.selectedFile?.relativePath,
             revealRequest: model.contentReveal,
@@ -128,10 +125,16 @@ struct TemplateContentColumn: View {
             },
             onRenameRequest: { node in model.beginRenameContent(node) },
             onTrashRequest: { nodes in model.requestDelete(batch: nodes) },
-            canDrag: { node in !model.isReadOnlyContentNode(node) },
             validateDrop: { payload, target in
                 switch payload {
-                case .internalMove:
+                case .internalMove(let urls):
+                    // Read-only nodes lift but no destination accepts them —
+                    // the Finder feel for immovable items (spring-back), not
+                    // a dead row that won't even start a drag.
+                    let sources = urls.compactMap { model.contentNode(forURL: $0) }
+                    guard !sources.isEmpty,
+                        !sources.contains(where: { model.isReadOnlyContentNode($0) })
+                    else { return false }
                     // nil target = tree root, a legal move destination
                     // (the scope root), exactly like Finder's background drop.
                     guard let target else { return true }
@@ -247,6 +250,23 @@ private struct TemplateContentRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+// Internal tree drags also carry a file URL — they must never degrade into
+// a Finder-style copy when they end on an import zone.
+private struct FinderImportDrop: ViewModifier {
+    let model: TemplateManagerModel
+
+    func body(content: Content) -> some View {
+        content.dropDestination(for: DroppableTreeItem.self) { items, _ in
+            let urls = items.compactMap { item -> URL? in
+                if case .finderURL(let url) = item { return url }
+                return nil
+            }
+            guard !urls.isEmpty, urls.count == items.count else { return false }
+            return model.importDropped(urls: urls)
+        }
     }
 }
 

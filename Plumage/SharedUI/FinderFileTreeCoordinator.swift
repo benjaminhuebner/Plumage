@@ -535,19 +535,28 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
     }
 }
 
-// The stock drop-on feedback is a hairline ring that reads as a glitch (and
-// barely renders in the inset style) — replace it with Finder's look: an
-// accent-filled rounded row highlight on the target folder.
+// The stock drop-on feedback is a hairline ring that reads as a glitch —
+// replace it with the Xcode-navigator look: a full accent-filled rounded
+// row highlight on the target folder.
 final class FinderFileTreeRowView: NSTableRowView {
+    override var isTargetForDropOperation: Bool {
+        didSet {
+            guard oldValue != isTargetForDropOperation else { return }
+            // The accent fill is a dark surface in any appearance — flip the
+            // hosted SwiftUI row to dark so its text reads white on it.
+            for subview in subviews {
+                subview.appearance =
+                    isTargetForDropOperation ? NSAppearance(named: .darkAqua) : nil
+            }
+        }
+    }
+
     override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {
         guard isTargetForDropOperation else { return }
-        let rect = bounds.insetBy(dx: 6, dy: 2)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
-        NSColor.controlAccentColor.withAlphaComponent(0.25).setFill()
+        let rect = bounds.insetBy(dx: 6, dy: 1)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+        NSColor.controlAccentColor.setFill()
         path.fill()
-        path.lineWidth = 2
-        NSColor.controlAccentColor.setStroke()
-        path.stroke()
     }
 }
 
