@@ -57,6 +57,46 @@ struct TemplateContentMoveTests {
         #expect(ctx.model.selectedFile?.relativePath == newPath)
     }
 
+    @Test("moving a user file to the tree root (background drop) lands at the scope root")
+    func moveToScopeRoot() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+
+        ctx.model.selectedFile = nil
+        _ = ctx.model.addUserFile(kind: .folder, rawName: "alpha")
+        let alpha = try #require(find(ctx.model.contentTree, ["alpha"]))
+        ctx.model.selectedFile = alpha
+        let created = try #require(ctx.model.addUserFile(kind: .file, rawName: "loose"))
+        #expect(created.relativePath.hasPrefix("alpha/"))
+
+        ctx.model.moveNodes([created], intoStoreDir: ctx.model.activeScope.storageRoot)
+
+        let leaf = (created.relativePath as NSString).lastPathComponent
+        #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: leaf).path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: ctx.override.appending(path: created.relativePath).path))
+        #expect(find(ctx.model.contentTree, [leaf]) != nil)
+    }
+
+    @Test("a dragged leaf's payload URL maps back to its content node")
+    func dragPayloadURLMapsToNode() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        ctx.model.selection = .base
+        ctx.model.refreshContent()
+
+        // A bundled leaf resolves to the bundled URL until an override exists —
+        // the drag payload must still map back to the same tree node.
+        let leaves = TemplateManagerModel.flattenLeaves(ctx.model.contentTree)
+        let bundled = try #require(leaves.first { !ctx.model.isUserAuthored($0) })
+        let payload = FileTreeDragPayload(url: bundled.url)
+        let mapped = try #require(ctx.model.contentNode(forURL: payload.url))
+        #expect(mapped.relativePath == bundled.relativePath)
+    }
+
     @Test("moving a user file into a folder within a template scope keeps it in scope (#00078)")
     func moveWithinTemplateScope() throws {
         let ctx = makeModel()

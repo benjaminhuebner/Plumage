@@ -545,11 +545,15 @@ final class TemplateManagerModel {
     // in a banner. Returns whether anything was imported.
     @discardableResult
     func importDropped(urls: [URL], into target: FileNode? = nil) -> Bool {
+        importDropped(urls: urls, intoStoreDir: addTargetStorageDir(for: target))
+    }
+
+    @discardableResult
+    func importDropped(urls: [URL], intoStoreDir targetDir: String) -> Bool {
         guard let overrideRoot = overrides.overrideRoot else {
             showDropBanner("No override store is available.")
             return false
         }
-        let targetDir = addTargetStorageDir(for: target)
         let fileManager = FileManager.default
         var first: (storage: String, isDirectory: Bool)?
         var importedStoragePaths: Set<String> = []
@@ -666,13 +670,17 @@ final class TemplateManagerModel {
     // successfully moved item to its new path. A drop onto an item's own folder, or a
     // folder into its own subtree, is skipped.
     func moveNodes(_ sources: [FileNode], into target: FileNode) {
-        guard let overrideRoot = overrides.overrideRoot else {
-            showDropBanner("No override store is available.")
-            return
-        }
         guard let targetDir = TemplateContentDropResolver.targetStoreDir(for: target, scope: activeScope)
         else {
             showDropBanner("Can't move here.")
+            return
+        }
+        moveNodes(sources, intoStoreDir: targetDir)
+    }
+
+    func moveNodes(_ sources: [FileNode], intoStoreDir targetDir: String) {
+        guard let overrideRoot = overrides.overrideRoot else {
+            showDropBanner("No override store is available.")
             return
         }
         var movedSelection: (storage: String, isDirectory: Bool)?

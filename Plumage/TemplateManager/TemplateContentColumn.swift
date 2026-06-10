@@ -15,9 +15,15 @@ struct TemplateContentColumn: View {
         }
         // Finder files dropped outside the tree (membership area, empty state)
         // import into the current selection; drops on tree rows are handled by
-        // the outline view itself.
-        .dropDestination(for: URL.self) { urls, _ in
-            model.importDropped(urls: urls)
+        // the outline view itself. Internal tree drags also carry a file URL —
+        // they must never degrade into a Finder-style copy here.
+        .dropDestination(for: DroppableTreeItem.self) { items, _ in
+            let urls = items.compactMap { item -> URL? in
+                if case .finderURL(let url) = item { return url }
+                return nil
+            }
+            guard !urls.isEmpty, urls.count == items.count else { return false }
+            return model.importDropped(urls: urls)
         }
         .overlay(alignment: .bottom) {
             if let banner = model.dropBanner {
@@ -126,7 +132,9 @@ struct TemplateContentColumn: View {
             validateDrop: { payload, target in
                 switch payload {
                 case .internalMove:
-                    guard let target else { return false }
+                    // nil target = tree root, a legal move destination
+                    // (the scope root), exactly like Finder's background drop.
+                    guard let target else { return true }
                     return TemplateContentDropResolver.targetStoreDir(
                         for: target, scope: model.activeScope) != nil
                 case .finderCopy:
@@ -136,13 +144,20 @@ struct TemplateContentColumn: View {
             onDrop: { payload, target in
                 switch payload {
                 case .internalMove(let urls):
-                    guard let target else { return false }
                     let sources = urls.compactMap { model.contentNode(forURL: $0) }
                     guard !sources.isEmpty else { return false }
-                    model.moveNodes(sources, into: target)
+                    if let target {
+                        model.moveNodes(sources, into: target)
+                    } else {
+                        model.moveNodes(sources, intoStoreDir: model.activeScope.storageRoot)
+                    }
                     return true
                 case .finderCopy(let urls):
-                    return model.importDropped(urls: urls, into: target)
+                    if let target {
+                        return model.importDropped(urls: urls, into: target)
+                    }
+                    return model.importDropped(
+                        urls: urls, intoStoreDir: model.activeScope.storageRoot)
                 }
             },
             onSelect: { node in model.selectedFile = node },
