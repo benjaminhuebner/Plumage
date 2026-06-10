@@ -7,9 +7,21 @@ enum FinderFileTreeStyle {
     case inset
 }
 
+struct FileTreeRevealRequest: Equatable {
+    let id: UUID
+    let path: String
+
+    init(path: String) {
+        self.id = UUID()
+        self.path = path
+    }
+}
+
 struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     let nodes: [FileNode]
     let style: FinderFileTreeStyle
+    @Binding var expandedPaths: Set<String>
+    var revealRequest: FileTreeRevealRequest?
     let onSelect: (FileNode?) -> Void
     @ViewBuilder let rowContent: (FileNode) -> RowContent
 
@@ -62,15 +74,24 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onSelect = onSelect
+        coordinator.onExpansionChange = { expandedPaths = $0 }
         coordinator.rowContent = { node in AnyView(rowContent(node)) }
+        // Expansion state lands before the nodes so a freshly built tree is
+        // expanded in the same pass that creates its items.
+        coordinator.setExpandedPaths(expandedPaths)
         coordinator.setNodes(nodes)
+        if let revealRequest {
+            coordinator.handleReveal(revealRequest)
+        }
     }
 }
 
 #Preview("Sidebar style") {
+    @Previewable @State var expanded: Set<String> = [".claude"]
     FinderFileTree(
         nodes: FinderFileTreePreviewData.nodes,
         style: .sidebar,
+        expandedPaths: $expanded,
         onSelect: { _ in }
     ) { node in
         Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
@@ -79,9 +100,11 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
 }
 
 #Preview("Inset style") {
+    @Previewable @State var expanded: Set<String> = []
     FinderFileTree(
         nodes: FinderFileTreePreviewData.nodes,
         style: .inset,
+        expandedPaths: $expanded,
         onSelect: { _ in }
     ) { node in
         Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
