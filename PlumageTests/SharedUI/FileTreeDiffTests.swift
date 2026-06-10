@@ -113,10 +113,26 @@ struct FileTreeDiffTests {
         #expect(!diff.needsReorder)
     }
 
-    @Test func ancestorPathsWalkFromRootDown() {
+    @Test func ancestorChainWalksTheTreeFromRootDown() {
+        let tree = [
+            folder(".claude", [folder(".claude/docs", [file(".claude/docs/notes.md")])]),
+            file("top.md"),
+        ]
         #expect(
-            FinderFileTreeCoordinator.ancestorPaths(of: ".claude/docs/notes.md")
+            FinderFileTreeCoordinator.ancestorChain(to: ".claude/docs/notes.md", in: tree)
                 == [".claude", ".claude/docs"])
-        #expect(FinderFileTreeCoordinator.ancestorPaths(of: "top.md").isEmpty)
+        #expect(FinderFileTreeCoordinator.ancestorChain(to: "top.md", in: tree)?.isEmpty == true)
+        #expect(FinderFileTreeCoordinator.ancestorChain(to: "missing.md", in: tree) == nil)
+    }
+
+    // Template Manager trees mix namespaces: folders carry output paths,
+    // leaves carry store paths — ancestor resolution must not assume prefixes.
+    @Test func ancestorChainSupportsMixedPathNamespaces() {
+        let tree = [
+            folder(".claude", [folder(".claude/docs", [file("docs/notes.md")])])
+        ]
+        #expect(
+            FinderFileTreeCoordinator.ancestorChain(to: "docs/notes.md", in: tree)
+                == [".claude", ".claude/docs"])
     }
 }

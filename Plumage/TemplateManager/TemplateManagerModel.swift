@@ -21,6 +21,21 @@ final class TemplateManagerModel {
     private(set) var membership: CatalogMembership?
     var selectedFile: FileNode?
 
+    // Per catalog item, so switching tiers round-trips each tree's expansion.
+    private var expansionByItem: [TemplateCatalogItem: Set<String>] = [:]
+    var contentExpandedPaths: Set<String> {
+        get { selection.flatMap { expansionByItem[$0] } ?? [] }
+        set {
+            guard let selection else { return }
+            expansionByItem[selection] = newValue
+        }
+    }
+
+    // Scroll/expand the content tree to a programmatically selected node
+    // (create, import, move, rename) — selection alone can't surface a row
+    // hidden under a collapsed folder.
+    private(set) var contentReveal: FileTreeRevealRequest?
+
     // Editing state for the right column. The editor saves to the override slot but
     // seeds from the bundled fallback, so merely browsing a file writes nothing —
     // only a real edit materializes an override (mirrors `TemplatesSettingsModel`).
@@ -388,6 +403,13 @@ final class TemplateManagerModel {
 
     func cancelContentRename() { contentRename = nil }
 
+    // Model-owned binding keeps Binding(get:set:) out of view bodies.
+    var contentRenameNameBinding: Binding<String> {
+        Binding(
+            get: { self.contentRename?.name ?? "" },
+            set: { if self.contentRename != nil { self.contentRename?.name = $0 } })
+    }
+
     // Commit the inline rename: relocate the override file/folder to the new leaf name in
     // the same directory (extension preserved for stem-only input, collision suffix-
     // walked), carry hook wiring, and re-select the renamed row. A no-op on an unchanged
@@ -414,16 +436,9 @@ final class TemplateManagerModel {
             selectedFile = contentFiles.first { $0.relativePath == newStorePath }
         }
         beginEditing(selectedFile)
-    }
-
-    // Backspace / Delete on the selected row.
-    func deleteSelected() {
-        if let file = selectedFile { requestDelete(file) }
-    }
-
-    // Return on the selected row.
-    func renameSelected() {
-        if let file = selectedFile { beginRenameContent(file) }
+        if let selectedFile {
+            contentReveal = FileTreeRevealRequest(path: selectedFile.relativePath)
+        }
     }
 
     // MARK: - Hook wiring
@@ -594,7 +609,13 @@ final class TemplateManagerModel {
         if let node {
             selectedFile = node
             beginEditing(node)
+            contentReveal = FileTreeRevealRequest(path: node.relativePath)
         }
+    }
+
+    func isReadOnlyContentNode(_ node: FileNode) -> Bool {
+        managerConfig(forRelative: node.relativePath) != nil
+            || Self.isTierSettingsPreviewPath(node.relativePath)
     }
 
     // Plans a dropped URL: a folder with a top-level `SKILL.md` routes to `skills/`
@@ -821,6 +842,9 @@ final class TemplateManagerModel {
                     .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
                 selectedFile = node
                 beginEditing(node)
+                if let node {
+                    contentReveal = FileTreeRevealRequest(path: node.relativePath)
+                }
                 return node
             default:
                 // A hook is unique by base name across extensions and across all scope
@@ -844,6 +868,7 @@ final class TemplateManagerModel {
         if let node {
             selectedFile = node
             beginEditing(node)
+            contentReveal = FileTreeRevealRequest(path: node.relativePath)
             // Adding a hook raises the wiring sheet so it does not scaffold inert.
             if kind == .hook { pendingHookWiring = node }
         }

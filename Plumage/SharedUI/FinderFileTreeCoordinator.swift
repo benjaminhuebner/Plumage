@@ -23,6 +23,7 @@ final class FinderFileTreeCoordinator: NSObject {
     var canDrag: ((FileNode) -> Bool)?
     var validateDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
     var onDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
+    var contextMenu: (([FileNode]) -> NSMenu?)?
     var rowContent: ((FileNode) -> AnyView)?
 
     nonisolated static let internalDragType = NSPasteboard.PasteboardType(
@@ -35,6 +36,7 @@ final class FinderFileTreeCoordinator: NSObject {
     // Suppresses the expansion-change callback while expansion is being
     // *applied* from SwiftUI state — only user-initiated toggles report back.
     private var isApplyingExpansion = false
+    private var isApplyingSelection = false
     private var lastRevealID: UUID?
 
     func item(forPath path: String) -> FinderFileTreeItem? {
@@ -163,14 +165,14 @@ final class FinderFileTreeCoordinator: NSObject {
         }
     }
 
+    // No prefix shortcuts here: folder and file ids can live in different
+    // path namespaces (Template Manager's output vs. store paths).
     private func childNodes(forParentPath parentPath: String?) -> [FileNode] {
         guard let parentPath else { return currentNodes }
         func find(_ nodes: [FileNode]) -> FileNode? {
             for node in nodes {
                 if node.relativePath == parentPath { return node }
-                if parentPath.hasPrefix(node.relativePath + "/"), let children = node.children,
-                    let found = find(children)
-                {
+                if let children = node.children, let found = find(children) {
                     return found
                 }
             }
@@ -204,6 +206,51 @@ final class FinderFileTreeCoordinator: NSObject {
         where item.node.isDirectory && !expandedPaths.contains(path) {
             if outlineView.isItemExpanded(item) { outlineView.collapseItem(item) }
         }
+    }
+
+    // MARK: - Selection
+
+    var selectedNodePath: String? {
+        guard let outlineView, outlineView.selectedRow >= 0 else { return nil }
+        return (outlineView.item(atRow: outlineView.selectedRow) as? FinderFileTreeItem)?
+            .node.relativePath
+    }
+
+    func setSelectedPath(_ path: String?) {
+        guard let outlineView, path != selectedNodePath else { return }
+        isApplyingSelection = true
+        defer { isApplyingSelection = false }
+        guard let path, let item = itemsByPath[path] else {
+            outlineView.deselectAll(nil)
+            return
+        }
+        let row = outlineView.row(forItem: item)
+        // A row hidden under a collapsed ancestor stays unselected — flows
+        // that must surface it (create, import) go through reveal instead.
+        guard row >= 0 else { return }
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    // MARK: - Context menu
+
+    func menu(for event: NSEvent) -> NSMenu? {
+        guard let outlineView, let contextMenu else { return nil }
+        let point = outlineView.convert(event.locationInWindow, from: nil)
+        let row = outlineView.row(at: point)
+        guard row >= 0,
+            let item = outlineView.item(atRow: row) as? FinderFileTreeItem
+        else { return nil }
+        let nodes: [FileNode]
+        if outlineView.selectedRowIndexes.contains(row) {
+            nodes = outlineView.selectedRowIndexes.compactMap {
+                (outlineView.item(atRow: $0) as? FinderFileTreeItem)?.node
+            }
+        } else {
+            // Right-click outside the selection re-anchors it (Finder behavior).
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            nodes = [item.node]
+        }
+        return contextMenu(nodes)
     }
 
     // MARK: - Keyboard and mouse
@@ -248,8 +295,10 @@ final class FinderFileTreeCoordinator: NSObject {
     }
 
     func reveal(path: String) {
-        guard let outlineView, let item = itemsByPath[path] else { return }
-        for ancestor in Self.ancestorPaths(of: path) {
+        guard let outlineView, let item = itemsByPath[path],
+            let ancestors = Self.ancestorChain(to: path, in: currentNodes)
+        else { return }
+        for ancestor in ancestors {
             guard let ancestorItem = itemsByPath[ancestor],
                 !outlineView.isItemExpanded(ancestorItem)
             else { continue }
@@ -257,20 +306,27 @@ final class FinderFileTreeCoordinator: NSObject {
         }
         let row = outlineView.row(forItem: item)
         guard row >= 0 else { return }
+        isApplyingSelection = true
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        isApplyingSelection = false
         outlineView.scrollRowToVisible(row)
     }
 
-    nonisolated static func ancestorPaths(of path: String) -> [String] {
-        let components = path.split(separator: "/").map(String.init)
-        guard components.count > 1 else { return [] }
-        var result: [String] = []
-        var prefix = ""
-        for component in components.dropLast() {
-            prefix = prefix.isEmpty ? component : prefix + "/" + component
-            result.append(prefix)
+    // Resolved against the actual tree, not path-string prefixes — ids are
+    // opaque and may mix namespaces (Template Manager dual paths).
+    nonisolated static func ancestorChain(to path: String, in nodes: [FileNode]) -> [String]? {
+        func search(_ nodes: [FileNode], trail: [String]) -> [String]? {
+            for node in nodes {
+                if node.relativePath == path { return trail }
+                if let children = node.children,
+                    let found = search(children, trail: trail + [node.relativePath])
+                {
+                    return found
+                }
+            }
+            return nil
         }
-        return result
+        return search(nodes, trail: [])
     }
 }
 
@@ -389,7 +445,9 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
-        guard let outlineView = notification.object as? NSOutlineView else { return }
+        guard !isApplyingSelection,
+            let outlineView = notification.object as? NSOutlineView
+        else { return }
         let row = outlineView.selectedRow
         let node = row >= 0 ? (outlineView.item(atRow: row) as? FinderFileTreeItem)?.node : nil
         onSelect?(node)

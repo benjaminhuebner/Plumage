@@ -1,69 +1,21 @@
+import AppKit
 import SwiftUI
 
 // Middle column: the selected item's files (selectable, drive the right column) plus a
 // read-only membership section. A ● marks a file whose override diverges from the bundled
 // original. Base offers a "+" to author new files/folders.
-//
-// Drag-and-drop is the idiomatic SwiftUI pair on the native `List`/`OutlineGroup`:
-// `.draggable` (the system drag image follows the cursor, like Finder) plus
-// `.dropDestination`. Same pattern as the Navigator's file tree.
 struct TemplateContentColumn: View {
     @Bindable var model: TemplateManagerModel
     @State private var addKind: UserTemplateKind?
 
     var body: some View {
-        List(selection: $model.selectedFile) {
-            if !model.contentFiles.isEmpty {
-                Section("Files") {
-                    OutlineGroup(model.contentTree, id: \.id, children: \.children) { node in
-                        fileRow(node)
-                            .tag(node)
-                            .contextMenu { rowMenu(node) }
-                            .draggable(FileTreeDragPayload(url: node.url))
-                            .dropDestination(for: DroppableTreeItem.self) { items, _ in
-                                return handleDrop(items, onto: node)
-                            }
-                    }
-                }
-            }
-
-            if let componentID = model.editingComponentID {
-                Section("Included in templates") {
-                    ForEach(model.catalog.templatesSortedByName) { template in
-                        Toggle(
-                            isOn: model.membershipBinding(
-                                componentID: componentID, templateID: template.id)
-                        ) {
-                            Text(template.name)
-                        }
-                        .toggleStyle(.checkbox)
-                    }
-                }
-            } else if let membership = model.membership {
-                Section(membership.title) {
-                    if membership.names.isEmpty {
-                        Text("None").foregroundStyle(.secondary)
-                    } else {
-                        ForEach(membership.names, id: \.self) { name in
-                            Label(name, systemImage: "puzzlepiece").foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-
-            if model.contentFiles.isEmpty && model.membership == nil && model.editingComponentID == nil {
-                Text("No files").foregroundStyle(.secondary)
-            }
+        VStack(spacing: 0) {
+            contentArea
+            membershipArea
         }
-        // Standard macOS file-tree keys: Delete/Backspace trashes the selected row,
-        // Return renames it (no-op unless it is a user-authored file/folder).
-        .onDeleteCommand { model.deleteSelected() }
-        .onKeyPress(.return) {
-            guard model.contentRename == nil, model.selectedFile != nil else { return .ignored }
-            model.renameSelected()
-            return .handled
-        }
-        // Finder files dropped on the empty list area import into the current selection.
+        // Finder files dropped outside the tree (membership area, empty state)
+        // import into the current selection; drops on tree rows are handled by
+        // the outline view itself.
         .dropDestination(for: URL.self) { urls, _ in
             model.importDropped(urls: urls)
         }
@@ -119,38 +71,134 @@ struct TemplateContentColumn: View {
         }
     }
 
-    // Internal nodes move into the row's folder, Finder URLs import there. `moveNodes`
-    // maps a file row to its parent folder and rejects no-ops.
-    private func handleDrop(_ items: [DroppableTreeItem], onto node: FileNode) -> Bool {
-        var finderURLs: [URL] = []
-        var moveSources: [FileNode] = []
-        for item in items {
-            switch item {
-            case .finderURL(let url): finderURLs.append(url)
-            case .internalNode(let payload):
-                if let source = model.contentNode(forURL: payload.url) { moveSources.append(source) }
-            }
+    @ViewBuilder
+    private var contentArea: some View {
+        if !model.contentTree.isEmpty {
+            Text("Files")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+            fileTree
+        } else if model.membership == nil && model.editingComponentID == nil {
+            Spacer(minLength: 0)
+            Text("No files").foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        } else {
+            Spacer(minLength: 0)
         }
-        if !moveSources.isEmpty { model.moveNodes(moveSources, into: node) }
-        if !finderURLs.isEmpty { model.importDropped(urls: finderURLs, into: node) }
-        return !moveSources.isEmpty || !finderURLs.isEmpty
     }
 
-    private func fileRow(_ node: FileNode) -> some View {
-        let needsWiring = node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
-        let overridden = node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
-        return HStack(spacing: 6) {
+    private var fileTree: some View {
+        FinderFileTree(
+            nodes: model.contentTree,
+            style: .inset,
+            expandedPaths: $model.contentExpandedPaths,
+            selectedPath: model.selectedFile?.relativePath,
+            revealRequest: model.contentReveal,
+            contextMenu: { nodes in
+                guard let node = nodes.first else { return nil }
+                return NSHostingMenu(
+                    rootView: TemplateContentRowMenu(model: model, node: node, addKind: $addKind))
+            },
+            onRenameRequest: { node in model.beginRenameContent(node) },
+            onTrashRequest: { nodes in
+                if let node = nodes.first { model.requestDelete(node) }
+            },
+            canDrag: { node in !model.isReadOnlyContentNode(node) },
+            validateDrop: { payload, target in
+                switch payload {
+                case .internalMove:
+                    guard let target else { return false }
+                    return TemplateContentDropResolver.targetStoreDir(
+                        for: target, scope: model.activeScope) != nil
+                case .finderCopy:
+                    return true
+                }
+            },
+            onDrop: { payload, target in
+                switch payload {
+                case .internalMove(let urls):
+                    guard let target else { return false }
+                    let sources = urls.compactMap { model.contentNode(forURL: $0) }
+                    guard !sources.isEmpty else { return false }
+                    model.moveNodes(sources, into: target)
+                    return true
+                case .finderCopy(let urls):
+                    return model.importDropped(urls: urls, into: target)
+                }
+            },
+            onSelect: { node in model.selectedFile = node }
+        ) { node in
+            TemplateContentRow(model: model, node: node)
+        }
+    }
+
+    @ViewBuilder
+    private var membershipArea: some View {
+        if let componentID = model.editingComponentID {
+            Divider()
+            List {
+                Section("Included in templates") {
+                    ForEach(model.catalog.templatesSortedByName) { template in
+                        Toggle(
+                            isOn: model.membershipBinding(
+                                componentID: componentID, templateID: template.id)
+                        ) {
+                            Text(template.name)
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+            }
+            .frame(maxHeight: membershipMaxHeight)
+        } else if let membership = model.membership {
+            Divider()
+            List {
+                Section(membership.title) {
+                    if membership.names.isEmpty {
+                        Text("None").foregroundStyle(.secondary)
+                    } else {
+                        ForEach(membership.names, id: \.self) { name in
+                            Label(name, systemImage: "puzzlepiece").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: membershipMaxHeight)
+        }
+    }
+
+    // With no file tree above, the membership list owns the column.
+    private var membershipMaxHeight: CGFloat? {
+        model.contentTree.isEmpty ? nil : 240
+    }
+}
+
+private struct TemplateContentRow: View {
+    let model: TemplateManagerModel
+    let node: FileNode
+
+    var body: some View {
+        let needsWiring =
+            node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
+        let overridden =
+            node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
+        HStack(spacing: 6) {
             if model.contentRename?.id == node.id {
                 Label("", systemImage: node.isDirectory ? "folder" : "doc.text")
                     .labelStyle(.iconOnly)
-                StemSelectingTextField(
-                    text: renameBinding(),
+                FinderFileTreeRenameField(
+                    text: model.contentRenameNameBinding,
                     placeholder: node.name,
-                    onSubmit: { model.commitContentRename() },
-                    onCancel: { model.cancelContentRename() },
-                    onBlur: { model.commitContentRename() })
+                    onCommit: { model.commitContentRename() },
+                    onCancel: { model.cancelContentRename() })
             } else {
                 Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer(minLength: 0)
             if needsWiring {
@@ -172,29 +220,24 @@ struct TemplateContentColumn: View {
                     .accessibilityLabel(node.isDirectory ? "Contains an override" : "Overridden")
             }
         }
+        .padding(.vertical, 2)
     }
+}
 
-    private func renameBinding() -> Binding<String> {
-        Binding(
-            get: { model.contentRename?.name ?? "" },
-            set: { if model.contentRename != nil { model.contentRename?.name = $0 } })
-    }
+private struct TemplateContentRowMenu: View {
+    let model: TemplateManagerModel
+    let node: FileNode
+    @Binding var addKind: UserTemplateKind?
 
-    @ViewBuilder
-    private func addMenu(into target: FileNode? = nil) -> some View {
-        ForEach(model.addableKinds) { kind in
-            Button("Add \(kind.addNoun)…") {
-                // A row's menu targets that row; the toolbar menu uses the selection.
-                if let target { model.selectedFile = target }
-                addKind = kind
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rowMenu(_ node: FileNode) -> some View {
+    var body: some View {
         if !model.addableKinds.isEmpty {
-            addMenu(into: node)
+            ForEach(model.addableKinds) { kind in
+                Button("Add \(kind.addNoun)…") {
+                    // A row's menu targets that row; the toolbar menu uses the selection.
+                    model.selectedFile = node
+                    addKind = kind
+                }
+            }
             Divider()
         }
         if !node.isDirectory {

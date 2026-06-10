@@ -32,7 +32,9 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     let nodes: [FileNode]
     let style: FinderFileTreeStyle
     @Binding var expandedPaths: Set<String>
+    var selectedPath: String?
     var revealRequest: FileTreeRevealRequest?
+    var contextMenu: (([FileNode]) -> NSMenu?)?
     var onRenameRequest: ((FileNode) -> Void)?
     var onTrashRequest: (([FileNode]) -> Void)?
     var canDrag: ((FileNode) -> Bool)?
@@ -94,6 +96,9 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         outline.registerForDraggedTypes([.fileURL, FinderFileTreeCoordinator.internalDragType])
         outline.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
         outline.setDraggingSourceOperationMask([], forLocal: false)
+        outline.menuProvider = { [weak coordinator = context.coordinator] event in
+            coordinator?.menu(for: event)
+        }
         context.coordinator.outlineView = outline
         return scroll
     }
@@ -107,11 +112,13 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         coordinator.canDrag = canDrag
         coordinator.validateDrop = validateDrop
         coordinator.onDrop = onDrop
+        coordinator.contextMenu = contextMenu
         coordinator.rowContent = { node in AnyView(rowContent(node)) }
         // Expansion state lands before the nodes so a freshly built tree is
         // expanded in the same pass that creates its items.
         coordinator.setExpandedPaths(expandedPaths)
         coordinator.setNodes(nodes)
+        coordinator.setSelectedPath(selectedPath)
         if let revealRequest {
             coordinator.handleReveal(revealRequest)
         }
@@ -121,6 +128,11 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
 final class FinderFileTreeOutlineView: NSOutlineView {
     var onReturnKey: (() -> Bool)?
     var onDeleteKey: (() -> Bool)?
+    var menuProvider: ((NSEvent) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuProvider?(event) ?? super.menu(for: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         switch event.specialKey {
