@@ -18,7 +18,10 @@ struct ClaudeDockPanel: View {
             DockPanelHeader(session: session, onClose: close)
             content
         }
-        .frame(width: Self.preferredWidth, height: Self.preferredHeight)
+        // maxHeight, not a fixed height: a window resized below the panel's
+        // 560pt would otherwise clip the chat input off-screen.
+        .frame(width: Self.preferredWidth)
+        .frame(maxHeight: Self.preferredHeight)
         .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius, style: .continuous))
         .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
         // Finder file-drop lives here, OUTSIDE .glassEffect, on purpose: the

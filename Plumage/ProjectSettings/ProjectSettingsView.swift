@@ -78,7 +78,7 @@ struct ProjectSettingsView: View {
             Spacer()
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -180,7 +180,7 @@ struct ProjectSettingsView: View {
             .accessibilityLabel("Dismiss")
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -327,7 +327,7 @@ struct ProjectSettingsView: View {
             .accessibilityLabel("Dismiss")
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
         .padding(16)
     }
 

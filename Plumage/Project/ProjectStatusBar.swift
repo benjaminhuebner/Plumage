@@ -55,7 +55,9 @@ struct ProjectStatusBar: View {
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 22)
-            .background(.bar)
+            // Solid fill, not .bar: bar material is navigation-layer chrome;
+            // this strip sits on the content layer below the detail pane.
+            .background(.background.secondary)
             .help(banner ?? tooltip)
             .accessibilityElement(children: .contain)
         }

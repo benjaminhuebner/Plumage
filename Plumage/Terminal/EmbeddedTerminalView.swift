@@ -60,7 +60,10 @@ struct EmbeddedTerminalView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        // Solid hierarchical fill, not .regularMaterial: the overlay sits
+        // inside the glass inspector panel and a material would stack a
+        // second blur on the glass (ExitBanner discipline next door).
+        .background(.quaternary)
     }
 }
 

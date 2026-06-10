@@ -226,7 +226,7 @@ struct TemplateCatalogSidebar: View {
                 .multilineTextAlignment(.center)
                 .padding(10)
                 .frame(maxWidth: .infinity)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
                 .padding(8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }

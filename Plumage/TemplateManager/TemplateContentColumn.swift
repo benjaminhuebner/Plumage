@@ -77,7 +77,7 @@ struct TemplateContentColumn: View {
                     .font(.callout)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
+                    .background(.background.secondary, in: Capsule())
                     .padding(.bottom, 12)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }

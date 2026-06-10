@@ -12,8 +12,10 @@ struct PlumageApp: App {
 
     var body: some Scene {
         Window("Welcome to Plumage", id: "welcome") {
+            // System-default window background (decided #00087): the
+            // .thickMaterial container made Welcome the only translucent
+            // window in the app.
             WelcomeView(windowAlphaHidden: !appDelegate.pendingURLs.isEmpty)
-                .containerBackground(.thickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
                     drainPendingURLs()
