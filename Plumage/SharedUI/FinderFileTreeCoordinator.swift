@@ -39,6 +39,7 @@ final class FinderFileTreeCoordinator: NSObject {
     private var isApplyingSelection = false
     private var lastRevealID: UUID?
     private var lastSelectedPath: String?
+    private weak var dropHighlightTarget: FinderFileTreeItem?
 
     func item(forPath path: String) -> FinderFileTreeItem? {
         itemsByPath[path]
@@ -389,10 +390,15 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
         if case .internalMove(let sources) = payload {
             let targetURL = target?.node.url
             for source in sources where Self.isAncestorOrSelf(source, of: targetURL) {
+                updateDropHighlight(target: nil)
                 return []
             }
         }
-        guard validateDrop(payload, target?.node) else { return [] }
+        guard validateDrop(payload, target?.node) else {
+            updateDropHighlight(target: nil)
+            return []
+        }
+        updateDropHighlight(target: target)
         switch payload {
         case .internalMove: return .move
         case .finderCopy: return .copy
@@ -403,6 +409,7 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
         _ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
         item: Any?, childIndex index: Int
     ) -> Bool {
+        updateDropHighlight(target: nil)
         guard let onDrop, let payload = Self.dropPayload(from: info.draggingPasteboard)
         else { return false }
         let target = item as? FinderFileTreeItem
@@ -413,6 +420,41 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
         guard let item = item as? FinderFileTreeItem else { return nil }
         if item.node.isDirectory { return item }
         return outlineView?.parent(forItem: item) as? FinderFileTreeItem
+    }
+
+    // MARK: - Drop highlight roles
+
+    func updateDropHighlight(target: FinderFileTreeItem?) {
+        guard target !== dropHighlightTarget else { return }
+        dropHighlightTarget = target
+        guard let outlineView else { return }
+        for row in 0..<outlineView.numberOfRows {
+            guard
+                let rowView = outlineView.rowView(atRow: row, makeIfNecessary: false)
+                    as? FinderFileTreeRowView
+            else { continue }
+            rowView.dropRole = dropRole(forRow: row)
+        }
+    }
+
+    private func dropRole(forRow row: Int) -> FinderFileTreeDropRole {
+        guard let outlineView, let target = dropHighlightTarget else { return .none }
+        let targetRow = outlineView.row(forItem: target)
+        guard targetRow >= 0 else { return .none }
+        let targetLevel = outlineView.level(forRow: targetRow)
+        var lastMemberRow = targetRow
+        var next = targetRow + 1
+        while next < outlineView.numberOfRows, outlineView.level(forRow: next) > targetLevel {
+            lastMemberRow = next
+            next += 1
+        }
+        if row == targetRow {
+            return .target(extendsBelow: lastMemberRow > targetRow)
+        }
+        if row > targetRow && row <= lastMemberRow {
+            return .member(isLast: row == lastMemberRow)
+        }
+        return .none
     }
 
     nonisolated static func dropPayload(from pasteboard: NSPasteboard) -> FileTreeDropPayload? {
@@ -457,13 +499,17 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
 extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let identifier = NSUserInterfaceItemIdentifier("FinderFileTreeRow")
+        let rowView: FinderFileTreeRowView
         if let recycled = outlineView.makeView(withIdentifier: identifier, owner: nil)
             as? FinderFileTreeRowView
         {
-            return recycled
+            rowView = recycled
+        } else {
+            rowView = FinderFileTreeRowView()
+            rowView.identifier = identifier
         }
-        let rowView = FinderFileTreeRowView()
-        rowView.identifier = identifier
+        // A row scrolled into view mid-drag must pick up its role.
+        rowView.dropRole = dropRole(forRow: outlineView.row(forItem: item))
         return rowView
     }
 
@@ -535,28 +581,80 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
     }
 }
 
+enum FinderFileTreeDropRole: Equatable {
+    case none
+    case target(extendsBelow: Bool)
+    case member(isLast: Bool)
+}
+
 // The stock drop-on feedback is a hairline ring that reads as a glitch —
-// replace it with the Xcode-navigator look: a full accent-filled rounded
-// row highlight on the target folder.
+// replace it with the Xcode-navigator look: a full accent fill on the target
+// folder row plus a light wash over its visible children, one rounded region.
 final class FinderFileTreeRowView: NSTableRowView {
-    override var isTargetForDropOperation: Bool {
+    var dropRole: FinderFileTreeDropRole = .none {
         didSet {
-            guard oldValue != isTargetForDropOperation else { return }
+            guard oldValue != dropRole else { return }
+            needsDisplay = true
             // The accent fill is a dark surface in any appearance — flip the
             // hosted SwiftUI row to dark so its text reads white on it.
+            let isTarget = if case .target = dropRole { true } else { false }
             for subview in subviews {
-                subview.appearance =
-                    isTargetForDropOperation ? NSAppearance(named: .darkAqua) : nil
+                subview.appearance = isTarget ? NSAppearance(named: .darkAqua) : nil
             }
         }
     }
 
-    override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {
-        guard isTargetForDropOperation else { return }
-        let rect = bounds.insetBy(dx: 6, dy: 1)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
-        NSColor.controlAccentColor.setFill()
-        path.fill()
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        dropRole = .none
+    }
+
+    // Drawing is driven entirely by `dropRole` (the coordinator knows the
+    // whole target region); the stock per-row feedback must stay silent.
+    override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {}
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        let inset = bounds.insetBy(dx: 6, dy: 0)
+        switch dropRole {
+        case .none:
+            return
+        case .target(let extendsBelow):
+            let rect =
+                extendsBelow
+                ? NSRect(x: inset.minX, y: 0, width: inset.width, height: bounds.height)
+                : inset.insetBy(dx: 0, dy: 1)
+            NSColor.controlAccentColor.setFill()
+            Self.roundedPath(
+                rect, topRadius: 6, bottomRadius: extendsBelow ? 0 : 6
+            ).fill()
+        case .member(let isLast):
+            let rect = NSRect(
+                x: inset.minX, y: 0, width: inset.width,
+                height: isLast ? bounds.height - 1 : bounds.height)
+            NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+            Self.roundedPath(rect, topRadius: 0, bottomRadius: isLast ? 6 : 0).fill()
+        }
+    }
+
+    // NSBezierPath has no per-corner radii — the target region needs square
+    // edges where it meets the member rows below it.
+    private static func roundedPath(
+        _ rect: NSRect, topRadius: CGFloat, bottomRadius: CGFloat
+    ) -> NSBezierPath {
+        let path = NSBezierPath()
+        // Flipped view: minY = top edge on screen.
+        let topLeft = NSPoint(x: rect.minX, y: rect.minY)
+        let topRight = NSPoint(x: rect.maxX, y: rect.minY)
+        let bottomRight = NSPoint(x: rect.maxX, y: rect.maxY)
+        let bottomLeft = NSPoint(x: rect.minX, y: rect.maxY)
+        path.move(to: NSPoint(x: rect.minX, y: rect.minY + topRadius))
+        path.appendArc(from: topLeft, to: topRight, radius: topRadius)
+        path.appendArc(from: topRight, to: bottomRight, radius: topRadius)
+        path.appendArc(from: bottomRight, to: bottomLeft, radius: bottomRadius)
+        path.appendArc(from: bottomLeft, to: topLeft, radius: bottomRadius)
+        path.close()
+        return path
     }
 }
 

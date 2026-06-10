@@ -99,6 +99,9 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         outline.menuProvider = { [weak coordinator = context.coordinator] event in
             coordinator?.menu(for: event)
         }
+        outline.onDragSessionEnded = { [weak coordinator = context.coordinator] in
+            coordinator?.updateDropHighlight(target: nil)
+        }
         context.coordinator.outlineView = outline
         return scroll
     }
@@ -129,9 +132,20 @@ final class FinderFileTreeOutlineView: NSOutlineView {
     var onReturnKey: (() -> Bool)?
     var onDeleteKey: (() -> Bool)?
     var menuProvider: ((NSEvent) -> NSMenu?)?
+    var onDragSessionEnded: (() -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?(event) ?? super.menu(for: event)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        onDragSessionEnded?()
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        onDragSessionEnded?()
+        super.draggingEnded(sender)
     }
 
     override func keyDown(with event: NSEvent) {
