@@ -22,6 +22,8 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     let style: FinderFileTreeStyle
     @Binding var expandedPaths: Set<String>
     var revealRequest: FileTreeRevealRequest?
+    var onRenameRequest: ((FileNode) -> Void)?
+    var onTrashRequest: (([FileNode]) -> Void)?
     let onSelect: (FileNode?) -> Void
     @ViewBuilder let rowContent: (FileNode) -> RowContent
 
@@ -30,7 +32,7 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let outline = NSOutlineView()
+        let outline = FinderFileTreeOutlineView()
         outline.headerView = nil
         outline.focusRingType = .none
         outline.rowSizeStyle = .default
@@ -67,6 +69,14 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
 
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
+        outline.target = context.coordinator
+        outline.doubleAction = #selector(FinderFileTreeCoordinator.didDoubleClick(_:))
+        outline.onReturnKey = { [weak coordinator = context.coordinator] in
+            coordinator?.requestRenameForSelection() ?? false
+        }
+        outline.onDeleteKey = { [weak coordinator = context.coordinator] in
+            coordinator?.requestTrashForSelection() ?? false
+        }
         context.coordinator.outlineView = outline
         return scroll
     }
@@ -75,6 +85,8 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.onSelect = onSelect
         coordinator.onExpansionChange = { expandedPaths = $0 }
+        coordinator.onRenameRequest = onRenameRequest
+        coordinator.onTrashRequest = onTrashRequest
         coordinator.rowContent = { node in AnyView(rowContent(node)) }
         // Expansion state lands before the nodes so a freshly built tree is
         // expanded in the same pass that creates its items.
@@ -83,6 +95,23 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         if let revealRequest {
             coordinator.handleReveal(revealRequest)
         }
+    }
+}
+
+final class FinderFileTreeOutlineView: NSOutlineView {
+    var onReturnKey: (() -> Bool)?
+    var onDeleteKey: (() -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        switch event.specialKey {
+        case .some(.carriageReturn), .some(.enter):
+            if onReturnKey?() == true { return }
+        case .some(.delete), .some(.deleteForward), .some(.backspace):
+            if onDeleteKey?() == true { return }
+        default:
+            break
+        }
+        super.keyDown(with: event)
     }
 }
 

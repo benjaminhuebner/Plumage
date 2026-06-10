@@ -17,6 +17,8 @@ final class FinderFileTreeCoordinator: NSObject {
     weak var outlineView: NSOutlineView?
     var onSelect: ((FileNode?) -> Void)?
     var onExpansionChange: ((Set<String>) -> Void)?
+    var onRenameRequest: ((FileNode) -> Void)?
+    var onTrashRequest: (([FileNode]) -> Void)?
     var rowContent: ((FileNode) -> AnyView)?
 
     private(set) var rootItems: [FinderFileTreeItem] = []
@@ -197,6 +199,39 @@ final class FinderFileTreeCoordinator: NSObject {
         }
     }
 
+    // MARK: - Keyboard and mouse
+
+    func requestRenameForSelection() -> Bool {
+        guard let outlineView, let onRenameRequest, outlineView.selectedRow >= 0,
+            let item = outlineView.item(atRow: outlineView.selectedRow) as? FinderFileTreeItem
+        else { return false }
+        onRenameRequest(item.node)
+        return true
+    }
+
+    func requestTrashForSelection() -> Bool {
+        guard let outlineView, let onTrashRequest else { return false }
+        let nodes = outlineView.selectedRowIndexes.compactMap {
+            (outlineView.item(atRow: $0) as? FinderFileTreeItem)?.node
+        }
+        guard !nodes.isEmpty else { return false }
+        onTrashRequest(nodes)
+        return true
+    }
+
+    @objc func didDoubleClick(_ sender: Any?) {
+        guard let outlineView else { return }
+        let row = outlineView.clickedRow
+        guard row >= 0, let item = outlineView.item(atRow: row) as? FinderFileTreeItem,
+            item.node.isDirectory
+        else { return }
+        if outlineView.isItemExpanded(item) {
+            outlineView.collapseItem(item)
+        } else {
+            outlineView.expandItem(item)
+        }
+    }
+
     // MARK: - Reveal
 
     func handleReveal(_ request: FileTreeRevealRequest) {
@@ -259,6 +294,12 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
             as? FinderFileTreeCellView ?? FinderFileTreeCellView(identifier: identifier)
         cell.show(rowContent(item.node))
         return cell
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView, typeSelectStringFor tableColumn: NSTableColumn?, item: Any
+    ) -> String? {
+        (item as? FinderFileTreeItem)?.node.name
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
