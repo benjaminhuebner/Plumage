@@ -49,6 +49,10 @@ final class FinderFileTreeCoordinator: NSObject {
         guard newNodes != currentNodes else { return }
         let oldNodes = currentNodes
         currentNodes = newNodes
+        // Structural updates may drop the selected row; that must not report
+        // as a user deselect — the bound selection is re-applied right after.
+        isApplyingSelection = true
+        defer { isApplyingSelection = false }
         guard let outlineView, !oldNodes.isEmpty, !rootItems.isEmpty else {
             rebuildAll()
             outlineView?.reloadData()

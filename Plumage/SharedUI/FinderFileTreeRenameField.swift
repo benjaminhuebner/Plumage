@@ -31,7 +31,12 @@ struct FinderFileTreeRenameField: NSViewRepresentable {
             window.makeFirstResponder(field)
             coordinator.selectStem(in: field)
         }
+        coordinator.installEscapeMonitor(for: field)
         return field
+    }
+
+    static func dismantleNSView(_ nsView: NSTextField, coordinator: Coordinator) {
+        coordinator.removeEscapeMonitor()
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
@@ -45,9 +50,37 @@ struct FinderFileTreeRenameField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: FinderFileTreeRenameField
         private var hasFinished = false
+        private var escapeMonitor: Any?
 
         init(_ parent: FinderFileTreeRenameField) {
             self.parent = parent
+        }
+
+        isolated deinit {
+            removeEscapeMonitor()
+        }
+
+        // Defense-in-depth for Escape: if anything between sendEvent and the
+        // field editor consumes it as a key equivalent, a later blur would
+        // commit the typed text. The pre-dispatch monitor cancels first.
+        func installEscapeMonitor(for field: NSTextField) {
+            guard escapeMonitor == nil else { return }
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+                [weak self, weak field] event in
+                guard let self, let field,
+                    event.keyCode == 53,  // Escape
+                    let editor = field.currentEditor(),
+                    field.window?.firstResponder === editor
+                else { return event }
+                self.hasFinished = true
+                self.parent.onCancel()
+                return nil
+            }
+        }
+
+        func removeEscapeMonitor() {
+            if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+            escapeMonitor = nil
         }
 
         func selectStem(in field: NSTextField) {
