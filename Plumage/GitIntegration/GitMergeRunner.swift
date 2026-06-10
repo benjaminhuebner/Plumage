@@ -164,10 +164,9 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         }
     }
 
-    // The pre-check guarantees the tree was clean, so anything dirty now is
-    // merge residue — without `reset --merge`, checkout would carry a staged
-    // squash onto the original branch. Restore failures only get logged:
-    // they can't outrank the merge error the caller is about to see.
+    // Pre-checks guarantee a clean tree, so anything dirty is merge residue —
+    // without `reset --merge`, checkout would carry a staged squash along.
+    // Restore failures only log: the merge error the caller sees outranks them.
     private func rollBack(
         binary: URL, repoURL: URL, originalBranch: String?, defaultBranch: String
     ) async {

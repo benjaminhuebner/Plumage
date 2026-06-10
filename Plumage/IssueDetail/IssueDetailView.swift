@@ -94,11 +94,9 @@ struct IssueDetailView: View {
                 publishedSaveAction = EditorAction { attemptSave() }
                 publishedCloseAction = EditorAction { triggerPop() }
             }
-            // ⌘Q doesn't run .onDisappear reliably; the QuitCoordinator
-            // awaits this flush before the app terminates. Creating mode
-            // deliberately leaves no disk trace on quit. weak: the registry
-            // is app-lifetime and a strong capture would pin the model graph
-            // whenever .onDisappear (the only unregister) is skipped.
+            // ⌘Q doesn't run .onDisappear reliably; QuitCoordinator awaits
+            // this flush. weak: the registry is app-lifetime and .onDisappear
+            // (the only unregister) can be skipped — strong would pin the model.
             QuitCoordinator.shared.register(quitFlushID) { [weak model] in
                 guard let model, !model.isCreating else { return }
                 // try? per buffer: errors are unactionable mid-quit and must
