@@ -5,42 +5,62 @@ import Testing
 
 @Suite("ModelChoice")
 struct ModelChoiceTests {
-    @Test("cliArg maps every case to the right --model alias")
+    static let aliasCases: [(ModelChoice, String)] = [
+        (.default, "default"),
+        (.fable, "fable"),
+        (.opus, "opus"),
+        (.sonnet, "sonnet"),
+        (.haiku, "haiku"),
+    ]
+
+    @Test("cliArg maps every alias case to the right --model flag")
     func cliArgs() {
         #expect(ModelChoice.default.cliArg.isEmpty)
+        #expect(ModelChoice.fable.cliArg == ["--model", "fable"])
         #expect(ModelChoice.opus.cliArg == ["--model", "opus"])
         #expect(ModelChoice.sonnet.cliArg == ["--model", "sonnet"])
         #expect(ModelChoice.haiku.cliArg == ["--model", "haiku"])
     }
 
-    @Test("allCases covers the four spec'd options")
-    func allCasesCount() {
-        #expect(ModelChoice.allCases.count == 4)
-        #expect(Set(ModelChoice.allCases) == [.default, .opus, .sonnet, .haiku])
+    @Test("cliArg passes a custom model name through verbatim")
+    func cliArgCustom() {
+        #expect(
+            ModelChoice.custom("claude-opus-4-6[1m]").cliArg == ["--model", "claude-opus-4-6[1m]"]
+        )
     }
 
-    @Test("Codable round-trips every case via JSON")
-    func roundTrip() throws {
-        let encoder = JSONEncoder()
-        let decoder = JSONDecoder()
-        for choice in ModelChoice.allCases {
-            let data = try encoder.encode(choice)
-            let decoded = try decoder.decode(ModelChoice.self, from: data)
-            #expect(decoded == choice)
-        }
+    @Test("storageValue matches claude CLI aliases", arguments: aliasCases)
+    func storageValueAliases(choice: ModelChoice, storage: String) {
+        #expect(choice.storageValue == storage)
+        #expect(ModelChoice(storageValue: storage) == choice)
     }
 
-    @Test("rawValues match claude CLI aliases")
-    func rawValueAliases() {
-        #expect(ModelChoice.default.rawValue == "default")
-        #expect(ModelChoice.opus.rawValue == "opus")
-        #expect(ModelChoice.sonnet.rawValue == "sonnet")
-        #expect(ModelChoice.haiku.rawValue == "haiku")
+    @Test("Codable round-trips every alias case via JSON", arguments: aliasCases.map(\.0))
+    func roundTrip(choice: ModelChoice) throws {
+        let data = try JSONEncoder().encode(choice)
+        let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
+        #expect(decoded == choice)
     }
 
-    @Test("unknown raw value decodes to .default")
-    func unknownDecodesToDefault() throws {
+    @Test("Codable round-trips a custom model name as the bare string")
+    func roundTripCustom() throws {
+        let choice = ModelChoice.custom("claude-sonnet-4-5-20250929")
+        let data = try JSONEncoder().encode(choice)
+        #expect(String(data: data, encoding: .utf8) == "\"claude-sonnet-4-5-20250929\"")
+        let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
+        #expect(decoded == choice)
+    }
+
+    @Test("unknown non-empty string decodes as .custom, not .default")
+    func unknownDecodesToCustom() throws {
         let data = try #require("\"sonnet-4-7-future\"".data(using: .utf8))
+        let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
+        #expect(decoded == .custom("sonnet-4-7-future"))
+    }
+
+    @Test("empty string decodes to .default")
+    func emptyDecodesToDefault() throws {
+        let data = try #require("\"\"".data(using: .utf8))
         let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
         #expect(decoded == .default)
     }
@@ -50,5 +70,13 @@ struct ModelChoiceTests {
         let data = try #require("\"opusplan\"".data(using: .utf8))
         let decoded = try JSONDecoder().decode(ModelChoice.self, from: data)
         #expect(decoded == .opus)
+        #expect(ModelChoice(storageValue: "opusplan") == .opus)
+    }
+
+    @Test("displayName shows the custom value itself")
+    func displayNames() {
+        #expect(ModelChoice.default.displayName == "Default")
+        #expect(ModelChoice.fable.displayName == "Fable")
+        #expect(ModelChoice.custom("claude-x").displayName == "claude-x")
     }
 }

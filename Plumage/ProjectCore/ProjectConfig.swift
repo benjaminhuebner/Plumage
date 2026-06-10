@@ -82,14 +82,13 @@ nonisolated struct ModelsConfig: Codable, Hashable, Sendable {
     var implement: ModelChoice?
     var review: ModelChoice?
 
-    // Plumage's opinionated per-slot defaults. Used both as the initial picker
-    // value when no override is set on disk and as the fallback ModelChoice
-    // for session-spawning consumers (ProjectWindow, TerminalTabsModel).
-    static let chatDefault: ModelChoice = .opus
-    static let terminalsDefault: ModelChoice = .opus
-    static let planDefault: ModelChoice = .opus
-    static let implementDefault: ModelChoice = .opus
-    static let reviewDefault: ModelChoice = .opus
+    // Per-slot fallbacks when no override is set on disk: .default passes no
+    // --model flag, so the session runs with whatever the CLI itself resolves.
+    static let chatDefault: ModelChoice = .default
+    static let terminalsDefault: ModelChoice = .default
+    static let planDefault: ModelChoice = .default
+    static let implementDefault: ModelChoice = .default
+    static let reviewDefault: ModelChoice = .default
 
     func workflow(_ action: WorkflowAction) -> ModelChoice? {
         switch action {
