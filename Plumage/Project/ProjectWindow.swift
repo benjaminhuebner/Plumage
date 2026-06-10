@@ -58,6 +58,8 @@ struct ProjectWindow: View {
     // a doc via Finder, …) show up in the sidebar without a manual refresh.
     @State private var sidebarFileWatcher: SidebarFileWatcher?
     @State private var sidebarFileWatcherTask: Task<Void, Never>?
+    // Identity for this window's QuitCoordinator registration (⌘Q flush).
+    @State private var quitHandlerID = UUID()
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.scenePhase) private var scenePhase
@@ -129,8 +131,14 @@ struct ProjectWindow: View {
             // margin. Lower values clip the panel's close button behind the
             // titlebar.
             .frame(minWidth: 1100, minHeight: 620)
-            .background(WindowFrameAutosaver(autosaveName: "plumage.project.window"))
+            // Per-project autosave name: a single shared name makes every
+            // project window land on the last-moved frame.
+            .background(
+                WindowFrameAutosaver(autosaveName: "plumage.project.window.\(handle.url.path)")
+            )
             .navigationTitle(displayTitle)
+            // Proxy icon: ⌘-click path menu + drag affordance on the title.
+            .navigationDocument(handle.url)
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
             .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
             .focusedSceneValue(\.chatDockToggle, $isDockOpen)
@@ -232,6 +240,13 @@ struct ProjectWindow: View {
                         workflowTask?.cancel()
                     }
                 }
+                // ⌘Q runs through applicationShouldTerminate, where SwiftUI's
+                // .onDisappear teardown isn't guaranteed to fire — register
+                // the subprocess stop so quitting never orphans claude.
+                QuitCoordinator.shared.register(quitHandlerID) { [weak session, weak terminalTabs] in
+                    session?.stop()
+                    terminalTabs?.stopAll()
+                }
                 session.attach()
                 // Terminal sessions don't get explicit attach() here —
                 // SwiftTermBridge.makeNSView attaches each tab when its
@@ -279,6 +294,7 @@ struct ProjectWindow: View {
                 persistedDestinationID = destination?.id ?? ""
             }
             .onDisappear {
+                QuitCoordinator.shared.unregister(quitHandlerID)
                 session.stop()
                 terminalTabs.stopAll()
                 workflowTask?.cancel()

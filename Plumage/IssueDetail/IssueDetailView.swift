@@ -34,6 +34,7 @@ struct IssueDetailView: View {
     @State private var publishedSaveAction: EditorAction?
     @State private var publishedCloseAction: EditorAction?
     @State private var publishedBackToBoardAction: EditorAction?
+    @State private var quitFlushID = UUID()
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -93,6 +94,13 @@ struct IssueDetailView: View {
                 publishedSaveAction = EditorAction { attemptSave() }
                 publishedCloseAction = EditorAction { triggerPop() }
             }
+            // ⌘Q doesn't run .onDisappear reliably; the QuitCoordinator
+            // awaits this flush before the app terminates. Creating mode
+            // deliberately leaves no disk trace on quit.
+            QuitCoordinator.shared.register(quitFlushID) {
+                guard !model.isCreating else { return }
+                try? await saveAllEditableTabs()
+            }
             refreshBackToBoardCache()
             guard !model.isCreating else { return }
             await model.load()
@@ -145,6 +153,7 @@ struct IssueDetailView: View {
             Text(alert.message)
         }
         .onDisappear {
+            QuitCoordinator.shared.unregister(quitFlushID)
             model.cancelPendingWork()
             diffTabModel?.stop()
         }

@@ -60,6 +60,20 @@ final class RecentProjects {
         persist()
     }
 
+    func remove(url: URL) {
+        let canonical = url.standardizedFileURL
+        let next = items.filter { $0.url != canonical }
+        guard next.count != items.count else { return }
+        items = next
+        persist()
+    }
+
+    func clear() {
+        guard !items.isEmpty else { return }
+        items = []
+        persist()
+    }
+
     // Updates the cached display name of the recent matching `url`. A project
     // rename keeps the root URL (the key) but changes the name; this refreshes
     // the Welcome list without reordering. No-op when the project isn't listed

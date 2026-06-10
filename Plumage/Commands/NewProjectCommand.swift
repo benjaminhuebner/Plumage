@@ -55,6 +55,7 @@ struct ProjectFileCommands: Commands {
         CommandGroup(replacing: .newItem) {
             NewProjectMenuButton()
             OpenProjectMenuButton(recentProjects: recentProjects)
+            OpenRecentMenu(recentProjects: recentProjects)
             MigrateProjectMenuButton(migrationRequest: migrationRequest)
         }
     }

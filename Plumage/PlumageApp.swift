@@ -25,7 +25,10 @@ struct PlumageApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
-        .defaultLaunchBehavior(.presented)
+        // No .defaultLaunchBehavior(.presented): Welcome presents only when
+        // no project window restores (Xcode-style, decided #00087). It never
+        // restores itself — it's a launch surface, not persistent state.
+        .restorationBehavior(.disabled)
         .keyboardShortcut("0", modifiers: [.command, .shift])
         .commands {
             ProjectFileCommands(recentProjects: recentProjects, migrationRequest: migrationRequest)
@@ -91,7 +94,9 @@ struct PlumageApp: App {
             GitCommand()
             TerminalCommand()
         }
-        .restorationBehavior(.disabled)
+        // Restoration intentionally ON (Xcode-style, decided #00087,
+        // supersedes the earlier disable): the project windows that were
+        // open at quit reopen; Welcome appears only when nothing restores.
         .environment(recentProjects)
         .environment(migrationRequest)
 
@@ -135,6 +140,16 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         // Set the stored appearance before any window is presented; deferring to
         // applicationDidFinishLaunching flashes the system appearance first.
         AppearanceApplier.applyStored()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let coordinator = QuitCoordinator.shared
+        guard !coordinator.isEmpty else { return .terminateNow }
+        Task { @MainActor in
+            await coordinator.runAll()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
