@@ -25,7 +25,7 @@ final class MockKeychainReader: KeychainReading, @unchecked Sendable {
 
     var readCount: Int { lock.withLock { _readCount } }
 
-    func readToken() throws -> OAuthToken {
+    func readToken() async throws -> OAuthToken {
         let current: Outcome = lock.withLock {
             _readCount += 1
             return _outcome
