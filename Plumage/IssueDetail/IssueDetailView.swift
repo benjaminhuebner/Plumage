@@ -367,7 +367,8 @@ struct IssueDetailView: View {
                                         commitSubject: commitSubject,
                                         deleteBranch: deleteBranch)
                                 }
-                            }
+                            },
+                            onRebaseAndMerge: rebaseAndMergeAction
                         )
                     }
                     .padding(.horizontal, 16)
@@ -575,6 +576,25 @@ struct IssueDetailView: View {
         mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
     ) async {
         let success = await model.mergeToMain(
+            mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
+        guard success, let folderName = model.folderName else { return }
+        kanban.signalMergeCompleted(folderName: folderName)
+    }
+
+    private var rebaseAndMergeAction: ((GitMergeMode, String?, Bool) -> Void)? {
+        guard case .notFastForward = model.lastMergeError else { return nil }
+        return { mode, commitSubject, deleteBranch in
+            Task {
+                await performRebaseAndMerge(
+                    mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
+            }
+        }
+    }
+
+    private func performRebaseAndMerge(
+        mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
+    ) async {
+        let success = await model.rebaseAndMergeToMain(
             mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
         guard success, let folderName = model.folderName else { return }
         kanban.signalMergeCompleted(folderName: folderName)

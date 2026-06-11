@@ -312,25 +312,8 @@ final class IssueDetailModel {
         isMerging = true
         defer { isMerging = false }
 
-        // Merging switches the checkout to the default branch, which would
-        // land a live implement run's next commit on the wrong branch.
-        // Racy by design — a run starting after this check is accepted.
-        let checker = liveRunChecker
-        let liveRun = await Task.detached(priority: .userInitiated) {
-            checker(projectURL)
-        }.value
-        blockingImplementRun = liveRun
-        if let liveRun {
-            lastMergeError = .implementRunActive(issue: liveRun.issue)
-            return false
-        }
-
-        // The merged issue's own run may live outside the primary checkout:
-        // active in a parallel worktree, or still waiting in the queue.
-        if let folder = folderName,
-            let location = await mergedIssueRunLocator(projectURL, folder)
-        {
-            lastMergeError = .mergedIssueRunActive(issue: folder, location: location)
+        if let blocked = await blockingLiveRun(projectURL: projectURL) {
+            lastMergeError = blocked
             return false
         }
 
@@ -389,6 +372,70 @@ final class IssueDetailModel {
         }
         await reloadFromDiskAfterOwnWrite()
         return true
+    }
+
+    // Merging (or rebasing) moves branches underneath a live implement run,
+    // so both entry points refuse while one owns the checkout. Racy by
+    // design — a run starting after this check is accepted.
+    private func blockingLiveRun(projectURL: URL) async -> GitMergeError? {
+        let checker = liveRunChecker
+        let liveRun = await Task.detached(priority: .userInitiated) {
+            checker(projectURL)
+        }.value
+        blockingImplementRun = liveRun
+        if let liveRun {
+            return .implementRunActive(issue: liveRun.issue)
+        }
+        // The merged issue's own run may live outside the primary checkout:
+        // active in a parallel worktree, or still waiting in the queue.
+        if let folder = folderName,
+            let location = await mergedIssueRunLocator(projectURL, folder)
+        {
+            return .mergedIssueRunActive(issue: folder, location: location)
+        }
+        return nil
+    }
+
+    func rebaseAndMergeToMain(
+        mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
+    ) async -> Bool {
+        guard
+            let projectURL,
+            specURL != nil,
+            let currentIssue = issue
+        else { return false }
+
+        let subject = commitSubject?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .squash, subject?.isEmpty != false {
+            return false
+        }
+
+        lastMergeError = nil
+        lastMergeCriticalError = nil
+        lastMergeNotice = nil
+        isMerging = true
+        defer { isMerging = false }
+
+        if let blocked = await blockingLiveRun(projectURL: projectURL) {
+            lastMergeError = blocked
+            return false
+        }
+
+        let runner = mergeRunner
+        let defaultBranch = configLoader(projectURL)?.gitDefaultBranch ?? "main"
+        do {
+            try await runner.rebaseIssueBranch(
+                repoURL: projectURL,
+                defaultBranch: defaultBranch,
+                issueBranch: currentIssue.branch)
+        } catch let error as GitMergeError {
+            lastMergeError = error
+            return false
+        } catch {
+            lastMergeError = .rebaseFailed(stderr: error.localizedDescription)
+            return false
+        }
+        return await mergeToMain(mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
     }
 
     func refreshMergeBlocker() async {

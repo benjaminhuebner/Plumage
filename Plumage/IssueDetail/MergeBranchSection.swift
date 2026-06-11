@@ -10,6 +10,7 @@ struct MergeBranchSection: View {
     let onDismissError: () -> Void
     let onDismissNotice: () -> Void
     let onMerge: (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void
+    let onRebaseAndMerge: ((_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void)?
 
     @AppStorage("merge.deleteBranchAfter") private var deleteBranchAfter: Bool = true
     @AppStorage("merge.mode") private var mergeMode: GitMergeMode = .squash
@@ -24,7 +25,8 @@ struct MergeBranchSection: View {
         nonFatalNotice: String?,
         onDismissError: @escaping () -> Void,
         onDismissNotice: @escaping () -> Void,
-        onMerge: @escaping (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void
+        onMerge: @escaping (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void,
+        onRebaseAndMerge: ((_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void)? = nil
     ) {
         self.branch = branch
         self.subjectPrefill = subjectPrefill
@@ -35,6 +37,7 @@ struct MergeBranchSection: View {
         self.onDismissError = onDismissError
         self.onDismissNotice = onDismissNotice
         self.onMerge = onMerge
+        self.onRebaseAndMerge = onRebaseAndMerge
         _commitSubject = State(initialValue: subjectPrefill)
     }
 
@@ -137,6 +140,18 @@ struct MergeBranchSection: View {
                 .font(.callout)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let onRebaseAndMerge {
+                Button("Rebase & Merge") {
+                    onRebaseAndMerge(
+                        mergeMode,
+                        mergeMode == .squash ? trimmedSubject : nil,
+                        deleteBranchAfter)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isMerging)
+                .accessibilityLabel("Rebase \(branch) and merge to main")
+            }
             dismissButton(action: onDismissError, label: "Dismiss merge error")
         }
         .padding(.horizontal, 12)
@@ -242,6 +257,24 @@ struct MergeBranchSection: View {
         onDismissError: {},
         onDismissNotice: {},
         onMerge: { _, _, _ in }
+    )
+    .padding()
+    .frame(width: 600)
+}
+
+#Preview("Error: not fast-forward") {
+    MergeBranchSection(
+        branch: "issue/00042-pr-merge-button",
+        subjectPrefill: "Add merge button to PR view",
+        isMerging: false,
+        errorMessage:
+            "Cannot fast-forward: `main` has commits since `issue/00042-pr-merge-button` "
+            + "was branched off. Use Rebase & Merge, or rebase manually.",
+        nonFatalNotice: nil,
+        onDismissError: {},
+        onDismissNotice: {},
+        onMerge: { _, _, _ in },
+        onRebaseAndMerge: { _, _, _ in }
     )
     .padding()
     .frame(width: 600)

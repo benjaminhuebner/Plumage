@@ -15,6 +15,9 @@ nonisolated enum GitMergeError: Error, Sendable, Equatable {
     case notFastForward(defaultBranch: String, issueBranch: String)
     case checkoutFailed(stderr: String)
     case mergeFailed(mode: GitMergeMode, stderr: String)
+    case rebaseFailed(stderr: String)
+    case branchCheckedOutElsewhere(branch: String)
+    case worktreeDirty(path: String)
 
     var displayMessage: String {
         switch self {
@@ -39,7 +42,7 @@ nonisolated enum GitMergeError: Error, Sendable, Equatable {
         case .notFastForward(let defaultBranch, let issueBranch):
             return
                 "Cannot fast-forward: `\(defaultBranch)` has commits since `\(issueBranch)` was branched off. "
-                + "Rebase `\(issueBranch)` onto `\(defaultBranch)` and retry."
+                + "Use Rebase & Merge, or rebase manually."
         case .checkoutFailed(let stderr):
             return "git checkout failed: \(stderr)"
         case .mergeFailed(let mode, let stderr):
@@ -51,6 +54,18 @@ nonisolated enum GitMergeError: Error, Sendable, Equatable {
                 // message names the operation, not a single git invocation.
                 return "Squash merge failed: \(stderr)"
             }
+        case .rebaseFailed(let stderr):
+            return
+                "Rebase failed: \(stderr). The rebase was aborted and the branch left unchanged — "
+                + "rebase manually in the terminal to resolve conflicts, then retry the merge."
+        case .branchCheckedOutElsewhere(let branch):
+            return
+                "Branch `\(branch)` is checked out in another worktree. "
+                + "Remove that worktree (`git worktree remove <path>`), then retry."
+        case .worktreeDirty(let path):
+            return
+                "The worktree at \(path) has uncommitted changes. "
+                + "Commit or discard them there, then retry."
         }
     }
 }
@@ -73,6 +88,12 @@ nonisolated protocol GitMergeRunning: Sendable {
         commitSubject: String?,
         deleteBranch: Bool
     ) async throws -> GitMergeOutcome
+
+    func rebaseIssueBranch(
+        repoURL: URL,
+        defaultBranch: String,
+        issueBranch: String
+    ) async throws
 }
 
 nonisolated struct GitMergeRunner: GitMergeRunning {
@@ -325,6 +346,110 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
             return error.displayMessage
         } catch {
             return error.localizedDescription
+        }
+    }
+
+    // MARK: - Rebase
+
+    // Older gits say "is already checked out at", 2.38+ "is already used by
+    // worktree at" — both mean the rebase never started and HEAD is unchanged.
+    private static let worktreeBlockPatterns = [
+        "is already used by worktree at",
+        "is already checked out at",
+    ]
+
+    func rebaseIssueBranch(
+        repoURL: URL,
+        defaultBranch: String,
+        issueBranch: String
+    ) async throws {
+        guard let binary = resolveBinary() else {
+            throw GitMergeError.gitNotFound
+        }
+        guard GitBranchName.isSafe(defaultBranch) else {
+            throw GitMergeError.branchNotFound(name: defaultBranch)
+        }
+        guard GitBranchName.isSafe(issueBranch) else {
+            throw GitMergeError.branchNotFound(name: issueBranch)
+        }
+        // Deliberately no ancestor pre-check — the caller arrives precisely
+        // because the merge's fast-forward check failed.
+        let status = try await callGit(
+            binary: binary, repoURL: repoURL, args: ["status", "--porcelain"])
+        if !status.stdout.isEmpty {
+            throw GitMergeError.workingTreeDirty(files: parsePorcelain(status.stdout))
+        }
+        let branchProbe = try await callGit(
+            binary: binary, repoURL: repoURL,
+            args: ["rev-parse", "--verify", issueBranch])
+        if branchProbe.exitCode != 0 {
+            throw GitMergeError.branchNotFound(name: issueBranch)
+        }
+        try await releaseWorktreeOwning(branch: issueBranch, binary: binary, repoURL: repoURL)
+        let originalBranch = await currentBranch(binary: binary, repoURL: repoURL)
+        let rebase = try await callGit(
+            binary: binary, repoURL: repoURL,
+            args: ["rebase", defaultBranch, issueBranch])
+        if rebase.exitCode != 0 {
+            let stderr = stderrString(rebase)
+            if Self.worktreeBlockPatterns.contains(where: stderr.contains) {
+                // git failed before starting the rebase — no abort needed.
+                throw GitMergeError.branchCheckedOutElsewhere(branch: issueBranch)
+            }
+            // With no rebase in progress the abort exits non-zero — fine.
+            _ = try? await callGit(
+                binary: binary, repoURL: repoURL, args: ["rebase", "--abort"])
+            if let originalBranch {
+                _ = try? await callGit(
+                    binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
+            }
+            throw GitMergeError.rebaseFailed(
+                stderr: stderr.isEmpty ? stdoutString(rebase) : stderr)
+        }
+        // A successful rebase leaves HEAD on the issue branch; restore the
+        // user's branch so a later merge failure rolls back to the right place.
+        if let originalBranch, originalBranch != issueBranch {
+            let restore = try? await callGit(
+                binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
+            if restore?.exitCode != 0 {
+                Self.logger.error("rebase: could not restore original branch, staying on issue branch")
+            }
+        }
+    }
+
+    private func releaseWorktreeOwning(branch: String, binary: URL, repoURL: URL) async throws {
+        guard
+            let list = try? await callGit(
+                binary: binary, repoURL: repoURL, args: ["worktree", "list", "--porcelain"]),
+            list.exitCode == 0
+        else { return }
+        let worktrees = GitWorktreeLister.parse(
+            porcelain: String(decoding: list.stdout, as: UTF8.self))
+        guard let owner = worktrees.first(where: { $0.branch == branch }) else { return }
+        // The branch being checked out in the worktree we rebase in is fine —
+        // git rebases in place there. Only a *different* worktree blocks.
+        let ownerPath = owner.path.resolvingSymlinksInPath().path
+        if ownerPath == repoURL.resolvingSymlinksInPath().path { return }
+
+        let path = owner.path.path
+        guard
+            let status = try? await callGit(
+                binary: binary, repoURL: owner.path, args: ["status", "--porcelain"]),
+            status.exitCode == 0
+        else {
+            throw GitMergeError.branchCheckedOutElsewhere(branch: branch)
+        }
+        if !status.stdout.isEmpty {
+            throw GitMergeError.worktreeDirty(path: path)
+        }
+        guard
+            let remove = try? await callGit(
+                binary: binary, repoURL: repoURL, args: ["worktree", "remove", path]),
+            remove.exitCode == 0
+        else {
+            // Remove can fail despite a clean tree (locked, submodule) —
+            // degrade to the generic error: worse, never wrong.
+            throw GitMergeError.branchCheckedOutElsewhere(branch: branch)
         }
     }
 

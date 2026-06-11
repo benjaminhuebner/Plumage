@@ -747,6 +747,12 @@ struct IssueDetailModelTests {
         ) async throws -> GitMergeOutcome {
             outcome
         }
+
+        func rebaseIssueBranch(
+            repoURL: URL,
+            defaultBranch: String,
+            issueBranch: String
+        ) async throws {}
     }
 
     @Test("a kept worktree after merge surfaces as a notice")
@@ -856,6 +862,110 @@ struct IssueDetailModelTests {
         #expect(model.blockingImplementRun == nil)
     }
 
+    // MARK: - rebaseAndMergeToMain
+
+    @Test("rebaseAndMergeToMain rebases first, then merges, and flips status to done")
+    func rebaseAndMergeHappyPath() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.rebaseAndMergeToMain(
+            mode: .fastForward, commitSubject: nil, deleteBranch: false)
+
+        #expect(success == true)
+        #expect(model.lastMergeError == nil)
+        #expect(model.isMerging == false)
+        let calls = mock.recordedCalls
+        let rebaseIndex = try #require(
+            calls.firstIndex(of: Self.rebaseArgs(tmpDir: env.tmpDir, base: "main", branch: "issue/00001-x")))
+        let mergeIndex = try #require(
+            calls.firstIndex(of: Self.ffMergeArgs(tmpDir: env.tmpDir, branch: "issue/00001-x")))
+        #expect(rebaseIndex < mergeIndex)
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: done"))
+    }
+
+    @Test("rebase failure surfaces rebaseFailed, leaves the spec untouched, and never merges")
+    func rebaseFailureStopsBeforeMerge() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let rebaseArgs = Self.rebaseArgs(tmpDir: env.tmpDir, base: "main", branch: "issue/00001-x")
+        mock.exitCodeForArgs[rebaseArgs] = 1
+        mock.stderrForArgs[rebaseArgs] = "CONFLICT (content): Merge conflict in Foo.swift\n"
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.rebaseAndMergeToMain(
+            mode: .fastForward, commitSubject: nil, deleteBranch: true)
+
+        #expect(success == false)
+        #expect(
+            model.lastMergeError
+                == .rebaseFailed(stderr: "CONFLICT (content): Merge conflict in Foo.swift"))
+        #expect(model.isMerging == false)
+        #expect(!mock.recordedCalls.contains(Self.ffMergeArgs(tmpDir: env.tmpDir, branch: "issue/00001-x")))
+        #expect(!mock.recordedCalls.contains(Self.checkoutArgs(tmpDir: env.tmpDir, branch: "main")))
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: waiting-for-review"))
+    }
+
+    @Test("a dirty worktree owning the branch surfaces worktreeDirty and stops")
+    func rebaseAndMergeDirtyWorktreeBlocks() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        mock.stdoutForArgs[Self.worktreeListArgs(tmpDir: env.tmpDir)] =
+            "worktree /tmp/wt-00001-x\nHEAD abc123\nbranch refs/heads/issue/00001-x\n"
+        mock.stdoutForArgs[Self.worktreeStatusArgs(path: "/tmp/wt-00001-x")] = " M content.txt\n"
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.rebaseAndMergeToMain(
+            mode: .fastForward, commitSubject: nil, deleteBranch: true)
+
+        #expect(success == false)
+        #expect(model.lastMergeError == .worktreeDirty(path: "/tmp/wt-00001-x"))
+        #expect(
+            !mock.recordedCalls.contains(
+                Self.rebaseArgs(tmpDir: env.tmpDir, base: "main", branch: "issue/00001-x")))
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: waiting-for-review"))
+    }
+
+    @Test("rebaseAndMergeToMain refuses while a live implement run owns the checkout")
+    func rebaseAndMergeRefusesDuringLiveRun() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            liveRunChecker: { _ in
+                LiveImplementRun(issue: "00098-other-issue", agentPid: 4711)
+            },
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.rebaseAndMergeToMain(
+            mode: .fastForward, commitSubject: nil, deleteBranch: true)
+
+        #expect(success == false)
+        #expect(model.lastMergeError == .implementRunActive(issue: "00098-other-issue"))
+        #expect(mock.recordedCalls.isEmpty)
+    }
+
     // MARK: - mergeToMain helpers
 
     nonisolated static let fakeBinary = URL(filePath: "/usr/bin/git")
@@ -893,6 +1003,18 @@ struct IssueDetailModelTests {
     }
     nonisolated static func deleteArgs(tmpDir: URL, branch: String) -> [String] {
         ["-C", tmpDir.path, "branch", "-d", branch]
+    }
+    nonisolated static func ffMergeArgs(tmpDir: URL, branch: String) -> [String] {
+        ["-C", tmpDir.path, "merge", "--ff-only", branch]
+    }
+    nonisolated static func rebaseArgs(tmpDir: URL, base: String, branch: String) -> [String] {
+        ["-C", tmpDir.path, "rebase", base, branch]
+    }
+    nonisolated static func worktreeListArgs(tmpDir: URL) -> [String] {
+        ["-C", tmpDir.path, "worktree", "list", "--porcelain"]
+    }
+    nonisolated static func worktreeStatusArgs(path: String) -> [String] {
+        ["-C", path, "status", "--porcelain"]
     }
 
     nonisolated private static func configWith(defaultBranch: String) -> ProjectConfig {

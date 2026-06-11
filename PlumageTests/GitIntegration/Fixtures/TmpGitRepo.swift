@@ -79,8 +79,9 @@ nonisolated final class TmpGitRepo: Sendable {
                 to: specURL, atomically: true, encoding: .utf8)
             // gitignore .claude/ so `git status --porcelain` stays empty
             // (Plumage's mergeToMain pre-check requires a clean tree).
+            // wt/ hosts test worktrees inside tmpDir so deinit cleans them up.
             let gitignore = tmpDir.appendingPathComponent(".gitignore")
-            try ".claude/\n".write(to: gitignore, atomically: true, encoding: .utf8)
+            try ".claude/\nwt/\n".write(to: gitignore, atomically: true, encoding: .utf8)
             try await runGit(["add", ".gitignore"], cwd: tmpDir)
             try await runGit(["commit", "-m", "ignore claude folder"], cwd: tmpDir)
 
@@ -100,6 +101,37 @@ nonisolated final class TmpGitRepo: Sendable {
             try? fileManager.removeItem(at: tmpDir)
             throw error
         }
+    }
+
+    // Leaves HEAD on the default branch so the issue branch stays free
+    // for worktree checkouts.
+    func divergeDefaultBranch() async throws {
+        try await Self.runGit(["checkout", mainBranch], cwd: tmpDir)
+        let url = tmpDir.appendingPathComponent("main-side.txt")
+        try "main side\n".write(to: url, atomically: true, encoding: .utf8)
+        try await Self.runGit(["add", "main-side.txt"], cwd: tmpDir)
+        try await Self.runGit(["commit", "-m", "main side work"], cwd: tmpDir)
+    }
+
+    func addWorktree(checkingOut branch: String) async throws -> URL {
+        let path = tmpDir.appendingPathComponent("wt", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try await Self.runGit(["worktree", "add", path.path, branch], cwd: tmpDir)
+        return path
+    }
+
+    func fileContents(branch: String, path: String) async throws -> String {
+        try await Self.runGit(["show", "\(branch):\(path)"], cwd: tmpDir)
+    }
+
+    func commitAll(message: String) async throws {
+        try await Self.runGit(["add", "-A"], cwd: tmpDir)
+        try await Self.runGit(["commit", "-m", message], cwd: tmpDir)
+    }
+
+    func currentBranch() async throws -> String {
+        let output = try await Self.runGit(["symbolic-ref", "--short", "HEAD"], cwd: tmpDir)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func headSha(branch: String) async throws -> String {
