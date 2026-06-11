@@ -56,6 +56,23 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>com.benjaminhuebner.plumage.template-archive</string>
+			<key>UTTypeDescription</key>
+			<string>Plumage Template Archive</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>plumagetemplates</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>com.benjaminhuebner.plumage.issue-drag</string>
 			<key>UTTypeDescription</key>
 			<string>Plumage Issue Drag</string>
@@ -77,6 +94,18 @@
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Plumage Template Archive</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.benjaminhuebner.plumage.template-archive</string>
+			</array>
+		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
 			<string>Plumage Project</string>

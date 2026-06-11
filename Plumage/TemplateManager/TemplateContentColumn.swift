@@ -32,6 +32,10 @@ struct TemplateContentColumn: View {
         .navigationTitle(model.selectionTitle)
         .toolbar {
             if !model.addableKinds.isEmpty {
+                // Leading spacer in THIS declaration: it keeps the add buttons
+                // a separate glass group from the window's import/export pair —
+                // a spacer in the window view's declaration is lost in the merge.
+                ToolbarSpacer(.fixed)
                 ToolbarItemGroup {
                     ForEach(model.addableKinds) { kind in
                         Button {

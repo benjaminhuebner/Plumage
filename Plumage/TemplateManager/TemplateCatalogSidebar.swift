@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Left column: the three tiers in order — Base, then a Shared Components group,
@@ -148,6 +149,11 @@ struct TemplateCatalogSidebar: View {
             Image(systemName: "square.grid.2x2")
         }
         .onTapGesture { model.selection = .base }
+        .contextMenu {
+            Button("Export…", systemImage: "square.and.arrow.up") {
+                presentExportPanel(for: .base)
+            }
+        }
         .id(TemplateCatalogItem.base.id)
     }
 
@@ -615,6 +621,10 @@ struct TemplateCatalogSidebar: View {
 
     @ViewBuilder
     private func sharedComponentMenu(_ component: SharedComponent) -> some View {
+        Button("Export…", systemImage: "square.and.arrow.up") {
+            presentExportPanel(for: .sharedComponent(component.id))
+        }
+        Divider()
         Button("Delete", systemImage: "trash", role: .destructive) {
             model.requestDeleteSharedComponent(id: component.id)
         }
@@ -631,10 +641,17 @@ struct TemplateCatalogSidebar: View {
             }
         }
         .disabled(others.isEmpty)
+        Button("Export…", systemImage: "square.and.arrow.up") {
+            presentExportPanel(for: .template(template.id))
+        }
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) {
             model.deleteTemplate(id: template.id)
         }
+    }
+
+    private func presentExportPanel(for selection: TemplateArchiveSelection) {
+        TemplateArchivePanels.presentExport(for: selection, model: model)
     }
 
     @ViewBuilder
