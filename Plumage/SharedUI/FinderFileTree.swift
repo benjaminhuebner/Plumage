@@ -51,12 +51,15 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         FinderFileTreeCoordinator()
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> NSView {
         let outline = FinderFileTreeOutlineView()
         outline.headerView = nil
         outline.focusRingType = .none
         outline.rowSizeStyle = .default
-        outline.usesAutomaticRowHeights = true
+        // Fixed, not automatic: embedded trees derive their frame from row
+        // rects, which must be deterministic before any cell materializes.
+        outline.usesAutomaticRowHeights = false
+        outline.rowHeight = 24
         outline.allowsMultipleSelection = true
         outline.allowsColumnReordering = false
         outline.allowsColumnResizing = false
@@ -70,17 +73,6 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         column.resizingMask = .autoresizingMask
         outline.addTableColumn(column)
         outline.outlineTableColumn = column
-
-        let scroll = NSScrollView()
-        scroll.documentView = outline
-        scroll.hasVerticalScroller = onContentHeightChange == nil
-        scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = false
-        if onContentHeightChange != nil {
-            scroll.verticalScrollElasticity = .none
-            context.coordinator.observeContentHeight(of: outline)
-        }
 
         switch style {
         case .sidebar:
@@ -114,10 +106,31 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
             coordinator?.updateDropHighlight(target: nil)
         }
         context.coordinator.outlineView = outline
+
+        // A bare outline can't render (row loading hangs off its clip view) —
+        // embedded mode keeps the clip but inert: the frame always matches
+        // the content exactly, so it can never scroll.
+        if onContentHeightChange != nil {
+            context.coordinator.observeContentHeight(of: outline)
+            let scroll = NSScrollView()
+            scroll.documentView = outline
+            scroll.hasVerticalScroller = false
+            scroll.hasHorizontalScroller = false
+            scroll.verticalScrollElasticity = .none
+            scroll.horizontalScrollElasticity = .none
+            scroll.drawsBackground = false
+            return scroll
+        }
+        let scroll = NSScrollView()
+        scroll.documentView = outline
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
         return scroll
     }
 
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
+    func updateNSView(_ nsView: NSView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onSelect = onSelect
         coordinator.onExpansionChange = { expandedPaths = $0 }
