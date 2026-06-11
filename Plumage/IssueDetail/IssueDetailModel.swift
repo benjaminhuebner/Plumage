@@ -102,6 +102,7 @@ final class IssueDetailModel {
     private nonisolated let mergeRunner: any GitMergeRunning
     private nonisolated let configLoader: @Sendable (URL) -> ProjectConfig?
     private nonisolated let clock: @Sendable () -> Date
+    private nonisolated let discoverer: @Sendable (URL) -> [DiscoveredIssue]
 
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
 
@@ -126,7 +127,10 @@ final class IssueDetailModel {
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = {
+            IssueDiscovery.discoverIssues(in: $0)
+        }
     ) {
         self.kind = .loaded(folderName: folderName)
         self.specURL = specURL
@@ -137,6 +141,7 @@ final class IssueDetailModel {
         self.mergeRunner = mergeRunner
         self.configLoader = configLoader
         self.clock = clock
+        self.discoverer = discoverer
         // Pre-load synchronously so the view renders content immediately on
         // first mount — avoids the ProgressView flash caused by idle→loaded
         // transition after the async load() task fires. Local volumes only:
@@ -177,7 +182,10 @@ final class IssueDetailModel {
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = {
+            IssueDiscovery.discoverIssues(in: $0)
+        }
     ) {
         self.kind = .creating(initialStatus: creatingInitialStatus)
         self.specURL = nil
@@ -188,6 +196,7 @@ final class IssueDetailModel {
         self.mergeRunner = mergeRunner
         self.configLoader = configLoader
         self.clock = clock
+        self.discoverer = discoverer
         self.statusDraft = creatingInitialStatus
         // In creating mode the form must render immediately — there is
         // nothing on disk to load. Mark loaded so the view skips the
@@ -298,11 +307,12 @@ final class IssueDetailModel {
         // Merge has landed on disk. From here on, any failure is critical —
         // we cannot roll back the merge, so the user has to fix spec.md
         // manually via the banner instruction.
+        let doneOrder = await topEntryOrder(movingTo: .done, for: currentIssue)
         do {
             try await Task.detached(priority: .userInitiated) {
                 try mutatorFn.mutate(
                     specURL: specURL,
-                    mutation: FrontmatterMutation(status: .set(.done)),
+                    mutation: FrontmatterMutation(status: .set(.done), order: doneOrder),
                     now: now
                 )
             }.value
@@ -346,7 +356,24 @@ final class IssueDetailModel {
 
     func commitStatus(_ newStatus: IssueStatus) async throws {
         guard let current = issue, current.status != newStatus else { return }
-        try await runFormWrite(FrontmatterMutation(status: .set(newStatus)))
+        let order = await topEntryOrder(movingTo: newStatus, for: current)
+        try await runFormWrite(FrontmatterMutation(status: .set(newStatus), order: order))
+    }
+
+    // .keep inside the same column so manual ordering survives a
+    // draft→approved flip; on column entry the card goes top, .set(nil)
+    // clears a stale order in an empty column (ID fallback takes over).
+    private func topEntryOrder(
+        movingTo newStatus: IssueStatus, for current: Issue
+    ) async -> SetValue<Double?> {
+        guard let projectURL, newStatus.column != current.column else { return .keep }
+        let discoverer = self.discoverer
+        let targetColumn = newStatus.column
+        let folderName = current.folderName
+        let columnItems = await Task.detached(priority: .userInitiated) {
+            discoverer(projectURL).filter { $0.column == targetColumn }
+        }.value
+        return .set(IssueSortKey.topOrder(in: columnItems, excludingFolderName: folderName))
     }
 
     func commitLabels(_ newLabels: [String]) async throws {

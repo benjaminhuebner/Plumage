@@ -20,4 +20,14 @@ nonisolated enum IssueSortKey {
         case (nil, nil): Double(fallbackID)
         }
     }
+
+    // nil for an empty column — the sole entering card sorts fine via ID fallback.
+    static func topOrder(
+        in columnItems: [DiscoveredIssue],
+        excludingFolderName folderName: String? = nil
+    ) -> Double? {
+        let others = columnItems.filter { $0.id != folderName }
+        guard let first = others.sortedForKanban().first else { return nil }
+        return (first.orderValue ?? Double(first.idValue)) - 1.0
+    }
 }

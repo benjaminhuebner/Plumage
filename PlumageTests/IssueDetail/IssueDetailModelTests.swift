@@ -42,6 +42,49 @@ struct IssueDetailModelTests {
         #expect(model.issue?.status == .inProgress)
     }
 
+    @Test("commitStatus into a populated column writes the top order")
+    func commitStatusWritesTopOrder() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved"))
+        let model = env.makeModel(discoverer: { _ in
+            [
+                .valid(Self.boardIssue(id: 7, folder: "00007-other", status: .inProgress, order: 10)),
+                .valid(Self.boardIssue(id: 8, folder: "00008-other", status: .inProgress, order: 20)),
+            ]
+        })
+        await model.load()
+        try await model.commitStatus(.inProgress)
+        let written = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(written.contains("status: in-progress"))
+        #expect(written.contains("order: 9"))
+    }
+
+    @Test("commitStatus within the same column keeps manual order")
+    func commitStatusSameColumnKeepsOrder() async throws {
+        let discovererCalls = LockedBox<Int>(value: 0)
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", order: 42))
+        let model = env.makeModel(discoverer: { _ in
+            discovererCalls.mutate { $0 += 1 }
+            return []
+        })
+        await model.load()
+        try await model.commitStatus(.blocked)
+        let written = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(written.contains("status: blocked"))
+        #expect(written.contains("order: 42"))
+        #expect(discovererCalls.value == 0)
+    }
+
+    @Test("commitStatus into an empty column clears a stale order")
+    func commitStatusEmptyColumnClearsOrder() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", order: 42))
+        let model = env.makeModel(discoverer: { _ in [] })
+        await model.load()
+        try await model.commitStatus(.inProgress)
+        let written = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(written.contains("status: in-progress"))
+        #expect(!written.contains("order:"))
+    }
+
     @Test("commitTitle skips empty titles")
     func commitTitleSkipsEmpty() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "approved"))
@@ -448,6 +491,28 @@ struct IssueDetailModelTests {
         #expect(model.issue?.status == .done)
     }
 
+    @Test("mergeToMain writes the top order for the done column")
+    func mergeToMainWritesTopOrder() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") },
+            discoverer: { _ in
+                [.valid(Self.boardIssue(id: 90, folder: "00090-done", status: .done, order: 5))]
+            }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+
+        #expect(success == true)
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: done"))
+        #expect(onDisk.contains("order: 4"))
+    }
+
     @Test("mergeToMain working-tree-dirty leaves spec untouched and surfaces lastMergeError")
     func mergeToMainWorkingTreeDirty() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
@@ -691,22 +756,36 @@ struct IssueDetailModelTests {
         )
     }
 
-    private static func baseSpec(status: String, body: String = "Some content.") -> String {
-        """
-        ---
-        id: 1
-        title: Sample
-        type: feature
-        status: \(status)
-        created: 2026-05-12T09:00:00Z
-        updated: 2026-05-12T10:00:00Z
-        branch: issue/00001-x
-        labels: []
-        model: null
-        ---
+    private static func baseSpec(
+        status: String, body: String = "Some content.", order: Double? = nil
+    ) -> String {
+        let orderLine = order.map { "order: \(Int($0))\n" } ?? ""
+        return """
+            ---
+            id: 1
+            title: Sample
+            type: feature
+            status: \(status)
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00001-x
+            labels: []
+            \(orderLine)model: null
+            ---
 
-        \(body)
-        """
+            \(body)
+            """
+    }
+
+    nonisolated static func boardIssue(
+        id: Int, folder: String, status: IssueStatus, order: Double?
+    ) -> Plumage.Issue {
+        Plumage.Issue(
+            id: id, folderName: folder, title: "t",
+            type: .feature, status: status,
+            created: .distantPast, updated: .distantPast,
+            branch: "issue/\(folder)", labels: [], order: order
+        )
     }
 }
 
@@ -727,18 +806,22 @@ private final class TestEnvironment {
         try content.write(to: specURL, atomically: true, encoding: .utf8)
     }
 
-    func makeModel() -> IssueDetailModel {
+    func makeModel(
+        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = { _ in [] }
+    ) -> IssueDetailModel {
         IssueDetailModel(
             specURL: specURL,
             folderName: "00001-test",
             projectURL: tmpDir,
-            clock: { self.now }
+            clock: { self.now },
+            discoverer: discoverer
         )
     }
 
     func makeModel(
         mergeRunner: any GitMergeRunning,
-        configLoader: @escaping @Sendable (URL) -> ProjectConfig?
+        configLoader: @escaping @Sendable (URL) -> ProjectConfig?,
+        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = { _ in [] }
     ) -> IssueDetailModel {
         IssueDetailModel(
             specURL: specURL,
@@ -746,7 +829,8 @@ private final class TestEnvironment {
             projectURL: tmpDir,
             mergeRunner: mergeRunner,
             configLoader: configLoader,
-            clock: { self.now }
+            clock: { self.now },
+            discoverer: discoverer
         )
     }
 

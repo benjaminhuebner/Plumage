@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 // Intentionally no `import SwiftUI` — kept pure-Foundation so the model is
 // fully testable from any host and the animation decision (which mutations
@@ -85,6 +86,10 @@ final class ProjectKanbanModel {
     private var dropTask: Task<Void, Never>?
     private var removalTask: Task<Void, Never>?
     private var errorClearTask: Task<Void, Never>?
+    private var topOrderWriteTask: Task<Void, Never>?
+
+    private nonisolated static let logger = Logger(
+        subsystem: "com.plumage", category: "ProjectKanbanModel")
 
     init(
         producerFactory: @escaping @Sendable (URL) -> IssueSnapshotProducer = {
@@ -120,6 +125,7 @@ final class ProjectKanbanModel {
         dropTask?.cancel()
         removalTask?.cancel()
         errorClearTask?.cancel()
+        topOrderWriteTask?.cancel()
     }
 
     func run(projectURL: URL) async {
@@ -128,6 +134,8 @@ final class ProjectKanbanModel {
         await producer.start()
         for await snapshot in producer.snapshots {
             let reconciled = Self.reconcile(incoming: snapshot, pending: pendingDrop)
+            let entryOrders = Self.columnEntryOrders(
+                previous: issues, incoming: reconciled.snapshot)
             let groups = Self.group(reconciled.snapshot)
             // Mutate-only: KanbanColumnView attaches `.animation(.smooth, value:)`
             // for the FSEvent path. The pending-drop clear and the FSEvent
@@ -139,8 +147,33 @@ final class ProjectKanbanModel {
                 pendingDrop = nil
             }
             refreshBoardError(projectURL: projectURL)
+            scheduleTopOrderWrites(entryOrders, projectURL: projectURL)
         }
         await producer.stop()
+    }
+
+    private func scheduleTopOrderWrites(
+        _ writes: [(folderName: String, order: Double)], projectURL: URL
+    ) {
+        guard !writes.isEmpty else { return }
+        let mutatorFn = mutator
+        let targets = writes.map {
+            (IssueLayout.specURL(in: projectURL, folderName: $0.folderName), $0.order)
+        }
+        // Intentionally not cancelling a prior write task: each batch belongs
+        // to its own snapshot and must complete. The slot only enables the
+        // deinit cancel.
+        topOrderWriteTask = Task.detached {
+            for (specURL, order) in targets {
+                do {
+                    try mutatorFn(specURL, nil, .set(order), Date())
+                } catch {
+                    Self.logger.error(
+                        "Top-order write failed for \(specURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
+        }
     }
 
     // One stat call per (debounced) snapshot: an empty array from a missing
@@ -431,6 +464,52 @@ final class ProjectKanbanModel {
             groupedIssues = Self.group(issues)
         }
         surfaceRemovalError(error)
+    }
+
+    // No optimistic patch on column entry: the write's own FSEvent moves the
+    // card, so a failed write simply leaves it at the fallback position.
+    nonisolated static func columnEntryOrders(
+        previous: [DiscoveredIssue],
+        incoming: [DiscoveredIssue]
+    ) -> [(folderName: String, order: Double)] {
+        guard !previous.isEmpty else { return [] }
+        var previousColumns: [String: IssueColumn] = [:]
+        for item in previous {
+            if case .valid(let issue) = item {
+                previousColumns[issue.folderName] = issue.column
+            }
+        }
+        var entrantsByColumn: [IssueColumn: [DiscoveredIssue]] = [:]
+        for item in incoming {
+            guard case .valid(let issue) = item,
+                let oldColumn = previousColumns[issue.folderName],
+                oldColumn != issue.column
+            else { continue }
+            entrantsByColumn[issue.column, default: []].append(item)
+        }
+        guard !entrantsByColumn.isEmpty else { return [] }
+
+        let incomingByColumn = Dictionary(grouping: incoming, by: \.column)
+        var writes: [(folderName: String, order: Double)] = []
+        for (column, entrants) in entrantsByColumn {
+            let entrantIDs = Set(entrants.map(\.id))
+            let columnItems = (incomingByColumn[column] ?? [])
+                .filter { !entrantIDs.contains($0.id) }
+            guard let base = IssueSortKey.topOrder(in: columnItems) else { continue }
+            let sortedEntrants = entrants.sortedForKanban()
+            // A lone entrant whose explicit order already tops the column got
+            // it from its own app-initiated write — skipping stops the re-fire.
+            // An ID fallback never suppresses the write.
+            if sortedEntrants.count == 1, let only = sortedEntrants.first,
+                let explicitOrder = only.orderValue, explicitOrder <= base
+            {
+                continue
+            }
+            for (offset, entrant) in sortedEntrants.enumerated() {
+                writes.append((entrant.id, base - Double(sortedEntrants.count - 1 - offset)))
+            }
+        }
+        return writes
     }
 
     nonisolated static func reconcile(
