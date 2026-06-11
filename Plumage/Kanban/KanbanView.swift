@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct KanbanView: View {
@@ -46,12 +45,14 @@ struct KanbanView: View {
         .onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .named(KanbanCoordinateSpace.name))
         } action: { frame in
-            if !KanbanGeometry.framesNearlyEqual(kanbanFrame, frame) {
+            if !DragGeometry.framesNearlyEqual(kanbanFrame, frame) {
                 kanbanFrame = frame
             }
         }
         .overlay(alignment: .topLeading) {
-            FloatingDragCard(padding: padding)
+            FloatingDragOverlay(controller: kanbanDrag) { item in
+                IssueCardView(issue: item.issue, padding: padding)
+            }
         }
         .environment(kanbanDrag)
         .environment(\.kanbanFrameRegistry, frames)
@@ -81,14 +82,12 @@ struct KanbanView: View {
                     live.insert(item.id)
                 }
             }
-            frames.pruneCards(keeping: live)
+            frames.pruneRows(keeping: live)
             dragFilteredIssues = nil
         }
-        // .onKeyPress(.escape) does not reliably fire while a mouse drag holds
-        // the responder chain; a local NSEvent monitor catches the keystroke
-        // regardless of focus and lets us cancel the drag mid-gesture.
         .task(id: kanbanDrag.isActive) {
-            await monitorEscape()
+            guard kanbanDrag.isActive else { return }
+            await DragEscapeMonitor.run { cancelDrag() }
         }
     }
 
@@ -102,13 +101,13 @@ struct KanbanView: View {
             active: status == .dragging || status == .lifting,
             cursor: kanbanDrag.cursorLocation,
             kanbanFrame: kanbanFrame,
-            columnFrames: frames.columns
+            columnFrames: frames.containers
         )
     }
 
     private func cancelDrag() {
         guard kanbanDrag.isActive else { return }
-        withAnimation(KanbanAnimations.cancel(reduceMotion: reduceMotion)) {
+        withAnimation(DragAnimations.cancel(reduceMotion: reduceMotion)) {
             kanbanDrag.beginCancel()
         }
         // Hand the post-animation clear to the controller so its lifetime
@@ -117,39 +116,8 @@ struct KanbanView: View {
         kanbanDrag.scheduleSettle(after: .milliseconds(reduceMotion ? 50 : 300))
     }
 
-    private func monitorEscape() async {
-        guard kanbanDrag.isActive else { return }
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { @Sendable event in
-            if event.keyCode == 53 {
-                Task { @MainActor in cancelDrag() }
-                return nil
-            }
-            return event
-        }
-        defer {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-            }
-        }
-        // Suspend until .task(id:) cancels this task — the cancellation
-        // triggers when kanbanDrag.isActive flips. Previously a 50ms poll
-        // loop did the same job, but left a ~50ms trailing window where the
-        // monitor still listened past drag-end. Cancellation runs the
-        // defer-block above and removes the monitor synchronously.
-        while !Task.isCancelled {
-            do {
-                // Long suspend with no work to do: .task(id:) will throw
-                // CancellationError into Task.sleep when isActive flips, the
-                // catch breaks out, and defer fires immediately.
-                try await Task.sleep(for: .seconds(60))
-            } catch {
-                break
-            }
-        }
-    }
-
     private func updateResolvedTarget() {
-        guard kanbanDrag.isActive, let source = kanbanDrag.sourceFolderName else { return }
+        guard kanbanDrag.isActive, let source = kanbanDrag.sourceID else { return }
         let filtered: [IssueColumn: [DiscoveredIssue]]
         if let cached = dragFilteredIssues {
             filtered = cached
@@ -159,8 +127,8 @@ struct KanbanView: View {
         }
         let resolved = resolveDropTarget(
             cursor: kanbanDrag.cursorLocation,
-            cardFrames: frames.cards,
-            columnFrames: frames.columns,
+            cardFrames: frames.rows,
+            columnFrames: frames.containers,
             sortedIssues: filtered,
             sourceFolderName: source
         )
@@ -173,35 +141,8 @@ struct KanbanView: View {
         // animate to its correct slot. By driving the animation from here
         // instead, only deliberate target changes during drag are smooth;
         // the drop itself snaps.
-        withAnimation(KanbanAnimations.placeholder(reduceMotion: reduceMotion)) {
+        withAnimation(DragAnimations.placeholder(reduceMotion: reduceMotion)) {
             kanbanDrag.setTarget(resolved)
-        }
-    }
-}
-
-// Hoisted into its own view so it observes only the controller properties it
-// needs (translation, sourceFrame, status, sourceFolderName, sourceIssue).
-// KanbanView's body no longer re-evaluates on every cursor frame, and the
-// floating card no longer depends on the full ProjectKanbanModel.issues
-// array — the source issue is cached at lift time on the controller.
-private struct FloatingDragCard: View {
-    let padding: Int
-    @Environment(KanbanDragController.self) private var kanbanDrag
-
-    var body: some View {
-        if kanbanDrag.isActive, let issue = kanbanDrag.sourceIssue {
-            let frame = kanbanDrag.sourceFrame
-            let translation = kanbanDrag.translation
-            IssueCardView(issue: issue, padding: padding)
-                .frame(width: frame.width, height: frame.height)
-                .scaleEffect(kanbanDrag.status == .cancelling ? 1.0 : 1.04)
-                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
-                .offset(
-                    x: frame.minX + translation.width,
-                    y: frame.minY + translation.height
-                )
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
         }
     }
 }

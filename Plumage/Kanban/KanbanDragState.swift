@@ -1,131 +1,20 @@
 import CoreGraphics
 import Foundation
-import Observation
-import SwiftUI
 
-nonisolated enum KanbanAnimations {
-    static let reducedDuration: Double = 0.05
-
-    static func placeholder(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .linear(duration: reducedDuration) : .smooth(duration: 0.18)
-    }
-
-    static func drop(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .linear(duration: reducedDuration) : .easeOut(duration: 0.18)
-    }
-
-    static func cancel(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .linear(duration: reducedDuration) : .spring(response: 0.3, dampingFraction: 0.7)
-    }
+// The issue is cached at lift time so FloatingDragCard never scans
+// ProjectKanbanModel.issues per cursor frame and pulls no Observable
+// dependency on the full issues array.
+nonisolated struct KanbanDragItem {
+    let payload: IssueDragPayload
+    let issue: Issue
 }
 
-nonisolated enum DragStatus: Sendable, Equatable {
-    case lifting
-    case dragging
-    case dropping
-    case cancelling
-}
+typealias KanbanDragController = DragReorderController<KanbanDragItem, ResolvedDropTarget>
 
 nonisolated struct ResolvedDropTarget: Equatable, Sendable {
     let column: IssueColumn
     let target: ProjectKanbanModel.DropTarget
     let insertionFrame: CGRect
-}
-
-// Flat properties so Observation invalidates narrowly: a cursor move only
-// invalidates cursor/translation readers, not isActive/target/sourceFolderName.
-// A previous version stored the drag as a single `KanbanDragState?` and every
-// reader of `state` re-evaluated on every cursor frame, cascading into the
-// full KanbanView body and stalling the gesture.
-@Observable
-@MainActor
-final class KanbanDragController {
-    private(set) var isActive: Bool = false
-    private(set) var payload: IssueDragPayload?
-    private(set) var sourceFolderName: String?
-    // Cached at lift time so FloatingDragCard does not have to scan
-    // ProjectKanbanModel.issues every cursor frame and so it does not
-    // pull an Observable dependency on the full issues array.
-    private(set) var sourceIssue: Issue?
-    private(set) var sourceFrame: CGRect = .zero
-    private(set) var cursorLocation: CGPoint = .zero
-    private(set) var translation: CGSize = .zero
-    private(set) var target: ResolvedDropTarget?
-    private(set) var status: DragStatus = .lifting
-
-    // Owns the post-gesture animation delay. Cancelled when a new lift
-    // begins or `clear()` runs; [weak self] in the body lets the Task
-    // self-terminate when this controller deallocates without needing a
-    // MainActor-isolated deinit.
-    private var settleTask: Task<Void, Never>?
-
-    func startLift(
-        payload: IssueDragPayload,
-        sourceFolderName: String,
-        sourceIssue: Issue,
-        sourceFrame: CGRect
-    ) {
-        guard !isActive else { return }
-        settleTask?.cancel()
-        settleTask = nil
-        self.payload = payload
-        self.sourceFolderName = sourceFolderName
-        self.sourceIssue = sourceIssue
-        self.sourceFrame = sourceFrame
-        self.cursorLocation = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
-        self.translation = .zero
-        self.target = nil
-        self.status = .lifting
-        self.isActive = true
-    }
-
-    func updateCursor(location: CGPoint, translation: CGSize) {
-        guard isActive else { return }
-        self.cursorLocation = location
-        self.translation = translation
-        if status == .lifting {
-            status = .dragging
-        }
-    }
-
-    func setTarget(_ target: ResolvedDropTarget?) {
-        guard isActive else { return }
-        self.target = target
-    }
-
-    func beginDrop(finalTranslation: CGSize) {
-        guard isActive else { return }
-        status = .dropping
-        translation = finalTranslation
-    }
-
-    func beginCancel() {
-        guard isActive else { return }
-        status = .cancelling
-        translation = .zero
-    }
-
-    func clear() {
-        settleTask?.cancel()
-        settleTask = nil
-        isActive = false
-        payload = nil
-        sourceFolderName = nil
-        sourceIssue = nil
-        target = nil
-    }
-
-    // Owns the post-gesture animation delay so the UI layer does not have
-    // to spawn fire-and-forget Tasks. Cancels any prior pending settle
-    // before scheduling a new one, and is cancelled in deinit / clear.
-    func scheduleSettle(after duration: Duration) {
-        settleTask?.cancel()
-        settleTask = Task { [weak self] in
-            try? await Task.sleep(for: duration)
-            guard !Task.isCancelled else { return }
-            self?.clear()
-        }
-    }
 }
 
 nonisolated func computePlaceholderIndex(
@@ -148,6 +37,9 @@ nonisolated func computePlaceholderIndex(
     }
 }
 
+// Multi-column layering over the generic single-column resolver: pick the
+// hovered column, then resolve within it. Kanban cards are uniform, so the
+// placeholder height is the layout constant rather than a measured frame.
 nonisolated func resolveDropTarget(
     cursor: CGPoint,
     cardFrames: [String: CGRect],
@@ -161,47 +53,20 @@ nonisolated func resolveDropTarget(
     let cards = (sortedIssues[column] ?? [])
         .filter { $0.id != sourceFolderName }
 
-    if cards.isEmpty {
-        return ResolvedDropTarget(
-            column: column,
-            target: .column(column),
-            insertionFrame: columnFrames[column] ?? .zero
-        )
-    }
-
-    for card in cards {
-        guard let frame = cardFrames[card.id] else { continue }
-        if cursor.y < frame.midY {
-            // insertionFrame must point at where the SOURCE actually lands
-            // — the placeholder slot ABOVE the target card — not at the
-            // target card's own frame. The placeholder is rendered before
-            // the card with `KanbanLayout.cardSpacing` between them, so the
-            // source's real layout slot is one card-height higher than the
-            // matched card.
-            let insertionFrame = CGRect(
-                x: frame.minX,
-                y: frame.minY - KanbanLayout.cardSpacing - KanbanLayout.cardHeight,
-                width: frame.width,
-                height: KanbanLayout.cardHeight
-            )
-            return ResolvedDropTarget(
-                column: column,
-                target: .aboveCard(folderName: card.id, column: column),
-                insertionFrame: insertionFrame
-            )
+    let resolution = resolveRowDrop(
+        cursorY: cursor.y,
+        orderedRowIDs: cards.map(\.id),
+        rowFrames: cardFrames,
+        placeholderHeight: KanbanLayout.cardHeight,
+        spacing: KanbanLayout.cardSpacing,
+        containerFrame: columnFrames[column] ?? .zero
+    )
+    let target: ProjectKanbanModel.DropTarget =
+        switch resolution.position {
+        case .empty: .column(column)
+        case .before(let id): .aboveCard(folderName: id, column: column)
+        case .after(let id): .belowCard(folderName: id, column: column)
         }
-    }
-    let last = cards[cards.count - 1]
-    let lastFrame = cardFrames[last.id] ?? .zero
-    // Source's new position is BELOW lastFrame plus one spacing — the
-    // placeholder slot for belowCard sits in that gap.
-    let insertionFrame = CGRect(
-        origin: CGPoint(x: lastFrame.minX, y: lastFrame.maxY + KanbanLayout.cardSpacing),
-        size: CGSize(width: lastFrame.width, height: KanbanLayout.cardHeight)
-    )
     return ResolvedDropTarget(
-        column: column,
-        target: .belowCard(folderName: last.id, column: column),
-        insertionFrame: insertionFrame
-    )
+        column: column, target: target, insertionFrame: resolution.insertionFrame)
 }

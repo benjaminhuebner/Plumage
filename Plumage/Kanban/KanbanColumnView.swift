@@ -86,7 +86,7 @@ private struct DraggableColumnBody: View {
         // the attached DragGesture would die mid-drag. IssueCardSwitch
         // collapses to height 0 + opacity 0 while it is the drag source, so
         // its view identity (and the gesture) survives the drag.
-        let dragSource = kanbanDrag.sourceFolderName
+        let dragSource = kanbanDrag.sourceID
         let placeholderIndex = computePlaceholderIndex(
             dragTarget: kanbanDrag.target?.target,
             column: column,
@@ -99,20 +99,12 @@ private struct DraggableColumnBody: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 24)
         } else {
-            // Translate placeholderIndex (Int?) into id-based markers so the
-            // ForEach can iterate `issues` directly without an
-            // `Array(issues.enumerated())` allocation on every drag frame.
-            // placeholderBeforeID names the card the placeholder appears
-            // ABOVE; placeholderAtEnd handles the bottom-of-list case where
-            // placeholderIndex == issues.count.
-            let placeholderBeforeID: String? = placeholderIndex.flatMap { idx in
-                idx < issues.count ? issues[idx].id : nil
-            }
-            let placeholderAtEnd = placeholderIndex == issues.count
+            let markers = PlaceholderMarkers(
+                placeholderIndex: placeholderIndex, items: issues, id: \.id)
             ScrollView {
                 LazyVStack(spacing: KanbanLayout.cardSpacing) {
                     ForEach(issues, id: \.id) { item in
-                        if item.id == placeholderBeforeID {
+                        if item.id == markers.beforeID {
                             placeholderSlot
                         }
                         IssueCardSwitch(
@@ -129,7 +121,7 @@ private struct DraggableColumnBody: View {
                         // with it.
                         .id(item.id)
                     }
-                    if placeholderAtEnd {
+                    if markers.atEnd {
                         placeholderSlot
                     }
                 }

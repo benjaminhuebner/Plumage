@@ -1008,6 +1008,37 @@ extension TemplateManagerModel {
         persist(updated)
     }
 
+    func moveSharedComponent(id: String, by offset: Int) {
+        var ids = catalog.sortedSharedComponents.map(\.id)
+        guard let index = ids.firstIndex(of: id) else { return }
+        let target = index + offset
+        guard ids.indices.contains(target) else { return }
+        ids.swapAt(index, target)
+        var updated = catalog
+        updated.reorderSharedComponents(ids)
+        persist(updated)
+    }
+
+    func dropSharedComponent(id: String, at index: Int) {
+        var ids = catalog.sortedSharedComponents.map(\.id)
+        ids.removeAll { $0 == id }
+        ids.insert(id, at: min(max(index, 0), ids.count))
+        var updated = catalog
+        updated.reorderSharedComponents(ids)
+        guard updated != catalog else { return }
+        persist(updated)
+    }
+
+    func dropCategory(id: String, at index: Int) {
+        var ids = catalog.sortedCategories.map(\.id)
+        ids.removeAll { $0 == id }
+        ids.insert(id, at: min(max(index, 0), ids.count))
+        var updated = catalog
+        updated.reorderCategories(ids)
+        guard updated != catalog else { return }
+        persist(updated)
+    }
+
     func moveCategory(id: String, by offset: Int) {
         var ids = catalog.sortedCategories.map(\.id)
         guard let index = ids.firstIndex(of: id) else { return }
@@ -1025,6 +1056,21 @@ extension TemplateManagerModel {
         guard catalog.template(id: id)?.categoryID != categoryID else { return }
         var updated = catalog
         updated.moveTemplate(id: id, toCategory: categoryID)
+        persist(updated)
+    }
+
+    // One drag motion covers both the cross-category move and the in-category
+    // position: relocate first (appends last), then renumber to the gap index.
+    func dropTemplate(id: String, intoCategory categoryID: String, at index: Int) {
+        var updated = catalog
+        if updated.template(id: id)?.categoryID != categoryID {
+            updated.moveTemplate(id: id, toCategory: categoryID)
+        }
+        var ids = updated.templates(inCategory: categoryID).map(\.id)
+        ids.removeAll { $0 == id }
+        ids.insert(id, at: min(max(index, 0), ids.count))
+        updated.reorderTemplates(inCategory: categoryID, orderedIDs: ids)
+        guard updated != catalog else { return }
         persist(updated)
     }
 

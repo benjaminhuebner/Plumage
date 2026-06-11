@@ -21,11 +21,7 @@ final class KanbanAutoScroll {
     )
 
     private(set) var activeTrigger: ScrollTrigger?
-    private var tickTask: Task<Void, Never>?
-
-    nonisolated static let edgeZone: CGFloat = 10
-    nonisolated static let pointsPerSecond: CGFloat = 200
-    nonisolated static let tickIntervalMs: Int = 16
+    private let ticker = AutoScrollTicker()
 
     func update(
         active: Bool,
@@ -41,34 +37,18 @@ final class KanbanAutoScroll {
             cursor: cursor, kanbanFrame: kanbanFrame, columnFrames: columnFrames)
         guard new != activeTrigger else { return }
         activeTrigger = new
-        tickTask?.cancel()
-        guard let trigger = new else { return }
-        tickTask = Task { [weak self] in
-            while !Task.isCancelled, let self {
-                self.tick(trigger: trigger)
-                // try (no `?`) so cancellation exits the loop on the same
-                // tick rather than running one extra tick after stop().
-                do {
-                    try await Task.sleep(for: .milliseconds(Self.tickIntervalMs))
-                } catch {
-                    return
-                }
-            }
+        guard let trigger = new else {
+            ticker.stop()
+            return
+        }
+        ticker.run { [weak self] in
+            self?.tick(trigger: trigger)
         }
     }
 
     func stop() {
-        tickTask?.cancel()
-        tickTask = nil
+        ticker.stop()
         activeTrigger = nil
-    }
-
-    // Safety net for abnormal teardown paths. Primary cleanup remains the
-    // view's gesture-end → stop(). isolated deinit (Swift 6.2) cancels the
-    // 60Hz tick loop immediately rather than letting `[weak self]` defer
-    // the exit by one tick.
-    isolated deinit {
-        tickTask?.cancel()
     }
 
     nonisolated static func detectTrigger(
@@ -76,17 +56,20 @@ final class KanbanAutoScroll {
         kanbanFrame: CGRect,
         columnFrames: [IssueColumn: CGRect]
     ) -> ScrollTrigger? {
-        if cursor.x < kanbanFrame.minX + edgeZone { return .kanbanLeft }
-        if cursor.x > kanbanFrame.maxX - edgeZone { return .kanbanRight }
+        if cursor.x < kanbanFrame.minX + AutoScrollMath.edgeZone { return .kanbanLeft }
+        if cursor.x > kanbanFrame.maxX - AutoScrollMath.edgeZone { return .kanbanRight }
         for (column, frame) in columnFrames where frame.contains(cursor) {
-            if cursor.y < frame.minY + edgeZone { return .columnUp(column) }
-            if cursor.y > frame.maxY - edgeZone { return .columnDown(column) }
+            switch AutoScrollMath.verticalEdge(cursorY: cursor.y, in: frame) {
+            case .up: return .columnUp(column)
+            case .down: return .columnDown(column)
+            case nil: break
+            }
         }
         return nil
     }
 
     private func tick(trigger: ScrollTrigger) {
-        let delta = Self.pointsPerSecond * CGFloat(Self.tickIntervalMs) / 1000.0
+        let delta = AutoScrollMath.tickDelta
         switch trigger {
         case .columnUp(let column):
             scrollColumn(column, dy: -delta)
