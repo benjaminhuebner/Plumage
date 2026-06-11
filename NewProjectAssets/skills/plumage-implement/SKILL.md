@@ -23,6 +23,12 @@ If nothing matches or no relevant plugin is installed, continue — the scan hap
 
 ## Decide the entry point
 
+The argument is either the issue's folder name (slug) or **inlined issue content** — the default non-feature implement template injects the contents of `prompt.md` and `spec.md` instead of the slug. Resolve it first:
+
+- `.claude/issues/<argument>/` exists → it is the slug; continue below.
+- Otherwise treat the argument as inlined content. Locate the spec frontmatter inside it (the block carrying `id:`, `branch:`, `status:`, `type:`) and resolve the folder from it: strip the `issue/` prefix from `branch`, or pad `id` to the project's `issueIdPadding` (default 5) and glob `.claude/issues/<padded>-*`. The on-disk `spec.md` stays the source of truth for status, task ticks, and `mergeSubject` — the inlined text is upfront context only and may be stale by the time the run starts.
+- Neither an existing folder nor parseable frontmatter → stop and ask which issue is meant.
+
 Read `.claude/issues/<id-padded>-<slug>/spec.md` and dispatch on frontmatter `status` + `type`:
 
 | Status | Type | Action |

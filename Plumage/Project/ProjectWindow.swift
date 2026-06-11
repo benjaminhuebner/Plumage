@@ -479,6 +479,13 @@ struct ProjectWindow: View {
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
                 .environment(\.runWorkflow, runWorkflow(_:folderName:issueType:))
+                .environment(\.workflowCommandIsEmpty) { action, type in
+                    WorkflowCommandResolver.filtersToEmpty(
+                        action: action,
+                        type: type,
+                        override: currentConfig()?.workflows?[action]
+                    )
+                }
                 .environment(\.onProjectConfigSaved) { saved in
                     // Mirror the disk-write into ProjectModel so the rest of
                     // the window (runWorkflow → currentConfig().workflows)

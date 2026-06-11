@@ -5,6 +5,8 @@ struct IssueWorkflowActionBar: View {
     let type: IssueType
     let runWorkflow: (WorkflowAction) -> Void
 
+    @Environment(\.workflowCommandIsEmpty) private var workflowCommandIsEmpty
+
     var body: some View {
         HStack(spacing: 8) {
             ForEach(WorkflowAction.allCases, id: \.self) { action in
@@ -16,8 +18,12 @@ struct IssueWorkflowActionBar: View {
 
     @ViewBuilder
     private func button(for action: WorkflowAction) -> some View {
-        let enabled = action.isEnabled(status: status, type: type)
-        let tooltip = action.disabledTooltip(status: status, type: type)
+        let commandEmpty = workflowCommandIsEmpty(action, type)
+        let enabled = action.isEnabled(status: status, type: type) && !commandEmpty
+        let tooltip =
+            commandEmpty
+            ? "No command for this issue type."
+            : action.disabledTooltip(status: status, type: type)
         let core = Button {
             runWorkflow(action)
         } label: {

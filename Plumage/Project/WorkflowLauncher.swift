@@ -41,7 +41,6 @@ final class WorkflowLauncher {
         }
 
         workflowTask?.cancel()
-        openInspector()
 
         // Find-or-create a per-workflow tab so each Plan/Implement/Review
         // gets its own claude subprocess with the right --permission-mode and
@@ -49,26 +48,38 @@ final class WorkflowLauncher {
         // <slug>"); a repeat click on the same action+issue selects the
         // existing tab without a second inject.
         if let existing = tabs.findWorkflowTab(action: action, slug: folderName) {
+            openInspector()
             tabs.selectedTabID = existing.id
             return
         }
+
+        // Resolve the template (default or per-project override) into the
+        // sequence of lines that need to be injected into claude's REPL.
+        // Resolving before tab creation: a template whose `#if` blocks filter
+        // to empty for this issue type must not leave a dead tab behind.
+        let lines = WorkflowCommandResolver.resolve(
+            action: action,
+            slug: folderName,
+            type: issueType,
+            specURL: IssueLayout.specURL(in: projectURL, folderName: folderName),
+            promptURL: IssueLayout.promptURL(in: projectURL, folderName: folderName),
+            override: override
+        )
+        guard !lines.isEmpty else {
+            Self.log.info(
+                "runWorkflow: template resolved to no lines for \(action.slug, privacy: .public) (type \(issueType.rawValue, privacy: .public)); not starting."
+            )
+            showBanner("Workflow \(action.slug) didn't start: no command for this issue type.")
+            return
+        }
+
+        openInspector()
         let workflowTab = tabs.addWorkflowTab(
             action: action,
             slug: folderName,
             type: issueType,
             override: override
         )
-
-        // Resolve the template (default or per-project override) into the
-        // sequence of lines that need to be injected into claude's REPL.
-        let lines = WorkflowCommandResolver.resolve(
-            action: action,
-            slug: folderName,
-            specURL: IssueLayout.specURL(in: projectURL, folderName: folderName),
-            promptURL: IssueLayout.promptURL(in: projectURL, folderName: folderName),
-            override: override
-        )
-        guard !lines.isEmpty else { return }
 
         let session = workflowTab.session
         let slug = action.slug

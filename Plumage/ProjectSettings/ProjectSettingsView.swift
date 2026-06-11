@@ -219,7 +219,7 @@ struct ProjectSettingsView: View {
                     insertPlaceholder(placeholder, into: binding)
                 }
             )
-            .frame(minHeight: 90)
+            .frame(minHeight: WorkflowCommandEditor.minHeight)
             .background(Color(nsColor: .textBackgroundColor))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
@@ -237,6 +237,39 @@ struct ProjectSettingsView: View {
                     .controlSize(.small)
                     .buttonStyle(.bordered)
                 }
+                Divider()
+                    .frame(height: 14)
+                Menu {
+                    ForEach(IssueType.allCases, id: \.self) { type in
+                        Button("#if \(type.rawValue)") {
+                            insertDirectiveLine("#if \(type.rawValue)", into: binding)
+                        }
+                    }
+                } label: {
+                    Text("#if")
+                        .font(.system(.caption, design: .monospaced))
+                }
+                .controlSize(.small)
+                .fixedSize()
+                .help("Insert a type-guarded block — lines until #else/#end only run for the chosen issue type.")
+                Button {
+                    insertDirectiveLine("#else", into: binding)
+                } label: {
+                    Text("#else")
+                        .font(.system(.caption, design: .monospaced))
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .help("Invert the current block — following lines run for all types the #if does not list.")
+                Button {
+                    insertDirectiveLine("#end", into: binding)
+                } label: {
+                    Text("#end")
+                        .font(.system(.caption, design: .monospaced))
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .help("End the current type-guarded block.")
                 Spacer()
             }
         }
@@ -339,6 +372,16 @@ struct ProjectSettingsView: View {
         let current = binding.wrappedValue
         let suffix = current.hasSuffix(" ") || current.isEmpty ? "" : " "
         binding.wrappedValue = current + suffix + placeholder.token
+    }
+
+    // Directives are line-based, so the insert always lands on its own line.
+    private func insertDirectiveLine(_ directive: String, into binding: Binding<String>) {
+        let current = binding.wrappedValue
+        if current.isEmpty || current.hasSuffix("\n") {
+            binding.wrappedValue = current + directive
+        } else {
+            binding.wrappedValue = current + "\n" + directive
+        }
     }
 }
 

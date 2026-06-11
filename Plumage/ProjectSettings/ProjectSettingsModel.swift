@@ -162,9 +162,9 @@ final class ProjectSettingsModel {
 
     // Default templates — used by the per-editor reset button and to detect
     // when a command override matches the built-in (so we skip writing to disk).
-    static let planDefault = "/plumage-plan <slug> - <prompt>"
-    static let implementDefault = "/plumage-implement <slug>"
-    static let reviewDefault = "/plumage-review <slug>"
+    static let planDefault = WorkflowCommandResolver.defaultCommand(for: .plan)
+    static let implementDefault = WorkflowCommandResolver.defaultCommand(for: .implement)
+    static let reviewDefault = WorkflowCommandResolver.defaultCommand(for: .review)
 
     // Edits are rejected when the load failed or hasn't completed yet — the
     // UI should disable inputs in those states, but this guard catches any
