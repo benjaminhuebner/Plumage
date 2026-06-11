@@ -710,6 +710,69 @@ struct IssueDetailModelTests {
         #expect(model.mergeSubjectPrefill == "Sample")
     }
 
+    @Test("mergeToMain refuses while a live implement run owns the checkout")
+    func mergeToMainRefusesDuringLiveImplementRun() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            liveRunChecker: { _ in
+                LiveImplementRun(issue: "00098-other-issue", agentPid: 4711)
+            },
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
+
+        #expect(success == false)
+        #expect(model.lastMergeError == .implementRunActive(issue: "00098-other-issue"))
+        #expect(model.blockingImplementRun?.issue == "00098-other-issue")
+        #expect(model.isMerging == false)
+        #expect(mock.recordedCalls.isEmpty)
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: waiting-for-review"))
+    }
+
+    @Test("mergeToMain proceeds when no live implement run is found")
+    func mergeToMainProceedsWithoutLiveRun() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            liveRunChecker: { _ in nil },
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+
+        #expect(success == true)
+        #expect(model.lastMergeError == nil)
+        #expect(model.blockingImplementRun == nil)
+    }
+
+    @Test("refreshMergeBlocker publishes and clears the blocking run")
+    func refreshMergeBlockerPublishesAndClears() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let box = LockedBox<LiveImplementRun?>(
+            value: LiveImplementRun(issue: "00098-other-issue", agentPid: 4711)
+        )
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: MockGitProcessRunner(), resolveBinary: { Self.fakeBinary }),
+            liveRunChecker: { _ in box.value },
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+
+        await model.refreshMergeBlocker()
+        #expect(model.blockingImplementRun?.issue == "00098-other-issue")
+
+        box.mutate { $0 = nil }
+        await model.refreshMergeBlocker()
+        #expect(model.blockingImplementRun == nil)
+    }
+
     // MARK: - mergeToMain helpers
 
     nonisolated static let fakeBinary = URL(filePath: "/usr/bin/git")
@@ -820,6 +883,7 @@ private final class TestEnvironment {
 
     func makeModel(
         mergeRunner: any GitMergeRunning,
+        liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = { _ in nil },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig?,
         discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = { _ in [] }
     ) -> IssueDetailModel {
@@ -828,6 +892,7 @@ private final class TestEnvironment {
             folderName: "00001-test",
             projectURL: tmpDir,
             mergeRunner: mergeRunner,
+            liveRunChecker: liveRunChecker,
             configLoader: configLoader,
             clock: { self.now },
             discoverer: discoverer

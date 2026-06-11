@@ -352,6 +352,7 @@ struct IssueDetailView: View {
                             branch: issue.branch,
                             subjectPrefill: model.mergeSubjectPrefill,
                             isMerging: model.isMerging,
+                            blockingRunIssue: model.blockingImplementRun?.issue,
                             errorMessage: mergeBannerMessage,
                             nonFatalNotice: model.lastMergeNotice,
                             onDismissError: {
@@ -371,6 +372,15 @@ struct IssueDetailView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
+                    .task {
+                        // Poll while the merge section is visible: the
+                        // run-state file isn't covered by any watcher, and the
+                        // button must re-enable when the run finishes.
+                        while !Task.isCancelled {
+                            await model.refreshMergeBlocker()
+                            try? await Task.sleep(for: .seconds(3))
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

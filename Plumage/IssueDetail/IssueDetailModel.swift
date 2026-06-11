@@ -62,6 +62,9 @@ final class IssueDetailModel {
     private(set) var lastSeenIssue: DiscoveredIssue?
     private(set) var allocationError: String?
     private(set) var isMerging: Bool = false
+    // Live implement run owning this checkout — merging would switch the
+    // run's branch underneath it, so the UI disables merge while set.
+    private(set) var blockingImplementRun: LiveImplementRun?
     private(set) var lastMergeError: GitMergeError?
     // Set when the merge wrote to disk but the spec-status flip failed
     // afterwards — surfaced as a critical banner so the user knows to fix
@@ -100,6 +103,7 @@ final class IssueDetailModel {
     private nonisolated let writer: SpecWriting
     private nonisolated let mutator: FrontmatterMutating
     private nonisolated let mergeRunner: any GitMergeRunning
+    private nonisolated let liveRunChecker: @Sendable (URL) -> LiveImplementRun?
     private nonisolated let configLoader: @Sendable (URL) -> ProjectConfig?
     private nonisolated let clock: @Sendable () -> Date
     private nonisolated let discoverer: @Sendable (URL) -> [DiscoveredIssue]
@@ -124,6 +128,9 @@ final class IssueDetailModel {
         writer: SpecWriting = DefaultSpecWriter(),
         mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
+        liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = {
+            ImplementRunScanner.liveImplementRun(in: $0)
+        },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
@@ -139,6 +146,7 @@ final class IssueDetailModel {
         self.writer = writer
         self.mutator = mutator
         self.mergeRunner = mergeRunner
+        self.liveRunChecker = liveRunChecker
         self.configLoader = configLoader
         self.clock = clock
         self.discoverer = discoverer
@@ -179,6 +187,9 @@ final class IssueDetailModel {
         writer: SpecWriting = DefaultSpecWriter(),
         mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
+        liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = {
+            ImplementRunScanner.liveImplementRun(in: $0)
+        },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
@@ -194,6 +205,7 @@ final class IssueDetailModel {
         self.writer = writer
         self.mutator = mutator
         self.mergeRunner = mergeRunner
+        self.liveRunChecker = liveRunChecker
         self.configLoader = configLoader
         self.clock = clock
         self.discoverer = discoverer
@@ -275,6 +287,19 @@ final class IssueDetailModel {
         isMerging = true
         defer { isMerging = false }
 
+        // Merging switches the checkout to the default branch, which would
+        // land a live implement run's next commit on the wrong branch.
+        // Racy by design — a run starting after this check is accepted.
+        let checker = liveRunChecker
+        let liveRun = await Task.detached(priority: .userInitiated) {
+            checker(projectURL)
+        }.value
+        blockingImplementRun = liveRun
+        if let liveRun {
+            lastMergeError = .implementRunActive(issue: liveRun.issue)
+            return false
+        }
+
         let runner = mergeRunner
         let issueBranch = currentIssue.branch
         let mutatorFn = mutator
@@ -328,6 +353,14 @@ final class IssueDetailModel {
         }
         await reloadFromDiskAfterOwnWrite()
         return true
+    }
+
+    func refreshMergeBlocker() async {
+        guard let projectURL else { return }
+        let checker = liveRunChecker
+        blockingImplementRun = await Task.detached(priority: .utility) {
+            checker(projectURL)
+        }.value
     }
 
     func clearMergeError() {

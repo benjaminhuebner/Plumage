@@ -8,6 +8,7 @@ nonisolated enum GitMergeMode: String, Sendable, Equatable {
 
 nonisolated enum GitMergeError: Error, Sendable, Equatable {
     case gitNotFound
+    case implementRunActive(issue: String)
     case workingTreeDirty(files: [String])
     case branchNotFound(name: String)
     case notFastForward(defaultBranch: String, issueBranch: String)
@@ -18,6 +19,10 @@ nonisolated enum GitMergeError: Error, Sendable, Equatable {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"
+        case .implementRunActive(let issue):
+            return
+                "An implement run for `\(issue)` is active in this checkout. "
+                + "Merging would switch its branch underneath the run — wait for it to finish."
         case .workingTreeDirty(let files):
             let head = files.prefix(5).joined(separator: ", ")
             let suffix = files.count > 5 ? " …and \(files.count - 5) more" : ""

@@ -71,7 +71,18 @@ The run-state file at `<bundle>/runs/<slug>.json` is how the run survives crashe
 
 ## Parallel runs
 
-Two implement runs on disjoint issues can proceed concurrently — **one run per git worktree**, never two in one checkout (they would fight over branch, index, and working tree; the fresh-start liveness check enforces this). Setup:
+Two implement runs on disjoint issues can proceed concurrently — **one run per git worktree**, never two in one checkout (they would fight over branch, index, and working tree; the fresh-start liveness check enforces this). Setup is one call:
+
+```bash
+scripts/setup-worktree.sh <slug>
+```
+
+It creates `../<project>-<slug>` detached from the default branch, provisions `.claude/` and the `*.plumage` bundle for the repo's layout, and prints the next steps (`cd` there, `claude`, `/plumage-implement <slug>`). Running it for a second, third, fourth slug yields independent parallel runs. The provisioning rules it enforces — binding for any manual setup too:
+
+- **Never symlink the bundle.** The bundle resolver glob (`find -maxdepth 1 -type d`) is symlink-blind, and a shared `runs/` would make every fresh start see the other worktree's run as live. The script copies the bundle without `runs/` and `sessions/`, so each worktree owns its run-state.
+- **`.claude/` follows tracked-ness.** Tracked → it arrives with the checkout, nothing to provision. Untracked → it is symlinked to the *primary* worktree's copy so spec status flips and PR.md propagate back to where the app and the merge look for them (a copied `.claude/` silently loses that propagation).
+
+Manual fallback, for tracked `.claude/` + bundle only — untracked layouts use the script:
 
 ```bash
 git worktree add --detach ../<project>-<slug> <defaultBranch>
@@ -83,16 +94,26 @@ claude        # separate session, then: /plumage-implement <slug>
 
 Each worktree has its own working tree, index, and checked-out branch; commits land on each run's own `issue/<slug>`, sharing one repository.
 
-**What serializes:** builds and tests never run in parallel. The gate lock is keyed on the repo's common git dir, so it is shared across all worktrees — the later gate prints `waiting for gate lock held by PID <n>` and continues automatically when the lock frees (the skill passes `--wait`). Implementation work between gates runs fully in parallel.
+**What serializes:** builds and tests never run in parallel. The gate lock is keyed on the repo's common git dir, so it is shared across all worktrees — the later gate prints `waiting for gate lock held by PID <n>` and continues automatically when the lock frees (the skill passes `--wait=1800`, so a queue of N runs plus a cold-worktree full build doesn't hit the 900 s default timeout). Implementation work between gates runs fully in parallel.
+
+**App-instance verification:** any manual launch, computer-use driving, or screenshot session against the app under test is bracketed by the same lock the gates use:
+
+```bash
+LOCK_OWNER_PID=$(ps -o ppid= -p $$) scripts/exclusive-lock.sh acquire --wait
+# … launch the app, drive it, verify …
+# quit the app instance, THEN:
+LOCK_OWNER_PID=$(ps -o ppid= -p $$) scripts/exclusive-lock.sh release
+```
+
+While the lock is held, parallel gates queue behind it instead of killing the instance (`--close-instances`) or stealing mouse and keyboard focus mid-verification. Quit the instance *before* releasing so the desktop is clean when the next gate fires; release *before* running your own gate — the gate's PID differs from the session PID, so it would queue behind your own exclusive lock. The `LOCK_OWNER_PID` prefix is required in agent sessions: each tool shell dies by the next call, and evaluated in the tool shell the expression yields the long-lived session PID (the same idiom as the run-state `agentPid`).
 
 **Caveats:**
 
-- `--close-instances` kills running instances of the app under test by bundle name, globally — including a manually launched verification instance from the other worktree. Inherent to the shared bundle ID; relaunch after the gate.
-- If both runs append to `decisions.md`/`notes.md`, the second squash-merge conflicts. Trivial keep-both resolution.
+- `--close-instances` kills running instances of the app under test by bundle name, globally — including a manually launched verification instance from the other worktree (unless that verification holds the exclusive lock, see above). Inherent to the shared bundle ID; relaunch after the gate.
+- Docs append race: re-read `decisions.md`/`notes.md` immediately before appending — the Edit tool's stale-file check forces a re-read when a parallel run appended in between, so the race is self-healing. If both runs still append between each other's merges, the second squash-merge conflicts; trivial keep-both resolution.
 - A fresh worktree starts with cold DerivedData — its first gate pays a full build.
-- A branch checked out in one worktree cannot be checked out in another; git's own error on resume is the desired protection (another run owns that branch).
-- The project's `.claude/` tree and `*.plumage` bundle must exist in the new worktree. In a standard Plumage project they are tracked and arrive with the checkout; if a repo keeps them untracked, copy or symlink them in first.
-- Cleanup after merge stays manual: `git worktree remove ../<project>-<slug>`, then delete the branch.
+- A branch checked out in one worktree cannot be checked out in another; git's own error on resume is the desired protection (another run owns that branch). `setup-worktree.sh` refuses such a slug up front.
+- After merge: `scripts/teardown-worktree.sh <slug>` removes the worktree (refuses on a dirty tree) and deletes `issue/<slug>` only when the spec status is `done` — squash merges leave no git ancestry to prove "merged", the spec status is the source of truth. `--force` overrides both guards.
 
 ## Per-task loop
 
@@ -100,8 +121,9 @@ For each unchecked task in the spec, in order:
 
 1. Update run-state: `phase: "running task <n>"`, `lastProgressAt` to now.
 2. **Implement.** Make the code changes the task describes. Read the spec section for context. Stay inside the task's scope — if a related change is needed, finish the current task first, then add a new task to the spec rather than silently expanding.
-3. **Default gate.** Run `scripts/precommit-gate.sh --wait --close-instances` (add `--first-commit` on this run's first commit). `--wait` queues behind a gate from a parallel worktree run instead of erroring — a `waiting for gate lock held by PID <n>` line is normal, not a failure. The fast default gate is the per-task standard behind every commit (~15 s): it builds, runs the test suite minus `.integration`/`*UITests` suites, lints, and scans for secrets. Zero warnings is compiler-enforced (`SWIFT_TREAT_WARNINGS_AS_ERRORS`). A new test added in this task must be green; existing tests must not regress. If an earlier step already built via a higher-fidelity tool, pass `--skip-build`. For a non-code task (docs only) the gate's build/test are a fast no-op — still run it.
+3. **Default gate.** Run `scripts/precommit-gate.sh --wait=1800 --close-instances` (add `--first-commit` on this run's first commit). `--wait=1800` queues behind a gate from a parallel worktree run instead of erroring — a `waiting for gate lock held by PID <n>` line is normal, not a failure. The fast default gate is the per-task standard behind every commit (~15 s): it builds, runs the test suite minus `.integration`/`*UITests` suites, lints, and scans for secrets. Zero warnings is compiler-enforced (`SWIFT_TREAT_WARNINGS_AS_ERRORS`). A new test added in this task must be green; existing tests must not regress. If an earlier step already built via a higher-fidelity tool, pass `--skip-build`. For a non-code task (docs only) the gate's build/test are a fast no-op — still run it.
 4. **On pass:**
+    - **Branch assert.** `git branch --show-current` must print exactly `issue/<slug>`. On mismatch, stop: set run-state `phase: "failed at task <n>"` and tell the user the checkout was switched underneath the run (an app merge on an old build, or a manual `git checkout`) — never commit onto a foreign branch.
     - Tick the task and bump `updated:` in one shot: `scripts/spec-task-tick.py .claude/issues/<id-padded>-<slug>/spec.md --task 1`. The script counts only unchecked tasks under `## Tasks`, ignores `[ ]` inside fenced code blocks and other sections, and writes atomically. Calling it with `--task 1` always means "the next unchecked one".
     - Stage only the files this task touched: `git add <file> <file>...`. **Never** `git add -A` — unrelated dirty state (stale build artifacts, a config edit from another session) must not ride along in the commit.
     - Commit: `git commit -m "<imperative single-line message>"`. Present tense, no period, describes the result.
@@ -115,7 +137,7 @@ For each unchecked task in the spec, in order:
 After the last task, before PR.md. Update run-state phase → `"pre-commit-gate"`.
 
 ```bash
-scripts/precommit-gate.sh --full --wait --close-instances
+scripts/precommit-gate.sh --full --wait=1800 --close-instances
 ```
 
 The default gate already ran behind every commit; this single `--full` pass adds the `.integration` suites and the swift-format full-tree sweep — the slow, real-I/O checks worth running once at the end (target ≤ 4 min, typically far less on a warm cache). Seven checks total: build, tests, SwiftLint, swift-format, untracked-secret-files, hardcoded-secret-in-diff, and (with `--first-commit`) `.gitignore` sanity. See `references/precommit-gate.md` for the rationale per check and what failures mean.
