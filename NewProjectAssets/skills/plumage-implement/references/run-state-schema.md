@@ -55,7 +55,7 @@ bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
 | `lastUserVisibleAction` | Plumage | On UI events | Free text; safe to ignore from inside the skill |
 | `plumagePid` | Plumage | At session start | The GUI's PID |
 | `plumageHeartbeatAt` | Plumage | Every 10s | The GUI heartbeat — **the skill must not write this** |
-| `agentPid` | skill | At fresh start | Claude's PID via `$$` |
+| `agentPid` | skill | At fresh start | The `claude` session PID via `ps -o ppid= -p $$` (parent of the tool shell). Never `$$` itself — each Bash tool call runs in a fresh shell that is dead by the next call, so `$$` would always read as a crashed run |
 | `agentLastOutputAt` | Plumage's PTY reader | Debounced to 1s | The skill **does not** write this — Plumage's PTY-read-handler updates it from observing terminal output |
 | `phase` | skill | On every transition | Values: `starting`, `running task N`, `pre-commit-gate`, `writing PR.md`, `failed at task N` |
 | `lastProgressAt` | skill | On phase change, task tick | Drives the Liveness verdict |
@@ -80,7 +80,7 @@ At the start of a fresh run, the skill writes:
   "runId": "<new ULID>",
   "issue": "<slug>",
   "startedAt": "<now>",
-  "agentPid": <$$>,
+  "agentPid": <session PID: ps -o ppid= -p $$>,
   "phase": "starting",
   "lastProgressAt": "<now>",
   "branch": "issue/<slug>",

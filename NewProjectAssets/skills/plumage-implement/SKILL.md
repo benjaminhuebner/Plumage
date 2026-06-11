@@ -48,12 +48,13 @@ The run-state file at `<bundle>/runs/<slug>.json` is how the run survives crashe
 ## Fresh start
 
 1. **Check the working tree.** Run `git status`. If there are uncommitted changes, stop and ask the user — stash, commit, or discard — before continuing. Do not carry dirty state onto the issue branch.
-2. Read `git.defaultBranch` from `<bundle>/config.json` (default `main`).
-3. Capture `headBeforeRun = git rev-parse <defaultBranch>`.
-4. Write the initial run-state file with `phase: "starting"`, `lastCompletedTask: 0`, and `totalTasks` set to the count of unchecked tasks in the spec's `## Tasks` section.
-5. Branch: `git checkout <defaultBranch> && git checkout -b issue/<slug>`. If `issue/<slug>` already exists, check it out instead.
-6. Set spec frontmatter `status: in-progress`, `updated:` to now.
-7. **Brief plan.** Before Task 1, restate the spec's technical approach in 2–3 sentences:
+2. **Check for a live run in this checkout.** Scan `<bundle>/runs/*.json` for another implement run whose `agentPid` is alive. Treat a missing, zero, or non-numeric `agentPid` as dead — `kill -0 0` probes the caller's own process group and always succeeds, so validate before probing. If a live run exists, stop: two implement runs must not share a checkout (they would fight over branch, index, and working tree). Point the user to the worktree workflow (see "Parallel runs"). Entries with a dead `agentPid` are crash leftovers and don't block.
+3. Read `git.defaultBranch` from `<bundle>/config.json` (default `main`).
+4. Capture `headBeforeRun = git rev-parse <defaultBranch>`.
+5. Write the initial run-state file with `phase: "starting"`, `lastCompletedTask: 0`, `totalTasks` set to the count of unchecked tasks in the spec's `## Tasks` section, and `agentPid` set to the session PID, captured as `ps -o ppid= -p $$` — the long-lived `claude` process that owns this session. Never write `$$` itself: each Bash tool call runs in a fresh shell that is dead by the next call, so `$$` would make this run look crashed to step 2 of a parallel start.
+6. Branch: `git checkout -b issue/<slug> <defaultBranch>` — one command, no checkout of `<defaultBranch>` first. This is what makes fresh starts work in a secondary worktree, where `<defaultBranch>` is typically checked out in the primary and `git checkout <defaultBranch>` would fail. If `issue/<slug>` already exists, check it out instead.
+7. Set spec frontmatter `status: in-progress`, `updated:` to now.
+8. **Brief plan.** Before Task 1, restate the spec's technical approach in 2–3 sentences:
     - Which files/modules will be touched.
     - The architectural choice for this issue — if the spec pins it down, confirm; if the spec leaves room, state the choice now.
     - Anything that looked clear in the spec but is ambiguous now that the code is in front of the agent.
@@ -68,13 +69,38 @@ The run-state file at `<bundle>/runs/<slug>.json` is how the run survives crashe
 4. If no run-state file exists but the spec says `in-progress` (e.g., the user did things manually): treat the next unchecked task as the resume point and write a fresh run-state.
 5. Skip the brief plan — it ran on the original fresh start.
 
+## Parallel runs
+
+Two implement runs on disjoint issues can proceed concurrently — **one run per git worktree**, never two in one checkout (they would fight over branch, index, and working tree; the fresh-start liveness check enforces this). Setup:
+
+```bash
+git worktree add --detach ../<project>-<slug> <defaultBranch>
+cd ../<project>-<slug>
+claude        # separate session, then: /plumage-implement <slug>
+```
+
+`--detach` matters: without it the command fails whenever `<defaultBranch>` is checked out in the primary worktree (a branch can only be checked out once per repo). The detached HEAD is fine — fresh start branches explicitly with `git checkout -b issue/<slug> <defaultBranch>`.
+
+Each worktree has its own working tree, index, and checked-out branch; commits land on each run's own `issue/<slug>`, sharing one repository.
+
+**What serializes:** builds and tests never run in parallel. The gate lock is keyed on the repo's common git dir, so it is shared across all worktrees — the later gate prints `waiting for gate lock held by PID <n>` and continues automatically when the lock frees (the skill passes `--wait`). Implementation work between gates runs fully in parallel.
+
+**Caveats:**
+
+- `--close-instances` kills running instances of the app under test by bundle name, globally — including a manually launched verification instance from the other worktree. Inherent to the shared bundle ID; relaunch after the gate.
+- If both runs append to `decisions.md`/`notes.md`, the second squash-merge conflicts. Trivial keep-both resolution.
+- A fresh worktree starts with cold DerivedData — its first gate pays a full build.
+- A branch checked out in one worktree cannot be checked out in another; git's own error on resume is the desired protection (another run owns that branch).
+- The project's `.claude/` tree and `*.plumage` bundle must exist in the new worktree. In a standard Plumage project they are tracked and arrive with the checkout; if a repo keeps them untracked, copy or symlink them in first.
+- Cleanup after merge stays manual: `git worktree remove ../<project>-<slug>`, then delete the branch.
+
 ## Per-task loop
 
 For each unchecked task in the spec, in order:
 
 1. Update run-state: `phase: "running task <n>"`, `lastProgressAt` to now.
 2. **Implement.** Make the code changes the task describes. Read the spec section for context. Stay inside the task's scope — if a related change is needed, finish the current task first, then add a new task to the spec rather than silently expanding.
-3. **Default gate.** Run `scripts/precommit-gate.sh --close-instances` (add `--first-commit` on this run's first commit). The fast default gate is the per-task standard behind every commit (~15 s): it builds, runs the test suite minus `.integration`/`*UITests` suites, lints, and scans for secrets. Zero warnings is compiler-enforced (`SWIFT_TREAT_WARNINGS_AS_ERRORS`). A new test added in this task must be green; existing tests must not regress. If an earlier step already built via a higher-fidelity tool, pass `--skip-build`. For a non-code task (docs only) the gate's build/test are a fast no-op — still run it.
+3. **Default gate.** Run `scripts/precommit-gate.sh --wait --close-instances` (add `--first-commit` on this run's first commit). `--wait` queues behind a gate from a parallel worktree run instead of erroring — a `waiting for gate lock held by PID <n>` line is normal, not a failure. The fast default gate is the per-task standard behind every commit (~15 s): it builds, runs the test suite minus `.integration`/`*UITests` suites, lints, and scans for secrets. Zero warnings is compiler-enforced (`SWIFT_TREAT_WARNINGS_AS_ERRORS`). A new test added in this task must be green; existing tests must not regress. If an earlier step already built via a higher-fidelity tool, pass `--skip-build`. For a non-code task (docs only) the gate's build/test are a fast no-op — still run it.
 4. **On pass:**
     - Tick the task and bump `updated:` in one shot: `scripts/spec-task-tick.py .claude/issues/<id-padded>-<slug>/spec.md --task 1`. The script counts only unchecked tasks under `## Tasks`, ignores `[ ]` inside fenced code blocks and other sections, and writes atomically. Calling it with `--task 1` always means "the next unchecked one".
     - Stage only the files this task touched: `git add <file> <file>...`. **Never** `git add -A` — unrelated dirty state (stale build artifacts, a config edit from another session) must not ride along in the commit.
@@ -89,7 +115,7 @@ For each unchecked task in the spec, in order:
 After the last task, before PR.md. Update run-state phase → `"pre-commit-gate"`.
 
 ```bash
-scripts/precommit-gate.sh --full --close-instances
+scripts/precommit-gate.sh --full --wait --close-instances
 ```
 
 The default gate already ran behind every commit; this single `--full` pass adds the `.integration` suites and the swift-format full-tree sweep — the slow, real-I/O checks worth running once at the end (target ≤ 4 min, typically far less on a warm cache). Seven checks total: build, tests, SwiftLint, swift-format, untracked-secret-files, hardcoded-secret-in-diff, and (with `--first-commit`) `.gitignore` sanity. See `references/precommit-gate.md` for the rationale per check and what failures mean.
