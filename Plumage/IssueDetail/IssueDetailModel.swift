@@ -104,6 +104,7 @@ final class IssueDetailModel {
     private nonisolated let mutator: FrontmatterMutating
     private nonisolated let mergeRunner: any GitMergeRunning
     private nonisolated let liveRunChecker: @Sendable (URL) -> LiveImplementRun?
+    private nonisolated let mergedIssueRunLocator: @Sendable (URL, String) async -> String?
     private nonisolated let configLoader: @Sendable (URL) -> ProjectConfig?
     private nonisolated let clock: @Sendable () -> Date
     private nonisolated let discoverer: @Sendable (URL) -> [DiscoveredIssue]
@@ -131,6 +132,9 @@ final class IssueDetailModel {
         liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = {
             ImplementRunScanner.liveImplementRun(in: $0)
         },
+        mergedIssueRunLocator: @escaping @Sendable (URL, String) async -> String? = {
+            await IssueDetailModel.locateIssueRun(projectURL: $0, folderName: $1)
+        },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
@@ -147,6 +151,7 @@ final class IssueDetailModel {
         self.mutator = mutator
         self.mergeRunner = mergeRunner
         self.liveRunChecker = liveRunChecker
+        self.mergedIssueRunLocator = mergedIssueRunLocator
         self.configLoader = configLoader
         self.clock = clock
         self.discoverer = discoverer
@@ -170,6 +175,22 @@ final class IssueDetailModel {
         return values?.volumeIsLocal ?? false
     }
 
+    nonisolated static func locateIssueRun(projectURL: URL, folderName: String) async -> String? {
+        let worktrees = (try? await GitWorktreeLister().worktrees(repoURL: projectURL)) ?? []
+        let roots = worktrees.isEmpty ? [projectURL] : worktrees.map(\.path)
+        if let owner = ImplementRunScanner.liveImplementRuns(acrossWorktreeRoots: roots)
+            .first(where: { $0.run.issue == folderName })
+        {
+            return "active in \(owner.checkoutRoot.lastPathComponent)"
+        }
+        if ImplementRunScanner.queuedImplementRuns(in: projectURL)
+            .contains(where: { $0.issue == folderName })
+        {
+            return "queued in this checkout"
+        }
+        return nil
+    }
+
     // Safety net for abnormal teardown paths where .onDisappear is skipped.
     // Primary cleanup remains the view's .onDisappear → cancelPendingWork.
     // isolated deinit (Swift 6.2) so we can touch the @MainActor state.
@@ -190,6 +211,9 @@ final class IssueDetailModel {
         liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = {
             ImplementRunScanner.liveImplementRun(in: $0)
         },
+        mergedIssueRunLocator: @escaping @Sendable (URL, String) async -> String? = {
+            await IssueDetailModel.locateIssueRun(projectURL: $0, folderName: $1)
+        },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
@@ -206,6 +230,7 @@ final class IssueDetailModel {
         self.mutator = mutator
         self.mergeRunner = mergeRunner
         self.liveRunChecker = liveRunChecker
+        self.mergedIssueRunLocator = mergedIssueRunLocator
         self.configLoader = configLoader
         self.clock = clock
         self.discoverer = discoverer
@@ -300,6 +325,15 @@ final class IssueDetailModel {
             return false
         }
 
+        // The merged issue's own run may live outside the primary checkout:
+        // active in a parallel worktree, or still waiting in the queue.
+        if let folder = folderName,
+            let location = await mergedIssueRunLocator(projectURL, folder)
+        {
+            lastMergeError = .mergedIssueRunActive(issue: folder, location: location)
+            return false
+        }
+
         let runner = mergeRunner
         let issueBranch = currentIssue.branch
         let mutatorFn = mutator
@@ -348,7 +382,9 @@ final class IssueDetailModel {
             return false
         }
 
-        if let deleteErr = outcome.branchDeleteError {
+        if let cleanupNotice = outcome.worktreeCleanupNotice {
+            lastMergeNotice = "Merge succeeded, but \(cleanupNotice)."
+        } else if let deleteErr = outcome.branchDeleteError {
             lastMergeNotice = "Merge succeeded, but branch was not deleted: \(deleteErr)"
         }
         await reloadFromDiskAfterOwnWrite()

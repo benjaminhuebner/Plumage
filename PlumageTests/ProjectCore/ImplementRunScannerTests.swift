@@ -126,6 +126,86 @@ struct ImplementRunScannerTests {
         #expect(ImplementRunScanner.liveImplementRun(in: emptyRoot) == nil)
     }
 
+    private func writeQueueEntry(
+        _ json: String, name: String, in runsDir: URL
+    ) throws {
+        let queueDir = runsDir.appendingPathComponent("queue", isDirectory: true)
+        try FileManager.default.createDirectory(at: queueDir, withIntermediateDirectories: true)
+        try json.write(
+            to: queueDir.appendingPathComponent(name),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    @Test("queued runs come back in FIFO filename order, dead waiters skipped")
+    func queuedRunsFifoAndDeadSkip() throws {
+        let (root, runsDir) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let livePid = ProcessInfo.processInfo.processIdentifier
+        let dead = try Self.deadPid()
+        try writeQueueEntry(
+            #"{"slug": "00002-second", "agentPid": \#(livePid)}"#,
+            name: "000002-00002-second.json", in: runsDir
+        )
+        try writeQueueEntry(
+            #"{"slug": "00001-first", "agentPid": \#(livePid)}"#,
+            name: "000001-00001-first.json", in: runsDir
+        )
+        try writeQueueEntry(
+            #"{"slug": "00003-dead", "agentPid": \#(dead)}"#,
+            name: "000003-00003-dead.json", in: runsDir
+        )
+
+        let queued = ImplementRunScanner.queuedImplementRuns(in: root)
+        #expect(queued.map(\.issue) == ["00001-first", "00002-second"])
+    }
+
+    @Test("malformed, slug-less, and invalid-pid queue entries are ignored")
+    func queuedRunsIgnoreInvalid() throws {
+        let (root, runsDir) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let livePid = ProcessInfo.processInfo.processIdentifier
+        try writeQueueEntry("{not json", name: "000001-broken.json", in: runsDir)
+        try writeQueueEntry(
+            #"{"agentPid": \#(livePid)}"#, name: "000002-no-slug.json", in: runsDir)
+        try writeQueueEntry(
+            #"{"slug": "00003-zero", "agentPid": 0}"#, name: "000003-zero.json", in: runsDir)
+
+        #expect(ImplementRunScanner.queuedImplementRuns(in: root).isEmpty)
+    }
+
+    @Test("missing queue directory means nothing is queued")
+    func queuedRunsMissingDirectory() throws {
+        let (root, _) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(ImplementRunScanner.queuedImplementRuns(in: root).isEmpty)
+    }
+
+    @Test("scanning across worktree roots pairs each live run with its checkout")
+    func liveRunsAcrossWorktreeRoots() throws {
+        let (busyRoot, busyRuns) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: busyRoot) }
+        let (idleRoot, idleRuns) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: idleRoot) }
+        let livePid = ProcessInfo.processInfo.processIdentifier
+        let dead = try Self.deadPid()
+        try writeRunState(
+            #"{"kind": "implement", "issue": "00042-some-issue", "agentPid": \#(livePid)}"#,
+            in: busyRuns
+        )
+        try writeRunState(
+            #"{"kind": "implement", "issue": "00007-crashed", "agentPid": \#(dead)}"#,
+            slug: "00007-crashed",
+            in: idleRuns
+        )
+
+        let runs = ImplementRunScanner.liveImplementRuns(acrossWorktreeRoots: [busyRoot, idleRoot])
+        #expect(runs.count == 1)
+        #expect(runs.first?.checkoutRoot == busyRoot)
+        #expect(runs.first?.run.issue == "00042-some-issue")
+    }
+
     @Test("dead leftover does not hide a later live run")
     func deadLeftoverPlusLiveRun() throws {
         let (root, runsDir) = try makeProject()

@@ -64,6 +64,8 @@ bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
 | `lastCompletedTask` | skill | After each task passes | Integer; 0 means none done yet |
 | `totalTasks` | skill (write once) | At fresh start | Count of unchecked tasks in the spec |
 
+During the per-task loop, the skill-side writes to `lastCompletedTask`, `phase`, and `lastProgressAt` are performed by `scripts/complete-task.sh` (one atomic read-modify-write per completed task, setting the *next* phase — `"running task <n+1>"`, or `"pre-commit-gate"` after the last task). The agent writes these fields directly only outside the loop: at fresh start, on resume corrections, and when marking `"failed at task <n>"` after a task is given up.
+
 ## Atomic writes
 
 All writes to the run-state file must be atomic. Write the new JSON to `<bundle>/runs/<slug>.json.tmp`, then `mv` it to `<bundle>/runs/<slug>.json`. Never write in place — a crash mid-write would leave a half-written JSON exactly when recovery needs to read it.

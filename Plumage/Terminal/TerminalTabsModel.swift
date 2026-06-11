@@ -97,9 +97,17 @@ final class TerminalTabsModel {
         selectedTabID = tab.id
     }
 
+    // A worktree implement run carries a title suffix so the tab is
+    // distinguishable; dedupe must match both forms or a re-click would
+    // spawn a duplicate normal tab next to the worktree one.
+    static func worktreeTitle(base: String) -> String {
+        "\(base) — worktree"
+    }
+
     func findWorkflowTab(action: WorkflowAction, slug: String) -> TerminalTab? {
         let title = action.tabTitle(slug: slug)
-        return tabs.first(where: { $0.title == title })
+        let worktreeTitle = Self.worktreeTitle(base: title)
+        return tabs.first(where: { $0.title == title || $0.title == worktreeTitle })
     }
 
     @discardableResult
@@ -107,23 +115,25 @@ final class TerminalTabsModel {
         action: WorkflowAction,
         slug: String,
         type: IssueType,
-        override: WorkflowOverride? = nil
+        override: WorkflowOverride? = nil,
+        worktreeRoot: URL? = nil
     ) -> TerminalTab {
         let resolved =
             modelsConfig?.workflowResolved(action, type: type)
             ?? ModelsConfig.slotDefault(for: action.modelSlot)
         let permMode = override?.permissionMode ?? action.permissionMode
         let session = TerminalClaudeSession(
-            cwd: cwd,
+            cwd: worktreeRoot ?? cwd,
             binaryURL: binaryURL,
             modelChoice: resolved,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
             permissionMode: permMode
         )
+        let baseTitle = action.tabTitle(slug: slug)
         let tab = TerminalTab(
             session: session,
-            title: action.tabTitle(slug: slug),
+            title: worktreeRoot != nil ? Self.worktreeTitle(base: baseTitle) : baseTitle,
             isWorkflow: true
         )
         tabs.append(tab)

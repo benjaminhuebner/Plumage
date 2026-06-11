@@ -560,6 +560,30 @@ struct ProjectWindow: View {
                     Text("You can restore it from the Trash.")
                 }
             }
+            .confirmationDialog(
+                "An implement run is already active",
+                isPresented: Binding(
+                    get: { workflowLauncher.pendingImplement != nil },
+                    set: { if !$0 { workflowLauncher.cancelPendingImplement() } }
+                ),
+                presenting: workflowLauncher.pendingImplement
+            ) { _ in
+                Button("Start in Worktree") {
+                    workflowLauncher.confirmPendingImplement(.worktree)
+                }
+                Button("Wait in Queue") {
+                    workflowLauncher.confirmPendingImplement(.wait)
+                }
+                Button("Cancel", role: .cancel) {
+                    workflowLauncher.cancelPendingImplement()
+                }
+            } message: { pending in
+                Text(
+                    "\(pending.blocker) is running in this checkout. "
+                        + "Start \(pending.slug) in its own worktree and run in parallel, "
+                        + "or wait in line — a queued run starts by itself when it's its turn."
+                )
+            }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
                 Text("Couldn't open this project.")

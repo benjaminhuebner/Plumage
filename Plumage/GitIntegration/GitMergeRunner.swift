@@ -9,6 +9,7 @@ nonisolated enum GitMergeMode: String, Sendable, Equatable {
 nonisolated enum GitMergeError: Error, Sendable, Equatable {
     case gitNotFound
     case implementRunActive(issue: String)
+    case mergedIssueRunActive(issue: String, location: String)
     case workingTreeDirty(files: [String])
     case branchNotFound(name: String)
     case notFastForward(defaultBranch: String, issueBranch: String)
@@ -23,6 +24,10 @@ nonisolated enum GitMergeError: Error, Sendable, Equatable {
             return
                 "An implement run for `\(issue)` is active in this checkout. "
                 + "Merging would switch its branch underneath the run — wait for it to finish."
+        case .mergedIssueRunActive(let issue, let location):
+            return
+                "The implement run for `\(issue)` is \(location). "
+                + "Wait for it to finish (or stop it) before merging this issue."
         case .workingTreeDirty(let files):
             let head = files.prefix(5).joined(separator: ", ")
             let suffix = files.count > 5 ? " …and \(files.count - 5) more" : ""
@@ -54,6 +59,9 @@ nonisolated struct GitMergeOutcome: Sendable, Equatable {
     // nil = branch delete not requested OR succeeded. Non-nil = delete failed
     // after a successful merge; UI surfaces this as a non-fatal banner.
     let branchDeleteError: String?
+    // Non-fatal: the issue branch's worktree (and with it the branch) was
+    // deliberately kept — dirty tree, or removal failed. Never forced.
+    var worktreeCleanupNotice: String?
 }
 
 nonisolated protocol GitMergeRunning: Sendable {
@@ -123,11 +131,59 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
                 originalBranch: originalBranch, defaultBranch: defaultBranch)
             throw error
         }
-        let deleteError =
-            deleteBranch
-            ? await safeDeleteBranch(binary: binary, repoURL: repoURL, branch: issueBranch, mode: mode)
-            : nil
-        return GitMergeOutcome(branchDeleteError: deleteError)
+        guard deleteBranch else {
+            return GitMergeOutcome(branchDeleteError: nil)
+        }
+        // A branch checked out in a worktree cannot be deleted — remove the
+        // (clean) worktree first; a dirty one keeps worktree and branch.
+        switch await removeWorktreeOwning(branch: issueBranch, binary: binary, repoURL: repoURL) {
+        case .kept(let reason):
+            return GitMergeOutcome(branchDeleteError: nil, worktreeCleanupNotice: reason)
+        case .none, .removed:
+            let deleteError = await safeDeleteBranch(
+                binary: binary, repoURL: repoURL, branch: issueBranch, mode: mode)
+            return GitMergeOutcome(branchDeleteError: deleteError)
+        }
+    }
+
+    private enum WorktreeCleanup {
+        case none
+        case removed
+        case kept(String)
+    }
+
+    private func removeWorktreeOwning(
+        branch: String, binary: URL, repoURL: URL
+    ) async -> WorktreeCleanup {
+        guard
+            let list = try? await callGit(
+                binary: binary, repoURL: repoURL, args: ["worktree", "list", "--porcelain"]),
+            list.exitCode == 0
+        else { return .none }
+        let worktrees = GitWorktreeLister.parse(
+            porcelain: String(decoding: list.stdout, as: UTF8.self))
+        guard let owner = worktrees.first(where: { $0.branch == branch }) else { return .none }
+
+        let path = owner.path.path
+        guard
+            let status = try? await callGit(
+                binary: binary, repoURL: owner.path, args: ["status", "--porcelain"]),
+            status.exitCode == 0
+        else {
+            return .kept("couldn't check the worktree at \(path) — worktree and branch were kept")
+        }
+        if !status.stdout.isEmpty {
+            return .kept(
+                "the worktree at \(path) has uncommitted changes — worktree and branch were kept")
+        }
+        guard
+            let remove = try? await callGit(
+                binary: binary, repoURL: repoURL, args: ["worktree", "remove", path]),
+            remove.exitCode == 0
+        else {
+            return .kept("removing the worktree at \(path) failed — worktree and branch were kept")
+        }
+        return .removed
     }
 
     // MARK: - Pre-checks

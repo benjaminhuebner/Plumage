@@ -734,6 +734,89 @@ struct IssueDetailModelTests {
         #expect(onDisk.contains("status: waiting-for-review"))
     }
 
+    private struct StubMergeRunner: GitMergeRunning {
+        let outcome: GitMergeOutcome
+
+        func mergeIssueBranch(
+            repoURL: URL,
+            defaultBranch: String,
+            issueBranch: String,
+            mode: GitMergeMode,
+            commitSubject: String?,
+            deleteBranch: Bool
+        ) async throws -> GitMergeOutcome {
+            outcome
+        }
+    }
+
+    @Test("a kept worktree after merge surfaces as a notice")
+    func worktreeCleanupNoticeSurfaces() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let model = env.makeModel(
+            mergeRunner: StubMergeRunner(
+                outcome: GitMergeOutcome(
+                    branchDeleteError: nil,
+                    worktreeCleanupNotice:
+                        "the worktree at /tmp/x has uncommitted changes — worktree and branch were kept"
+                )),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(
+            mode: .fastForward, commitSubject: nil, deleteBranch: true)
+
+        #expect(success)
+        #expect(model.lastMergeNotice?.contains("worktree and branch were kept") == true)
+    }
+
+    @Test("mergeToMain refuses while the merged issue runs in a worktree")
+    func mergeToMainRefusesWhenIssueRunsInWorktree() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            mergedIssueRunLocator: { _, folder in
+                folder == "00001-test" ? "active in Proj-00001-test" : nil
+            },
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(
+            mode: .fastForward, commitSubject: nil, deleteBranch: true)
+
+        #expect(success == false)
+        #expect(
+            model.lastMergeError
+                == .mergedIssueRunActive(
+                    issue: "00001-test", location: "active in Proj-00001-test"))
+        #expect(mock.recordedCalls.isEmpty)
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("status: waiting-for-review"))
+    }
+
+    @Test("mergeToMain refuses while the merged issue is queued")
+    func mergeToMainRefusesWhenIssueIsQueued() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            mergedIssueRunLocator: { _, _ in "queued in this checkout" },
+            configLoader: { _ in Self.configWith(defaultBranch: "main") }
+        )
+        await model.load()
+
+        let success = await model.mergeToMain(
+            mode: .fastForward, commitSubject: nil, deleteBranch: true)
+
+        #expect(success == false)
+        #expect(
+            model.lastMergeError
+                == .mergedIssueRunActive(issue: "00001-test", location: "queued in this checkout"))
+        #expect(mock.recordedCalls.isEmpty)
+    }
+
     @Test("mergeToMain proceeds when no live implement run is found")
     func mergeToMainProceedsWithoutLiveRun() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
@@ -884,6 +967,9 @@ private final class TestEnvironment {
     func makeModel(
         mergeRunner: any GitMergeRunning,
         liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = { _ in nil },
+        mergedIssueRunLocator: @escaping @Sendable (URL, String) async -> String? = { _, _ in
+            nil
+        },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig?,
         discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = { _ in [] }
     ) -> IssueDetailModel {
@@ -893,6 +979,7 @@ private final class TestEnvironment {
             projectURL: tmpDir,
             mergeRunner: mergeRunner,
             liveRunChecker: liveRunChecker,
+            mergedIssueRunLocator: mergedIssueRunLocator,
             configLoader: configLoader,
             clock: { self.now },
             discoverer: discoverer
