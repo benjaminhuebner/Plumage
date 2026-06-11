@@ -50,9 +50,9 @@ final class FinderFileTreeCoordinator: NSObject {
         }
     }
 
-    // The outline sizes itself to its rows inside the clip view — its frame
-    // height IS the content height, animations and automatic row heights
-    // included, so observing the frame beats recomputing row rects.
+    // Frame observation alone misses shrinking: the outline is stretched to
+    // fill its clip, so a collapse never changes the frame — the height must
+    // come from the last row's rect, recomputed on every structural event.
     func observeContentHeight(of outline: NSOutlineView) {
         outline.postsFrameChangedNotifications = true
         frameObserver = NotificationCenter.default.addObserver(
@@ -64,13 +64,14 @@ final class FinderFileTreeCoordinator: NSObject {
         }
     }
 
-    private func reportContentHeight() {
+    func reportContentHeight() {
         guard let outlineView, let onContentHeightChange else { return }
-        let height = outlineView.frame.height
+        let rows = outlineView.numberOfRows
+        let height = rows > 0 ? outlineView.rect(ofRow: rows - 1).maxY : 0
         guard height != lastReportedHeight else { return }
         lastReportedHeight = height
-        // Frame changes can land mid layout pass — never write SwiftUI state
-        // synchronously from here.
+        // Structural events can land mid layout pass — never write SwiftUI
+        // state synchronously from here.
         Task { @MainActor in
             onContentHeightChange(height)
         }
@@ -94,6 +95,7 @@ final class FinderFileTreeCoordinator: NSObject {
             rebuildAll()
             outlineView?.reloadData()
             applyExpansionState()
+            reportContentHeight()
             return
         }
         let diffs = FileTreeDiff.diff(old: oldNodes, new: newNodes)
@@ -106,6 +108,7 @@ final class FinderFileTreeCoordinator: NSObject {
         for diff in diffs { apply(diff, to: outlineView) }
         outlineView.endUpdates()
         applyExpansionState()
+        reportContentHeight()
     }
 
     private func rebuildAll() {
@@ -595,6 +598,7 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
     }
 
     func outlineViewItemDidExpand(_ notification: Notification) {
+        defer { reportContentHeight() }
         guard !isApplyingExpansion,
             let item = notification.userInfo?["NSObject"] as? FinderFileTreeItem
         else { return }
@@ -603,6 +607,7 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
     }
 
     func outlineViewItemDidCollapse(_ notification: Notification) {
+        defer { reportContentHeight() }
         guard !isApplyingExpansion,
             let item = notification.userInfo?["NSObject"] as? FinderFileTreeItem
         else { return }
