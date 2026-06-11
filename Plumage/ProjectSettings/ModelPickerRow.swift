@@ -4,11 +4,26 @@ struct ModelPickerRow: View {
     let label: String
     @Binding var choice: ModelChoice
 
+    var body: some View {
+        HStack {
+            Text(label)
+                .frame(width: 160, alignment: .leading)
+            ModelPickerCore(choice: $choice)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+struct ModelPickerCore: View {
+    @Binding var choice: ModelChoice
+    var mixed: Bool = false
+
     static let presets: [ModelChoice] = [.default, .fable, .opus, .sonnet, .haiku]
 
     private enum Selection: Hashable {
         case preset(ModelChoice)
         case custom
+        case mixed
     }
 
     // "Custom…" can be picked before any text is committed; `choice` keeps its
@@ -19,14 +34,16 @@ struct ModelPickerRow: View {
 
     var body: some View {
         HStack {
-            Text(label)
-                .frame(width: 160, alignment: .leading)
             Picker("", selection: selectionBinding) {
                 ForEach(Self.presets, id: \.self) { option in
                     Text(option.displayName).tag(Selection.preset(option))
                 }
                 Text(customRowLabel)
                     .tag(Selection.custom)
+                if mixed {
+                    Text("Mixed")
+                        .tag(Selection.mixed)
+                }
             }
             .labelsHidden()
             .pickerStyle(.menu)
@@ -41,7 +58,6 @@ struct ModelPickerRow: View {
                         if !focused { commitCustomText() }
                     }
             }
-            Spacer(minLength: 0)
         }
         .onAppear(perform: syncFromChoice)
         .onChange(of: choice) { syncFromChoice() }
@@ -63,6 +79,7 @@ struct ModelPickerRow: View {
             get: {
                 if customSelected { return .custom }
                 if case .custom = choice { return .custom }
+                if mixed { return .mixed }
                 return .preset(choice)
             },
             set: { newValue in
@@ -74,6 +91,10 @@ struct ModelPickerRow: View {
                 case .custom:
                     customSelected = true
                     customFieldFocused = true
+                case .mixed:
+                    // Display state only — the row exists so the menu can show
+                    // "Mixed" as the current selection, it is never applied.
+                    break
                 }
             }
         )

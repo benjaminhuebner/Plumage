@@ -98,36 +98,128 @@ enum WorkflowCommandSerialization {
         return regex
     }()
 
+    // Group 1 excludes the line's leading/trailing whitespace so that stays
+    // plain text; `#end junk`/`#else junk` deliberately don't match here.
+    nonisolated static let directivePattern: NSRegularExpression = {
+        let raw = "^[ \\t]*(#if(?:[ \\t]+[^ \\t\\r\\n]+)+|#else|#end)[ \\t]*$"
+        guard
+            let regex = try? NSRegularExpression(pattern: raw, options: [.anchorsMatchLines])
+        else {
+            preconditionFailure("Invariant: directive regex must compile")
+        }
+        return regex
+    }()
+
+    // U+FFFC (attachment char) is excluded so a chip glued to a slash command
+    // doesn't get swallowed into the highlighted token.
+    nonisolated static let lineCommandPattern: NSRegularExpression = {
+        let raw = "^(/[^\\s\\x{FFFC}]+)"
+        guard
+            let regex = try? NSRegularExpression(pattern: raw, options: [.anchorsMatchLines])
+        else {
+            preconditionFailure("Invariant: line command regex must compile")
+        }
+        return regex
+    }()
+
+    // Re-applied wholesale on every change: the reset pass clears highlights
+    // on lines that stopped matching (e.g. the leading `/` was deleted).
+    @MainActor
+    static func applyCommandHighlighting(to storage: NSMutableAttributedString) {
+        let plain = storage.string
+        let fullRange = NSRange(location: 0, length: (plain as NSString).length)
+        guard fullRange.length > 0 else { return }
+        storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: fullRange)
+        storage.addAttribute(
+            .font,
+            value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            range: fullRange
+        )
+        lineCommandPattern.enumerateMatches(in: plain, options: [], range: fullRange) {
+            match, _, _ in
+            guard let match else { return }
+            storage.addAttribute(
+                .foregroundColor, value: NSColor.controlAccentColor, range: match.range
+            )
+            storage.addAttribute(
+                .font,
+                value: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold),
+                range: match.range
+            )
+        }
+    }
+
+    // nil when any `#if` token is not a known issue type — the whole line
+    // then stays plain text, which is the user's typo signal.
+    nonisolated static func directiveKind(
+        for text: String
+    ) -> WorkflowCommandDirectiveCell.Kind? {
+        guard let directive = WorkflowCommandDirective.parse(line: text) else { return nil }
+        switch directive {
+        case .open(let tokens):
+            guard !tokens.isEmpty else { return nil }
+            let types = tokens.compactMap(IssueType.init(rawValue:))
+            guard types.count == tokens.count else { return nil }
+            return .open(types: types)
+        case .elseBranch:
+            return .elseBranch
+        case .end:
+            return .end
+        }
+    }
+
     @MainActor
     static func attributedString(from raw: String) -> NSAttributedString {
         let nsRaw = raw as NSString
-        let result = NSMutableAttributedString()
-        var cursor = 0
         let fullRange = NSRange(location: 0, length: nsRaw.length)
         let defaultAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
             .foregroundColor: NSColor.labelColor,
         ]
+
+        struct Replacement {
+            let range: NSRange
+            let attachment: NSTextAttachment
+        }
+        var replacements: [Replacement] = []
+
         placeholderPattern.enumerateMatches(in: raw, options: [], range: fullRange) {
             match, _, _ in
             guard let match else { return }
-            if match.range.location > cursor {
+            let placeholderRaw = nsRaw.substring(with: match.range(at: 1))
+            guard let placeholder = WorkflowPlaceholder(rawValue: placeholderRaw) else {
+                return
+            }
+            let attachment = NSTextAttachment()
+            attachment.attachmentCell = WorkflowCommandPlaceholderCell(placeholder: placeholder)
+            replacements.append(Replacement(range: match.range, attachment: attachment))
+        }
+        directivePattern.enumerateMatches(in: raw, options: [], range: fullRange) {
+            match, _, _ in
+            guard let match else { return }
+            let textRange = match.range(at: 1)
+            let text = nsRaw.substring(with: textRange)
+            guard let kind = directiveKind(for: text) else { return }
+            let attachment = NSTextAttachment()
+            attachment.attachmentCell = WorkflowCommandDirectiveCell(kind: kind, rawText: text)
+            replacements.append(Replacement(range: textRange, attachment: attachment))
+        }
+        replacements.sort { $0.range.location < $1.range.location }
+
+        let result = NSMutableAttributedString()
+        var cursor = 0
+        for replacement in replacements {
+            if replacement.range.location > cursor {
                 let pre = nsRaw.substring(
                     with: NSRange(
                         location: cursor,
-                        length: match.range.location - cursor
+                        length: replacement.range.location - cursor
                     )
                 )
                 result.append(NSAttributedString(string: pre, attributes: defaultAttrs))
             }
-            let placeholderRaw = nsRaw.substring(with: match.range(at: 1))
-            if let placeholder = WorkflowPlaceholder(rawValue: placeholderRaw) {
-                let cell = WorkflowCommandPlaceholderCell(placeholder: placeholder)
-                let attachment = NSTextAttachment()
-                attachment.attachmentCell = cell
-                result.append(NSAttributedString(attachment: attachment))
-            }
-            cursor = match.range.location + match.range.length
+            result.append(NSAttributedString(attachment: replacement.attachment))
+            cursor = replacement.range.location + replacement.range.length
         }
         if cursor < nsRaw.length {
             let tail = nsRaw.substring(
@@ -135,6 +227,7 @@ enum WorkflowCommandSerialization {
             )
             result.append(NSAttributedString(string: tail, attributes: defaultAttrs))
         }
+        applyCommandHighlighting(to: result)
         return result
     }
 
@@ -150,6 +243,8 @@ enum WorkflowCommandSerialization {
             ) as? NSTextAttachment {
                 if let cell = attachment.attachmentCell as? WorkflowCommandPlaceholderCell {
                     output.append(cell.placeholder.token)
+                } else if let cell = attachment.attachmentCell as? WorkflowCommandDirectiveCell {
+                    output.append(cell.rawText)
                 } else if let object = attachment.fileWrapper?.preferredFilename {
                     output.append(object)
                 }

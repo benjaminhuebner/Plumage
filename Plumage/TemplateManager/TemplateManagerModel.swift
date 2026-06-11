@@ -110,13 +110,19 @@ final class TemplateManagerModel {
     private(set) var structuralError: String?
     private var structuralErrorTask: Task<Void, Never>?
 
-    private let store: TemplateCatalogStore
+    let store: TemplateCatalogStore
     let overrides: ScaffoldOverrides
 
     // Trigger metadata for user-authored hooks, persisted so a later scaffold wires
     // them into `settings.json`. Injectable for hermetic tests.
-    private let hookWiringStoreURL: URL?
+    let hookWiringStoreURL: URL?
     private(set) var hookWirings: HookWiringStore
+
+    // A read archive awaiting the user's selection in the import sheet; non-nil
+    // presents the sheet. Its staging dir lives until apply or cancel.
+    var pendingImport: TemplateArchiveContents?
+    var pendingImportSelection: Set<String> = []
+    private(set) var archiveImportTask: Task<Void, Never>?
 
     init(
         store: TemplateCatalogStore = TemplateCatalogStore(),
@@ -550,6 +556,18 @@ final class TemplateManagerModel {
 
     @discardableResult
     func importDropped(urls: [URL], intoStoreDir targetDir: String) -> Bool {
+        var urls = urls
+        let archives = urls.filter(TemplateArchiveFileType.isArchive)
+        if let archive = archives.first {
+            urls.removeAll(where: TemplateArchiveFileType.isArchive)
+            if archives.count > 1 {
+                showDropBanner("Importing one archive at a time: \(archive.lastPathComponent)")
+            }
+            // The drop callback is synchronous; the archive read is a subprocess.
+            // The task handle makes the hand-off awaitable for tests.
+            archiveImportTask = Task { await beginImport(fromArchive: archive) }
+            if urls.isEmpty { return true }
+        }
         guard let overrideRoot = overrides.overrideRoot else {
             showDropBanner("No override store is available.")
             return false
@@ -1409,7 +1427,37 @@ extension TemplateManagerModel {
         }
     }
 
-    private func showStructuralError(_ message: String) {
+    // Lives here (not the Archive extension) because it assigns the
+    // private(set) catalog and wirings — memory changes only on apply success.
+    func confirmImport() {
+        guard let contents = pendingImport else { return }
+        let importer = TemplateArchiveImporter(catalog: catalog, overrides: overrides)
+        do {
+            let result = try importer.apply(
+                contents,
+                selectedItemIDs: pendingImportSelection,
+                store: store,
+                hookWirings: hookWirings,
+                hookWiringsURL: hookWiringStoreURL
+            )
+            catalog = result.catalog
+            hookWirings = result.hookWirings
+            refreshContent()
+        } catch {
+            showStructuralError(Self.archiveErrorMessage(error))
+        }
+        contents.cleanup()
+        pendingImport = nil
+        pendingImportSelection = []
+    }
+
+    func cancelImport() {
+        pendingImport?.cleanup()
+        pendingImport = nil
+        pendingImportSelection = []
+    }
+
+    func showStructuralError(_ message: String) {
         structuralErrorTask?.cancel()
         structuralError = message
         structuralErrorTask = Task { [weak self] in

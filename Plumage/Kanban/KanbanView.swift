@@ -153,7 +153,7 @@ private func kanbanPreviewIssues() -> [DiscoveredIssue] {
             Issue(
                 id: 1, folderName: "00001-walking-skeleton", title: "Walking Skeleton",
                 type: .chore, status: .done, created: .distantPast, updated: .distantPast,
-                branch: "issue/00001-walking-skeleton", labels: ["bootstrap"], model: nil
+                branch: "issue/00001-walking-skeleton", labels: ["bootstrap"]
             )
         ),
         .valid(
@@ -161,7 +161,7 @@ private func kanbanPreviewIssues() -> [DiscoveredIssue] {
                 id: 2, folderName: "00002-config", title: "Project config",
                 type: .feature, status: .waitingForReview, created: .distantPast,
                 updated: .distantPast,
-                branch: "issue/00002-config", labels: ["feature", "v0.1"], model: nil
+                branch: "issue/00002-config", labels: ["feature", "v0.1"]
             )
         ),
         .valid(
@@ -169,7 +169,7 @@ private func kanbanPreviewIssues() -> [DiscoveredIssue] {
                 id: 3, folderName: "00003-list", title: "List view",
                 type: .feature, status: .inProgress, created: .distantPast,
                 updated: .distantPast,
-                branch: "issue/00003-list", labels: ["feature", "v0.1"], model: nil
+                branch: "issue/00003-list", labels: ["feature", "v0.1"]
             )
         ),
         .valid(
@@ -177,7 +177,7 @@ private func kanbanPreviewIssues() -> [DiscoveredIssue] {
                 id: 4, folderName: "00004-discovery", title: "Discovery",
                 type: .feature, status: .approved, created: .distantPast,
                 updated: .distantPast,
-                branch: "issue/00004-discovery", labels: ["feature", "v0.1"], model: nil
+                branch: "issue/00004-discovery", labels: ["feature", "v0.1"]
             )
         ),
         .valid(
@@ -185,7 +185,7 @@ private func kanbanPreviewIssues() -> [DiscoveredIssue] {
                 id: 5, folderName: "00005-kanban", title: "Kanban grouping",
                 type: .feature, status: .draft, created: .distantPast,
                 updated: .distantPast,
-                branch: "issue/00005-kanban", labels: ["feature", "v0.1"], model: nil
+                branch: "issue/00005-kanban", labels: ["feature", "v0.1"]
             )
         ),
         .invalid(

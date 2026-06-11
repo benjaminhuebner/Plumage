@@ -104,7 +104,7 @@ struct OptimisticDropTests {
             id: id, folderName: folder, title: "t",
             type: .feature, status: status,
             created: .distantPast, updated: .distantPast,
-            branch: "issue/\(folder)", labels: [], model: nil, order: order
+            branch: "issue/\(folder)", labels: [], order: order
         )
     }
 }

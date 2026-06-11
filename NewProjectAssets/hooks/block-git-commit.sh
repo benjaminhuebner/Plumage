@@ -59,6 +59,13 @@ fi
 
 # --- Subcommand extraction -----------------------------------------------
 
+# Blank quoted strings before tokenization: a commit message that *mentions*
+# "git push" is not a git push. Quoted invocations (`sh -c "git push"`) become
+# a blind spot — accepted; unquoted chained forms still tokenize and block.
+strip_quoted() {
+  printf '%s' "$1" | tr '\n' ' ' | sed -e 's/"[^"]*"/""/g' -e "s/'[^']*'/''/g"
+}
+
 extract_git_subcmds() {
   echo "$1" | awk '
   {
@@ -120,7 +127,7 @@ get_current_branch() {
 
 # --- Policy enforcement --------------------------------------------------
 
-subcmds=$(extract_git_subcmds "$command")
+subcmds=$(extract_git_subcmds "$(strip_quoted "$command")")
 [[ -z "$subcmds" ]] && exit 0
 
 while IFS= read -r tok; do

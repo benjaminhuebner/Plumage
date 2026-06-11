@@ -7,8 +7,11 @@
 #
 # Behavior:
 #   - Scans .claude/issues/**/spec.md and .claude/issues/archive/**/spec.md
-#     for the highest `id:` value in frontmatter.
-#   - Next ID = highest + 1 (starts at 1 if no issues exist).
+#     for the highest `id:` value in frontmatter, folding in reserved IDs
+#     from the .claude/issues/.allocated/ ledger.
+#   - Next ID = highest + 1 (starts at 1 if no issues exist), reserved via
+#     atomic mkdir of .allocated/<id> — a parallel session losing the race
+#     retries one higher. Markers are permanent (a crash burns one ID).
 #   - Padding = max(issueIdPadding from <bundle>/config.json, len(str(nextId))).
 #   - Creates .claude/issues/<padded-id>-<slug>/spec.md from _TEMPLATE.md.
 #   - Substitutes <<<ID>>>, <<<ID_PADDED>>>, <<<TITLE>>>, <<<SLUG>>>, <<<CREATED>>>.
@@ -78,7 +81,33 @@ if [ -d "$issues_dir" ]; then
         highest="$found"
     fi
 fi
-next_id=$((highest + 1))
+# Fold reserved-but-unused IDs from the ledger into the highest-ID scan.
+ledger="${issues_dir}/.allocated"
+if [ -d "$ledger" ]; then
+    marker_max="$(ls -1 "$ledger" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1 || true)"
+    if [ -n "$marker_max" ] && [ "$marker_max" -gt "$highest" ]; then
+        highest="$marker_max"
+    fi
+fi
+
+# Reserve the next ID. Atomic mkdir (no -p) is the compare-and-swap: it fails
+# when a parallel session holds the candidate; the loser retries one higher.
+mkdir -p "$ledger"
+next_id=""
+# 10# forces decimal: a hand-padded value ("00089") would otherwise be read
+# as octal by $((...)) and abort the script on digits 8/9.
+candidate=$((10#$highest))
+for _ in $(seq 1 64); do
+    candidate=$((candidate + 1))
+    if mkdir "${ledger}/${candidate}" 2>/dev/null; then
+        next_id="$candidate"
+        break
+    fi
+done
+if [ -z "$next_id" ]; then
+    echo "error: couldn't reserve an issue ID after 64 attempts; inspect ${ledger}" >&2
+    exit 2
+fi
 
 # Padding: read issueIdPadding from <bundle>/config.json (default 5).
 padding=5

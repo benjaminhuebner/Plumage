@@ -1,6 +1,6 @@
 ---
 name: plumage-review
-description: This skill should be used when the user runs `/plumage-review <slug>` or asks to "review the PR", "check this before merge", "go over issue NNNN", or "tell me if this is mergeable". Reads an issue's spec, PR.md, and the cumulative diff against the default branch, cross-checks against PROJECT.md and decisions.md, and appends a structured review section to PR.md ending with one of three recommendations (Accept / Reject / Discuss). Do NOT use to merge, reject the issue, or move status — those are user actions via Plumage's UI buttons.
+description: This skill should be used when the user runs `/plumage-review <slug>` or asks to "review the PR", "check this before merge", "go over issue NNNN", or "tell me if this is mergeable". Reads an issue's spec, PR.md, and the cumulative diff against the default branch, cross-checks against PROJECT.md and decisions.md, and appends a structured review section to PR.md ending with one of two recommendations (Accept / Discuss). Do NOT use to merge, reject the issue, or move status — those are user actions via Plumage's UI buttons.
 user-invocable: true
 disable-model-invocation: true
 ---
@@ -15,7 +15,7 @@ This skill works without the Plumage app: invoke `/plumage-review <slug>` direct
 
 Identify the task surface — what domains and tooling this issue actually touches — from the spec, the user's request, or the issue description. Then scan installed skills and subagents and invoke every one whose description matches that surface, before any real work begins. The `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so the routing is manual.
 
-- Skills via the Skill tool, subagents via the Task tool.
+- Skills via the Skill tool, subagents via the Agent tool.
 - Match on description, not name. Invoke when the description covers the task surface; don't invoke speculatively because a name sounds related.
 - Re-scan when work reveals a domain that wasn't obvious at the start.
 
@@ -33,6 +33,8 @@ Read `.claude/issues/<id-padded>-<slug>/spec.md` and dispatch on frontmatter `st
 | `done` | Stop. Already merged. Review is for pre-merge inspection. |
 
 Also confirm: the issue branch `issue/<slug>` exists and `PR.md` exists in the issue folder. If either is missing, stop and report — the issue is in an inconsistent state.
+
+**Check for a live implement run in this checkout.** A `/plumage-implement` run on *any* issue reads and writes the working tree the review is about to inspect. Resolve the bundle — `bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)` — and scan `<bundle>/runs/*.json` for an implement run whose `agentPid` is alive. Treat a missing, zero, or non-numeric `agentPid` as dead — `kill -0 0` probes the caller's own process group and always succeeds, so validate before probing. If a live run exists, stop: name the run (issue, PID) and point the user to the worktree workflow (section "Parallel runs" in plumage-implement's SKILL.md) — review in a separate worktree, or wait until the run finishes. Entries with a dead `agentPid` are crash leftovers and don't block. A missing `runs/` directory means no live run — proceed. A live run in *another* worktree writes its own bundle copy there and correctly never blocks this checkout.
 
 ## Read project context
 
@@ -105,6 +107,7 @@ Stop and ask under any of these conditions:
 
 - Spec status is not `waiting-for-review` (see Preconditions).
 - `PR.md` is missing or the issue branch does not exist.
+- A live implement run exists in this checkout (see Preconditions) — the working tree is changing under the review.
 - The diff is empty (`git diff <defaultBranch>...issue/<slug>` produces nothing) — something is wrong with the branch state.
 - A finding requires reading code outside the project root.
 - Whether something is blocking or stylistic is genuinely unclear — ask the user once, then proceed with their framing.

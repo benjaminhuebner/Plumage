@@ -80,7 +80,6 @@ struct SortKeyTests {
                 updated: .distantPast,
                 branch: "issue/x",
                 labels: [],
-                model: nil,
                 order: order
             )
         )

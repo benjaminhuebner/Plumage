@@ -17,7 +17,7 @@
 # Usage:
 #   scripts/precommit-gate.sh [--full] [--first-commit] [--skip-build]
 #                             [--skip-tests] [--with-uitests]
-#                             [--close-instances] [--timing]
+#                             [--close-instances] [--timing] [--wait[=secs]]
 #
 # Flags:
 #   --full           Comprehensive mode (see above). Default is the fast mode.
@@ -32,6 +32,11 @@
 #                    instance makes the test step SKIP (never auto-kills, since
 #                    this script also runs from the app's own toolbar).
 #   --timing         Append per-step wallclock " (Xs)" and a "total: Xs" trailer.
+#   --wait[=secs]    If a live gate run holds the lock, wait for it to free
+#                    (poll every 2 s; default timeout 900 s) instead of failing
+#                    fast. On timeout, exit 2 naming the owner PID. Used by
+#                    /plumage-implement so gates from parallel worktree runs
+#                    queue; the toolbar button keeps the fail-fast default.
 #
 # Test-plan selection (auto-detected from the repo root):
 #   default plan = first  *.xctestplan  that is NOT  *.Full.xctestplan
@@ -52,7 +57,8 @@
 #   0  all checks passed (or skipped)
 #   1  at least one check failed
 #   2  environment problem (missing tools, not in a git repo, no Swift project,
-#      or another gate run already holds the lock)
+#      or a live gate run holds the lock — the lock is shared across all
+#      worktrees of the repo; a lock whose owner is dead is taken over)
 
 set -uo pipefail
 
@@ -66,6 +72,8 @@ skip_tests_reason="--skip-tests"
 skip_uitests=1
 close_instances=0
 timing=0
+wait_for_lock=0
+wait_secs=900
 
 for arg in "$@"; do
     case "$arg" in
@@ -76,6 +84,17 @@ for arg in "$@"; do
         --with-uitests)    skip_uitests=0    ;;
         --close-instances) close_instances=1 ;;
         --timing)          timing=1          ;;
+        --wait)            wait_for_lock=1   ;;
+        --wait=*)
+            wait_for_lock=1
+            wait_secs="${arg#--wait=}"
+            case "$wait_secs" in
+                ''|0|*[!0-9]*)
+                    echo "error: --wait expects a positive integer (got: ${wait_secs:-empty})" >&2
+                    exit 2
+                    ;;
+            esac
+            ;;
         -h|--help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -94,23 +113,39 @@ if [ -z "$repo_root" ]; then
     echo "error: not inside a git repository" >&2
     exit 2
 fi
-cd "$repo_root"
 
 # ---- Single-instance lock ---------------------------------------------------
 #
-# Two xcodebuild invocations against the same project deadlock over
-# DerivedData/SWBBuildService. The native toolbar button and a /plumage-implement
-# run can both reach this script, so guard with a per-repo lock (atomic mkdir;
-# macOS has no flock). Released on EXIT; a -9'd run leaves a stale dir the
-# message below tells the user to remove.
-lock_key=$(printf '%s' "$repo_root" | shasum 2>/dev/null | cut -c1-12 || echo default)
-lock_dir="${TMPDIR:-/tmp}/plumage-precommit-gate-${lock_key}.lock"
-if ! mkdir "$lock_dir" 2>/dev/null; then
-    echo "error: another precommit-gate run holds the lock ($lock_dir)." >&2
-    echo "       wait for it to finish, or remove the lock dir if it is stale." >&2
-    exit 2
+# The native toolbar button and /plumage-implement runs — including runs in
+# other worktrees of the same repo — can all reach this script, so guard with
+# the shared lock from lock-lib.sh (also taken by exclusive-lock.sh to keep
+# gates away from a manually driven app instance). Sourced before the cd so a
+# relative invocation path still resolves.
+. "${BASH_SOURCE%/*}/lock-lib.sh"
+cd "$repo_root"
+
+if ! try_acquire_lock; then
+    if [ $wait_for_lock -eq 1 ]; then
+        echo "waiting for gate lock held by PID $lock_owner (timeout ${wait_secs}s)..." >&2
+        wait_start=$(date +%s)
+        acquired=0
+        while [ $(( $(date +%s) - wait_start )) -lt "$wait_secs" ]; do
+            sleep 2
+            if try_acquire_lock; then acquired=1; break; fi
+        done
+        if [ $acquired -eq 0 ]; then
+            echo "error: gate lock still held by PID $lock_owner after ${wait_secs}s ($lock_file)." >&2
+            echo "       if that PID is not a gate run, remove the lock file (PID recycling)." >&2
+            exit 2
+        fi
+    else
+        echo "error: another precommit-gate run holds the lock (owner PID $lock_owner, $lock_file)." >&2
+        echo "       wait for it to finish or pass --wait to queue behind it;" >&2
+        echo "       a lock whose owner has died is taken over automatically." >&2
+        exit 2
+    fi
 fi
-trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+trap 'release_lock' EXIT
 
 project_type="unknown"
 if [ -f Package.swift ]; then
@@ -223,7 +258,7 @@ fi
 # ---- Per-step result store (decouples parallel execution from print order) --
 
 work=$(mktemp -d)
-trap 'rm -rf "$work"; rmdir "$lock_dir" 2>/dev/null || true' EXIT
+trap 'rm -rf "$work"; release_lock' EXIT
 
 # record <step-n> <pass|fail|skip> <seconds> [reason]   (detail excerpt: $work/<n>.detail)
 record() {
@@ -403,9 +438,15 @@ track_c() {
         record 6 skip 0 "no default branch found (main/master)"
     else
         local diff_secrets
+        # Same pattern set as block-secrets-in-content.sh — the diff scan and
+        # the write hook must block the same list.
         diff_secrets=$(git diff "${default_branch}...HEAD" 2>/dev/null | grep -E \
-            -e 'AKIA[0-9A-Z]{16}' -e 'ghp_[A-Za-z0-9]{36}' -e 'sk-[A-Za-z0-9]{32,}' \
-            -e 'sk-ant-[A-Za-z0-9_-]{20,}' -e 'xox[baprs]-[A-Za-z0-9-]+' -e 'AIza[0-9A-Za-z_-]{35}' || true)
+            -e 'AKIA[0-9A-Z]{16}' -e 'ASIA[0-9A-Z]{16}' \
+            -e 'gh[poasu]_[A-Za-z0-9]{30,}' \
+            -e 'sk-(ant-|proj-|live-|admin-)?[A-Za-z0-9_-]{20,}' \
+            -e 'sk_(live|test)_[A-Za-z0-9]{20,}' -e 'rk_(live|test)_[A-Za-z0-9]{20,}' \
+            -e 'xox[baprs]-[A-Za-z0-9-]{10,}' -e 'AIza[0-9A-Za-z_-]{35}' \
+            -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' || true)
         if [ -n "$diff_secrets" ]; then
             record 6 fail $(( $(now) - t0 )); printf '%s\n' "$diff_secrets" | head -10 > "$work/6.detail"
         else

@@ -4,11 +4,13 @@ struct MergeBranchSection: View {
     let branch: String
     let subjectPrefill: String
     let isMerging: Bool
+    let blockingRunIssue: String?
     let errorMessage: String?
     let nonFatalNotice: String?
     let onDismissError: () -> Void
     let onDismissNotice: () -> Void
     let onMerge: (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void
+    let onRebaseAndMerge: ((_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void)?
 
     @AppStorage("merge.deleteBranchAfter") private var deleteBranchAfter: Bool = true
     @AppStorage("merge.mode") private var mergeMode: GitMergeMode = .squash
@@ -18,20 +20,24 @@ struct MergeBranchSection: View {
         branch: String,
         subjectPrefill: String,
         isMerging: Bool,
+        blockingRunIssue: String? = nil,
         errorMessage: String?,
         nonFatalNotice: String?,
         onDismissError: @escaping () -> Void,
         onDismissNotice: @escaping () -> Void,
-        onMerge: @escaping (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void
+        onMerge: @escaping (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void,
+        onRebaseAndMerge: ((_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void)? = nil
     ) {
         self.branch = branch
         self.subjectPrefill = subjectPrefill
         self.isMerging = isMerging
+        self.blockingRunIssue = blockingRunIssue
         self.errorMessage = errorMessage
         self.nonFatalNotice = nonFatalNotice
         self.onDismissError = onDismissError
         self.onDismissNotice = onDismissNotice
         self.onMerge = onMerge
+        self.onRebaseAndMerge = onRebaseAndMerge
         _commitSubject = State(initialValue: subjectPrefill)
     }
 
@@ -40,7 +46,7 @@ struct MergeBranchSection: View {
     }
 
     private var mergeDisabled: Bool {
-        isMerging || (mergeMode == .squash && trimmedSubject.isEmpty)
+        isMerging || blockingRunIssue != nil || (mergeMode == .squash && trimmedSubject.isEmpty)
     }
 
     var body: some View {
@@ -98,6 +104,9 @@ struct MergeBranchSection: View {
                     .disabled(isMerging)
                 Spacer(minLength: 0)
             }
+            if let blockingRunIssue {
+                blockedBanner(issue: blockingRunIssue)
+            }
             if let errorMessage {
                 errorBanner(message: errorMessage)
             }
@@ -105,6 +114,22 @@ struct MergeBranchSection: View {
                 nonFatalBanner(message: nonFatalNotice)
             }
         }
+    }
+
+    private func blockedBanner(issue: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "hammer.fill")
+                .foregroundStyle(.secondary)
+            Text("Merge disabled — implement run for `\(issue)` is active in this checkout.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .accessibilityLabel("Merge disabled, implement run for \(issue) is active")
     }
 
     private func errorBanner(message: String) -> some View {
@@ -115,6 +140,18 @@ struct MergeBranchSection: View {
                 .font(.callout)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let onRebaseAndMerge {
+                Button("Rebase & Merge") {
+                    onRebaseAndMerge(
+                        mergeMode,
+                        mergeMode == .squash ? trimmedSubject : nil,
+                        deleteBranchAfter)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isMerging)
+                .accessibilityLabel("Rebase \(branch) and merge to main")
+            }
             dismissButton(action: onDismissError, label: "Dismiss merge error")
         }
         .padding(.horizontal, 12)
@@ -194,6 +231,22 @@ struct MergeBranchSection: View {
     .frame(width: 600)
 }
 
+#Preview("Blocked by implement run") {
+    MergeBranchSection(
+        branch: "issue/00042-pr-merge-button",
+        subjectPrefill: "Add merge button to PR view",
+        isMerging: false,
+        blockingRunIssue: "00043-other-issue",
+        errorMessage: nil,
+        nonFatalNotice: nil,
+        onDismissError: {},
+        onDismissNotice: {},
+        onMerge: { _, _, _ in }
+    )
+    .padding()
+    .frame(width: 600)
+}
+
 #Preview("Error: dirty tree") {
     MergeBranchSection(
         branch: "issue/00042-pr-merge-button",
@@ -204,6 +257,24 @@ struct MergeBranchSection: View {
         onDismissError: {},
         onDismissNotice: {},
         onMerge: { _, _, _ in }
+    )
+    .padding()
+    .frame(width: 600)
+}
+
+#Preview("Error: not fast-forward") {
+    MergeBranchSection(
+        branch: "issue/00042-pr-merge-button",
+        subjectPrefill: "Add merge button to PR view",
+        isMerging: false,
+        errorMessage:
+            "Cannot fast-forward: `main` has commits since `issue/00042-pr-merge-button` "
+            + "was branched off. Use Rebase & Merge, or rebase manually.",
+        nonFatalNotice: nil,
+        onDismissError: {},
+        onDismissNotice: {},
+        onMerge: { _, _, _ in },
+        onRebaseAndMerge: { _, _, _ in }
     )
     .padding()
     .frame(width: 600)

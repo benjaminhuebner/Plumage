@@ -6,6 +6,7 @@ nonisolated enum NextIssueAllocatorError: Error, Equatable, Sendable {
     case invalidSlug
     case templateMissing(URL)
     case ioFailure(String)
+    case reservationExhausted(URL)
 }
 
 // LocalizedError conformance so SwiftUI's Alert / `error.localizedDescription`
@@ -22,6 +23,8 @@ extension NextIssueAllocatorError: LocalizedError {
             return "_TEMPLATE.md is missing at \(url.path)."
         case .ioFailure(let reason):
             return "Failed to create issue: \(reason)"
+        case .reservationExhausted(let ledger):
+            return "Could not reserve an issue ID after 64 attempts. Inspect the ledger at \(ledger.path)."
         }
     }
 }
@@ -47,20 +50,18 @@ nonisolated struct NextIssueAllocator: Sendable {
             throw NextIssueAllocatorError.slugCollision(existingFolder: collision)
         }
 
-        // Known race: two windows allocating at once can mint the same ID.
-        // Accepted — single-user, millisecond window; a lock file's
-        // stale-lock failure modes would cost more than the race.
-        let highest = highestExistingID()
-        let nextID = highest + 1
-        let padding = paddingWidth()
-        let padded = Self.paddedID(nextID, padding: padding)
-
+        // Read the template before reserving: markers are permanent, so a
+        // deterministic, user-fixable failure must not burn an ID per retry.
         let templateURL = IssueLayout.templateURL(in: projectURL)
         guard let templateData = fileManager.contents(atPath: templateURL.path),
             let template = String(data: templateData, encoding: .utf8)
         else {
             throw NextIssueAllocatorError.templateMissing(templateURL)
         }
+
+        let nextID = try reserveNextID()
+        let padding = paddingWidth()
+        let padded = Self.paddedID(nextID, padding: padding)
 
         let created = Self.iso8601(from: now)
         let rendered = Self.substituteTemplate(
@@ -95,6 +96,45 @@ nonisolated struct NextIssueAllocator: Sendable {
             throw NextIssueAllocatorError.ioFailure(error.localizedDescription)
         }
         return specURL
+    }
+
+    private func reserveNextID() throws -> Int {
+        let ledger = IssueLayout.allocationLedgerDirectory(in: projectURL)
+        do {
+            try fileManager.createDirectory(at: ledger, withIntermediateDirectories: true)
+        } catch {
+            throw NextIssueAllocatorError.ioFailure(error.localizedDescription)
+        }
+        return try reserveID(above: max(highestExistingID(), highestReservedID()))
+    }
+
+    // Atomic mkdir is the compare-and-swap: a parallel session losing the race
+    // gets fileWriteFileExists and retries one higher. Markers stay forever.
+    func reserveID(above highest: Int) throws -> Int {
+        var highest = highest
+        for _ in 0..<64 {
+            let candidate = highest + 1
+            let marker = IssueLayout.allocationMarkerURL(in: projectURL, id: candidate)
+            do {
+                try fileManager.createDirectory(at: marker, withIntermediateDirectories: false)
+                return candidate
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                highest = candidate
+            } catch {
+                throw NextIssueAllocatorError.ioFailure(error.localizedDescription)
+            }
+        }
+        throw NextIssueAllocatorError.reservationExhausted(
+            IssueLayout.allocationLedgerDirectory(in: projectURL))
+    }
+
+    private func highestReservedID() -> Int {
+        let ledger = IssueLayout.allocationLedgerDirectory(in: projectURL)
+        // highestExistingID's enumerator skips hidden dirs, so .allocated needs its own scan.
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: ledger.path) else {
+            return 0
+        }
+        return entries.compactMap(Int.init).max() ?? 0
     }
 
     private func findCollidingFolder(slug: String) -> String? {

@@ -76,7 +76,7 @@ struct SidebarIssueDragTests {
         Plumage.Issue(
             id: id, folderName: folder, title: "t", type: .feature, status: status,
             created: .distantPast, updated: .distantPast, branch: "issue/\(folder)",
-            labels: [], model: nil, order: order
+            labels: [], order: order
         )
     }
 }

@@ -352,6 +352,7 @@ struct IssueDetailView: View {
                             branch: issue.branch,
                             subjectPrefill: model.mergeSubjectPrefill,
                             isMerging: model.isMerging,
+                            blockingRunIssue: model.blockingImplementRun?.issue,
                             errorMessage: mergeBannerMessage,
                             nonFatalNotice: model.lastMergeNotice,
                             onDismissError: {
@@ -366,11 +367,21 @@ struct IssueDetailView: View {
                                         commitSubject: commitSubject,
                                         deleteBranch: deleteBranch)
                                 }
-                            }
+                            },
+                            onRebaseAndMerge: rebaseAndMergeAction
                         )
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
+                    .task {
+                        // Poll while the merge section is visible: the
+                        // run-state file isn't covered by any watcher, and the
+                        // button must re-enable when the run finishes.
+                        while !Task.isCancelled {
+                            await model.refreshMergeBlocker()
+                            try? await Task.sleep(for: .seconds(3))
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -570,6 +581,25 @@ struct IssueDetailView: View {
         kanban.signalMergeCompleted(folderName: folderName)
     }
 
+    private var rebaseAndMergeAction: ((GitMergeMode, String?, Bool) -> Void)? {
+        guard case .notFastForward = model.lastMergeError else { return nil }
+        return { mode, commitSubject, deleteBranch in
+            Task {
+                await performRebaseAndMerge(
+                    mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
+            }
+        }
+    }
+
+    private func performRebaseAndMerge(
+        mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
+    ) async {
+        let success = await model.rebaseAndMergeToMain(
+            mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
+        guard success, let folderName = model.folderName else { return }
+        kanban.signalMergeCompleted(folderName: folderName)
+    }
+
     private func runFormCommit(_ work: @escaping () async throws -> Void) {
         Task {
             do {
@@ -623,7 +653,7 @@ struct IssueDetailView: View {
                 presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
                 return
             }
-            runWorkflow(action, folderName)
+            runWorkflow(action, folderName, currentType)
         }
     }
 

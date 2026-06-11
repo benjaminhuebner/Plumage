@@ -62,6 +62,9 @@ final class IssueDetailModel {
     private(set) var lastSeenIssue: DiscoveredIssue?
     private(set) var allocationError: String?
     private(set) var isMerging: Bool = false
+    // Live implement run owning this checkout — merging would switch the
+    // run's branch underneath it, so the UI disables merge while set.
+    private(set) var blockingImplementRun: LiveImplementRun?
     private(set) var lastMergeError: GitMergeError?
     // Set when the merge wrote to disk but the spec-status flip failed
     // afterwards — surfaced as a critical banner so the user knows to fix
@@ -100,8 +103,11 @@ final class IssueDetailModel {
     private nonisolated let writer: SpecWriting
     private nonisolated let mutator: FrontmatterMutating
     private nonisolated let mergeRunner: any GitMergeRunning
+    private nonisolated let liveRunChecker: @Sendable (URL) -> LiveImplementRun?
+    private nonisolated let mergedIssueRunLocator: @Sendable (URL, String) async -> String?
     private nonisolated let configLoader: @Sendable (URL) -> ProjectConfig?
     private nonisolated let clock: @Sendable () -> Date
+    private nonisolated let discoverer: @Sendable (URL) -> [DiscoveredIssue]
 
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
 
@@ -123,10 +129,19 @@ final class IssueDetailModel {
         writer: SpecWriting = DefaultSpecWriter(),
         mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
+        liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = {
+            ImplementRunScanner.liveImplementRun(in: $0)
+        },
+        mergedIssueRunLocator: @escaping @Sendable (URL, String) async -> String? = {
+            await IssueDetailModel.locateIssueRun(projectURL: $0, folderName: $1)
+        },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = {
+            IssueDiscovery.discoverIssues(in: $0)
+        }
     ) {
         self.kind = .loaded(folderName: folderName)
         self.specURL = specURL
@@ -135,8 +150,11 @@ final class IssueDetailModel {
         self.writer = writer
         self.mutator = mutator
         self.mergeRunner = mergeRunner
+        self.liveRunChecker = liveRunChecker
+        self.mergedIssueRunLocator = mergedIssueRunLocator
         self.configLoader = configLoader
         self.clock = clock
+        self.discoverer = discoverer
         // Pre-load synchronously so the view renders content immediately on
         // first mount — avoids the ProgressView flash caused by idle→loaded
         // transition after the async load() task fires. Local volumes only:
@@ -157,6 +175,22 @@ final class IssueDetailModel {
         return values?.volumeIsLocal ?? false
     }
 
+    nonisolated static func locateIssueRun(projectURL: URL, folderName: String) async -> String? {
+        let worktrees = (try? await GitWorktreeLister().worktrees(repoURL: projectURL)) ?? []
+        let roots = worktrees.isEmpty ? [projectURL] : worktrees.map(\.path)
+        if let owner = ImplementRunScanner.liveImplementRuns(acrossWorktreeRoots: roots)
+            .first(where: { $0.run.issue == folderName })
+        {
+            return "active in \(owner.checkoutRoot.lastPathComponent)"
+        }
+        if ImplementRunScanner.queuedImplementRuns(in: projectURL)
+            .contains(where: { $0.issue == folderName })
+        {
+            return "queued in this checkout"
+        }
+        return nil
+    }
+
     // Safety net for abnormal teardown paths where .onDisappear is skipped.
     // Primary cleanup remains the view's .onDisappear → cancelPendingWork.
     // isolated deinit (Swift 6.2) so we can touch the @MainActor state.
@@ -174,10 +208,19 @@ final class IssueDetailModel {
         writer: SpecWriting = DefaultSpecWriter(),
         mutator: FrontmatterMutating = DefaultFrontmatterMutator(),
         mergeRunner: any GitMergeRunning = GitMergeRunner(),
+        liveRunChecker: @escaping @Sendable (URL) -> LiveImplementRun? = {
+            ImplementRunScanner.liveImplementRun(in: $0)
+        },
+        mergedIssueRunLocator: @escaping @Sendable (URL, String) async -> String? = {
+            await IssueDetailModel.locateIssueRun(projectURL: $0, folderName: $1)
+        },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig? = {
             try? ConfigLoader.load(at: $0)
         },
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = {
+            IssueDiscovery.discoverIssues(in: $0)
+        }
     ) {
         self.kind = .creating(initialStatus: creatingInitialStatus)
         self.specURL = nil
@@ -186,8 +229,11 @@ final class IssueDetailModel {
         self.writer = writer
         self.mutator = mutator
         self.mergeRunner = mergeRunner
+        self.liveRunChecker = liveRunChecker
+        self.mergedIssueRunLocator = mergedIssueRunLocator
         self.configLoader = configLoader
         self.clock = clock
+        self.discoverer = discoverer
         self.statusDraft = creatingInitialStatus
         // In creating mode the form must render immediately — there is
         // nothing on disk to load. Mark loaded so the view skips the
@@ -266,6 +312,11 @@ final class IssueDetailModel {
         isMerging = true
         defer { isMerging = false }
 
+        if let blocked = await blockingLiveRun(projectURL: projectURL) {
+            lastMergeError = blocked
+            return false
+        }
+
         let runner = mergeRunner
         let issueBranch = currentIssue.branch
         let mutatorFn = mutator
@@ -298,11 +349,12 @@ final class IssueDetailModel {
         // Merge has landed on disk. From here on, any failure is critical —
         // we cannot roll back the merge, so the user has to fix spec.md
         // manually via the banner instruction.
+        let doneOrder = await topEntryOrder(movingTo: .done, for: currentIssue)
         do {
             try await Task.detached(priority: .userInitiated) {
                 try mutatorFn.mutate(
                     specURL: specURL,
-                    mutation: FrontmatterMutation(status: .set(.done)),
+                    mutation: FrontmatterMutation(status: .set(.done), order: doneOrder),
                     now: now
                 )
             }.value
@@ -313,11 +365,85 @@ final class IssueDetailModel {
             return false
         }
 
-        if let deleteErr = outcome.branchDeleteError {
+        if let cleanupNotice = outcome.worktreeCleanupNotice {
+            lastMergeNotice = "Merge succeeded, but \(cleanupNotice)."
+        } else if let deleteErr = outcome.branchDeleteError {
             lastMergeNotice = "Merge succeeded, but branch was not deleted: \(deleteErr)"
         }
         await reloadFromDiskAfterOwnWrite()
         return true
+    }
+
+    // Merging (or rebasing) moves branches underneath a live implement run,
+    // so both entry points refuse while one owns the checkout. Racy by
+    // design — a run starting after this check is accepted.
+    private func blockingLiveRun(projectURL: URL) async -> GitMergeError? {
+        let checker = liveRunChecker
+        let liveRun = await Task.detached(priority: .userInitiated) {
+            checker(projectURL)
+        }.value
+        blockingImplementRun = liveRun
+        if let liveRun {
+            return .implementRunActive(issue: liveRun.issue)
+        }
+        // The merged issue's own run may live outside the primary checkout:
+        // active in a parallel worktree, or still waiting in the queue.
+        if let folder = folderName,
+            let location = await mergedIssueRunLocator(projectURL, folder)
+        {
+            return .mergedIssueRunActive(issue: folder, location: location)
+        }
+        return nil
+    }
+
+    func rebaseAndMergeToMain(
+        mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
+    ) async -> Bool {
+        guard
+            let projectURL,
+            specURL != nil,
+            let currentIssue = issue
+        else { return false }
+
+        let subject = commitSubject?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .squash, subject?.isEmpty != false {
+            return false
+        }
+
+        lastMergeError = nil
+        lastMergeCriticalError = nil
+        lastMergeNotice = nil
+        isMerging = true
+        defer { isMerging = false }
+
+        if let blocked = await blockingLiveRun(projectURL: projectURL) {
+            lastMergeError = blocked
+            return false
+        }
+
+        let runner = mergeRunner
+        let defaultBranch = configLoader(projectURL)?.gitDefaultBranch ?? "main"
+        do {
+            try await runner.rebaseIssueBranch(
+                repoURL: projectURL,
+                defaultBranch: defaultBranch,
+                issueBranch: currentIssue.branch)
+        } catch let error as GitMergeError {
+            lastMergeError = error
+            return false
+        } catch {
+            lastMergeError = .rebaseFailed(stderr: error.localizedDescription)
+            return false
+        }
+        return await mergeToMain(mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
+    }
+
+    func refreshMergeBlocker() async {
+        guard let projectURL else { return }
+        let checker = liveRunChecker
+        blockingImplementRun = await Task.detached(priority: .utility) {
+            checker(projectURL)
+        }.value
     }
 
     func clearMergeError() {
@@ -346,7 +472,24 @@ final class IssueDetailModel {
 
     func commitStatus(_ newStatus: IssueStatus) async throws {
         guard let current = issue, current.status != newStatus else { return }
-        try await runFormWrite(FrontmatterMutation(status: .set(newStatus)))
+        let order = await topEntryOrder(movingTo: newStatus, for: current)
+        try await runFormWrite(FrontmatterMutation(status: .set(newStatus), order: order))
+    }
+
+    // .keep inside the same column so manual ordering survives a
+    // draft→approved flip; on column entry the card goes top, .set(nil)
+    // clears a stale order in an empty column (ID fallback takes over).
+    private func topEntryOrder(
+        movingTo newStatus: IssueStatus, for current: Issue
+    ) async -> SetValue<Double?> {
+        guard let projectURL, newStatus.column != current.column else { return .keep }
+        let discoverer = self.discoverer
+        let targetColumn = newStatus.column
+        let folderName = current.folderName
+        let columnItems = await Task.detached(priority: .userInitiated) {
+            discoverer(projectURL).filter { $0.column == targetColumn }
+        }.value
+        return .set(IssueSortKey.topOrder(in: columnItems, excludingFolderName: folderName))
     }
 
     func commitLabels(_ newLabels: [String]) async throws {

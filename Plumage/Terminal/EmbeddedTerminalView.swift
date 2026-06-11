@@ -208,6 +208,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // both properties already nil and becomes a no-op.
         nsView.stopCursorKeepAlive()
         nsView.removeShiftEnterMonitor()
+        nsView.removeMouseFocusMonitor()
         nsView.terminate()
     }
 
@@ -307,23 +308,28 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         // making this a no-op. Timer.invalidate / NSEvent.removeMonitor are
         // main-thread APIs and a nonisolated deinit can run off-main — ferry
         // the references onto the main queue instead of calling them inline.
-        guard cursorKeepAlive != nil || shiftEnterMonitor != nil else { return }
+        guard cursorKeepAlive != nil || shiftEnterMonitor != nil || mouseFocusMonitor != nil
+        else { return }
         // @unchecked Sendable: only carries the main-thread-bound references
         // across the queue hop; nothing reads them concurrently.
         struct Teardown: @unchecked Sendable {
             let timer: Timer?
-            let token: Any?
+            let tokens: [Any]
         }
-        let teardown = Teardown(timer: cursorKeepAlive, token: shiftEnterMonitor)
+        let teardown = Teardown(
+            timer: cursorKeepAlive,
+            tokens: [shiftEnterMonitor, mouseFocusMonitor].compactMap { $0 }
+        )
         cursorKeepAlive = nil
         shiftEnterMonitor = nil
+        mouseFocusMonitor = nil
         if Thread.isMainThread {
             teardown.timer?.invalidate()
-            if let token = teardown.token { NSEvent.removeMonitor(token) }
+            teardown.tokens.forEach { NSEvent.removeMonitor($0) }
         } else {
             DispatchQueue.main.async {
                 teardown.timer?.invalidate()
-                if let token = teardown.token { NSEvent.removeMonitor(token) }
+                teardown.tokens.forEach { NSEvent.removeMonitor($0) }
             }
         }
     }
@@ -366,6 +372,7 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         } else {
             stopCursorKeepAlive()
             removeShiftEnterMonitor()
+            removeMouseFocusMonitor()
             unregisterDraggedTypes()
         }
     }
@@ -374,9 +381,11 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         if window != nil && chromeActive {
             startCursorKeepAlive()
             installShiftEnterMonitor()
+            installMouseFocusMonitor()
         } else {
             stopCursorKeepAlive()
             removeShiftEnterMonitor()
+            removeMouseFocusMonitor()
         }
     }
 
@@ -403,6 +412,52 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     override func hideCursor(source: Terminal) {
         // Intentionally empty — see class comment.
+    }
+
+    // SwiftTerm selects on drag without taking first responder, so Cmd+C/V
+    // (nil-target menu actions) route to whichever text view holds focus.
+    // Click-to-focus like Terminal.app; mouseDown isn't `open`, so a monitor.
+    nonisolated(unsafe) private var mouseFocusMonitor: Any?
+
+    private func installMouseFocusMonitor() {
+        guard mouseFocusMonitor == nil else { return }
+        mouseFocusMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
+            [weak self] event in
+            guard let self,
+                let window = self.window,
+                window === event.window,
+                window.firstResponder !== self,
+                self.bounds.contains(self.convert(event.locationInWindow, from: nil))
+            else { return event }
+            window.makeFirstResponder(self)
+            return event
+        }
+    }
+
+    func removeMouseFocusMonitor() {
+        if let token = mouseFocusMonitor {
+            NSEvent.removeMonitor(token)
+            mouseFocusMonitor = nil
+        }
+    }
+
+    // Explicit targets so NSMenu auto-validation hits SwiftTerm's
+    // validateUserInterfaceItem (Copy disabled without a selection) instead
+    // of asking the window's first responder.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        if window?.firstResponder !== self {
+            window?.makeFirstResponder(self)
+        }
+        let menu = NSMenu()
+        let copyItem = NSMenuItem(
+            title: "Copy", action: #selector(copy(_:) as (Any) -> Void), keyEquivalent: "")
+        copyItem.target = self
+        menu.addItem(copyItem)
+        let pasteItem = NSMenuItem(
+            title: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        pasteItem.target = self
+        menu.addItem(pasteItem)
+        return menu
     }
 
     // claude's REPL submits on `\r` and treats `\n` as a soft newline / line

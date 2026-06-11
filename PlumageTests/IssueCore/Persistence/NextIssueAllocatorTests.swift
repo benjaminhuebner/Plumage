@@ -361,6 +361,147 @@ struct NextIssueAllocatorAllocateTests {
     }
 }
 
+@Suite("NextIssueAllocator reservation ledger")
+struct NextIssueAllocatorReservationTests {
+    @Test("marker without an issue folder bumps the next allocated ID past it")
+    func markerWithoutFolderBumpsNextID() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeSpec(folder: "00001-foo", id: 1)
+        try fixture.writeMarker(id: 5)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
+        #expect(url.path.hasSuffix(".claude/issues/00006-bar/spec.md"))
+    }
+
+    @Test("marker for an existing issue folder adds no extra gap")
+    func markerMatchingFolderAddsNoGap() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeSpec(folder: "00001-foo", id: 1)
+        try fixture.writeSpec(folder: "00002-baz", id: 2)
+        try fixture.writeMarker(id: 1)
+        try fixture.writeMarker(id: 2)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
+        #expect(url.path.hasSuffix(".claude/issues/00003-bar/spec.md"))
+    }
+
+    @Test("existing marker forces retry to the next free ID")
+    func existingMarkerForcesRetry() throws {
+        let fixture = try Fixture()
+        for id in 1...3 {
+            try fixture.writeMarker(id: id)
+        }
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let reserved = try allocator.reserveID(above: 0)
+        #expect(reserved == 4)
+        let marker = fixture.root.appendingPathComponent(".claude/issues/.allocated/4")
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test("allocation writes a marker for the minted ID")
+    func allocationWritesMarker() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        try fixture.writeSpec(folder: "00001-foo", id: 1)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        _ = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
+        let marker = fixture.root.appendingPathComponent(".claude/issues/.allocated/2")
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test("missing template fails before an ID is reserved")
+    func missingTemplateReservesNoID() throws {
+        let fixture = try Fixture()
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        do {
+            _ = try allocator.allocate(
+                slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
+            Issue.record("expected throw")
+        } catch NextIssueAllocatorError.templateMissing {
+            let ledger = fixture.root.appendingPathComponent(".claude/issues/.allocated")
+            #expect(!FileManager.default.fileExists(atPath: ledger.path))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test("exhausted retry loop throws .reservationExhausted naming the ledger")
+    func retryExhaustionThrows() throws {
+        let fixture = try Fixture()
+        for id in 1...64 {
+            try fixture.writeMarker(id: id)
+        }
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        do {
+            _ = try allocator.reserveID(above: 0)
+            Issue.record("expected throw")
+        } catch let NextIssueAllocatorError.reservationExhausted(ledger) {
+            #expect(ledger.path.hasSuffix(".claude/issues/.allocated"))
+            #expect(
+                NextIssueAllocatorError.reservationExhausted(ledger)
+                    .localizedDescription.contains(ledger.path))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test("non-numeric ledger entries are ignored by the marker scan")
+    func nonNumericLedgerEntriesIgnored() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+        let ledger = fixture.root.appendingPathComponent(".claude/issues/.allocated")
+        try FileManager.default.createDirectory(
+            at: ledger.appendingPathComponent(".DS_Store-like"), withIntermediateDirectories: true)
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let url = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "")
+        #expect(url.path.hasSuffix(".claude/issues/00001-bar/spec.md"))
+    }
+
+    @Test("parallel allocations in one project mint distinct IDs")
+    func parallelAllocationsMintDistinctIDs() async throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let count = 12
+        let urls = try await withThrowingTaskGroup(of: URL.self) { group in
+            for index in 0..<count {
+                group.addTask {
+                    try allocator.allocate(
+                        slug: "racer-\(index)", title: "Racer \(index)", type: .feature,
+                        labels: [], prompt: "")
+                }
+            }
+            var collected: [URL] = []
+            for try await url in group {
+                collected.append(url)
+            }
+            return collected
+        }
+
+        let ids = urls.compactMap { url in
+            IssueDiscovery.extractID(
+                fromFolderName: url.deletingLastPathComponent().lastPathComponent
+            ).id
+        }
+        #expect(Set(ids).count == count)
+        #expect(Set(ids) == Set(1...count))
+    }
+}
+
 private struct Fixture {
     let root: URL
 
@@ -412,6 +553,11 @@ private struct Fixture {
             """
         try json.write(
             to: bundle.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
+    }
+
+    func writeMarker(id: Int) throws {
+        let marker = root.appendingPathComponent(".claude/issues/.allocated/\(id)")
+        try FileManager.default.createDirectory(at: marker, withIntermediateDirectories: true)
     }
 
     func writeSpec(folder: String, id: Int) throws {

@@ -6,6 +6,7 @@ struct PlumageApp: App {
     @NSApplicationDelegateAdaptor(PlumageAppDelegate.self) private var appDelegate
     @State private var recentProjects = RecentProjects()
     @State private var migrationRequest = MigrationRequest()
+    @State private var templateImportRequest = TemplateArchiveImportRequest()
     @State private var updater = UpdaterModel()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -68,6 +69,7 @@ struct PlumageApp: App {
         // regardless of which window is key, mirroring Welcome's ⇧⌘0.
         Window("Template Manager", id: "template-manager") {
             TemplateManagerWindowView()
+                .environment(templateImportRequest)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1040, height: 680)
@@ -108,12 +110,17 @@ struct PlumageApp: App {
 
     private func drainPendingURLs() {
         for url in appDelegate.consumePendingURLs() {
-            OpenProjectCommand.openFromBundleURL(
-                url,
-                recentProjects: recentProjects,
-                openWindow: openWindow,
-                dismissWindow: dismissWindow
-            )
+            if TemplateArchiveFileType.isArchive(url) {
+                templateImportRequest.present(url)
+                openWindow(id: "template-manager")
+            } else {
+                OpenProjectCommand.openFromBundleURL(
+                    url,
+                    recentProjects: recentProjects,
+                    openWindow: openWindow,
+                    dismissWindow: dismissWindow
+                )
+            }
         }
     }
 }

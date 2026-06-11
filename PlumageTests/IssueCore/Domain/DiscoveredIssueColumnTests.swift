@@ -51,8 +51,7 @@ struct DiscoveredIssueColumnTests {
             created: .distantPast,
             updated: .distantPast,
             branch: "issue/00001-foo",
-            labels: [],
-            model: nil
+            labels: []
         )
     }
 }

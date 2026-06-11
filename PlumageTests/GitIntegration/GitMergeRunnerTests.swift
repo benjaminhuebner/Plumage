@@ -112,6 +112,21 @@ struct GitMergeRunnerPreCheckTests {
     static func resetMergeArgs(repoURL: URL) -> [String] {
         ["-C", repoURL.path, "reset", "--merge"]
     }
+    static func worktreeListArgs(repoURL: URL) -> [String] {
+        ["-C", repoURL.path, "worktree", "list", "--porcelain"]
+    }
+    static func worktreeRemoveArgs(repoURL: URL, path: String) -> [String] {
+        ["-C", repoURL.path, "worktree", "remove", path]
+    }
+    static func worktreeStatusArgs(path: String) -> [String] {
+        ["-C", path, "status", "--porcelain"]
+    }
+    static func rebaseArgs(repoURL: URL, base: String, branch: String) -> [String] {
+        ["-C", repoURL.path, "rebase", base, branch]
+    }
+    static func rebaseAbortArgs(repoURL: URL) -> [String] {
+        ["-C", repoURL.path, "rebase", "--abort"]
+    }
 }
 
 @Suite("GitMergeRunner merge sequence")
@@ -448,5 +463,278 @@ struct GitMergeRunnerMergeTests {
             commitSubject: nil, deleteBranch: true)
 
         #expect(outcome.branchDeleteError == "error: branch 'issue/x' not fully merged")
+    }
+}
+
+@Suite("GitMergeRunner rebase")
+struct GitMergeRunnerRebaseTests {
+    private let repoURL = URL(filePath: "/tmp/probe-repo")
+    private let binaryURL = URL(filePath: "/usr/bin/git")
+    private let worktreePath = "/tmp/probe-repo-issue-x"
+
+    private typealias Args = GitMergeRunnerPreCheckTests
+
+    private func cleanMock(currentBranch: String = "main") -> MockGitProcessRunner {
+        let mock = MockGitProcessRunner()
+        mock.stdoutForArgs[Args.revParseArgs(repoURL: repoURL, branch: "issue/x")] = "abc\n"
+        mock.stdoutForArgs[Args.symbolicRefArgs(repoURL: repoURL)] = "\(currentBranch)\n"
+        return mock
+    }
+
+    private func worktreeListPorcelain(_ entries: [(path: String, branch: String)]) -> String {
+        entries
+            .map { "worktree \($0.path)\nHEAD abc123\nbranch refs/heads/\($0.branch)\n" }
+            .joined(separator: "\n")
+    }
+
+    @Test("happy path rebases and restores the original branch")
+    func happyPathRestoresOriginalBranch() async throws {
+        let mock = cleanMock(currentBranch: "main")
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        try await runner.rebaseIssueBranch(
+            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+
+        #expect(
+            mock.recordedCalls == [
+                Args.statusArgs(repoURL: repoURL),
+                Args.revParseArgs(repoURL: repoURL, branch: "issue/x"),
+                Args.worktreeListArgs(repoURL: repoURL),
+                Args.symbolicRefArgs(repoURL: repoURL),
+                Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x"),
+                Args.checkoutArgs(repoURL: repoURL, branch: "main"),
+            ])
+    }
+
+    @Test("no branch restore when the user already sits on the issue branch")
+    func noRestoreWhenOnIssueBranch() async throws {
+        let mock = cleanMock(currentBranch: "issue/x")
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        try await runner.rebaseIssueBranch(
+            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+
+        #expect(
+            mock.recordedCalls.last
+                == Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x"))
+    }
+
+    @Test("dirty working tree short-circuits before any mutation")
+    func dirtyTreeShortCircuits() async throws {
+        let mock = cleanMock()
+        mock.stdoutForArgs[Args.statusArgs(repoURL: repoURL)] = " M Plumage/Foo.swift\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.workingTreeDirty(files: ["Plumage/Foo.swift"])) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+        #expect(mock.recordedCalls.count == 1)
+    }
+
+    @Test("missing issue branch reports branchNotFound")
+    func missingBranch() async throws {
+        let mock = cleanMock()
+        mock.exitCodeForArgs[Args.revParseArgs(repoURL: repoURL, branch: "issue/x")] = 128
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.branchNotFound(name: "issue/x")) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+    }
+
+    @Test("conflict aborts the rebase and restores the original branch")
+    func conflictAbortsAndRestores() async throws {
+        let mock = cleanMock(currentBranch: "main")
+        let rebaseArgs = Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x")
+        mock.exitCodeForArgs[rebaseArgs] = 1
+        mock.stderrForArgs[rebaseArgs] = "CONFLICT (content): Merge conflict in Foo.swift\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(
+            throws: GitMergeError.rebaseFailed(
+                stderr: "CONFLICT (content): Merge conflict in Foo.swift")
+        ) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+        let tail = Array(mock.recordedCalls.suffix(2))
+        #expect(
+            tail == [
+                Args.rebaseAbortArgs(repoURL: repoURL),
+                Args.checkoutArgs(repoURL: repoURL, branch: "main"),
+            ])
+    }
+
+    @Test(
+        "worktree-blocked stderr maps to branchCheckedOutElsewhere without an abort",
+        arguments: [
+            "fatal: 'issue/x' is already used by worktree at '/tmp/wt'",
+            "fatal: 'issue/x' is already checked out at '/tmp/wt'",
+        ])
+    func worktreeBlockedStderr(variant: String) async throws {
+        let mock = cleanMock()
+        let rebaseArgs = Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x")
+        mock.exitCodeForArgs[rebaseArgs] = 128
+        mock.stderrForArgs[rebaseArgs] = variant + "\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.branchCheckedOutElsewhere(branch: "issue/x")) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+        #expect(!mock.recordedCalls.contains(Args.rebaseAbortArgs(repoURL: repoURL)))
+    }
+
+    @Test("empty rebase stderr falls back to stdout")
+    func emptyStderrFallsBackToStdout() async throws {
+        let mock = cleanMock()
+        let rebaseArgs = Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x")
+        mock.exitCodeForArgs[rebaseArgs] = 1
+        mock.stdoutForArgs[rebaseArgs] = "could not apply abc123\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.rebaseFailed(stderr: "could not apply abc123")) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+    }
+
+    @Test("git-not-found surfaces before any subprocess is spawned")
+    func gitNotFoundShortCircuits() async throws {
+        let mock = MockGitProcessRunner()
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { nil })
+
+        await #expect(throws: GitMergeError.gitNotFound) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+        #expect(mock.recordedCalls.isEmpty)
+    }
+
+    @Test("option-shaped branch names are rejected before any subprocess runs")
+    func optionShapedBranchRejected() async throws {
+        let mock = MockGitProcessRunner()
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.branchNotFound(name: "--upload-pack=evil")) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "--upload-pack=evil")
+        }
+        #expect(mock.recordedCalls.isEmpty)
+    }
+
+    @Test("a clean worktree owning the branch is removed before the rebase")
+    func cleanWorktreeRemovedBeforeRebase() async throws {
+        let mock = cleanMock(currentBranch: "main")
+        mock.stdoutForArgs[Args.worktreeListArgs(repoURL: repoURL)] = worktreeListPorcelain([
+            (path: repoURL.path, branch: "main"),
+            (path: worktreePath, branch: "issue/x"),
+        ])
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        try await runner.rebaseIssueBranch(
+            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+
+        let calls = mock.recordedCalls
+        let removeIndex = try #require(
+            calls.firstIndex(of: Args.worktreeRemoveArgs(repoURL: repoURL, path: worktreePath)))
+        let rebaseIndex = try #require(
+            calls.firstIndex(of: Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x")))
+        #expect(removeIndex < rebaseIndex)
+    }
+
+    @Test("a dirty worktree blocks with worktreeDirty and no git mutation")
+    func dirtyWorktreeBlocks() async throws {
+        let mock = cleanMock(currentBranch: "main")
+        mock.stdoutForArgs[Args.worktreeListArgs(repoURL: repoURL)] = worktreeListPorcelain([
+            (path: worktreePath, branch: "issue/x")
+        ])
+        mock.stdoutForArgs[Args.worktreeStatusArgs(path: worktreePath)] = " M content.txt\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.worktreeDirty(path: worktreePath)) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+        let mutating = mock.recordedCalls.filter {
+            $0.contains("rebase") || $0.contains("remove") || $0.contains("checkout")
+        }
+        #expect(mutating.isEmpty)
+    }
+
+    @Test("a failed worktree remove degrades to branchCheckedOutElsewhere")
+    func failedWorktreeRemoveDegrades() async throws {
+        let mock = cleanMock(currentBranch: "main")
+        mock.stdoutForArgs[Args.worktreeListArgs(repoURL: repoURL)] = worktreeListPorcelain([
+            (path: worktreePath, branch: "issue/x")
+        ])
+        mock.exitCodeForArgs[Args.worktreeRemoveArgs(repoURL: repoURL, path: worktreePath)] = 128
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(throws: GitMergeError.branchCheckedOutElsewhere(branch: "issue/x")) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+        #expect(
+            !mock.recordedCalls.contains(
+                Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x")))
+    }
+
+    @Test("the branch checked out in the repo's own checkout is not treated as blocking")
+    func ownCheckoutIsNotBlocking() async throws {
+        let mock = cleanMock(currentBranch: "issue/x")
+        mock.stdoutForArgs[Args.worktreeListArgs(repoURL: repoURL)] = worktreeListPorcelain([
+            (path: repoURL.path, branch: "issue/x")
+        ])
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        try await runner.rebaseIssueBranch(
+            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+
+        let worktreeMutations = mock.recordedCalls.filter { $0.contains("remove") }
+        #expect(worktreeMutations.isEmpty)
+        #expect(
+            mock.recordedCalls.last
+                == Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x"))
+    }
+}
+
+@Suite("GitMergeError messages")
+struct GitMergeErrorMessageTests {
+    @Test("notFastForward points at the Rebase & Merge button")
+    func notFastForwardMentionsButton() {
+        let message = GitMergeError.notFastForward(
+            defaultBranch: "main", issueBranch: "issue/x"
+        ).displayMessage
+        #expect(message.contains("main"))
+        #expect(message.contains("issue/x"))
+        #expect(message.contains("Use Rebase & Merge"))
+    }
+
+    @Test("rebaseFailed carries stderr and explains manual resolution")
+    func rebaseFailedMessage() {
+        let message = GitMergeError.rebaseFailed(
+            stderr: "CONFLICT (content): Merge conflict in Foo.swift"
+        ).displayMessage
+        #expect(message.contains("CONFLICT (content): Merge conflict in Foo.swift"))
+        #expect(message.contains("aborted"))
+        #expect(message.contains("manually"))
+    }
+
+    @Test("branchCheckedOutElsewhere names the branch")
+    func branchCheckedOutElsewhereMessage() {
+        let message = GitMergeError.branchCheckedOutElsewhere(branch: "issue/x").displayMessage
+        #expect(message.contains("issue/x"))
+        #expect(message.contains("worktree"))
+    }
+
+    @Test("worktreeDirty names the path and asks to commit or discard")
+    func worktreeDirtyMessage() {
+        let message = GitMergeError.worktreeDirty(path: "/tmp/Proj-issue-x").displayMessage
+        #expect(message.contains("/tmp/Proj-issue-x"))
+        #expect(message.contains("uncommitted"))
+        #expect(message.contains("Commit or discard"))
     }
 }

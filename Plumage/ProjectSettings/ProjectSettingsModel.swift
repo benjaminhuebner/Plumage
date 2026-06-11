@@ -45,9 +45,13 @@ final class ProjectSettingsModel {
     var reviewPermissionMode: PermissionMode?
     var chatModel: ModelChoice = ModelsConfig.chatDefault
     var terminalsModel: ModelChoice = ModelsConfig.terminalsDefault
-    var planModel: ModelChoice = ModelsConfig.planDefault
-    var implementModel: ModelChoice = ModelsConfig.implementDefault
-    var reviewModel: ModelChoice = ModelsConfig.reviewDefault
+    // Workflow slots are per-issue-type; the dicts always carry all four types.
+    var planModels: [IssueType: ModelChoice] =
+        ProjectSettingsModel.uniformWorkflowModels(.planAction)
+    var implementModels: [IssueType: ModelChoice] =
+        ProjectSettingsModel.uniformWorkflowModels(.implementAction)
+    var reviewModels: [IssueType: ModelChoice] =
+        ProjectSettingsModel.uniformWorkflowModels(.reviewAction)
 
     enum LoadState: Sendable, Equatable {
         case loading
@@ -136,16 +140,31 @@ final class ProjectSettingsModel {
         reviewPermissionMode = reviewOverride?.permissionMode
         chatModel = config.models?.chat ?? ModelsConfig.chatDefault
         terminalsModel = config.models?.terminals ?? ModelsConfig.terminalsDefault
-        planModel = config.models?.plan ?? ModelsConfig.planDefault
-        implementModel = config.models?.implement ?? ModelsConfig.implementDefault
-        reviewModel = config.models?.review ?? ModelsConfig.reviewDefault
+        planModels = Self.workflowModels(from: config.models?.plan, slot: .planAction)
+        implementModels = Self.workflowModels(from: config.models?.implement, slot: .implementAction)
+        reviewModels = Self.workflowModels(from: config.models?.review, slot: .reviewAction)
+    }
+
+    private static func uniformWorkflowModels(_ slot: ModelSlot) -> [IssueType: ModelChoice] {
+        let value = ModelsConfig.slotDefault(for: slot)
+        return Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
+    }
+
+    private static func workflowModels(
+        from setting: WorkflowModelSetting?, slot: ModelSlot
+    ) -> [IssueType: ModelChoice] {
+        let fallback = ModelsConfig.slotDefault(for: slot)
+        return Dictionary(
+            uniqueKeysWithValues: IssueType.allCases.map {
+                ($0, setting?.choice(for: $0) ?? fallback)
+            })
     }
 
     // Default templates — used by the per-editor reset button and to detect
     // when a command override matches the built-in (so we skip writing to disk).
-    static let planDefault = "/plumage-plan <slug> - <prompt>"
-    static let implementDefault = "/plumage-implement <slug>"
-    static let reviewDefault = "/plumage-review <slug>"
+    static let planDefault = WorkflowCommandResolver.defaultCommand(for: .plan)
+    static let implementDefault = WorkflowCommandResolver.defaultCommand(for: .implement)
+    static let reviewDefault = WorkflowCommandResolver.defaultCommand(for: .review)
 
     // Edits are rejected when the load failed or hasn't completed yet — the
     // UI should disable inputs in those states, but this guard catches any
@@ -238,26 +257,74 @@ final class ProjectSettingsModel {
         action.permissionMode
     }
 
+    // For workflow slots this is the collapsed-header value: the uniform
+    // choice, or the slot default while the per-type values are mixed (the
+    // view shows a "Mixed" indicator instead of trusting this value).
     func model(for slot: ModelSlot) -> ModelChoice {
         switch slot {
         case .chat: chatModel
         case .terminals: terminalsModel
-        case .planAction: planModel
-        case .implementAction: implementModel
-        case .reviewAction: reviewModel
+        case .planAction, .implementAction, .reviewAction:
+            uniformWorkflowModel(for: slot) ?? ModelsConfig.slotDefault(for: slot)
         }
     }
 
+    // A pick on a workflow slot's collapsed header overwrites all four types.
     func setModel(_ value: ModelChoice, for slot: ModelSlot) {
         guard canEdit else { return }
         switch slot {
         case .chat: chatModel = value
         case .terminals: terminalsModel = value
-        case .planAction: planModel = value
-        case .implementAction: implementModel = value
-        case .reviewAction: reviewModel = value
+        case .planAction, .implementAction, .reviewAction:
+            setWorkflowModels(Self.uniform(value), for: slot)
         }
         scheduleSave()
+    }
+
+    func workflowModels(for slot: ModelSlot) -> [IssueType: ModelChoice] {
+        switch slot {
+        case .planAction: planModels
+        case .implementAction: implementModels
+        case .reviewAction: reviewModels
+        case .chat, .terminals: [:]
+        }
+    }
+
+    func isWorkflowMixed(_ slot: ModelSlot) -> Bool {
+        Set(workflowModels(for: slot).values).count > 1
+    }
+
+    func uniformWorkflowModel(for slot: ModelSlot) -> ModelChoice? {
+        let values = Set(workflowModels(for: slot).values)
+        return values.count == 1 ? values.first : nil
+    }
+
+    func workflowModelBinding(for slot: ModelSlot, type: IssueType) -> Binding<ModelChoice> {
+        Binding(
+            get: { self.workflowModels(for: slot)[type] ?? ModelsConfig.slotDefault(for: slot) },
+            set: { self.setWorkflowModel($0, for: slot, type: type) }
+        )
+    }
+
+    func setWorkflowModel(_ value: ModelChoice, for slot: ModelSlot, type: IssueType) {
+        guard canEdit else { return }
+        var models = workflowModels(for: slot)
+        models[type] = value
+        setWorkflowModels(models, for: slot)
+        scheduleSave()
+    }
+
+    private func setWorkflowModels(_ models: [IssueType: ModelChoice], for slot: ModelSlot) {
+        switch slot {
+        case .planAction: planModels = models
+        case .implementAction: implementModels = models
+        case .reviewAction: reviewModels = models
+        case .chat, .terminals: break
+        }
+    }
+
+    private static func uniform(_ value: ModelChoice) -> [IssueType: ModelChoice] {
+        Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
     }
 
     // Public for ProjectSettingsView's onChange driver — every field bound
@@ -416,9 +483,9 @@ final class ProjectSettingsModel {
         copy.models = ModelsConfig(
             chat: nilIfSlotDefault(chatModel, slot: .chat),
             terminals: nilIfSlotDefault(terminalsModel, slot: .terminals),
-            plan: nilIfSlotDefault(planModel, slot: .planAction),
-            implement: nilIfSlotDefault(implementModel, slot: .implementAction),
-            review: nilIfSlotDefault(reviewModel, slot: .reviewAction)
+            plan: workflowSetting(planModels, slot: .planAction),
+            implement: workflowSetting(implementModels, slot: .implementAction),
+            review: workflowSetting(reviewModels, slot: .reviewAction)
         )
         if copy.models == ModelsConfig() { copy.models = nil }
         return copy
@@ -438,6 +505,16 @@ final class ProjectSettingsModel {
 
     private func nilIfSlotDefault(_ choice: ModelChoice, slot: ModelSlot) -> ModelChoice? {
         choice == ModelsConfig.slotDefault(for: slot) ? nil : choice
+    }
+
+    // All-identical maps collapse to the string form; an all-default slot is
+    // elided from disk entirely, like the plain slots.
+    private func workflowSetting(
+        _ models: [IssueType: ModelChoice], slot: ModelSlot
+    ) -> WorkflowModelSetting? {
+        let normalized = WorkflowModelSetting.perType(models).normalized
+        if normalized == .uniform(ModelsConfig.slotDefault(for: slot)) { return nil }
+        return normalized
     }
 }
 

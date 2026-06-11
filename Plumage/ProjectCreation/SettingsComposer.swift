@@ -14,7 +14,7 @@ nonisolated struct SettingsComposer {
         ("force-plumage-skill", "UserPromptSubmit", nil),
         ("block-dangerous-bash", "PreToolUse", "Bash"),
         ("block-git-commit", "PreToolUse", "Bash"),
-        ("block-secret-files", "PreToolUse", "Read|Edit|Write"),
+        ("block-secret-files", "PreToolUse", "Read|Edit|Write|Glob|Grep"),
         ("block-secrets-in-content", "PreToolUse", "Edit|Write"),
         ("block-during-plumage-plan", "PreToolUse", "Write|Edit|MultiEdit|ExitPlanMode"),
         ("format-swift", "PostToolUse", "Edit|Write"),

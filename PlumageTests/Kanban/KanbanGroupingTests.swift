@@ -51,8 +51,7 @@ struct KanbanGroupingTests {
             created: .distantPast,
             updated: .distantPast,
             branch: "issue/\(folder)",
-            labels: [],
-            model: nil
+            labels: []
         )
     }
 

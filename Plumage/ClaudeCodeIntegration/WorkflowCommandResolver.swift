@@ -4,11 +4,24 @@ nonisolated enum WorkflowCommandResolver {
     // Plan inlines the prompt after " - " (rather than a second `<prompt>`
     // line) so it stays a single REPL turn — the terminal submits it with one
     // \r instead of two.
+    // Implement defaults per type: non-feature issues inline prompt+spec so
+    // the skill gets full context without a planned spec; the skill resolves
+    // the issue folder from the inlined frontmatter.
     static let defaultTemplates: [WorkflowAction: [String]] = [
         .plan: ["/plumage-plan <slug> - <prompt>"],
-        .implement: ["/plumage-implement <slug>"],
+        .implement: [
+            "#if feature",
+            "/plumage-implement <slug>",
+            "#else",
+            "/plumage-implement <prompt> <spec>",
+            "#end",
+        ],
         .review: ["/plumage-review <slug>"],
     ]
+
+    static func defaultCommand(for action: WorkflowAction) -> String {
+        (defaultTemplates[action] ?? []).joined(separator: "\n")
+    }
 
     // Matches each placeholder token in a single left-to-right scan so
     // substituted content can never re-enter the substitution chain
@@ -27,18 +40,12 @@ nonisolated enum WorkflowCommandResolver {
     static func resolve(
         action: WorkflowAction,
         slug: String,
+        type: IssueType,
         specURL: URL,
         promptURL: URL?,
         override: WorkflowOverride?
     ) -> [String] {
-        let template: [String] = {
-            if let raw = override?.command,
-                !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            {
-                return raw.components(separatedBy: "\n")
-            }
-            return defaultTemplates[action] ?? []
-        }()
+        let template = filteredTemplate(action: action, type: type, override: override)
 
         let promptContents = promptURL.map { readCapped($0) } ?? ""
         let specContents = readCapped(specURL)
@@ -58,6 +65,58 @@ nonisolated enum WorkflowCommandResolver {
             }
             return substituted
         }
+    }
+
+    // Pure (no disk I/O), so UI can derive button availability from it. A
+    // template whose lines are all consumed by directives or guarded away for
+    // this type yields no command to inject.
+    static func filtersToEmpty(
+        action: WorkflowAction,
+        type: IssueType,
+        override: WorkflowOverride?
+    ) -> Bool {
+        filteredTemplate(action: action, type: type, override: override)
+            .allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    // Directive lines are consumed, never emitted; a `#if` guards until the
+    // next `#if`/`#end` or EOF, `#else` inverts the open guard (a stray or
+    // repeated `#else` is a consumed no-op). Flat blocks only — no nesting.
+    private static func filteredTemplate(
+        action: WorkflowAction,
+        type: IssueType,
+        override: WorkflowOverride?
+    ) -> [String] {
+        let template: [String] = {
+            if let raw = override?.command,
+                !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+                return raw.components(separatedBy: "\n")
+            }
+            return defaultTemplates[action] ?? []
+        }()
+
+        var activeGuard: WorkflowCommandDirective?
+        var inElseBranch = false
+        var result: [String] = []
+        for line in template {
+            if let directive = WorkflowCommandDirective.parse(line: line) {
+                switch directive {
+                case .open:
+                    activeGuard = directive
+                    inElseBranch = false
+                case .elseBranch:
+                    if activeGuard != nil { inElseBranch = true }
+                case .end:
+                    activeGuard = nil
+                    inElseBranch = false
+                }
+                continue
+            }
+            if let activeGuard, activeGuard.matches(type) == inElseBranch { continue }
+            result.append(line)
+        }
+        return result
     }
 
     // Spec/prompt contents expand inline into a single REPL turn (one \r). A

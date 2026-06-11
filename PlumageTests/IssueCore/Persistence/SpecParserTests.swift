@@ -16,18 +16,18 @@ struct SpecParserTests {
         #expect(issue.status == .approved)
         #expect(issue.branch == "issue/00042-feature")
         #expect(issue.labels == ["feature", "v0.1"])
-        #expect(issue.model == "claude-opus-4-7")
         #expect(issue.created == iso("2026-05-12T09:00:00Z"))
         #expect(issue.updated == iso("2026-05-12T10:30:00Z"))
     }
 
-    @Test("parses chore with empty labels and null model")
+    // Both chore/feature fixtures keep their legacy `model:` lines on purpose:
+    // the removed field must stay ignorable in old specs.
+    @Test("parses chore with empty labels and a leftover model: null line")
     func validChore() throws {
         let issue = try requireSuccess(SpecParser.parse(content: try load("valid-chore.md"), folderName: "00001-chore"))
         #expect(issue.type == .chore)
         #expect(issue.status == .inProgress)
         #expect(issue.labels.isEmpty)
-        #expect(issue.model == nil)
     }
 
     @Test("parses spike with fractional-second updated date")

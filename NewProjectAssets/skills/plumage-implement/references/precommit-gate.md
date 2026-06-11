@@ -26,6 +26,21 @@ Track C (independent): Step 5 untracked secrets  Step 6 diff secrets  Step 7 .gi
 
 Tracks B and C run in the background while track A builds and tests; their results are collected before the summary. Wallclock = max(A, B, C), which in practice is track A — lint and secrets cost a second or two and are effectively free behind the build.
 
+## The gate lock
+
+Two xcodebuild invocations against the same project deadlock over DerivedData/SWBBuildService, so at most one gate runs per repo at a time. The lock is a PID file under `$TMPDIR` (macOS has no `flock`), keyed on a hash of `git rev-parse --path-format=absolute --git-common-dir` — identical across **all worktrees** of one repo, so gates from parallel `/plumage-implement` runs in separate worktrees serialize against each other and against the toolbar button. For a single checkout the behavior is unchanged.
+
+**Acquisition:** the gate writes its PID to a private temp file, then hard-links it to the lock path. `link(2)` is atomic and fails if the target exists, so the lock can never be observed without its owner PID — there is no create-then-write window in which a contender could mistake a slow starter for a crashed owner (the earlier `mkdir`-then-write design had exactly that window).
+
+**Ownership and stale takeover:** on contention the gate reads the owner PID from the lock file; if the owner is dead (`kill -0` fails) or the PID is invalid (zero or non-numeric — `kill -0 0` would probe the gate's own process group), the lock is stale and taken over automatically — a `kill -9`'d gate no longer blocks the next run. Takeover renames the lock aside (`mv`, atomic, so of two concurrent takeovers exactly one wins), re-validates that the renamed file still names the stale owner, and only then deletes it; if the content changed, a faster contender already took over and re-acquired, and the file is moved back. Release is ownership-checked: the EXIT trap removes the lock only while it still contains the releasing gate's own PID, so a completed takeover can't be undone by the previous owner's exit. Locks from the pre-hard-link version of the script (a *directory* with the PID at `<dir>/pid`) are read transparently: a live old-format owner is respected, a dead one taken over — mixed-version contention during an upgrade stays safe. (`ln` onto an existing directory would silently link *into* it, so acquisition re-reads the lock after `ln` and only counts it as acquired when it contains the gate's own PID.)
+
+**Contention with a live owner:**
+
+- default (no flag): fail fast, exit 2, message names the owner PID. This is the toolbar path — Plumage's "Run Quality Gate" button keeps its existing behavior.
+- `--wait[=secs]`: print `waiting for gate lock held by PID <n>...`, poll every ~2 s until the lock frees, then run normally. Default timeout 900 s (covers a slow `--full` gate); on timeout, exit 2 naming the owner. `/plumage-implement` passes `--wait` on every gate invocation so parallel worktree runs queue instead of erroring.
+
+**Known limit — PID recycling:** if a stale lock's PID was recycled by an unrelated live process, the lock looks held; `--wait` runs into its timeout and exits 2 naming the PID, and the operator removes the lock file manually. Rare and self-describing, accepted. (The ownership-checked release bounds the damage of a takeover misjudgment: whoever holds the file proceeds, the other party's exit can't delete it.)
+
 ## The seven checks
 
 For `feature` and `chore` issues all applicable checks must pass. For `spike` issues the gate is optional — skip if the spec sets `skipPreCommitGate: true`.
@@ -60,7 +75,7 @@ Scan untracked files for `.env`, `*.key`, `*.pem`, `id_rsa`/`id_ed25519`/`id_ecd
 
 ### 6. `git diff` — no hardcoded secrets in the diff
 
-Regex sweep of `git diff <defaultBranch>...HEAD` for well-known key/token prefixes (AKIA…, ghp_…, sk-…, sk-ant-…, xox[baprs]-…, AIza…). Conservative; false positives need a per-project allowlist (future).
+Regex sweep of `git diff <defaultBranch>...HEAD` for well-known key/token prefixes — the same pattern set `block-secrets-in-content.sh` enforces on writes (AKIA…/ASIA…, gh[poasu]_…, sk-…, sk_live/test_…, rk_live/test_…, xox[baprs]-…, AIza…, PEM private-key blocks). Conservative; false positives need a per-project allowlist (future).
 
 ### 7. `.gitignore` sanity — first commit only
 

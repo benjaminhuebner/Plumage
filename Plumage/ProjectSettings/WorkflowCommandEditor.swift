@@ -9,6 +9,8 @@ struct WorkflowCommandEditor: NSViewRepresentable {
     @Binding var text: String
     var onPlaceholderInsert: (WorkflowPlaceholder) -> Void = { _ in }
 
+    static let minHeight: CGFloat = 90
+
     func makeNSView(context: Context) -> NSScrollView {
         let textView = WorkflowCommandTextView()
         textView.minSize = NSSize(width: 0, height: 0)
@@ -53,6 +55,29 @@ struct WorkflowCommandEditor: NSViewRepresentable {
         Coordinator(text: $text)
     }
 
+    // Grows the editor with its content instead of scrolling. Measured against
+    // the proposed width so wrap-induced height changes land in the same
+    // layout pass; the text binding updates on every keystroke, re-running this.
+    func sizeThatFits(
+        _ proposal: ProposedViewSize, nsView: NSScrollView, context: Context
+    ) -> CGSize? {
+        guard let textView = nsView.documentView as? NSTextView,
+            let layoutManager = textView.layoutManager,
+            let container = textView.textContainer
+        else { return nil }
+        if let width = proposal.width, width.isFinite, width > 0 {
+            container.containerSize = NSSize(
+                width: width, height: CGFloat.greatestFiniteMagnitude
+            )
+        }
+        layoutManager.ensureLayout(for: container)
+        let used = layoutManager.usedRect(for: container)
+        let height = max(
+            Self.minHeight, ceil(used.height + textView.textContainerInset.height * 2)
+        )
+        return CGSize(width: proposal.width ?? used.width, height: height)
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let text: Binding<String>
@@ -80,6 +105,8 @@ struct WorkflowCommandEditor: NSViewRepresentable {
                 let storage = textView.textStorage
             else { return }
             autoConvertPlaceholders(in: storage, textView: textView)
+            autoConvertDirectives(in: storage, textView: textView)
+            restyleCommandTokens(in: storage)
             let serialized = WorkflowCommandSerialization.string(
                 from: textView.attributedString()
             )
@@ -130,6 +157,65 @@ struct WorkflowCommandEditor: NSViewRepresentable {
             let newLength = textView.attributedString().length
             let clamped = min(originalSelection.location, newLength)
             textView.setSelectedRange(NSRange(location: clamped, length: 0))
+        }
+
+        // Directives have no closing terminator like the placeholders' `>`,
+        // so the caret's line is left alone — converting mid-typing would
+        // freeze the pill under the user's fingers; leaving the line converts.
+        private func autoConvertDirectives(
+            in storage: NSTextStorage, textView: NSTextView
+        ) {
+            let plain = storage.string
+            let nsPlain = plain as NSString
+            let fullRange = NSRange(location: 0, length: nsPlain.length)
+            let matches = WorkflowCommandSerialization.directivePattern
+                .matches(in: plain, options: [], range: fullRange)
+            guard !matches.isEmpty else { return }
+
+            let selection = textView.selectedRange()
+            suppressNextChange = true
+            defer { suppressNextChange = false }
+
+            storage.beginEditing()
+            var converted = false
+            for match in matches.reversed() {
+                var lineStart = 0
+                var contentsEnd = 0
+                nsPlain.getLineStart(
+                    &lineStart, end: nil, contentsEnd: &contentsEnd, for: match.range
+                )
+                if selection.location >= lineStart, selection.location <= contentsEnd {
+                    continue
+                }
+                let textRange = match.range(at: 1)
+                let text = nsPlain.substring(with: textRange)
+                guard let kind = WorkflowCommandSerialization.directiveKind(for: text) else {
+                    continue
+                }
+                let attachment = NSTextAttachment()
+                attachment.attachmentCell = WorkflowCommandDirectiveCell(
+                    kind: kind, rawText: text
+                )
+                storage.replaceCharacters(
+                    in: textRange, with: NSAttributedString(attachment: attachment)
+                )
+                converted = true
+            }
+            storage.endEditing()
+            guard converted else { return }
+
+            let newLength = textView.attributedString().length
+            let clamped = min(selection.location, newLength)
+            textView.setSelectedRange(NSRange(location: clamped, length: 0))
+        }
+
+        // Attribute-only pass — no text mutation, so the caret stays put.
+        private func restyleCommandTokens(in storage: NSTextStorage) {
+            suppressNextChange = true
+            defer { suppressNextChange = false }
+            storage.beginEditing()
+            WorkflowCommandSerialization.applyCommandHighlighting(to: storage)
+            storage.endEditing()
         }
 
         // Plain-text copy: emit `<slug>` etc. so external paste shows tokens.
