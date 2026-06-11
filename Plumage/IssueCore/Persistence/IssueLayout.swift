@@ -30,4 +30,12 @@ nonisolated enum IssueLayout {
     static func templateURL(in projectURL: URL) -> URL {
         issuesDirectory(in: projectURL).appendingPathComponent("_TEMPLATE.md")
     }
+
+    static func allocationLedgerDirectory(in projectURL: URL) -> URL {
+        issuesDirectory(in: projectURL).appendingPathComponent(".allocated", isDirectory: true)
+    }
+
+    static func allocationMarkerURL(in projectURL: URL, id: Int) -> URL {
+        allocationLedgerDirectory(in: projectURL).appendingPathComponent(String(id), isDirectory: true)
+    }
 }
