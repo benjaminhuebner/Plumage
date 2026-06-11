@@ -438,9 +438,15 @@ track_c() {
         record 6 skip 0 "no default branch found (main/master)"
     else
         local diff_secrets
+        # Same pattern set as block-secrets-in-content.sh — the diff scan and
+        # the write hook must block the same list.
         diff_secrets=$(git diff "${default_branch}...HEAD" 2>/dev/null | grep -E \
-            -e 'AKIA[0-9A-Z]{16}' -e 'ghp_[A-Za-z0-9]{36}' -e 'sk-[A-Za-z0-9]{32,}' \
-            -e 'sk-ant-[A-Za-z0-9_-]{20,}' -e 'xox[baprs]-[A-Za-z0-9-]+' -e 'AIza[0-9A-Za-z_-]{35}' || true)
+            -e 'AKIA[0-9A-Z]{16}' -e 'ASIA[0-9A-Z]{16}' \
+            -e 'gh[poasu]_[A-Za-z0-9]{30,}' \
+            -e 'sk-(ant-|proj-|live-|admin-)?[A-Za-z0-9_-]{20,}' \
+            -e 'sk_(live|test)_[A-Za-z0-9]{20,}' -e 'rk_(live|test)_[A-Za-z0-9]{20,}' \
+            -e 'xox[baprs]-[A-Za-z0-9-]{10,}' -e 'AIza[0-9A-Za-z_-]{35}' \
+            -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' || true)
         if [ -n "$diff_secrets" ]; then
             record 6 fail $(( $(now) - t0 )); printf '%s\n' "$diff_secrets" | head -10 > "$work/6.detail"
         else

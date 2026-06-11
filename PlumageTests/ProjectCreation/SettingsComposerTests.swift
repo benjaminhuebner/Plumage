@@ -75,6 +75,18 @@ struct SettingsComposerTests {
         #expect(perms.contains("Bash(git status:*)"))
     }
 
+    @Test("block-secret-files matcher covers Glob and Grep")
+    func secretFilesMatcherCoversGlobGrep() throws {
+        let obj = try settings(.macOS)
+        let preGroups = try #require(groups(obj, event: "PreToolUse"))
+        let secretFiles = preGroups.first { group in
+            (group["hooks"] as? [[String: Any]])?.contains {
+                ($0["command"] as? String)?.contains("block-secret-files.sh") == true
+            } == true
+        }
+        #expect((secretFiles?["matcher"] as? String) == "Read|Edit|Write|Glob|Grep")
+    }
+
     @Test("settings.local.json is minimal valid JSON")
     func localSettings() throws {
         let obj = try JSONSerialization.jsonObject(with: composer.localSettingsJSON()) as? [String: Any]

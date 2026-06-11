@@ -1,6 +1,6 @@
 ---
 name: plumage-review
-description: This skill should be used when the user runs `/plumage-review <slug>` or asks to "review the PR", "check this before merge", "go over issue NNNN", or "tell me if this is mergeable". Reads an issue's spec, PR.md, and the cumulative diff against the default branch, cross-checks against PROJECT.md and decisions.md, and appends a structured review section to PR.md ending with one of three recommendations (Accept / Reject / Discuss). Do NOT use to merge, reject the issue, or move status — those are user actions via Plumage's UI buttons.
+description: This skill should be used when the user runs `/plumage-review <slug>` or asks to "review the PR", "check this before merge", "go over issue NNNN", or "tell me if this is mergeable". Reads an issue's spec, PR.md, and the cumulative diff against the default branch, cross-checks against PROJECT.md and decisions.md, and appends a structured review section to PR.md ending with one of two recommendations (Accept / Discuss). Do NOT use to merge, reject the issue, or move status — those are user actions via Plumage's UI buttons.
 user-invocable: true
 disable-model-invocation: true
 ---
@@ -15,7 +15,7 @@ This skill works without the Plumage app: invoke `/plumage-review <slug>` direct
 
 Identify the task surface — what domains and tooling this issue actually touches — from the spec, the user's request, or the issue description. Then scan installed skills and subagents and invoke every one whose description matches that surface, before any real work begins. The `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so the routing is manual.
 
-- Skills via the Skill tool, subagents via the Task tool.
+- Skills via the Skill tool, subagents via the Agent tool.
 - Match on description, not name. Invoke when the description covers the task surface; don't invoke speculatively because a name sounds related.
 - Re-scan when work reveals a domain that wasn't obvious at the start.
 

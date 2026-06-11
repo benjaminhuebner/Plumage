@@ -75,7 +75,7 @@ Scan untracked files for `.env`, `*.key`, `*.pem`, `id_rsa`/`id_ed25519`/`id_ecd
 
 ### 6. `git diff` — no hardcoded secrets in the diff
 
-Regex sweep of `git diff <defaultBranch>...HEAD` for well-known key/token prefixes (AKIA…, ghp_…, sk-…, sk-ant-…, xox[baprs]-…, AIza…). Conservative; false positives need a per-project allowlist (future).
+Regex sweep of `git diff <defaultBranch>...HEAD` for well-known key/token prefixes — the same pattern set `block-secrets-in-content.sh` enforces on writes (AKIA…/ASIA…, gh[poasu]_…, sk-…, sk_live/test_…, rk_live/test_…, xox[baprs]-…, AIza…, PEM private-key blocks). Conservative; false positives need a per-project allowlist (future).
 
 ### 7. `.gitignore` sanity — first commit only
 

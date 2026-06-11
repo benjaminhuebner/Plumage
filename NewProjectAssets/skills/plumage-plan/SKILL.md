@@ -9,10 +9,11 @@ Plumage-plan is the planning half of Plumage's workflow. It runs in Plan Mode (t
 
 ## Arguments
 
-The skill accepts two forms:
+The skill accepts three forms:
 
 - `/plumage-plan <slug>` — slug only, no prompt. Works with or without Plumage app.
 - `/plumage-plan <slug> - <prompt>` — the first ` - ` (space-hyphen-space) separates the slug from the prompt body. Plumage injects this form automatically when an issue has a `prompt.md`; it also works standalone from the terminal.
+- `/plumage-plan <prompt>` — input whose first token is not a valid slug (`^[a-z0-9][a-z0-9-]*$`) is treated entirely as prompt. Derive a slug from the prompt and state the choice in the first interview turn, so the user can correct it before the issue folder is created.
 
 The prompt is optional context the user provides upfront (issue description, requirements, notes). When present, treat it as the starting point for the interview — don't ask questions whose answers are already in the prompt. When absent, begin the interview with the Goal topic as normal.
 
@@ -28,7 +29,7 @@ The prompt is optional context the user provides upfront (issue description, req
 
 Identify the task surface — what domains and tooling this issue actually touches — from the spec, the user's request, or the issue description. Then scan installed skills and subagents and invoke every one whose description matches that surface, before any real work begins. The `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so the routing is manual.
 
-- Skills via the Skill tool, subagents via the Task tool.
+- Skills via the Skill tool, subagents via the Agent tool.
 - Match on description, not name. Invoke when the description covers the task surface; don't invoke speculatively because a name sounds related.
 - Re-scan when work reveals a domain that wasn't obvious at the start.
 

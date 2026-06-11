@@ -71,7 +71,17 @@ esac
 # Frontmatter line — anchored, exactly one space after the colon, no quotes.
 # Matches how IssueStatus serializes ("status: approved"), nothing else.
 if ! printf '%s' "$payload" | grep -qE '^status:[[:space:]]+approved[[:space:]]*$'; then
-    exit 0
+    # A minimal edit (`draft` → `approved`) carries only the new word, not the
+    # full line. If the payload mentions approved, confirm against the on-disk
+    # frontmatter — PostToolUse, so the edit has already landed.
+    printf '%s' "$payload" | grep -qE '(^|[^[:alnum:]_-])approved([^[:alnum:]_-]|$)' || exit 0
+    [ -f "$file_path" ] || exit 0
+    awk '
+        /^---[[:space:]]*$/ { n++; next }
+        n == 1 && /^status:[[:space:]]+approved[[:space:]]*$/ { found = 1 }
+        n >= 2 { exit }
+        END { exit !found }
+    ' "$file_path" || exit 0
 fi
 
 # Planning is done — clear the session-scoped plan-active marker so the

@@ -14,7 +14,8 @@
 # Exit codes:
 #   0  all N runs passed
 #   1  at least one run failed (the run logs are kept for inspection)
-#   2  environment problem (gate script not found, not in a git repo, or a run
+#   2  environment problem (gate script not found, not in a git repo, a gate
+#      run aborted with exit 2 — lock timeout, missing tools — or a run
 #      SKIPPED its tests so determinism cannot be assessed)
 
 set -uo pipefail
@@ -48,8 +49,15 @@ echo "Probing the default gate ${runs}x on ${commit} (logs: ${logdir})"
 pass=0
 fail=0
 for i in $(seq 1 "$runs"); do
-    "$gate" --close-instances > "$logdir/run-$i.log" 2>&1
+    "$gate" --wait=1800 --close-instances > "$logdir/run-$i.log" 2>&1
     rc=$?
+    # Gate exit 2 is an environment problem (lock timeout, missing tools), not
+    # a test result — abort instead of recording a bogus FLAKY data point.
+    if [ $rc -eq 2 ]; then
+        echo "error: gate run $i hit an environment problem (gate exit 2) —" >&2
+        echo "       cannot assess determinism. See $logdir/run-$i.log" >&2
+        exit 2
+    fi
     # The probe measures TEST determinism. If the Tests step was skipped (e.g. a
     # running app instance wedged the launch), a green exit is vacuous — refuse
     # to call the gate deterministic on data that never ran.
