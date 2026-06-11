@@ -68,6 +68,111 @@ struct ProjectSettingsModelTests {
         #expect(try ConfigLoader.load(at: project).models?.chat == nil)
     }
 
+    @Test("per-type pick persists the object form; mixed detection flips")
+    func perTypePickPersistsObject() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        #expect(!model.isWorkflowMixed(.implementAction))
+
+        model.setWorkflowModel(.opus, for: .implementAction, type: .feature)
+        #expect(model.isWorkflowMixed(.implementAction))
+        #expect(model.uniformWorkflowModel(for: .implementAction) == nil)
+        await model.saveNow()
+
+        let reloaded = try ConfigLoader.load(at: project)
+        #expect(
+            reloaded.models?.implement
+                == .perType([
+                    .feature: .opus, .chore: .default, .spike: .default, .refactor: .default,
+                ]))
+    }
+
+    @Test("top pick while mixed overwrites all four types")
+    func topPickOverwritesAllTypes() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        model.setWorkflowModel(.opus, for: .planAction, type: .feature)
+        model.setWorkflowModel(.haiku, for: .planAction, type: .chore)
+        #expect(model.isWorkflowMixed(.planAction))
+
+        model.setModel(.sonnet, for: .planAction)
+        #expect(!model.isWorkflowMixed(.planAction))
+        #expect(model.model(for: .planAction) == .sonnet)
+        for type in IssueType.allCases {
+            #expect(model.workflowModels(for: .planAction)[type] == .sonnet)
+        }
+        await model.saveNow()
+        #expect(try ConfigLoader.load(at: project).models?.plan == .uniform(.sonnet))
+    }
+
+    @Test("setting all four sub-rows to one value collapses to the plain string on disk")
+    func collapseBackToUniform() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        model.setWorkflowModel(.opus, for: .implementAction, type: .feature)
+        await model.saveNow()
+
+        for type in IssueType.allCases {
+            model.setWorkflowModel(.opus, for: .implementAction, type: type)
+        }
+        #expect(!model.isWorkflowMixed(.implementAction))
+        await model.saveNow()
+
+        let configURL = try #require(
+            try? BundleResolver.findBundle(in: project).appendingPathComponent("config.json"))
+        let parsed = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any])
+        let models = try #require(parsed["models"] as? [String: Any])
+        #expect(models["implement"] as? String == "opus")
+    }
+
+    @Test("all-default workflow slot is elided from disk")
+    func allDefaultWorkflowSlotElided() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        model.setWorkflowModel(.opus, for: .reviewAction, type: .spike)
+        await model.saveNow()
+        #expect(try ConfigLoader.load(at: project).models?.review != nil)
+
+        model.setWorkflowModel(.default, for: .reviewAction, type: .spike)
+        await model.saveNow()
+        #expect(try ConfigLoader.load(at: project).models?.review == nil)
+    }
+
+    @Test("load seeds per-type values from a mixed config object")
+    func loadSeedsPerTypeValues() async throws {
+        let config = """
+            {
+              "schemaVersion": 2,
+              "name": "Sample",
+              "models": {
+                "implement": { "feature": "opus", "chore": "haiku" }
+              }
+            }
+            """
+        let project = try TempProject.make(content: config)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        #expect(model.isWorkflowMixed(.implementAction))
+        #expect(model.workflowModels(for: .implementAction)[.feature] == .opus)
+        #expect(model.workflowModels(for: .implementAction)[.chore] == .haiku)
+        #expect(model.workflowModels(for: .implementAction)[.spike] == .default)
+    }
+
     @Test("setCommand persists override and trims-empty-falls-back-to-nil")
     func setCommandPersists() async throws {
         let project = try makeProject()

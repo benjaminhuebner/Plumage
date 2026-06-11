@@ -21,6 +21,7 @@ final class WorkflowLauncher {
     func run(
         action: WorkflowAction,
         folderName: String,
+        issueType: IssueType,
         projectURL: URL,
         override: WorkflowOverride?,
         tabs: TerminalTabsModel,
@@ -54,6 +55,7 @@ final class WorkflowLauncher {
         let workflowTab = tabs.addWorkflowTab(
             action: action,
             slug: folderName,
+            type: issueType,
             override: override
         )
 

@@ -623,7 +623,7 @@ struct IssueDetailView: View {
                 presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
                 return
             }
-            runWorkflow(action, folderName)
+            runWorkflow(action, folderName, currentType)
         }
     }
 

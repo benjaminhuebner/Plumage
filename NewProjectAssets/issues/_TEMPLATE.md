@@ -7,5 +7,4 @@ created: <<<CREATED>>>
 updated: <<<CREATED>>>
 branch: issue/<<<ID_PADDED>>>-<<<SLUG>>>
 labels: []
-model: null
 ---

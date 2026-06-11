@@ -228,8 +228,7 @@ private struct CardInteraction: ViewModifier {
                         created: .distantPast,
                         updated: .distantPast,
                         branch: "issue/00001-walking-skeleton",
-                        labels: ["bootstrap"],
-                        model: nil
+                        labels: ["bootstrap"]
                     )
                 ),
                 padding: 5,

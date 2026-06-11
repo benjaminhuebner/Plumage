@@ -188,7 +188,7 @@ struct IssueDetailModelTests {
             Issue(
                 id: 1, folderName: "00001-test", title: "Sample", type: .feature,
                 status: .blocked, created: .distantPast, updated: .distantPast,
-                branch: "issue/00001-x", labels: [], model: nil
+                branch: "issue/00001-x", labels: []
             )
         )
         await model.observeExternalChange(currentIssue: discovered)

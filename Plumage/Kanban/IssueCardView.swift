@@ -93,7 +93,6 @@ struct IssueCardView: View {
                 updated: .distantPast,
                 branch: "issue/00001-walking-skeleton",
                 labels: [],
-                model: nil,
                 goal: nil
             ),
             padding: 5
@@ -109,7 +108,6 @@ struct IssueCardView: View {
                 updated: .distantPast,
                 branch: "issue/00005-kanban",
                 labels: ["feature", "v0.1"],
-                model: nil,
                 goal: "Bring Kanban columns to life with type-tinted pills and a goal subtitle."
             ),
             padding: 5
@@ -125,7 +123,6 @@ struct IssueCardView: View {
                 updated: .distantPast,
                 branch: "issue/00012-long-goal",
                 labels: [],
-                model: nil,
                 goal: String(
                     repeating:
                         "Lots of context to flow across multiple visible lines so the truncation logic kicks in. ",
@@ -145,7 +142,6 @@ struct IssueCardView: View {
                 updated: .distantPast,
                 branch: "issue/00042-blocked",
                 labels: [],
-                model: nil,
                 goal: "Stuck on an external decision."
             ),
             padding: 5

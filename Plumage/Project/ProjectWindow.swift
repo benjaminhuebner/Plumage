@@ -478,7 +478,7 @@ struct ProjectWindow: View {
                     showCreateSheet = true
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
-                .environment(\.runWorkflow, runWorkflow(_:folderName:))
+                .environment(\.runWorkflow, runWorkflow(_:folderName:issueType:))
                 .environment(\.onProjectConfigSaved) { saved in
                     // Mirror the disk-write into ProjectModel so the rest of
                     // the window (runWorkflow → currentConfig().workflows)
@@ -687,10 +687,11 @@ struct ProjectWindow: View {
         return false
     }
 
-    private func runWorkflow(_ action: WorkflowAction, folderName: String) {
+    private func runWorkflow(_ action: WorkflowAction, folderName: String, issueType: IssueType) {
         workflowLauncher.run(
             action: action,
             folderName: folderName,
+            issueType: issueType,
             projectURL: handle.url,
             override: currentConfig()?.workflows?[action],
             tabs: terminalTabs,

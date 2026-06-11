@@ -161,7 +161,6 @@ private struct DraggableColumnBody: View {
                         updated: .distantPast,
                         branch: "issue/00001-walking-skeleton",
                         labels: [],
-                        model: nil,
                         goal: "Get a Plumage shell building, signing, launching."
                     )
                 ),
@@ -176,7 +175,6 @@ private struct DraggableColumnBody: View {
                         updated: .distantPast,
                         branch: "issue/00007-blocked-thing",
                         labels: [],
-                        model: nil,
                         goal: nil
                     )
                 ),

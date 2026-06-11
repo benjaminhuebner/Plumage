@@ -275,10 +275,15 @@ struct ProjectSettingsView: View {
         )
         VStack(alignment: .leading, spacing: 8) {
             ForEach(ModelSlot.allCases, id: \.self) { slot in
-                ModelPickerRow(
-                    label: slot.label,
-                    choice: model.modelBinding(for: slot)
-                )
+                switch slot {
+                case .chat, .terminals:
+                    ModelPickerRow(
+                        label: slot.label,
+                        choice: model.modelBinding(for: slot)
+                    )
+                case .planAction, .implementAction, .reviewAction:
+                    WorkflowModelPickerRow(slot: slot, model: model)
+                }
             }
             Label(
                 "Changes only apply to new sessions and tabs.",

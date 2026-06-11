@@ -112,8 +112,7 @@ struct DiscoveredIssueTests {
             created: .distantPast,
             updated: .distantPast,
             branch: "issue/\(folderName)",
-            labels: [],
-            model: nil
+            labels: []
         )
     }
 }

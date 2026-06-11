@@ -127,8 +127,7 @@ struct ProjectKanbanModelTests {
                 created: .distantPast,
                 updated: .distantPast,
                 branch: "issue/\(folder)",
-                labels: [],
-                model: nil
+                labels: []
             )
         )
     }

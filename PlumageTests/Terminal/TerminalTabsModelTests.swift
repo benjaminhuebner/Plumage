@@ -169,7 +169,7 @@ struct TerminalTabsModelTests {
     @Test("findWorkflowTab matches an existing tab by exact title")
     func findWorkflowTabExisting() {
         let model = makeModel()
-        let created = model.addWorkflowTab(action: .plan, slug: "walking-skeleton")
+        let created = model.addWorkflowTab(action: .plan, slug: "walking-skeleton", type: .feature)
         let found = model.findWorkflowTab(action: .plan, slug: "walking-skeleton")
         #expect(found?.id == created.id)
         // Different action / slug => no match (title differs).
@@ -181,7 +181,7 @@ struct TerminalTabsModelTests {
     func addWorkflowTabAppendsAndSelects() {
         let model = makeModel()
         let mainID = model.tabs[0].id
-        let tab = model.addWorkflowTab(action: .implement, slug: "00038-workflow-tabs-per-action")
+        let tab = model.addWorkflowTab(action: .implement, slug: "00038-workflow-tabs-per-action", type: .feature)
         #expect(model.tabs.count == 2)
         #expect(model.tabs[1].id == tab.id)
         #expect(tab.title == "Implement: 00038-workflow-tabs-per-action")
@@ -193,7 +193,7 @@ struct TerminalTabsModelTests {
     @Test("plan tab with default model uses --permission-mode plan and no --model flag")
     func addWorkflowTabPlanDefaultUsesPlanMode() {
         let model = makeModel()
-        let tab = model.addWorkflowTab(action: .plan, slug: "x")
+        let tab = model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
         let cmd = tab.session.shellSpawnArgs()[1]
         #expect(cmd.contains("'--permission-mode' 'plan'"))
         #expect(!cmd.contains("--model"))
@@ -204,8 +204,8 @@ struct TerminalTabsModelTests {
         let model = makeModel()
         // Permission mode is decoupled from the model: a non-default model
         // choice for Plan still spawns with --permission-mode plan.
-        model.modelsConfig = ModelsConfig(plan: .sonnet)
-        let tab = model.addWorkflowTab(action: .plan, slug: "x")
+        model.modelsConfig = ModelsConfig(plan: .uniform(.sonnet))
+        let tab = model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
         let cmd = tab.session.shellSpawnArgs()[1]
         #expect(cmd.contains("'--permission-mode' 'plan'"))
         #expect(cmd.contains("'--model' 'sonnet'"))
@@ -214,8 +214,8 @@ struct TerminalTabsModelTests {
     @Test("implement tab always uses acceptEdits regardless of model")
     func addWorkflowTabImplementUsesAcceptEdits() {
         let model = makeModel()
-        model.modelsConfig = ModelsConfig(implement: .sonnet)
-        let tab = model.addWorkflowTab(action: .implement, slug: "x")
+        model.modelsConfig = ModelsConfig(implement: .uniform(.sonnet))
+        let tab = model.addWorkflowTab(action: .implement, slug: "x", type: .feature)
         let cmd = tab.session.shellSpawnArgs()[1]
         #expect(cmd.contains("'--permission-mode' 'acceptEdits'"))
     }
@@ -223,7 +223,7 @@ struct TerminalTabsModelTests {
     @Test("workflow tabs are closable (only the main tab is sticky)")
     func workflowTabsAreClosable() {
         let model = makeModel()
-        let tab = model.addWorkflowTab(action: .review, slug: "rev")
+        let tab = model.addWorkflowTab(action: .review, slug: "rev", type: .feature)
         #expect(model.canClose(tab.id))
     }
 
@@ -232,9 +232,9 @@ struct TerminalTabsModelTests {
         let chatID = "chat-\(UUID().uuidString.lowercased())"
         let model = makeModel(excludedSessionIDs: { [chatID] })
         let mainID = model.tabs[0].session.conversationID
-        let extraTab = model.addWorkflowTab(action: .plan, slug: "x")
+        let extraTab = model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
         let extraID = extraTab.session.conversationID
-        let workflowTab = model.addWorkflowTab(action: .review, slug: "y")
+        let workflowTab = model.addWorkflowTab(action: .review, slug: "y", type: .feature)
         let workflowID = workflowTab.session.conversationID
 
         // Every tab's closure must report every tab's ID plus the shared
@@ -254,7 +254,7 @@ struct TerminalTabsModelTests {
         let model = makeModel()
         // First click → no existing tab, addWorkflowTab creates it.
         #expect(model.findWorkflowTab(action: .plan, slug: "abc") == nil)
-        let created = model.addWorkflowTab(action: .plan, slug: "abc")
+        let created = model.addWorkflowTab(action: .plan, slug: "abc", type: .feature)
 
         // Second click for the same action+slug → find returns the same tab,
         // caller never calls add again. Total tabs stays at 2 (main + plan).
@@ -264,7 +264,7 @@ struct TerminalTabsModelTests {
 
         // A different action for the same slug is still a new tab (3 total).
         #expect(model.findWorkflowTab(action: .implement, slug: "abc") == nil)
-        model.addWorkflowTab(action: .implement, slug: "abc")
+        model.addWorkflowTab(action: .implement, slug: "abc", type: .feature)
         #expect(model.tabs.count == 3)
     }
 
@@ -275,9 +275,9 @@ struct TerminalTabsModelTests {
         #expect(isIdle(mainSession.state))
         #expect(mainSession.pendingInput.isEmpty)
 
-        model.addWorkflowTab(action: .plan, slug: "x")
-        model.addWorkflowTab(action: .implement, slug: "y")
-        model.addWorkflowTab(action: .review, slug: "z")
+        model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
+        model.addWorkflowTab(action: .implement, slug: "y", type: .feature)
+        model.addWorkflowTab(action: .review, slug: "z", type: .feature)
 
         // After three workflow tabs, the main session is still idle with an
         // empty pendingInput buffer — no slash command was injected there.
@@ -289,7 +289,7 @@ struct TerminalTabsModelTests {
     func closeGenericPreservesWorkflowTitle() {
         let model = makeModel()
         // Layout: [main, Plan: abc, Terminal 3 (generic)]
-        let workflowTab = model.addWorkflowTab(action: .plan, slug: "abc")
+        let workflowTab = model.addWorkflowTab(action: .plan, slug: "abc", type: .feature)
         let originalTitle = workflowTab.title
         model.addTab()
         let genericID = model.tabs[2].id
@@ -308,7 +308,7 @@ struct TerminalTabsModelTests {
     @Test("closeTab fires onTabClosed with the removed workflow tab")
     func onTabClosedFiresForWorkflowTab() {
         let model = makeModel()
-        let workflowTab = model.addWorkflowTab(action: .plan, slug: "x")
+        let workflowTab = model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
         var closed: TerminalTab?
         model.onTabClosed = { closed = $0 }
 
@@ -332,7 +332,7 @@ struct TerminalTabsModelTests {
     @Test("setSharedExcludedSessionIDs propagates the chat exclude into every tab")
     func setSharedExcludedSessionIDsPropagates() {
         let model = makeModel()
-        model.addWorkflowTab(action: .plan, slug: "x")
+        model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
         let chatID = "chat-\(UUID().uuidString.lowercased())"
         model.setSharedExcludedSessionIDs { [chatID] }
         for tab in model.tabs {
@@ -375,14 +375,37 @@ struct TerminalTabsModelTests {
     func addWorkflowTabUsesWorkflowModel() {
         let model = makeModel()
         model.modelsConfig = ModelsConfig(
-            plan: .sonnet, implement: .opus, review: .haiku
+            plan: .uniform(.sonnet), implement: .uniform(.opus), review: .uniform(.haiku)
         )
-        let plan = model.addWorkflowTab(action: .plan, slug: "x")
-        let impl = model.addWorkflowTab(action: .implement, slug: "x")
-        let rev = model.addWorkflowTab(action: .review, slug: "x")
+        let plan = model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
+        let impl = model.addWorkflowTab(action: .implement, slug: "x", type: .feature)
+        let rev = model.addWorkflowTab(action: .review, slug: "x", type: .feature)
         #expect(plan.session.modelChoice == .sonnet)
         #expect(impl.session.modelChoice == .opus)
         #expect(rev.session.modelChoice == .haiku)
+    }
+
+    @Test("addWorkflowTab resolves a per-type setting from the issue type")
+    func addWorkflowTabResolvesPerType() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(
+            implement: .perType([.feature: .opus, .chore: .haiku])
+        )
+        let feature = model.addWorkflowTab(action: .implement, slug: "a", type: .feature)
+        let chore = model.addWorkflowTab(action: .implement, slug: "b", type: .chore)
+        let spike = model.addWorkflowTab(action: .implement, slug: "c", type: .spike)
+        #expect(feature.session.modelChoice == .opus)
+        #expect(chore.session.modelChoice == .haiku)
+        #expect(spike.session.modelChoice == .default)
+    }
+
+    @Test("per-type model carries into the spawned session args")
+    func perTypeModelReachesSpawnArgs() {
+        let model = makeModel()
+        model.modelsConfig = ModelsConfig(implement: .perType([.feature: .opus, .chore: .haiku]))
+        let tab = model.addWorkflowTab(action: .implement, slug: "x", type: .chore)
+        let cmd = tab.session.shellSpawnArgs()[1]
+        #expect(cmd.contains("'--model' 'haiku'"))
     }
 
     @Test("missing modelsConfig falls back to slot defaults")
@@ -390,7 +413,7 @@ struct TerminalTabsModelTests {
         let model = makeModel()
         model.modelsConfig = nil
         model.addTab()
-        let wf = model.addWorkflowTab(action: .implement, slug: "x")
+        let wf = model.addWorkflowTab(action: .implement, slug: "x", type: .feature)
         #expect(model.tabs.last?.session.modelChoice == ModelsConfig.terminalsDefault)
         #expect(wf.session.modelChoice == ModelsConfig.implementDefault)
     }

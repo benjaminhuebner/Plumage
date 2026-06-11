@@ -78,9 +78,9 @@ nonisolated struct WorkflowOverride: Codable, Hashable, Sendable {
 nonisolated struct ModelsConfig: Codable, Hashable, Sendable {
     var chat: ModelChoice?
     var terminals: ModelChoice?
-    var plan: ModelChoice?
-    var implement: ModelChoice?
-    var review: ModelChoice?
+    var plan: WorkflowModelSetting?
+    var implement: WorkflowModelSetting?
+    var review: WorkflowModelSetting?
 
     // Per-slot fallbacks when no override is set on disk: .default passes no
     // --model flag, so the session runs with whatever the CLI itself resolves.
@@ -90,7 +90,7 @@ nonisolated struct ModelsConfig: Codable, Hashable, Sendable {
     static let implementDefault: ModelChoice = .default
     static let reviewDefault: ModelChoice = .default
 
-    func workflow(_ action: WorkflowAction) -> ModelChoice? {
+    func workflow(_ action: WorkflowAction) -> WorkflowModelSetting? {
         switch action {
         case .plan: return plan
         case .implement: return implement
@@ -101,12 +101,8 @@ nonisolated struct ModelsConfig: Codable, Hashable, Sendable {
     var chatResolved: ModelChoice { chat ?? Self.chatDefault }
     var terminalsResolved: ModelChoice { terminals ?? Self.terminalsDefault }
 
-    func workflowResolved(_ action: WorkflowAction) -> ModelChoice {
-        switch action {
-        case .plan: plan ?? Self.planDefault
-        case .implement: implement ?? Self.implementDefault
-        case .review: review ?? Self.reviewDefault
-        }
+    func workflowResolved(_ action: WorkflowAction, type: IssueType) -> ModelChoice {
+        workflow(action)?.choice(for: type) ?? Self.slotDefault(for: action.modelSlot)
     }
 
     static func slotDefault(for slot: ModelSlot) -> ModelChoice {

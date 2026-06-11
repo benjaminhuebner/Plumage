@@ -467,7 +467,7 @@ final class ProjectKanbanModel {
             id: item.id, folderName: item.folderName, title: item.title,
             type: item.type, status: patchedStatus, created: item.created,
             updated: item.updated, branch: item.branch, labels: item.labels,
-            model: item.model, order: patchedOrder, goal: item.goal
+            order: patchedOrder, goal: item.goal
         )
         var snapshot = incoming
         snapshot[idx] = .valid(patched)
@@ -590,7 +590,7 @@ final class ProjectKanbanModel {
                 id: issue.id, folderName: issue.folderName, title: issue.title,
                 type: issue.type, status: newStatus, created: issue.created,
                 updated: Date(), branch: issue.branch, labels: issue.labels,
-                model: issue.model, order: updatedOrder, goal: issue.goal
+                order: updatedOrder, goal: issue.goal
             )
         )
     }

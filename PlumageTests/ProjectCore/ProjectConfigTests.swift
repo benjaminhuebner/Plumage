@@ -47,8 +47,51 @@ struct ProjectConfigTests {
         #expect(config.models?.terminals == .sonnet)
         // The dropped "opusplan" alias migrates to .opus via ModelChoice's
         // custom decoder, so a stale on-disk config keeps the Opus model.
-        #expect(config.models?.plan == .opus)
+        #expect(config.models?.plan == .uniform(.opus))
         #expect(config.models?.implement == nil)
+    }
+
+    @Test("pre-existing plain-string workflow slots load as uniform values")
+    func plainStringSlotsLoadUnchanged() throws {
+        let json = """
+            {
+              "name": "Legacy",
+              "schemaVersion": 2,
+              "models": {
+                "plan": "opus",
+                "implement": "sonnet",
+                "review": "haiku"
+              }
+            }
+            """
+        let data = try #require(json.data(using: .utf8))
+        let config = try JSONDecoder().decode(ProjectConfig.self, from: data)
+        #expect(config.models?.plan == .uniform(.opus))
+        #expect(config.models?.implement == .uniform(.sonnet))
+        #expect(config.models?.review == .uniform(.haiku))
+        for type in IssueType.allCases {
+            #expect(config.models?.workflowResolved(.plan, type: type) == .opus)
+        }
+    }
+
+    @Test("per-type object slot decodes and resolves per issue type")
+    func perTypeSlotDecodes() throws {
+        let json = """
+            {
+              "name": "Split",
+              "schemaVersion": 2,
+              "models": {
+                "implement": { "feature": "opus", "chore": "haiku" }
+              }
+            }
+            """
+        let data = try #require(json.data(using: .utf8))
+        let config = try JSONDecoder().decode(ProjectConfig.self, from: data)
+        let models = try #require(config.models)
+        #expect(models.workflowResolved(.implement, type: .feature) == .opus)
+        #expect(models.workflowResolved(.implement, type: .chore) == .haiku)
+        #expect(models.workflowResolved(.implement, type: .spike) == .default)
+        #expect(models.workflowResolved(.implement, type: .refactor) == .default)
     }
 
     @Test("WorkflowsConfig subscript maps action → override")
@@ -63,15 +106,15 @@ struct ProjectConfigTests {
         #expect(workflows[.plan]?.command == "/plan-x")
     }
 
-    @Test("ModelsConfig workflow(_:) returns per-action choice")
+    @Test("ModelsConfig workflow(_:) returns per-action setting")
     func modelsWorkflowAccessor() {
         let models = ModelsConfig(
             chat: .opus, terminals: nil,
-            plan: .sonnet, implement: .haiku, review: .opus
+            plan: .uniform(.sonnet), implement: .uniform(.haiku), review: .uniform(.opus)
         )
-        #expect(models.workflow(.plan) == .sonnet)
-        #expect(models.workflow(.implement) == .haiku)
-        #expect(models.workflow(.review) == .opus)
+        #expect(models.workflow(.plan) == .uniform(.sonnet))
+        #expect(models.workflow(.implement) == .uniform(.haiku))
+        #expect(models.workflow(.review) == .uniform(.opus))
     }
 
     @Test("every slot falls back to .default when nothing is set on disk")
@@ -79,12 +122,27 @@ struct ProjectConfigTests {
         let empty = ModelsConfig()
         #expect(empty.chatResolved == .default)
         #expect(empty.terminalsResolved == .default)
-        #expect(empty.workflowResolved(.plan) == .default)
-        #expect(empty.workflowResolved(.implement) == .default)
-        #expect(empty.workflowResolved(.review) == .default)
+        for type in IssueType.allCases {
+            #expect(empty.workflowResolved(.plan, type: type) == .default)
+            #expect(empty.workflowResolved(.implement, type: type) == .default)
+            #expect(empty.workflowResolved(.review, type: type) == .default)
+        }
         for slot in ModelSlot.allCases {
             #expect(ModelsConfig.slotDefault(for: slot) == .default)
         }
+    }
+
+    @Test("workflowResolved: per-type hit beats uniform beats slot default")
+    func workflowResolutionPrecedence() {
+        let models = ModelsConfig(
+            plan: .uniform(.sonnet),
+            implement: .perType([.feature: .opus])
+        )
+        #expect(models.workflowResolved(.plan, type: .feature) == .sonnet)
+        #expect(models.workflowResolved(.plan, type: .chore) == .sonnet)
+        #expect(models.workflowResolved(.implement, type: .feature) == .opus)
+        #expect(models.workflowResolved(.implement, type: .chore) == .default)
+        #expect(models.workflowResolved(.review, type: .feature) == .default)
     }
 
     @Test("round-trip encode/decode preserves additive fields")
@@ -100,6 +158,25 @@ struct ProjectConfigTests {
                 review: WorkflowOverride(command: "/y")
             ),
             models: ModelsConfig(chat: .sonnet, terminals: .opus, plan: nil, implement: nil, review: nil)
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ProjectConfig.self, from: data)
+        #expect(decoded == original)
+    }
+
+    @Test("mixed per-type slot round-trips through ProjectConfig")
+    func perTypeRoundTrip() throws {
+        let original = ProjectConfig(
+            name: "RT2",
+            schemaVersion: 2,
+            issueIdPadding: 5,
+            git: nil,
+            workflows: nil,
+            models: ModelsConfig(
+                implement: .perType([
+                    .feature: .opus, .chore: .haiku, .spike: .default, .refactor: .sonnet,
+                ])
+            )
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ProjectConfig.self, from: data)

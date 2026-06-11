@@ -106,13 +106,12 @@ final class TerminalTabsModel {
     func addWorkflowTab(
         action: WorkflowAction,
         slug: String,
+        type: IssueType,
         override: WorkflowOverride? = nil
     ) -> TerminalTab {
         let resolved =
-            modelsConfig?.workflowResolved(action)
-            ?? ModelsConfig.slotDefault(
-                for: action.modelSlot
-            )
+            modelsConfig?.workflowResolved(action, type: type)
+            ?? ModelsConfig.slotDefault(for: action.modelSlot)
         let permMode = override?.permissionMode ?? action.permissionMode
         let session = TerminalClaudeSession(
             cwd: cwd,
