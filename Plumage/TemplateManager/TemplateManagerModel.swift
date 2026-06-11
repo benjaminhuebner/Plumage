@@ -21,6 +21,21 @@ final class TemplateManagerModel {
     private(set) var membership: CatalogMembership?
     var selectedFile: FileNode?
 
+    // Per catalog item, so switching tiers round-trips each tree's expansion.
+    private var expansionByItem: [TemplateCatalogItem: Set<String>] = [:]
+    var contentExpandedPaths: Set<String> {
+        get { selection.flatMap { expansionByItem[$0] } ?? [] }
+        set {
+            guard let selection else { return }
+            expansionByItem[selection] = newValue
+        }
+    }
+
+    // Scroll/expand the content tree to a programmatically selected node
+    // (create, import, move, rename) — selection alone can't surface a row
+    // hidden under a collapsed folder.
+    private(set) var contentReveal: FileTreeRevealRequest?
+
     // Editing state for the right column. The editor saves to the override slot but
     // seeds from the bundled fallback, so merely browsing a file writes nothing —
     // only a real edit materializes an override (mirrors `TemplatesSettingsModel`).
@@ -296,6 +311,8 @@ final class TemplateManagerModel {
     // view raises a confirmation dialog when this is set.
     var pendingDeleteConfirmation: FileNode?
 
+    var pendingBatchDelete: [FileNode]?
+
     // Entry point for the Delete affordance: confirm first when the target is a
     // non-empty folder (e.g. a multi-file skill), otherwise delete straight away.
     func requestDelete(_ file: FileNode) {
@@ -305,6 +322,27 @@ final class TemplateManagerModel {
         } else {
             delete(file)
         }
+    }
+
+    // Batch deletes are all-or-nothing on eligibility (mixed selections with
+    // read-only or bundled nodes offer no destructive action) and confirm once.
+    func canBatchDelete(_ nodes: [FileNode]) -> Bool {
+        !nodes.isEmpty && nodes.allSatisfy(isUserAuthored)
+    }
+
+    func requestDelete(batch nodes: [FileNode]) {
+        guard canBatchDelete(nodes) else { return }
+        if nodes.count == 1 {
+            requestDelete(nodes[0])
+            return
+        }
+        pendingBatchDelete = nodes
+    }
+
+    func confirmPendingBatchDelete() {
+        guard let nodes = pendingBatchDelete else { return }
+        pendingBatchDelete = nil
+        for node in nodes { delete(node) }
     }
 
     func confirmPendingDelete() {
@@ -388,6 +426,13 @@ final class TemplateManagerModel {
 
     func cancelContentRename() { contentRename = nil }
 
+    // Model-owned binding keeps Binding(get:set:) out of view bodies.
+    var contentRenameNameBinding: Binding<String> {
+        Binding(
+            get: { self.contentRename?.name ?? "" },
+            set: { if self.contentRename != nil { self.contentRename?.name = $0 } })
+    }
+
     // Commit the inline rename: relocate the override file/folder to the new leaf name in
     // the same directory (extension preserved for stem-only input, collision suffix-
     // walked), carry hook wiring, and re-select the renamed row. A no-op on an unchanged
@@ -414,16 +459,9 @@ final class TemplateManagerModel {
             selectedFile = contentFiles.first { $0.relativePath == newStorePath }
         }
         beginEditing(selectedFile)
-    }
-
-    // Backspace / Delete on the selected row.
-    func deleteSelected() {
-        if let file = selectedFile { requestDelete(file) }
-    }
-
-    // Return on the selected row.
-    func renameSelected() {
-        if let file = selectedFile { beginRenameContent(file) }
+        if let selectedFile {
+            contentReveal = FileTreeRevealRequest(path: selectedFile.relativePath)
+        }
     }
 
     // MARK: - Hook wiring
@@ -507,11 +545,15 @@ final class TemplateManagerModel {
     // in a banner. Returns whether anything was imported.
     @discardableResult
     func importDropped(urls: [URL], into target: FileNode? = nil) -> Bool {
+        importDropped(urls: urls, intoStoreDir: addTargetStorageDir(for: target))
+    }
+
+    @discardableResult
+    func importDropped(urls: [URL], intoStoreDir targetDir: String) -> Bool {
         guard let overrideRoot = overrides.overrideRoot else {
             showDropBanner("No override store is available.")
             return false
         }
-        let targetDir = addTargetStorageDir(for: target)
         let fileManager = FileManager.default
         var first: (storage: String, isDirectory: Bool)?
         var importedStoragePaths: Set<String> = []
@@ -594,7 +636,13 @@ final class TemplateManagerModel {
         if let node {
             selectedFile = node
             beginEditing(node)
+            contentReveal = FileTreeRevealRequest(path: node.relativePath)
         }
+    }
+
+    func isReadOnlyContentNode(_ node: FileNode) -> Bool {
+        managerConfig(forRelative: node.relativePath) != nil
+            || Self.isTierSettingsPreviewPath(node.relativePath)
     }
 
     // Plans a dropped URL: a folder with a top-level `SKILL.md` routes to `skills/`
@@ -622,13 +670,17 @@ final class TemplateManagerModel {
     // successfully moved item to its new path. A drop onto an item's own folder, or a
     // folder into its own subtree, is skipped.
     func moveNodes(_ sources: [FileNode], into target: FileNode) {
-        guard let overrideRoot = overrides.overrideRoot else {
-            showDropBanner("No override store is available.")
-            return
-        }
         guard let targetDir = TemplateContentDropResolver.targetStoreDir(for: target, scope: activeScope)
         else {
             showDropBanner("Can't move here.")
+            return
+        }
+        moveNodes(sources, intoStoreDir: targetDir)
+    }
+
+    func moveNodes(_ sources: [FileNode], intoStoreDir targetDir: String) {
+        guard let overrideRoot = overrides.overrideRoot else {
+            showDropBanner("No override store is available.")
             return
         }
         var movedSelection: (storage: String, isDirectory: Bool)?
@@ -821,6 +873,9 @@ final class TemplateManagerModel {
                     .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
                 selectedFile = node
                 beginEditing(node)
+                if let node {
+                    contentReveal = FileTreeRevealRequest(path: node.relativePath)
+                }
                 return node
             default:
                 // A hook is unique by base name across extensions and across all scope
@@ -844,6 +899,7 @@ final class TemplateManagerModel {
         if let node {
             selectedFile = node
             beginEditing(node)
+            contentReveal = FileTreeRevealRequest(path: node.relativePath)
             // Adding a hook raises the wiring sheet so it does not scaffold inert.
             if kind == .hook { pendingHookWiring = node }
         }
@@ -952,6 +1008,37 @@ extension TemplateManagerModel {
         persist(updated)
     }
 
+    func moveSharedComponent(id: String, by offset: Int) {
+        var ids = catalog.sortedSharedComponents.map(\.id)
+        guard let index = ids.firstIndex(of: id) else { return }
+        let target = index + offset
+        guard ids.indices.contains(target) else { return }
+        ids.swapAt(index, target)
+        var updated = catalog
+        updated.reorderSharedComponents(ids)
+        persist(updated)
+    }
+
+    func dropSharedComponent(id: String, at index: Int) {
+        var ids = catalog.sortedSharedComponents.map(\.id)
+        ids.removeAll { $0 == id }
+        ids.insert(id, at: min(max(index, 0), ids.count))
+        var updated = catalog
+        updated.reorderSharedComponents(ids)
+        guard updated != catalog else { return }
+        persist(updated)
+    }
+
+    func dropCategory(id: String, at index: Int) {
+        var ids = catalog.sortedCategories.map(\.id)
+        ids.removeAll { $0 == id }
+        ids.insert(id, at: min(max(index, 0), ids.count))
+        var updated = catalog
+        updated.reorderCategories(ids)
+        guard updated != catalog else { return }
+        persist(updated)
+    }
+
     func moveCategory(id: String, by offset: Int) {
         var ids = catalog.sortedCategories.map(\.id)
         guard let index = ids.firstIndex(of: id) else { return }
@@ -969,6 +1056,21 @@ extension TemplateManagerModel {
         guard catalog.template(id: id)?.categoryID != categoryID else { return }
         var updated = catalog
         updated.moveTemplate(id: id, toCategory: categoryID)
+        persist(updated)
+    }
+
+    // One drag motion covers both the cross-category move and the in-category
+    // position: relocate first (appends last), then renumber to the gap index.
+    func dropTemplate(id: String, intoCategory categoryID: String, at index: Int) {
+        var updated = catalog
+        if updated.template(id: id)?.categoryID != categoryID {
+            updated.moveTemplate(id: id, toCategory: categoryID)
+        }
+        var ids = updated.templates(inCategory: categoryID).map(\.id)
+        ids.removeAll { $0 == id }
+        ids.insert(id, at: min(max(index, 0), ids.count))
+        updated.reorderTemplates(inCategory: categoryID, orderedIDs: ids)
+        guard updated != catalog else { return }
         persist(updated)
     }
 

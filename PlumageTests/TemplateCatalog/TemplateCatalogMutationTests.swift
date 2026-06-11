@@ -64,6 +64,44 @@ struct TemplateCatalogMutationTests {
         #expect(catalog.sortedCategories.map(\.order) == Array(0..<reversed.count))
     }
 
+    @Test("reorderSharedComponents renumbers order to match the given id order")
+    func reorderSharedComponents() {
+        var catalog = TemplateCatalog.bundledDefault
+        let reversed = Array(catalog.sortedSharedComponents.map(\.id).reversed())
+        catalog.reorderSharedComponents(reversed)
+        #expect(catalog.sortedSharedComponents.map(\.id) == reversed)
+        #expect(catalog.sortedSharedComponents.map(\.order) == Array(0..<reversed.count))
+    }
+
+    @Test("reorderSharedComponents keeps unlisted components after the listed ones")
+    func reorderSharedComponentsUnlisted() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let ids = catalog.sortedSharedComponents.map(\.id)
+        try #require(ids.count >= 2)
+        let listed = [ids[ids.count - 1]]
+        catalog.reorderSharedComponents(listed)
+        let resorted = catalog.sortedSharedComponents.map(\.id)
+        #expect(resorted.first == listed.first)
+        #expect(Array(resorted.dropFirst()) == ids.dropLast())
+        #expect(catalog.sortedSharedComponents.map(\.order) == Array(0..<ids.count))
+    }
+
+    @Test("reorderSharedComponents keeps names, files and memberships intact")
+    func reorderSharedComponentsKeepsContent() throws {
+        var catalog = TemplateCatalog.bundledDefault
+        let before = Dictionary(
+            uniqueKeysWithValues: catalog.sharedComponents.map {
+                ($0.id, (name: $0.name, files: $0.files, members: $0.memberTemplateIDs))
+            })
+        catalog.reorderSharedComponents(Array(catalog.sortedSharedComponents.map(\.id).reversed()))
+        for component in catalog.sharedComponents {
+            let original = try #require(before[component.id])
+            #expect(component.name == original.name)
+            #expect(component.files == original.files)
+            #expect(component.memberTemplateIDs == original.members)
+        }
+    }
+
     // MARK: - Tombstone / overlay resolution
 
     @Test("Deleting a custom category leaves no tombstone (gone outright)")

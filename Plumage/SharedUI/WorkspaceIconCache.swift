@@ -1,9 +1,9 @@
 import AppKit
+import UniformTypeIdentifiers
 
-// Avoids a synchronous Launch Services round-trip per sidebar row on every
-// reload. Keyed by type (directory flag + extension) rather than full path
-// because `icon(forFile:)` resolves by UTI — files of one extension, and plain
-// folders, share an icon. MainActor-confined, so the dictionary needs no lock.
+// Avoids a synchronous Launch Services round-trip per tree row on every
+// reload. Keyed by type (directory flag + extension) and resolved via UTType,
+// not the path — Template Manager nodes carry synthetic paths off-disk.
 @MainActor
 enum WorkspaceIconCache {
     private static var cache: [String: NSImage] = [:]
@@ -12,7 +12,12 @@ enum WorkspaceIconCache {
         let ext = (path as NSString).pathExtension.lowercased()
         let key = (isDirectory ? "d:" : "f:") + ext
         if let cached = cache[key] { return cached }
-        let icon = NSWorkspace.shared.icon(forFile: path)
+        let icon: NSImage
+        if isDirectory {
+            icon = NSWorkspace.shared.icon(for: .folder)
+        } else {
+            icon = NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .data)
+        }
         cache[key] = icon
         return icon
     }

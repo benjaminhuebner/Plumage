@@ -156,6 +156,16 @@ nonisolated extension TemplateCatalog {
         sharedComponents.removeAll { $0.id == id }
     }
 
+    // Renumbers `order` 0…n to match `orderedIDs`; ids not listed keep their
+    // relative order after the listed ones (same contract as categories).
+    mutating func reorderSharedComponents(_ orderedIDs: [String]) {
+        renumber(&sharedComponents, orderedIDs: orderedIDs, id: \.id) { item, order in
+            var component = item
+            component.order = order
+            return component
+        }
+    }
+
     mutating func renameSharedComponent(id: String, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let index = sharedComponents.firstIndex(where: { $0.id == id }),

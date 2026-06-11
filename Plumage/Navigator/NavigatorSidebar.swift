@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+// Selection identity of the upper sidebar List. Distinct from NavigatorRoute
+// so a pinned row and its tree row can never share a selection tag — that
+// shared tag was how both used to highlight at once.
+enum SidebarListSelection: Hashable {
+    case kanban
+    case issue(folderName: String)
+    case pinned(relativePath: String)
+}
+
 struct NavigatorSidebar: View {
     @Binding var selection: NavigatorRoute
     let projectURL: URL
@@ -16,38 +25,35 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
     @State private var settingsHovering = false
+    // Whether the current .projectFile route was produced by the tree (true)
+    // or the PINNED list (false) — the two regions never highlight together.
+    @State private var treeOwnsSelection = true
+    @State private var treeContentHeight: CGFloat = 0
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
-        List(selection: selectionBinding) {
-            SidebarSectionHeader(title: "Issues", help: "New Issue") {
-                openCreateIssue(.draft)
+        // One scroll surface for the whole sidebar: the upper List is pinned
+        // to its exact content height and scroll-disabled, the tree reports
+        // its content height — only this ScrollView ever scrolls.
+        ScrollView {
+            VStack(spacing: 0) {
+                issuesAndPinnedList
+                    .frame(height: listHeightEstimate)
+                    .scrollDisabled(true)
+                SidebarSectionHeader(title: "Files")
+                    .padding(.leading, 16)
+                    .padding(.trailing, 12)
+                fileTree
+                    .frame(height: max(treeContentHeight, 1))
             }
-            Label("Board", systemImage: "rectangle.3.group.fill")
-                .tag(NavigatorRoute.kanban)
-            ForEach(IssueColumn.allCases) { column in
-                columnRow(column)
-            }
-
-            PinnedSectionView(model: pinnedFiles, projectURL: projectURL)
-
-            SidebarSectionHeader(title: "Files")
-            FileTreeView(nodes: navigator.rootNodes, projectURL: projectURL)
         }
-        .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             projectSettingsRow
-        }
-        .onKeyPress(.return) {
-            handleReturnKey()
-        }
-        .onDeleteCommand {
-            _ = handleDeleteKey()
         }
         // Derived isPresented binding is the standard confirmationDialog
         // shape; the model owns the actual pending state.
         .confirmationDialog(
-            "Move \"\(navigator.pendingTrash?.lastPathComponent ?? "")\" to Trash?",
+            navigator.pendingTrashTitle,
             isPresented: Binding(
                 get: { navigator.pendingTrash != nil },
                 set: { if !$0 { navigator.cancelPendingTrash() } }
@@ -57,8 +63,115 @@ struct NavigatorSidebar: View {
                 Task { await navigator.confirmPendingTrash(projectURL: projectURL) }
             }
         } message: {
-            Text("You can restore it from the Trash.")
+            Text("You can restore from the Trash.")
         }
+    }
+
+    private var issuesAndPinnedList: some View {
+        List(selection: listSelectionBinding) {
+            SidebarSectionHeader(title: "Issues", help: "New Issue") {
+                openCreateIssue(.draft)
+            }
+            Label("Board", systemImage: "rectangle.3.group.fill")
+                .tag(SidebarListSelection.kanban)
+            ForEach(IssueColumn.allCases) { column in
+                columnRow(column)
+            }
+
+            PinnedSectionView(model: pinnedFiles, projectURL: projectURL)
+        }
+        .listStyle(.sidebar)
+        .onKeyPress(.return) {
+            handleReturnKey()
+        }
+        .onDeleteCommand {
+            _ = handleDeleteKey()
+        }
+    }
+
+    @ViewBuilder
+    private var fileTree: some View {
+        if navigator.rootNodes.isEmpty {
+            Spacer(minLength: 0)
+        } else {
+            FinderFileTree(
+                nodes: navigator.rootNodes,
+                style: .sidebar,
+                expandedPaths: Bindable(navigator).fileTreeExpansion,
+                selectedPath: treeSelectedPath,
+                revealRequest: navigator.sidebarReveal,
+                onContentHeightChange: { treeContentHeight = $0 },
+                contextMenu: { nodes in
+                    guard !nodes.isEmpty else { return nil }
+                    return NSHostingMenu(
+                        rootView: NavigatorFileMenu(
+                            nodes: nodes, projectURL: projectURL,
+                            navigator: navigator, pinModel: pinnedFiles))
+                },
+                onRenameRequest: { node in
+                    guard navigator.renaming == nil else { return }
+                    navigator.beginRename(url: node.url)
+                },
+                onTrashRequest: { nodes in
+                    guard navigator.renaming == nil, !nodes.isEmpty else { return }
+                    navigator.requestTrash(urls: nodes.map(\.url))
+                },
+                validateDrop: { _, target in
+                    guard let target else { return false }
+                    return FileTreeDropResolver.isInsideWhitelistedTree(
+                        target.url, projectURL: projectURL)
+                },
+                onDrop: handleTreeDrop,
+                onSelect: { node in
+                    guard let node else { return }
+                    treeOwnsSelection = true
+                    selection = .projectFile(relativePath: node.relativePath)
+                },
+                rowContent: { node in
+                    NavigatorFileRow(
+                        node: node, projectURL: projectURL,
+                        navigator: navigator, pinModel: pinnedFiles)
+                }
+            )
+        }
+    }
+
+    private var treeSelectedPath: String? {
+        guard treeOwnsSelection, case .projectFile(let rel) = selection else { return nil }
+        return rel
+    }
+
+    private func handleTreeDrop(_ payload: FileTreeDropPayload, target: FileNode?) -> Bool {
+        guard let target else { return false }
+        switch payload {
+        case .internalMove(let sources):
+            Task {
+                await navigator.handleInternalMove(
+                    sources: sources, targetFolder: target.url, projectURL: projectURL)
+            }
+        case .finderCopy(let urls):
+            Task {
+                await navigator.handleFinderDrop(
+                    urls: urls, targetFolder: target.url, projectURL: projectURL)
+            }
+        }
+        return true
+    }
+
+    // The List hugs its (countable) content so the file tree below gets the
+    // remaining height; in a too-small sidebar the VStack splits fairly and
+    // the List scrolls internally.
+    private var listHeightEstimate: CGFloat {
+        let rowHeight: CGFloat = 28
+        let headerHeight: CGFloat = 34
+        var height: CGFloat = headerHeight + rowHeight + 4 * rowHeight
+        for column in IssueColumn.allCases where expansionBinding(for: column).wrappedValue {
+            height += CGFloat((kanban.groupedIssues[column] ?? []).count) * rowHeight
+        }
+        if !pinnedFiles.pinned.isEmpty {
+            height += headerHeight + CGFloat(pinnedFiles.pinned.count) * rowHeight
+        }
+        return height + 20
     }
 
     // Pinned outside the List (via safeAreaInset) so it stays put as the file
@@ -99,6 +212,9 @@ struct NavigatorSidebar: View {
             .padding(.top, 8)
             .padding(.bottom, 10)
         }
+        // The whole sidebar scrolls behind this inset now — without a bar
+        // fill the tree rows shine through the row.
+        .background(.bar)
     }
 
     // Selection must follow window-key state, not a constant accent:
@@ -123,10 +239,32 @@ struct NavigatorSidebar: View {
             : .primary
     }
 
-    private var selectionBinding: Binding<NavigatorRoute?> {
+    private var listSelectionBinding: Binding<SidebarListSelection?> {
         Binding(
-            get: { selection },
-            set: { if let value = $0 { selection = value } }
+            get: {
+                switch selection {
+                case .kanban:
+                    return .kanban
+                case .issue(let folderName):
+                    return .issue(folderName: folderName)
+                case .projectFile(let rel) where !treeOwnsSelection && pinnedFiles.contains(rel):
+                    return .pinned(relativePath: rel)
+                default:
+                    return nil
+                }
+            },
+            set: { newValue in
+                guard let newValue else { return }
+                switch newValue {
+                case .kanban:
+                    selection = .kanban
+                case .issue(let folderName):
+                    selection = .issue(folderName: folderName)
+                case .pinned(let rel):
+                    treeOwnsSelection = false
+                    selection = .projectFile(relativePath: rel)
+                }
+            }
         )
     }
 
@@ -152,18 +290,14 @@ struct NavigatorSidebar: View {
     }
 
     private func handleReturnKey() -> KeyPress.Result {
-        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
-            return .ignored
-        }
+        guard navigator.renaming == nil else { return .ignored }
         guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
         navigator.beginRename(url: url)
         return .handled
     }
 
     private func handleDeleteKey() -> KeyPress.Result {
-        guard navigator.pendingCreate == nil, navigator.renaming == nil else {
-            return .ignored
-        }
+        guard navigator.renaming == nil else { return .ignored }
         guard let url = selection.managedFileURL(in: projectURL) else { return .ignored }
         navigator.requestTrash(url: url)
         return .handled
@@ -213,7 +347,7 @@ private struct SidebarColumnSection: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .tag(NavigatorRoute.issue(folderName: issue.id))
+        .tag(SidebarListSelection.issue(folderName: issue.id))
         .modifier(IssueRowDraggable(issue: issue, column: column))
         .overlay(alignment: .top) {
             ReorderDropZone(

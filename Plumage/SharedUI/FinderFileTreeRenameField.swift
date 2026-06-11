@@ -1,14 +1,11 @@
 import AppKit
 import SwiftUI
 
-// AppKit-backed text field for inline rename. Owns its own focus + stem
-// selection so we don't need a 50 ms sleep + NSApp.keyWindow reach.
-struct StemSelectingTextField: NSViewRepresentable {
+struct FinderFileTreeRenameField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
-    let onSubmit: () -> Void
+    let onCommit: () -> Void
     let onCancel: () -> Void
-    let onBlur: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -26,16 +23,20 @@ struct StemSelectingTextField: NSViewRepresentable {
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
         field.cell?.isScrollable = true
-        // Defer becomeFirstResponder + selectStem to the next runloop tick so
-        // the field is part of the window's responder chain by the time we
-        // ask. Scoped to this field instance — no global firstResponder reach.
-        let coord = context.coordinator
+        // The field joins the window's responder chain only after the cell is
+        // mounted — defer first-responder + stem selection one runloop tick.
+        let coordinator = context.coordinator
         Task { @MainActor [weak field] in
             guard let field, let window = field.window else { return }
             window.makeFirstResponder(field)
-            coord.selectStem(in: field)
+            coordinator.selectStem(in: field)
         }
+        coordinator.installEscapeMonitor(for: field)
         return field
+    }
+
+    static func dismantleNSView(_ nsView: NSTextField, coordinator: Coordinator) {
+        coordinator.removeEscapeMonitor()
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
@@ -47,11 +48,39 @@ struct StemSelectingTextField: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: StemSelectingTextField
-        private var hasSubmitted = false
+        var parent: FinderFileTreeRenameField
+        private var hasFinished = false
+        private var escapeMonitor: Any?
 
-        init(_ parent: StemSelectingTextField) {
+        init(_ parent: FinderFileTreeRenameField) {
             self.parent = parent
+        }
+
+        isolated deinit {
+            removeEscapeMonitor()
+        }
+
+        // Defense-in-depth for Escape: if anything between sendEvent and the
+        // field editor consumes it as a key equivalent, a later blur would
+        // commit the typed text. The pre-dispatch monitor cancels first.
+        func installEscapeMonitor(for field: NSTextField) {
+            guard escapeMonitor == nil else { return }
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+                [weak self, weak field] event in
+                guard let self, let field,
+                    event.keyCode == 53,  // Escape
+                    let editor = field.currentEditor(),
+                    field.window?.firstResponder === editor
+                else { return event }
+                self.hasFinished = true
+                self.parent.onCancel()
+                return nil
+            }
+        }
+
+        func removeEscapeMonitor() {
+            if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+            escapeMonitor = nil
         }
 
         func selectStem(in field: NSTextField) {
@@ -79,11 +108,11 @@ struct StemSelectingTextField: NSViewRepresentable {
         ) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
-                hasSubmitted = true
-                parent.onSubmit()
+                hasFinished = true
+                parent.onCommit()
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
-                hasSubmitted = true
+                hasFinished = true
                 parent.onCancel()
                 return true
             default:
@@ -91,9 +120,11 @@ struct StemSelectingTextField: NSViewRepresentable {
             }
         }
 
+        // Blur commits (the Finder idiom) — unless Return/Escape already
+        // resolved the session.
         func controlTextDidEndEditing(_ obj: Notification) {
-            guard !hasSubmitted else { return }
-            parent.onBlur()
+            guard !hasFinished else { return }
+            parent.onCommit()
         }
     }
 }

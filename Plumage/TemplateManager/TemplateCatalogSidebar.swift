@@ -1,14 +1,16 @@
 import SwiftUI
 
 // Left column: the three tiers in order — Base, then a Shared Components group,
-// then each category with its templates. Selection-driven via the model. Category
-// headers are editable: a toolbar "+" adds one, a context menu renames / reorders /
-// deletes, and an inline `TextField` commits on Enter/blur (Escape cancels).
+// then each category with its templates. A custom scroll surface (not `List`)
+// so the drag pipeline can own row geometry, gaps and the floating row.
 struct TemplateCatalogSidebar: View {
     @Bindable var model: TemplateManagerModel
-    // The category a template drag is hovering, so its whole section (header + rows)
-    // shows the accent drop highlight. One shared bit beats per-row @State here.
-    @State private var dropTargetCategoryID: String?
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drag = SidebarDragController()
+    @State private var frames = SidebarFrameRegistry()
+    @State private var autoScroll = VerticalAutoScroller()
+    @State private var sidebarFrame: CGRect = .zero
 
     var body: some View {
         catalogList
@@ -20,97 +22,543 @@ struct TemplateCatalogSidebar: View {
     }
 
     private var catalogList: some View {
-        List(selection: $model.selection) {
-            Label(model.catalog.base.name, systemImage: "square.grid.2x2")
-                .tag(TemplateCatalogItem.base)
+        @Bindable var autoScroll = autoScroll
 
-            Section("Shared Components") {
-                ForEach(model.catalog.sortedSharedComponents) { component in
-                    Label(component.name, systemImage: component.sfSymbolName)
-                        .tag(TemplateCatalogItem.sharedComponent(component.id))
-                        .contextMenu { sharedComponentMenu(component) }
+        return ScrollViewReader { proxy in
+            ScrollView {
+                // Plain VStack, not LazyVStack: catalogs are small, and eager rows
+                // keep every row frame measured for the drop resolver and make
+                // programmatic scrollTo(selection) reliable.
+                VStack(alignment: .leading, spacing: TemplateSidebarLayout.rowSpacing) {
+                    baseRow
+                    sectionHeader("Shared Components")
+                        .reportContainerFrame(
+                            SidebarContainer.componentsHeader, registry: frames,
+                            coordinateSpace: TemplateSidebarLayout.coordinateSpace)
+                    let componentMarkers = componentPlaceholderMarkers()
+                    ForEach(model.catalog.sortedSharedComponents) { component in
+                        if TemplateCatalogItem.sharedComponent(component.id).id
+                            == componentMarkers.beforeID
+                        {
+                            placeholderSlot
+                        }
+                        sharedComponentRow(component)
+                    }
+                    if componentMarkers.atEnd {
+                        placeholderSlot
+                    }
+
+                    // Hairline marking the structural boundary: everything above (Base +
+                    // Shared Components) is protected — not a category, so not deletable —
+                    // while the categories below are.
+                    Divider()
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 6)
+                        .reportContainerFrame(
+                            SidebarContainer.divider, registry: frames,
+                            coordinateSpace: TemplateSidebarLayout.coordinateSpace)
+
+                    let categoryMarkers = categoryPlaceholderMarkers()
+                    ForEach(model.catalog.sortedCategories) { category in
+                        if SidebarRowKey.category(category.id) == categoryMarkers.beforeID {
+                            placeholderSlot
+                        }
+                        categorySection(category)
+                    }
+                    if categoryMarkers.atEnd {
+                        placeholderSlot
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+            .scrollPosition($autoScroll.position)
+            .scrollDisabled(drag.isActive)
+            .coordinateSpace(name: TemplateSidebarLayout.coordinateSpace)
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .named(TemplateSidebarLayout.coordinateSpace))
+            } action: { frame in
+                if !DragGeometry.framesNearlyEqual(sidebarFrame, frame) {
+                    sidebarFrame = frame
                 }
             }
-
-            // Hairline marking the structural boundary: everything above (Base + Shared
-            // Components) is protected — not a category, so not deletable — while the
-            // categories below are. A non-selectable separator row.
-            Divider()
-                .selectionDisabled()
-                .listRowSeparator(.hidden)
-
-            ForEach(model.catalog.sortedCategories) { category in
-                categorySection(category)
+            .overlay(alignment: .topLeading) {
+                FloatingDragOverlay(controller: drag) { payload in
+                    floatingRow(payload)
+                }
+            }
+            .onChange(of: model.selection) { _, selection in
+                guard let selection else { return }
+                proxy.scrollTo(selection.id, anchor: nil)
+            }
+            .onChange(of: drag.cursorLocation) { _, _ in
+                updateResolvedTarget()
+                updateAutoScroll()
+            }
+            .onChange(of: drag.isActive) { _, active in
+                if !active {
+                    autoScroll.stop()
+                }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase != .active {
+                    cancelDrag()
+                }
+            }
+            .onChange(of: model.catalog) { _, newCatalog in
+                var live: Set<String> = []
+                for template in newCatalog.templates {
+                    live.insert(TemplateCatalogItem.template(template.id).id)
+                }
+                for category in newCatalog.categories {
+                    live.insert(SidebarRowKey.category(category.id))
+                }
+                for component in newCatalog.sharedComponents {
+                    live.insert(TemplateCatalogItem.sharedComponent(component.id).id)
+                }
+                frames.pruneRows(keeping: live)
+                // The dragged item can vanish under the cursor (external
+                // edit, restore) — without a source the drop could not commit.
+                guard drag.isActive else { return }
+                switch drag.payload {
+                case .template(let descriptor) where newCatalog.template(id: descriptor.id) == nil:
+                    cancelDrag()
+                case .category(let category) where newCatalog.category(id: category.id) == nil:
+                    cancelDrag()
+                case .component(let component)
+                where newCatalog.sharedComponent(id: component.id) == nil:
+                    cancelDrag()
+                default:
+                    break
+                }
+            }
+            .task(id: drag.isActive) {
+                guard drag.isActive else { return }
+                await DragEscapeMonitor.run { cancelDrag() }
             }
         }
     }
 
+    private var baseRow: some View {
+        SidebarItemRow(
+            title: model.catalog.base.name,
+            isSelected: model.selection == .base,
+            hoverEnabled: !drag.isActive
+        ) {
+            Image(systemName: "square.grid.2x2")
+        }
+        .onTapGesture { model.selection = .base }
+        .id(TemplateCatalogItem.base.id)
+    }
+
+    private func sharedComponentRow(_ component: SharedComponent) -> some View {
+        let item = TemplateCatalogItem.sharedComponent(component.id)
+        let isDragSource = drag.isActive && drag.sourceID == item.id
+        return SidebarItemRow(
+            title: component.name,
+            isSelected: model.selection == item,
+            hoverEnabled: !drag.isActive
+        ) {
+            Image(systemName: component.sfSymbolName)
+        }
+        .opacity(isDragSource ? 0 : 1)
+        .frame(maxHeight: isDragSource ? 0 : nil)
+        .clipped()
+        .id(item.id)
+        .reportRowFrame(
+            id: item.id, registry: frames,
+            coordinateSpace: TemplateSidebarLayout.coordinateSpace
+        )
+        .accessibilityActions {
+            // Reorder is otherwise gesture-only — the non-drag path for
+            // VoiceOver and keyboard users.
+            let ids = model.catalog.sortedSharedComponents.map(\.id)
+            if ids.first != component.id {
+                Button("Move Up") { model.moveSharedComponent(id: component.id, by: -1) }
+            }
+            if ids.last != component.id {
+                Button("Move Down") { model.moveSharedComponent(id: component.id, by: 1) }
+            }
+        }
+        .contextMenu { sharedComponentMenu(component) }
+        .modifier(
+            SidebarRowDragInteraction(
+                rowID: item.id,
+                payload: .component(component),
+                drag: drag,
+                frames: frames,
+                onSelect: { model.selection = item },
+                onLiftWillStart: { model.commitCategoryRename() },
+                onDispatch: { payload, target in commitDrop(payload, target: target) }
+            )
+        )
+    }
+
+    @ViewBuilder
     private func categorySection(_ category: TemplateCategory) -> some View {
-        Section {
-            ForEach(model.catalog.templates(inCategory: category.id)) { template in
+        let rowKey = SidebarRowKey.category(category.id)
+        let isDragSource = drag.isActive && drag.sourceID == rowKey
+        let templates = model.catalog.templates(inCategory: category.id)
+        let markers = placeholderMarkers(forCategory: category.id, templates: templates)
+        // While the category floats as a header, its section collapses: the
+        // header keeps identity (live gesture), the rows leave the layout.
+        categoryHeader(category)
+            .opacity(isDragSource ? 0 : 1)
+            .frame(maxHeight: isDragSource ? 0 : nil)
+            .clipped()
+            .reportRowFrame(
+                id: rowKey, registry: frames,
+                coordinateSpace: TemplateSidebarLayout.coordinateSpace)
+        if !isDragSource {
+            ForEach(templates) { template in
+                if TemplateCatalogItem.template(template.id).id == markers.beforeID {
+                    placeholderSlot
+                }
                 templateRow(template)
             }
-        } header: {
-            // The drop target spans the full header width (an empty category has no rows,
-            // so the header is its only target) and every row of the category (a macOS
-            // List section header alone is an unreliable, tiny drop target — the original
-            // bug). Both route to `moveTemplate`.
-            categoryHeader(category)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .overlay {
-                    // A section header isn't a list row (no `listRowBackground`), so the
-                    // empty-category drop target gets the same rounded accent outline.
-                    if dropTargetCategoryID == category.id {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color.accentColor, lineWidth: 2)
-                    }
-                }
-                .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
-                    handleCategoryDrop(payloads, to: category.id)
-                } isTargeted: {
-                    setDropTarget(category.id, $0)
-                }
+            if markers.atEnd {
+                placeholderSlot
+            }
         }
     }
 
     private func templateRow(_ template: TemplateDescriptor) -> some View {
-        Label {
-            Text(template.name)
-        } icon: {
+        let item = TemplateCatalogItem.template(template.id)
+        let isDragSource = drag.isActive && drag.sourceID == item.id
+        return SidebarItemRow(
+            title: template.name,
+            isSelected: model.selection == item,
+            hoverEnabled: !drag.isActive
+        ) {
             TemplateImageView(
                 image: template.image,
                 resolve: { model.imageFileURL(forRelative: $0) }
             )
-            .frame(width: 18, height: 18)
         }
-        .tag(TemplateCatalogItem.template(template.id))
-        .contentShape(Rectangle())
-        .listRowBackground(dropRowBackground(active: dropTargetCategoryID == template.categoryID))
-        .draggable(TemplateDragPayload(templateID: template.id))
-        .dropDestination(for: TemplateDragPayload.self) { payloads, _ in
-            handleCategoryDrop(payloads, to: template.categoryID)
-        } isTargeted: {
-            setDropTarget(template.categoryID, $0)
+        // Collapse (not remove) the source row while it floats: the layout
+        // shows only the gap, but view identity — and the live DragGesture —
+        // survive the drag.
+        .opacity(isDragSource ? 0 : 1)
+        .frame(maxHeight: isDragSource ? 0 : nil)
+        .clipped()
+        .id(item.id)
+        .reportRowFrame(
+            id: item.id, registry: frames,
+            coordinateSpace: TemplateSidebarLayout.coordinateSpace
+        )
+        .accessibilityActions {
+            let ids = model.catalog.templates(inCategory: template.categoryID).map(\.id)
+            if ids.first != template.id {
+                Button("Move Up") { model.moveTemplate(id: template.id, withinCategoryBy: -1) }
+            }
+            if ids.last != template.id {
+                Button("Move Down") { model.moveTemplate(id: template.id, withinCategoryBy: 1) }
+            }
+            ForEach(model.catalog.sortedCategories.filter { $0.id != template.categoryID }) {
+                destination in
+                Button("Move to \(destination.name)") {
+                    model.moveTemplate(id: template.id, toCategory: destination.id)
+                }
+            }
         }
         .contextMenu { templateMenu(template) }
+        .modifier(
+            SidebarRowDragInteraction(
+                rowID: item.id,
+                payload: .template(template),
+                drag: drag,
+                frames: frames,
+                onSelect: { model.selection = item },
+                onLiftWillStart: { model.commitCategoryRename() },
+                onDispatch: { payload, target in commitDrop(payload, target: target) }
+            )
+        )
     }
 
-    // Drop onto any row or the header of a category moves the dragged template there.
-    private func handleCategoryDrop(_ payloads: [TemplateDragPayload], to categoryID: String) -> Bool {
-        for payload in payloads {
-            model.moveTemplate(id: payload.templateID, toCategory: categoryID)
-        }
-        dropTargetCategoryID = nil
-        return !payloads.isEmpty
+    private var placeholderSlot: some View {
+        Color.clear
+            .frame(height: max(drag.sourceFrame.height, 1))
+            .accessibilityHidden(true)
     }
 
-    private func setDropTarget(_ categoryID: String, _ targeted: Bool) {
-        if targeted {
-            dropTargetCategoryID = categoryID
-        } else if dropTargetCategoryID == categoryID {
-            dropTargetCategoryID = nil
+    @ViewBuilder
+    private func floatingRow(_ payload: SidebarDragPayload) -> some View {
+        switch payload {
+        case .template(let descriptor):
+            SidebarItemRow(title: descriptor.name, isSelected: false, hoverEnabled: false) {
+                TemplateImageView(
+                    image: descriptor.image,
+                    resolve: { model.imageFileURL(forRelative: $0) }
+                )
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.background)
+            )
+        case .category(let category):
+            Text(category.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(.background)
+                )
+        case .component(let component):
+            SidebarItemRow(title: component.name, isSelected: false, hoverEnabled: false) {
+                Image(systemName: component.sfSymbolName)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.background)
+            )
         }
+    }
+
+    private func placeholderMarkers(
+        forCategory categoryID: String, templates: [TemplateDescriptor]
+    ) -> PlaceholderMarkers {
+        guard case .template(let position, let targetCategory, _)? = drag.target,
+            targetCategory == categoryID
+        else {
+            return PlaceholderMarkers(placeholderIndex: nil, items: templates) { _ in "" }
+        }
+        let rowIDs = templates.map { TemplateCatalogItem.template($0.id).id }
+        return PlaceholderMarkers(
+            placeholderIndex: placeholderIndex(for: position, rowIDs: rowIDs),
+            items: templates
+        ) { TemplateCatalogItem.template($0.id).id }
+    }
+
+    private func updateResolvedTarget() {
+        guard drag.isActive, let sourceID = drag.sourceID, let payload = drag.payload else {
+            return
+        }
+        let resolved: SidebarDropTarget? =
+            switch payload {
+            case .template: resolveTemplateTarget(sourceID: sourceID)
+            case .category: resolveCategoryTarget(sourceID: sourceID)
+            case .component: resolveComponentTarget(sourceID: sourceID)
+            }
+        guard drag.target != resolved else { return }
+        withAnimation(DragAnimations.placeholder(reduceMotion: reduceMotion)) {
+            drag.setTarget(resolved)
+        }
+    }
+
+    private func resolveTemplateTarget(sourceID: String) -> SidebarDropTarget? {
+        var headerFrames: [String: CGRect] = [:]
+        for category in model.catalog.sortedCategories {
+            if let frame = frames.rows[SidebarRowKey.category(category.id)] {
+                headerFrames[category.id] = frame
+            }
+        }
+        let categories = model.catalog.sortedCategories.map { category in
+            (
+                id: category.id,
+                rowIDs: model.catalog.templates(inCategory: category.id)
+                    .map { TemplateCatalogItem.template($0.id).id }
+                    .filter { $0 != sourceID }
+            )
+        }
+        return resolveTemplateSidebarDrop(
+            cursor: drag.cursorLocation,
+            sidebarFrame: sidebarFrame,
+            categories: categories,
+            headerFrames: headerFrames,
+            rowFrames: frames.rows,
+            placeholderHeight: drag.sourceFrame.height,
+            spacing: TemplateSidebarLayout.rowSpacing
+        )
+    }
+
+    private func resolveComponentTarget(sourceID: String) -> SidebarDropTarget? {
+        resolveComponentSidebarDrop(
+            cursor: drag.cursorLocation,
+            sidebarFrame: sidebarFrame,
+            zoneTop: frames.containers[.componentsHeader]?.minY,
+            zoneBottom: frames.containers[.divider]?.minY,
+            orderedComponentRowKeys: model.catalog.sortedSharedComponents
+                .map { TemplateCatalogItem.sharedComponent($0.id).id }
+                .filter { $0 != sourceID },
+            rowFrames: frames.rows,
+            placeholderHeight: drag.sourceFrame.height,
+            spacing: TemplateSidebarLayout.rowSpacing
+        )
+    }
+
+    private func resolveCategoryTarget(sourceID: String) -> SidebarDropTarget? {
+        let categories = model.catalog.sortedCategories
+        var blockFrames: [String: CGRect] = [:]
+        for category in categories {
+            let key = SidebarRowKey.category(category.id)
+            guard var block = frames.rows[key] else { continue }
+            for template in model.catalog.templates(inCategory: category.id) {
+                if let frame = frames.rows[TemplateCatalogItem.template(template.id).id] {
+                    block = block.union(frame)
+                }
+            }
+            blockFrames[key] = block
+        }
+        return resolveCategorySidebarDrop(
+            cursor: drag.cursorLocation,
+            sidebarFrame: sidebarFrame,
+            zoneTop: frames.containers[.divider]?.maxY,
+            orderedCategoryRowKeys:
+                categories
+                .map { SidebarRowKey.category($0.id) }
+                .filter { $0 != sourceID },
+            blockFrames: blockFrames,
+            placeholderHeight: drag.sourceFrame.height,
+            spacing: TemplateSidebarLayout.rowSpacing
+        )
+    }
+
+    private func updateAutoScroll() {
+        guard drag.isActive else {
+            autoScroll.stop()
+            return
+        }
+        let status = drag.status
+        autoScroll.update(
+            active: status == .dragging || status == .lifting,
+            cursorY: drag.cursorLocation.y,
+            frame: sidebarFrame
+        )
+    }
+
+    private func cancelDrag() {
+        guard drag.isActive else { return }
+        withAnimation(DragAnimations.cancel(reduceMotion: reduceMotion)) {
+            drag.beginCancel()
+        }
+        drag.scheduleSettle(after: .milliseconds(reduceMotion ? 50 : 300))
+    }
+
+    private func commitDrop(_ payload: SidebarDragPayload, target: SidebarDropTarget) {
+        switch (payload, target) {
+        case (.template(let descriptor), .template(let position, let categoryID, _)):
+            let ids = model.catalog.templates(inCategory: categoryID)
+                .map(\.id)
+                .filter { $0 != descriptor.id }
+            model.dropTemplate(
+                id: descriptor.id,
+                intoCategory: categoryID,
+                at: insertionIndex(
+                    for: position, in: ids,
+                    idFromRowKey: SidebarRowKey.templateID(fromRowKey:))
+            )
+        case (.category(let category), .category(let position, _)):
+            let ids = model.catalog.sortedCategories
+                .map(\.id)
+                .filter { $0 != category.id }
+            model.dropCategory(
+                id: category.id,
+                at: insertionIndex(
+                    for: position, in: ids,
+                    idFromRowKey: SidebarRowKey.categoryID(fromRowKey:))
+            )
+        case (.component(let component), .component(let position, _)):
+            let ids = model.catalog.sortedSharedComponents
+                .map(\.id)
+                .filter { $0 != component.id }
+            model.dropSharedComponent(
+                id: component.id,
+                at: insertionIndex(
+                    for: position, in: ids,
+                    idFromRowKey: SidebarRowKey.componentID(fromRowKey:))
+            )
+        default:
+            break
+        }
+    }
+
+    private func componentPlaceholderMarkers() -> PlaceholderMarkers {
+        let components = model.catalog.sortedSharedComponents
+        guard case .component(let position, _)? = drag.target else {
+            return PlaceholderMarkers(placeholderIndex: nil, items: components) { _ in "" }
+        }
+        let rowKeys = components.map { TemplateCatalogItem.sharedComponent($0.id).id }
+        return PlaceholderMarkers(
+            placeholderIndex: placeholderIndex(for: position, rowIDs: rowKeys),
+            items: components
+        ) { TemplateCatalogItem.sharedComponent($0.id).id }
+    }
+
+    private func categoryPlaceholderMarkers() -> PlaceholderMarkers {
+        let categories = model.catalog.sortedCategories
+        guard case .category(let position, _)? = drag.target else {
+            return PlaceholderMarkers(placeholderIndex: nil, items: categories) { _ in "" }
+        }
+        let rowKeys = categories.map { SidebarRowKey.category($0.id) }
+        return PlaceholderMarkers(
+            placeholderIndex: placeholderIndex(for: position, rowIDs: rowKeys),
+            items: categories
+        ) { SidebarRowKey.category($0.id) }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func categoryHeader(_ category: TemplateCategory) -> some View {
+        Group {
+            if model.categoryRename?.id == category.id {
+                StemSelectingTextField(
+                    text: renameBinding(for: category.id),
+                    placeholder: category.name,
+                    onSubmit: { model.commitCategoryRename() },
+                    onCancel: { model.cancelCategoryRename() },
+                    onBlur: { model.commitCategoryRename() }
+                )
+            } else {
+                Text(category.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .contextMenu { categoryMenu(category) }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityActions {
+            let ids = model.catalog.sortedCategories.map(\.id)
+            if ids.first != category.id {
+                Button("Move Up") { model.moveCategory(id: category.id, by: -1) }
+            }
+            if ids.last != category.id {
+                Button("Move Down") { model.moveCategory(id: category.id, by: 1) }
+            }
+        }
+        .modifier(
+            SidebarRowDragInteraction(
+                // The rename TextField owns mouse events while editing — no
+                // drag gesture competing with text selection.
+                enabled: model.categoryRename?.id != category.id,
+                rowID: SidebarRowKey.category(category.id),
+                payload: .category(category),
+                drag: drag,
+                frames: frames,
+                onSelect: {},
+                onLiftWillStart: { model.commitCategoryRename() },
+                onDispatch: { payload, target in commitDrop(payload, target: target) }
+            )
+        )
     }
 
     @ToolbarContentBuilder
@@ -154,31 +602,9 @@ struct TemplateCatalogSidebar: View {
     }
 
     @ViewBuilder
-    private func categoryHeader(_ category: TemplateCategory) -> some View {
-        if model.categoryRename?.id == category.id {
-            StemSelectingTextField(
-                text: renameBinding(for: category.id),
-                placeholder: category.name,
-                onSubmit: { model.commitCategoryRename() },
-                onCancel: { model.cancelCategoryRename() },
-                onBlur: { model.commitCategoryRename() }
-            )
-        } else {
-            Text(category.name)
-                .contextMenu { categoryMenu(category) }
-        }
-    }
-
-    @ViewBuilder
     private func categoryMenu(_ category: TemplateCategory) -> some View {
         Button("Rename", systemImage: "pencil") {
             model.beginRenameCategory(id: category.id)
-        }
-        Button("Move Up", systemImage: "arrow.up") {
-            model.moveCategory(id: category.id, by: -1)
-        }
-        Button("Move Down", systemImage: "arrow.down") {
-            model.moveCategory(id: category.id, by: 1)
         }
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) {
@@ -205,12 +631,6 @@ struct TemplateCatalogSidebar: View {
             }
         }
         .disabled(others.isEmpty)
-        Button("Move Up", systemImage: "arrow.up") {
-            model.moveTemplate(id: template.id, withinCategoryBy: -1)
-        }
-        Button("Move Down", systemImage: "arrow.down") {
-            model.moveTemplate(id: template.id, withinCategoryBy: 1)
-        }
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) {
             model.deleteTemplate(id: template.id)
@@ -240,20 +660,6 @@ struct TemplateCatalogSidebar: View {
                 model.categoryRename?.name = newValue
             }
         )
-    }
-}
-
-extension TemplateCatalogSidebar {
-    // The native AppKit "drop on a row" feedback (Finder list/source view): a rounded
-    // accent outline around the full row — not a fill — drawn via `listRowBackground` so
-    // it spans the list's row geometry. `nil` keeps the default row background.
-    fileprivate func dropRowBackground(active: Bool) -> AnyView? {
-        guard active else { return nil }
-        return AnyView(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.accentColor, lineWidth: 2)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1))
     }
 }
 

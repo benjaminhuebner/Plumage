@@ -121,7 +121,7 @@ struct IssueCardSwitch: View {
                     payload: payload,
                     sourceIssue: value,
                     sourceFrameProvider: { [frameRegistry] in
-                        frameRegistry.cards[value.folderName] ?? .zero
+                        frameRegistry.rows[value.folderName] ?? .zero
                     },
                     onTap: { openSpec(.issue(folderName: value.folderName)) },
                     onDispatch: { dispatchedPayload, target in
@@ -174,9 +174,8 @@ private struct CardInteraction: ViewModifier {
             .onChanged { value in
                 if !controller.isActive {
                     controller.startLift(
-                        payload: payload,
-                        sourceFolderName: payload.folderName,
-                        sourceIssue: sourceIssue,
+                        payload: KanbanDragItem(payload: payload, issue: sourceIssue),
+                        sourceID: payload.folderName,
                         sourceFrame: sourceFrameProvider()
                     )
                 }
@@ -184,7 +183,7 @@ private struct CardInteraction: ViewModifier {
                     location: value.location, translation: value.translation)
             }
             .onEnded { _ in
-                guard controller.isActive, let payload = controller.payload else { return }
+                guard controller.isActive, let item = controller.payload else { return }
                 if let resolved = controller.target {
                     let sourceFrame = controller.sourceFrame
                     let dropTranslation = CGSize(
@@ -192,7 +191,7 @@ private struct CardInteraction: ViewModifier {
                         height: resolved.insertionFrame.minY - sourceFrame.minY
                     )
                     let dropDelayMs = reduceMotion ? 50 : 180
-                    withAnimation(KanbanAnimations.drop(reduceMotion: reduceMotion)) {
+                    withAnimation(DragAnimations.drop(reduceMotion: reduceMotion)) {
                         controller.beginDrop(finalTranslation: dropTranslation)
                     }
                     let target = resolved.target
@@ -202,11 +201,11 @@ private struct CardInteraction: ViewModifier {
                     // post-animation clear() via scheduleSettle, so we no
                     // longer fire and forget an unstructured Task — clear
                     // is cancellable through the controller's lifetime.
-                    onDispatch(payload, target)
+                    onDispatch(item.payload, target)
                     controller.scheduleSettle(after: .milliseconds(dropDelayMs))
                 } else {
                     let cancelDelayMs = reduceMotion ? 50 : 300
-                    withAnimation(KanbanAnimations.cancel(reduceMotion: reduceMotion)) {
+                    withAnimation(DragAnimations.cancel(reduceMotion: reduceMotion)) {
                         controller.beginCancel()
                     }
                     controller.scheduleSettle(after: .milliseconds(cancelDelayMs))

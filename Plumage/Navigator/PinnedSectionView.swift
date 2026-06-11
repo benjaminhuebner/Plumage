@@ -19,10 +19,8 @@ struct PinnedSectionView: View {
     }
 }
 
-// One pinned file. Shares the `NavigatorRoute.projectFile` tag with its tree
-// row, so selection + detail dispatch come for free from the enclosing
-// `List(selection:)`. A hover-revealed filled-pin button unpins; the context
-// menu mirrors it and adds "Show in Finder".
+// Carries its own selection identity (`.pinned`), never the tree row's
+// route — the two regions must not highlight together.
 struct PinnedRow: View {
     let relativePath: String
     let projectURL: URL
@@ -68,7 +66,7 @@ struct PinnedRow: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .tag(NavigatorRoute.projectFile(relativePath: relativePath))
+        .tag(SidebarListSelection.pinned(relativePath: relativePath))
         .contextMenu {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
