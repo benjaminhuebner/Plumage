@@ -64,6 +64,39 @@ struct TemplateArchiveImporterReadTests {
 
     // MARK: - Validation
 
+    @Test("An unknown tombstone kind reports a newer-Plumage message, not invalid manifest")
+    func unknownTombstoneKindRejected() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.writeStaged(
+            TemplateArchiveExporter.manifestFileName,
+            #"{"schemaVersion": 1, "tombstones": [{"kind": "wormhole", "id": "x"}]}"#)
+
+        let expected = TemplateArchiveImportError.unknownKind(
+            field: "deleted-item kind", value: "wormhole")
+        #expect(expected.localizedDescription.contains("newer Plumage"))
+        #expect(throws: expected) {
+            _ = try fixture.importer().contents(stagingDir: fixture.staging)
+        }
+    }
+
+    @Test("An unknown component file kind reports a newer-Plumage message")
+    func unknownComponentKindRejected() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let manifest = """
+            {"schemaVersion": 1, "sharedComponents": [{"id": "c", "name": "C", "order": 0,
+             "memberTemplateIDs": [], "files": [{"kind": "blob", "name": "n"}]}]}
+            """
+        try fixture.writeStaged(TemplateArchiveExporter.manifestFileName, manifest)
+
+        #expect(
+            throws: TemplateArchiveImportError.unknownKind(field: "component file kind", value: "blob")
+        ) {
+            _ = try fixture.importer().contents(stagingDir: fixture.staging)
+        }
+    }
+
     @Test("A missing archive manifest is rejected")
     func missingManifestRejected() throws {
         let fixture = try makeFixture()

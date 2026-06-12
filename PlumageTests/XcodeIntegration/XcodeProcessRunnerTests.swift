@@ -192,7 +192,8 @@ struct MockXcodeProcessRunnerTests {
     }
 }
 
-// Sendable line buffer used by the streaming tests above.
+// @unchecked Sendable: all mutable state sits behind the NSLock — the lock,
+// not the type shape, provides the concurrency safety.
 final class LineCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var _lines: [String] = []

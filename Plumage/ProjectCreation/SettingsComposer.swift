@@ -59,7 +59,9 @@ nonisolated struct SettingsComposer {
         let userHookBases = Set(
             catalog.effectiveUserHooks(forTemplate: templateID, overrides: overrides).map(\.base))
         for wiring in userWirings
-        where userHookBases.contains(wiring.name) && toggles.isEnabled(.hooks, wiring.name) {
+        where userHookBases.contains(wiring.name) && toggles.isEnabled(.hooks, wiring.name)
+            && !wiring.event.isUnknown
+        {
             groupsByEvent[wiring.event, default: []].append(
                 Settings.HookGroup(
                     matcher: wiring.matcher,
@@ -90,7 +92,7 @@ nonisolated struct SettingsComposer {
                     matcher: wiring.matcher,
                     hooks: [.init(command: Self.command(forFileName: "\(wiring.name).sh"))]))
         }
-        for wiring in userWirings {
+        for wiring in userWirings where !wiring.event.isUnknown {
             groupsByEvent[wiring.event, default: []].append(
                 Settings.HookGroup(
                     matcher: wiring.matcher,

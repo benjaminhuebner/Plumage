@@ -30,6 +30,26 @@ struct ImplementRunScannerTests {
         return process.processIdentifier
     }
 
+    @Test("runStateExists is true for a present run-state file")
+    func runStateExistsPresent() throws {
+        let (root, runsDir) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeRunState(
+            #"{"kind": "implement", "issue": "00042-some-issue", "agentPid": 0}"#,
+            in: runsDir
+        )
+
+        #expect(ImplementRunScanner.runStateExists(for: "00042-some-issue", in: root))
+    }
+
+    @Test("runStateExists is false for an absent run-state file")
+    func runStateExistsAbsent() throws {
+        let (root, _) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(!ImplementRunScanner.runStateExists(for: "00042-some-issue", in: root))
+    }
+
     @Test("live implement run is found and named")
     func liveRunFound() throws {
         let (root, runsDir) = try makeProject()

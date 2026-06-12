@@ -430,7 +430,7 @@ struct ProjectWindow: View {
     @ViewBuilder
     private var sidebar: some View {
         NavigatorSidebar(selection: $selectedRoute, projectURL: handle.url)
-            .navigationSplitViewColumnWidth(240)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 260)
     }
 
     @ViewBuilder
@@ -560,6 +560,8 @@ struct ProjectWindow: View {
                     Text("You can restore it from the Trash.")
                 }
             }
+            // Side-effect-only setter: false routes to the launcher's cancel,
+            // no mirrored local state to keep in sync.
             .confirmationDialog(
                 "An implement run is already active",
                 isPresented: Binding(
@@ -583,6 +585,21 @@ struct ProjectWindow: View {
                         + "Start \(pending.slug) in its own worktree and run in parallel, "
                         + "or wait in line — a queued run starts by itself when it's its turn."
                 )
+            }
+            .alert(
+                "Worktree setup failed",
+                isPresented: Binding(
+                    get: { workflowLauncher.worktreeProvisionError != nil },
+                    set: { if !$0 { workflowLauncher.dismissWorktreeProvisionError() } }
+                ),
+                presenting: workflowLauncher.worktreeProvisionError
+            ) { _ in
+                Button("Try Again") { workflowLauncher.retryWorktreeProvision() }
+                Button("Cancel", role: .cancel) {
+                    workflowLauncher.dismissWorktreeProvisionError()
+                }
+            } message: { error in
+                Text(error)
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 12) {
@@ -628,6 +645,7 @@ struct ProjectWindow: View {
     // re-point the selection to the new path; removals fall back to the board.
     // `.issue` routes follow their folder under .claude/issues/ the same way.
     private func applyRouteRewrites(_ rewrites: [RouteRewrite]) {
+        cancelStalePendingImplement(rewrites)
         switch selectedRoute {
         case .projectFile(let current):
             applyFileRouteRewrites(rewrites, current: current)
@@ -635,6 +653,22 @@ struct ProjectWindow: View {
             applyIssueRouteRewrites(rewrites, folderName: folderName)
         case .kanban, .projectSettings:
             return
+        }
+    }
+
+    // An externally renamed/trashed issue would leave the implement-confirm
+    // dialog offering a stale slug — close the dialog instead.
+    private func cancelStalePendingImplement(_ rewrites: [RouteRewrite]) {
+        guard let pending = workflowLauncher.pendingImplement else { return }
+        let issuePath = ".claude/issues/" + pending.slug
+        for rewrite in rewrites {
+            switch rewrite {
+            case .moved(let old, _), .removed(let old):
+                if old == issuePath || issuePath.hasPrefix(old + "/") {
+                    workflowLauncher.cancelPendingImplement()
+                    return
+                }
+            }
         }
     }
 

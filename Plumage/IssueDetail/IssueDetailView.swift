@@ -10,27 +10,21 @@ struct IssueDetailView: View {
     @State private var diffTabModel: DiffTabModel?
     @State private var gitRepoWatcher: GitRepoWatcher?
     // Each editable tab keeps its own cursor/scroll state so switching tabs
-    // doesn't drag row 80 of a 200-line spec into a 2-line prompt and vice
-    // versa. Messages are tab-scoped too in case a future hook re-wires
-    // FrontmatterMessageMap markers into one of them.
+    // doesn't drag row 80 of a 200-line spec into a 2-line prompt and vice versa.
+    // Messages are tab-scoped too in case a future hook re-wires markers into one.
     @State private var specEditorPosition = CodeEditor.Position()
     @State private var specEditorMessages: Set<TextLocated<Message>> = []
     @State private var hasAppliedSmartDefaultTab: Bool = false
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
     @State private var pendingPopAction: (() -> Void)?
-    // Cached focused-scene values. Computing these inline produces a new
-    // value (or new closure) per body re-eval, which SwiftUI's focus system
-    // flags as "FocusedValue update tried to update multiple times per
-    // frame" when keystrokes / edits trigger cascading state changes. We
-    // snapshot via .onChange so the focusedSceneValue modifiers read stable
-    // identities.
+    // Cached focused-scene values: computing inline yields a new value per body
+    // re-eval, which the focus system flags as "FocusedValue update tried to update
+    // multiple times per frame". Snapshot via .onChange so identities stay stable.
     @State private var publishedDirtyFolderName: String?
-    // Method-reference closures get a fresh allocation per body re-eval.
-    // Wrapped in EditorAction (UUID-keyed Equatable) so the focus system
-    // can compare stable identity across renders — without this the
-    // `() -> Void` value type is always "different" and triggers
-    // "FocusedValue update tried to update multiple times per frame".
+    // Method-reference closures get a fresh allocation per body re-eval. Wrapped
+    // in EditorAction (UUID-keyed Equatable) so the focus system compares stable
+    // identity — otherwise it fires "FocusedValue update … multiple times per frame".
     @State private var publishedSaveAction: EditorAction?
     @State private var publishedCloseAction: EditorAction?
     @State private var publishedBackToBoardAction: EditorAction?
@@ -162,10 +156,9 @@ struct IssueDetailView: View {
         }
     }
 
-    // dismiss() is a no-op when this view is the split-view detail (nothing
-    // is presented there), and openSpec defaults to a no-op inside the create
-    // sheet (deliberately unwired). Firing both means exactly one acts in
-    // either context.
+    // dismiss() is a no-op when this view is the split-view detail, and openSpec
+    // defaults to a no-op inside the create sheet (deliberately unwired). Firing
+    // both means exactly one acts in either context.
     private func popToBoard() {
         openSpec(.kanban)
         dismiss()
@@ -220,11 +213,9 @@ struct IssueDetailView: View {
                     layout: editorLayout
                 )
                 .toolbar {
-                    // Gated on isCreating so the pushed loaded-mode detail
-                    // (NavigatorDetail) never inherits these sheet buttons.
-                    // .cancellationAction / .confirmationAction give macOS the
-                    // bottom button row: Cancel left, prominent default Create
-                    // Issue right — no manual styling needed.
+                    // Gated on isCreating so the pushed loaded-mode detail never
+                    // inherits these sheet buttons. .cancellationAction /
+                    // .confirmationAction give macOS the standard bottom button row.
                     if model.isCreating {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Cancel") { dismiss() }
@@ -247,9 +238,8 @@ struct IssueDetailView: View {
     }
 
     // Single creation path: footer button (Cmd+Return) AND attemptSave (Cmd+S)
-    // funnel through here so the sheet always dismisses + navigates to the new
-    // issue on success. Splitting these two paths previously left Cmd+S in a
-    // half-created state (issue on disk, sheet still open in loaded-mode UI).
+    // funnel through here so the sheet always dismisses + navigates on success —
+    // split paths left Cmd+S half-created (issue on disk, sheet still open).
     private func createAndNavigate() {
         Task {
             do {
@@ -540,10 +530,9 @@ struct IssueDetailView: View {
     }
 
     private func startDiffTab() {
-        // The card is the unit of cache here: every open spins up a fresh
-        // DiffTabModel + GitRepoWatcher so the diff and the live-update
-        // signal are scoped to this card's lifetime (see spec scope: no
-        // cross-card diff cache).
+        // The card is the unit of cache: every open spins up a fresh DiffTabModel
+        // + GitRepoWatcher so the diff and the live-update signal are scoped to
+        // this card's lifetime — deliberately no cross-card diff cache.
         guard diffTabModel == nil else { return }
         let watcher = GitRepoWatcher(repoURL: projectURL)
         let diffModel = DiffTabModel(repoURL: projectURL, watcher: watcher)
@@ -582,7 +571,7 @@ struct IssueDetailView: View {
     }
 
     private var rebaseAndMergeAction: ((GitMergeMode, String?, Bool) -> Void)? {
-        guard case .notFastForward = model.lastMergeError else { return nil }
+        guard model.rebaseRecoveryAvailable else { return nil }
         return { mode, commitSubject, deleteBranch in
             Task {
                 await performRebaseAndMerge(
@@ -629,11 +618,9 @@ struct IssueDetailView: View {
     }
 
     private func saveAllEditableTabs() async throws {
-        // Flush both editable buffers regardless of the currently-selected
-        // tab. Otherwise dirty Spec/Prompt content sitting behind a non-
-        // editable tab (PR, Diff) would be silently dropped on background
-        // autosave or Cmd-S. The model's per-buffer dirty guards keep this
-        // cheap when nothing changed.
+        // Flush both editable buffers regardless of the selected tab — dirty
+        // Spec/Prompt content behind a non-editable tab (PR, Diff) would otherwise
+        // be silently dropped. Per-buffer dirty guards keep this cheap when clean.
         var firstError: Error?
         do { try await model.saveBody() } catch { firstError = firstError ?? error }
         do { try await model.savePrompt() } catch { firstError = firstError ?? error }
@@ -641,11 +628,9 @@ struct IssueDetailView: View {
     }
 
     private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {
-        // WorkflowCommandResolver reads spec.md and prompt.md from disk, so
-        // both dirty buffers must be flushed before the inject runs. If a flush
-        // fails, surface it and abort — injecting the stale on-disk version into
-        // claude with no indication would silently run the workflow on outdated
-        // content.
+        // WorkflowCommandResolver reads spec.md and prompt.md from disk, so both
+        // dirty buffers must be flushed before the inject. On flush failure,
+        // surface and abort — injecting stale content would silently run the workflow outdated.
         Task {
             do {
                 try await saveAllEditableTabs()

@@ -8,6 +8,14 @@ nonisolated enum SharedComponentKind: String, Codable, Hashable, Sendable, CaseI
     case hook
     case skill
     case config
+
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let kind = Self(rawValue: raw) else {
+            throw UnknownKindError(field: "component file kind", value: raw)
+        }
+        self = kind
+    }
 }
 
 // One file a component contributes, tagged with the kind that decides where it lands

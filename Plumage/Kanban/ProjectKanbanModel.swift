@@ -2,10 +2,9 @@ import Foundation
 import Observation
 import os
 
-// Intentionally no `import SwiftUI` — kept pure-Foundation so the model is
-// fully testable from any host and the animation decision (which mutations
-// animate, which snap) lives at the call site in KanbanColumnView /
-// KanbanView via `.animation(_:value:)`.
+// Intentionally no `import SwiftUI` — pure-Foundation keeps the model testable
+// from any host; the animation decision (which mutations animate, which snap)
+// lives at the call site in KanbanColumnView / KanbanView via `.animation(_:value:)`.
 
 @Observable
 @MainActor
@@ -21,10 +20,9 @@ final class ProjectKanbanModel {
         case apply(newStatus: IssueStatus, newOrder: SetValue<Double?>)
     }
 
-    // Self-documenting pending-drop snapshot. Replaces the previous
-    // `(String?, IssueStatus?, SetValue<Double?>?)` triple where the
-    // double-Optional on order was ambiguous — `.none` and `.some(.keep)`
-    // both meant "no order change", but only one was reachable per call site.
+    // Self-documenting pending-drop snapshot — replaces a tuple whose
+    // double-Optional order was ambiguous: `.none` and `.some(.keep)` both
+    // meant "no order change", but only one was reachable per call site.
     nonisolated struct PendingDrop: Equatable, Sendable {
         let folderName: String
         let expectedStatus: IssueStatus?
@@ -52,19 +50,13 @@ final class ProjectKanbanModel {
     private(set) var highlightedIssueID: String?
     private(set) var lastDropError: String?
     private(set) var lastRemovalError: String?
-    // Latest folderName whose removal (archive or trash) just completed
-    // successfully. Open detail/editor views watch this to auto-pop when
-    // their own card is the one that disappeared. Setting it on every
-    // success even if the same folder name comes back lets onChange-based
-    // observers fire reliably (Swift Testing equality short-circuits, but
-    // we always set the field to a distinct value: folder names are unique).
+    // Latest folderName whose removal (archive or trash) just completed. Open
+    // detail/editor views watch this to auto-pop when their own card disappeared.
+    // Set on every success — folder names are unique, so onChange fires reliably.
     private(set) var lastRemovalCompleted: String?
-    // Latest folderName whose merge-to-main just completed successfully. Open
-    // detail views watch this to auto-pop when their own card is the one that
-    // got merged. Same observation discipline as lastRemovalCompleted — the
-    // signal is fired even when the same folder name comes back, because
-    // folder names are unique per project so a repeated set always represents
-    // a distinct event.
+    // Latest folderName whose merge-to-main just completed. Open detail views
+    // watch this to auto-pop when their own card got merged. Same observation
+    // discipline as lastRemovalCompleted — set on every success, folder names are unique.
     private(set) var lastMergeCompleted: String?
     private(set) var pendingDrop: PendingDrop?
     private(set) var pendingRemoval: PendingRemoval?
@@ -116,10 +108,9 @@ final class ProjectKanbanModel {
         self.trasher = trasher
     }
 
-    // Safety net for teardown paths. Models are scene-scoped today so this
-    // rarely fires, but mirrors IssueDetailModel's discipline — `[weak self]`
-    // in the Task closures prevents retain cycles, not running tasks against a
-    // dropped model. isolated deinit (Swift 6.2) so we can touch MainActor state.
+    // Safety net for teardown: `[weak self]` in the Task closures prevents retain
+    // cycles, not running tasks against a dropped model. isolated deinit
+    // (Swift 6.2) so we can touch MainActor state.
     isolated deinit {
         highlightTask?.cancel()
         dropTask?.cancel()
@@ -137,10 +128,9 @@ final class ProjectKanbanModel {
             let entryOrders = Self.columnEntryOrders(
                 previous: issues, incoming: reconciled.snapshot)
             let groups = Self.group(reconciled.snapshot)
-            // Mutate-only: KanbanColumnView attaches `.animation(.smooth, value:)`
-            // for the FSEvent path. The pending-drop clear and the FSEvent
-            // re-render both look identical from this side; the view layer
-            // decides whether the change animates.
+            // Mutate-only: the pending-drop clear and the FSEvent re-render look
+            // identical from this side; the view layer (KanbanColumnView's
+            // `.animation(.smooth, value:)`) decides whether the change animates.
             self.issues = reconciled.snapshot
             self.groupedIssues = groups
             if reconciled.pendingCleared {
@@ -223,19 +213,13 @@ final class ProjectKanbanModel {
         }
     }
 
-    func clearDropError() {
-        lastDropError = nil
-    }
-
     func clearRemovalError() {
         lastRemovalError = nil
     }
 
-    // Cross-model signal fired by IssueDetailView after a successful merge.
-    // Detail views observe this via .onChange and dismiss themselves when
-    // the value matches their own folderName. Pattern duplicated from
-    // lastRemovalCompleted; generalizing them would obscure which
-    // kind of completion fired.
+    // Cross-model signal fired by IssueDetailView after a successful merge; detail
+    // views dismiss via .onChange when the value matches their folderName. Pattern
+    // duplicated from lastRemovalCompleted — generalizing would obscure which completion fired.
     func signalMergeCompleted(folderName: String) {
         lastMergeCompleted = folderName
     }
@@ -247,10 +231,9 @@ final class ProjectKanbanModel {
     }
     #endif
 
-    // Cancels any prior in-flight drop and schedules a new one. Views must
-    // use this instead of spawning unstructured Tasks in gesture callbacks —
-    // drops fired in quick succession could otherwise commit to disk out of
-    // order relative to the UI snapshot they read.
+    // Cancels any prior in-flight drop and schedules a new one. Views must use
+    // this instead of unstructured Tasks in gesture callbacks — rapid drops could
+    // otherwise commit to disk out of order relative to the UI snapshot they read.
     func dispatchDrop(
         _ payload: IssueDragPayload,
         to target: DropTarget,
@@ -262,12 +245,9 @@ final class ProjectKanbanModel {
         }
     }
 
-    // Synchronous wrapper that applies the optimistic update on the calling
-    // turn and fires the disk write into the background. Callers that need to
-    // observe the optimistic state immediately (the drop gesture: the source
-    // card must be at its new slot the moment the floating overlay clears,
-    // otherwise the user sees "first below, then plopp") use this entry
-    // point. Tests still use the async performDropOptimistic.
+    // Synchronous wrapper: optimistic update on the calling turn, disk write in
+    // the background. For callers needing the optimistic state immediately — the
+    // source card must be at its new slot the moment the floating overlay clears.
     func applyOptimisticDrop(
         _ payload: IssueDragPayload,
         to target: DropTarget,
@@ -288,14 +268,9 @@ final class ProjectKanbanModel {
             expectedStatus: newStatus,
             expectedOrder: newOrder
         )
-        // Apply the optimistic update WITHOUT withAnimation: the layout
-        // transition would otherwise animate the source from its collapsed
-        // drag-source state (height 0, opacity 0) at the OLD index to its
-        // full natural state at the NEW index — visible to the user as the
-        // card "growing in" at the wrong slot before sliding to the right
-        // one. The floating overlay was already at the insertion point;
-        // letting the layout snap means the source appears in place at the
-        // exact spot the overlay just vacated.
+        // WITHOUT withAnimation: animating would grow the collapsed drag source
+        // in at the OLD index before sliding it to the new one. The floating
+        // overlay was already at the insertion point — snapping appears in place.
         issues = Self.replace(issues, folderName: issue.folderName, with: updated)
         groupedIssues = Self.group(issues)
 
@@ -308,12 +283,9 @@ final class ProjectKanbanModel {
                     try mutatorFn(specURL, newStatus, newOrder, Date())
                 }.value
             } catch {
-                // If the parent Task was cancelled (a newer drop has taken
-                // over the dropTask slot), the cancel cascades into
-                // Task.detached's await and we land here. Do NOT roll back
-                // in that case — priorIssues is stale relative to the
-                // newer drop's optimistic update, and writing it back
-                // would overwrite the newer state with our old snapshot.
+                // A newer drop cancelling us cascades into Task.detached's await
+                // and lands here. Do NOT roll back then — priorIssues is stale
+                // relative to the newer drop and would overwrite its newer state.
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticDrop(
                     to: priorIssues, folderName: issue.folderName,
@@ -339,10 +311,8 @@ final class ProjectKanbanModel {
         to prior: [DiscoveredIssue], folderName: String, error: String
     ) {
         // Targeted, not whole-array: restoring the full prior snapshot would
-        // resurrect cards that were archived/trashed while the drop write was
-        // in flight, and clobber other cards' newer optimistic state.
-        // Mutate-only; view-side `.animation(.smooth, value: kanban.issues)`
-        // handles the visual transition. See `run` for the same reasoning.
+        // resurrect cards archived/trashed while the write was in flight and
+        // clobber other cards' newer optimistic state. Mutate-only; the view animates.
         if let priorCard = prior.first(where: { $0.id == folderName }),
             issues.contains(where: { $0.id == folderName })
         {
@@ -399,11 +369,9 @@ final class ProjectKanbanModel {
                 guard !Task.isCancelled else { return }
                 self?.lastRemovalCompleted = folderName
             } catch {
-                // Same cancellation discipline as applyOptimisticDrop's catch
-                // block: if a newer removal cancelled us,
-                // priorIssues is stale relative to the newer removal's snapshot
-                // and writing it back would resurrect a card that the user
-                // already deleted in the second action.
+                // Same cancellation discipline as applyOptimisticDrop: if a newer
+                // removal cancelled us, priorIssues is stale and writing it back
+                // would resurrect a card the user already deleted in the second action.
                 guard !Task.isCancelled else { return }
                 self?.rollbackOptimisticRemoval(
                     to: priorIssues, folderName: folderName,
@@ -553,10 +521,9 @@ final class ProjectKanbanModel {
         return (snapshot, false)
     }
 
-    // Epsilon, not exact: spec files written by older Plumage builds carry
-    // %g-rounded order values (6 significant digits), so an exact compare
-    // left pendingDrop stuck and re-patched stale status on every snapshot.
-    // 1e-5 relative matches the %g precision loss.
+    // Epsilon, not exact: older builds wrote %g-rounded order values (6 significant
+    // digits), so an exact compare left pendingDrop stuck and re-patched stale
+    // status on every snapshot. 1e-5 relative matches the %g precision loss.
     nonisolated private static func ordersEqual(_ lhs: Double?, _ rhs: Double?) -> Bool {
         switch (lhs, rhs) {
         case (nil, nil):
@@ -683,14 +650,9 @@ final class ProjectKanbanModel {
     private static func group(
         _ issues: [DiscoveredIssue]
     ) -> [IssueColumn: [DiscoveredIssue]] {
-        // Sort each column by orderValue (with idValue fallback) so the
-        // display always reflects the kanban sort regardless of how the
-        // underlying `issues` array is ordered. Without this, the optimistic
-        // update's `Self.replace` keeps the source at its old array position
-        // — so a card with a new order field renders at its old slot until
-        // FSEvent reload re-sorts via discoverIssues. That manifested as
-        // "card lands at wrong slot for a few hundred ms, then jumps to
-        // the right one when the disk write comes back".
+        // Sort each column by orderValue (idValue fallback) regardless of `issues`
+        // ordering: the optimistic update's `Self.replace` keeps the source at its
+        // old array position, which rendered the card at the wrong slot until FSEvent re-sorted.
         Dictionary(grouping: issues, by: \.column).mapValues { $0.sortedForKanban() }
     }
 }

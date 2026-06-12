@@ -16,10 +16,6 @@ nonisolated enum TemplateStartingPoint: Hashable, Sendable {
 nonisolated extension TemplateCatalog {
     // MARK: - Predefined classification
 
-    func isPredefinedCategory(_ id: String) -> Bool {
-        TemplateCatalog.bundledDefault.category(id: id) != nil
-    }
-
     func isPredefinedTemplate(_ id: String) -> Bool {
         TemplateCatalog.bundledDefault.template(id: id) != nil
     }
@@ -164,14 +160,6 @@ nonisolated extension TemplateCatalog {
             component.order = order
             return component
         }
-    }
-
-    mutating func renameSharedComponent(id: String, to newName: String) {
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let index = sharedComponents.firstIndex(where: { $0.id == id }),
-            sharedComponents[index].name != trimmed
-        else { return }
-        sharedComponents[index].name = uniqueComponentName(trimmed, excludingID: id)
     }
 
     // Appends a typed file to a component's `files` (membership), so a file authored or

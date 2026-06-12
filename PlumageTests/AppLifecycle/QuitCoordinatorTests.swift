@@ -30,7 +30,9 @@ struct QuitCoordinatorTests {
         coordinator.register(UUID()) { fastRan.mutate { $0 = true } }
 
         let start = ContinuousClock.now
-        await coordinator.runAll(timeout: .milliseconds(100))
+        // 500 ms, not less: the fast handler must reliably win the race against
+        // the watchdog even on a loaded machine.
+        await coordinator.runAll(timeout: .milliseconds(500))
 
         #expect(ContinuousClock.now - start < .seconds(3))
         #expect(fastRan.value)

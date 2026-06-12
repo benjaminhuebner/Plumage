@@ -3,16 +3,24 @@ import os
 
 // The Claude Code hook events a user-authored hook can bind to. Raw values are the
 // exact keys Claude Code reads from `settings.json`, so they round-trip verbatim.
-nonisolated enum HookEvent: String, Codable, Sendable, CaseIterable {
-    case userPromptSubmit = "UserPromptSubmit"
-    case preToolUse = "PreToolUse"
-    case postToolUse = "PostToolUse"
-    case notification = "Notification"
-    case stop = "Stop"
-    case subagentStop = "SubagentStop"
-    case preCompact = "PreCompact"
-    case sessionStart = "SessionStart"
-    case sessionEnd = "SessionEnd"
+nonisolated enum HookEvent: Codable, Hashable, Sendable, CaseIterable {
+    case userPromptSubmit
+    case preToolUse
+    case postToolUse
+    case notification
+    case stop
+    case subagentStop
+    case preCompact
+    case sessionStart
+    case sessionEnd
+    // An event this build doesn't know (written by a newer Plumage) — kept
+    // verbatim so the wiring survives a round-trip instead of being dropped.
+    case unknown(String)
+
+    static let allCases: [HookEvent] = [
+        .userPromptSubmit, .preToolUse, .postToolUse, .notification, .stop,
+        .subagentStop, .preCompact, .sessionStart, .sessionEnd,
+    ]
 
     // Only the tool-use events match against a tool name; the rest fire
     // unconditionally and emit a group with `matcher: null`.
@@ -24,6 +32,43 @@ nonisolated enum HookEvent: String, Codable, Sendable, CaseIterable {
     }
 
     var displayName: String { rawValue }
+
+    var isUnknown: Bool {
+        if case .unknown = self { return true }
+        return false
+    }
+}
+
+nonisolated extension HookEvent: RawRepresentable {
+    init?(rawValue: String) {
+        switch rawValue {
+        case "UserPromptSubmit": self = .userPromptSubmit
+        case "PreToolUse": self = .preToolUse
+        case "PostToolUse": self = .postToolUse
+        case "Notification": self = .notification
+        case "Stop": self = .stop
+        case "SubagentStop": self = .subagentStop
+        case "PreCompact": self = .preCompact
+        case "SessionStart": self = .sessionStart
+        case "SessionEnd": self = .sessionEnd
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .userPromptSubmit: return "UserPromptSubmit"
+        case .preToolUse: return "PreToolUse"
+        case .postToolUse: return "PostToolUse"
+        case .notification: return "Notification"
+        case .stop: return "Stop"
+        case .subagentStop: return "SubagentStop"
+        case .preCompact: return "PreCompact"
+        case .sessionStart: return "SessionStart"
+        case .sessionEnd: return "SessionEnd"
+        case .unknown(let raw): return raw
+        }
+    }
 }
 
 // The persisted trigger metadata for one user-authored hook: which event it binds
@@ -121,6 +166,8 @@ nonisolated struct HookWiringStore: Sendable, Equatable {
                     // Must still advance past the unreadable element —
                     // Discard's no-op init succeeds for any value shape.
                     _ = try? container.decode(Discard.self)
+                    Logger(subsystem: "com.plumage", category: "HookWiring").warning(
+                        "hook-wirings.json: dropped an unreadable wiring entry")
                 }
             }
             self.wirings = result
@@ -149,9 +196,5 @@ nonisolated struct HookWiringStore: Sendable, Equatable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(wirings).write(to: url, options: .atomic)
-    }
-
-    func saveStandard() throws {
-        try save(to: Self.standardURL())
     }
 }

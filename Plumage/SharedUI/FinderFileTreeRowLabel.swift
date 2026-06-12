@@ -25,5 +25,6 @@ struct FinderFileTreeRowIcon: View {
         )
         .resizable()
         .frame(width: 16, height: 16)
+        .accessibilityHidden(true)
     }
 }

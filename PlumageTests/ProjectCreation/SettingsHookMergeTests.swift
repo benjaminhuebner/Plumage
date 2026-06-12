@@ -41,6 +41,40 @@ struct SettingsHookMergeTests {
         return (data, { try? FileManager.default.removeItem(at: root) })
     }
 
+    @Test("The same command under a different event is merged, not deduped away")
+    func sameCommandUnderOtherEventMerges() throws {
+        let command = "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/my-hook.sh"
+        let existing = """
+            {
+              "hooks": {
+                "PreToolUse": [
+                  {
+                    "hooks": [
+                      { "type": "command", "command": "\\"$CLAUDE_PROJECT_DIR\\"/.claude/hooks/my-hook.sh" }
+                    ]
+                  }
+                ]
+              }
+            }
+            """
+        let gen = try generatedSettings(
+            hookFiles: ["hooks/my-hook.sh"],
+            wirings: [HookWiring(name: "my-hook", event: .stop)])
+        defer { gen.cleanup() }
+
+        let outcome = SettingsHookMerge.merge(
+            existing: Data(existing.utf8), generated: gen.data)
+        guard case .merged(let merged, _) = outcome else {
+            Issue.record("expected merge, got \(outcome)")
+            return
+        }
+        let hooks = try #require(try obj(merged)["hooks"] as? [String: Any])
+        let stopCommands = ((hooks["Stop"] as? [[String: Any]]) ?? [])
+            .flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }
+            .compactMap { $0["command"] as? String }
+        #expect(stopCommands.contains(command))
+    }
+
     @Test("Missing hook groups are inserted; every other byte is preserved")
     func insertsMissingPreservesBytes() throws {
         let existing = """
@@ -115,31 +149,24 @@ struct SettingsHookMergeTests {
             SettingsHookMerge.merge(existing: merged, generated: gen.data) == .unchanged)
     }
 
-    @Test("An entry already present under a different event is not re-added")
-    func movedEntryNotDuplicated() throws {
+    @Test("An entry under its own event is not re-added there")
+    func presentEntryNotDuplicated() throws {
         let gen = try generatedSettings(
             hookFiles: ["hooks/my-hook.sh"],
             wirings: [HookWiring(name: "my-hook", event: .stop)])
         defer { gen.cleanup() }
-        // The user moved the same command path under SessionStart by hand.
         let existing = """
             {
               "hooks": {
-                "SessionStart": [
+                "Stop": [
                   { "hooks": [{ "type": "command", "command": "\\"$CLAUDE_PROJECT_DIR\\"/.claude/hooks/my-hook.sh" }] }
                 ]
               }
             }
             """
         let outcome = SettingsHookMerge.merge(existing: Data(existing.utf8), generated: gen.data)
-        // Only the built-in workflow wirings of .other are still missing — my-hook is not.
-        if case .merged(let merged, let added) = outcome {
+        if case .merged(_, let added) = outcome {
             #expect(!added.contains { $0.contains("my-hook") })
-            let stop = (try obj(merged)["hooks"] as? [String: Any])?["Stop"]
-            let stopCommands = (stop as? [[String: Any]] ?? []).flatMap {
-                ($0["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String }
-            }
-            #expect(!stopCommands.contains { $0.contains("my-hook") })
         }
     }
 

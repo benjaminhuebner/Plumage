@@ -71,8 +71,4 @@ nonisolated struct ScaffoldToggles: Codable, Equatable, Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(self).write(to: url, options: .atomic)
     }
-
-    func saveStandard() throws {
-        try save(to: Self.standardURL())
-    }
 }

@@ -5,12 +5,13 @@ struct WorkflowModelPickerRow: View {
     let model: ProjectSettingsModel
 
     @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                         expanded.toggle()
                     }
                 } label: {

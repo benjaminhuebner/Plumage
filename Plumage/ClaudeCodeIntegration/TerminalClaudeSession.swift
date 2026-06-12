@@ -14,19 +14,14 @@ final class TerminalClaudeSession {
     let cwd: URL
     let binaryURL: URL
     let modelChoice: ModelChoice
-    // nil disables disk persistence — additional tabs from TerminalTabsModel
-    // pass persistConversationID: false so each new tab gets a fresh UUID
-    // without writing/reading the on-disk pointer. When a tab does persist,
-    // the terminal-id store lives under the project bundle's `sessions/`
-    // subfolder (stateDirectory), mirroring ClaudeSession.
+    // nil disables disk persistence — additional tabs pass persistConversationID:
+    // false so each gets a fresh UUID without touching the on-disk pointer. When a
+    // tab does persist, the store lives under the bundle's `sessions/`, mirroring ClaudeSession.
     private let sessionIDStoreURL: URL?
     private let sessionLogRoot: URL
-    // Returns conversation IDs that must NOT be adopted by reconcile —
-    // primarily the chat session's ID, since chat shares the same log dir.
-    // ProjectWindow injects a closure with weak-capture on the chat session
-    // so the lookup stays live; tests use the default empty set. Mutable so
-    // ProjectWindow can re-wire after `rebuilt(for:replacing:)` swaps in a
-    // fresh chat session instance whose weak ref would otherwise be stale.
+    // Conversation IDs reconcile must NOT adopt — primarily the chat session's,
+    // since chat shares the same log dir. Mutable so ProjectWindow can re-wire after
+    // `rebuilt(for:replacing:)` swaps in a fresh chat session (stale weak ref otherwise).
     private var excludedSessionIDs: @MainActor () -> Set<String>
     // nil means no --permission-mode flag is appended; the workflow-tab path
     // sets one of plan/acceptEdits/default so claude boots with the right
@@ -41,22 +36,17 @@ final class TerminalClaudeSession {
     // FSEvents watcher on the claude log dir. Owned by the session so its
     // lifetime matches the running subprocess. Nil while .idle/.exited.
     private var logWatcher: SessionLogWatcher?
-    // Inject buffer drained by SwiftTermBridge once state == .running.
-    // Producers (workflow buttons) call enqueue() unconditionally; the bridge
-    // observes mutations via @Observable and flushes through send(txt:).
-    // Cleared with consumePending() at the start of every fresh inject so
-    // stale entries from a prior failed flush don't ride along.
+    // Inject buffer drained by SwiftTermBridge once state == .running (observed
+    // via @Observable, flushed through send(txt:)). consumePending() clears it at
+    // every fresh inject so stale entries from a prior failed flush don't ride along.
     private(set) var pendingInput: [String] = []
-    // Bumped by restart() so EmbeddedTerminalView can use it as a SwiftUI .id
-    // and force SwiftTermBridge to dismantle + remount, which respawns the
-    // PTY-owned claude subprocess. State alone can't drive a remount because
-    // the bridge persists across inspector toggles (SwiftUI's .inspector
-    // hides its column without removing content from the view tree).
+    // Bumped by restart(); EmbeddedTerminalView uses it as a SwiftUI .id to force
+    // SwiftTermBridge to dismantle + remount, respawning the PTY claude. State alone
+    // can't drive a remount — .inspector hides its column without unmounting content.
     private(set) var restartEpoch: Int = 0
-    // Synchronously kill the PTY subprocess on stop(). Registered by
-    // SwiftTermBridge.makeNSView so window-close → onDisappear → stop()
-    // terminates the child without relying on SwiftUI's view-tree teardown
-    // timing. The real Process lives in SwiftTerm, not in this class.
+    // Synchronously kills the PTY subprocess on stop(); registered by
+    // SwiftTermBridge.makeNSView so window-close terminates the child without relying
+    // on SwiftUI's teardown timing. The real Process lives in SwiftTerm, not here.
     private var stopHandler: (() -> Void)?
 
     init(
@@ -103,11 +93,9 @@ final class TerminalClaudeSession {
         }
     }
 
-    // isolated deinit (Swift 6.2) safety net mirroring ClaudeSession: the
-    // primary teardown is stop()/markExited() via TerminalTabsModel and
-    // ProjectWindow.onDisappear, but an abnormal window close can skip those.
-    // Without this, the SessionLogWatcher (FSEvent stream + serial queue) and
-    // the stopHandler closure (retains the PTY view) would leak.
+    // isolated deinit (Swift 6.2) safety net: primary teardown is stop()/markExited(),
+    // but an abnormal window close can skip those — the SessionLogWatcher and the
+    // stopHandler closure (retains the PTY view) would leak without this.
     isolated deinit {
         stopLogWatcher()
         stopHandler = nil
@@ -152,11 +140,9 @@ final class TerminalClaudeSession {
             // the FSEvent didn't get delivered.
             reconcileSessionFromDisk()
             stopLogWatcher()
-            // Kill the PTY-owned subprocess synchronously before flipping
-            // state. SwiftTermBridge.dismantleNSView is the fallback path,
-            // but it's only guaranteed to fire after the view leaves the
-            // hierarchy — which during window-close races onDisappear. Calling
-            // stopHandler here closes that race.
+            // Kill the PTY subprocess synchronously before flipping state.
+            // SwiftTermBridge.dismantleNSView only fires after the view leaves
+            // the hierarchy — which races onDisappear during window-close.
             stopHandler?()
             state = .exited(code: 0, reason: .userClosed)
         case .idle, .exited:
@@ -190,12 +176,8 @@ final class TerminalClaudeSession {
     }
 
     // The submit \r must be its OWN entry, never appended to the body: claude's
-    // paste heuristic treats a body + trailing \r landing in one read() burst as
-    // pasted content and swallows the \r as a literal newline instead of
-    // submitting (a long Plan command, whose body inlines the prompt, needed a
-    // manual Enter while short Implement/Review commands submitted fine). Hence
-    // each line splits into [body-without-\r, "\r"], and the pre-submit gap
-    // scales with the payload so the body clears before the \r lands.
+    // paste heuristic treats body + trailing \r in one read() burst as pasted content
+    // and swallows the \r. The pre-submit gap scales with the payload so the body clears first.
     func injectCommands(
         _ lines: [String],
         timeout: Duration = .seconds(5),
@@ -214,12 +196,9 @@ final class TerminalClaudeSession {
             clock: clock)
     }
 
-    // Enqueue every entry in `lines` in order, with a single wait-for-running
-    // gate up front and `bodyDelay` between subsequent enqueues. Critically,
-    // consumePending() runs exactly ONCE at entry — a per-line inject loop
-    // would re-consume on every iteration and race the terminal view's
-    // pendingInput drain (the prior line could be silently dropped before it
-    // ever reached the subprocess).
+    // Single wait-for-running gate up front, `bodyDelay` between enqueues.
+    // consumePending() runs exactly ONCE at entry — per-line consumption would
+    // race the terminal view's pendingInput drain and silently drop a prior line.
     private func injectLines(
         _ lines: [String],
         timeout: Duration = .seconds(5),
@@ -254,12 +233,9 @@ final class TerminalClaudeSession {
         return false
     }
 
-    // Gap to wait between an injected body and the submit \r. claude drains a
-    // long paste over several read() bursts; if the \r lands in the same burst
-    // as the body's tail, claude's paste heuristic eats it and nothing submits.
-    // Scale the gap with the largest payload (≈125 KB/s settle budget) so the
-    // body clears first. Short commands keep the 800 ms floor; the 64 KB token
-    // cap (WorkflowCommandResolver) bounds the worst case near 8 s.
+    // Gap between injected body and submit \r: if the \r lands in the same read()
+    // burst as the body's tail, claude's paste heuristic eats it and nothing submits.
+    // Scales with the largest payload (≈125 KB/s); 800 ms floor, 64 KB cap bounds ≈8 s.
     nonisolated static let injectBodyDelayFloor: Duration = .milliseconds(800)
     nonisolated static func injectBodyDelay(for payloads: [String]) -> Duration {
         let maxBytes = payloads.map(\.utf8.count).max() ?? 0
@@ -274,11 +250,9 @@ final class TerminalClaudeSession {
         excludedSessionIDs = provider
     }
 
-    // Test-visible accessor for the currently-wired exclude provider. The
-    // closure itself is private (re-bound by TerminalTabsModel during tab
-    // life-cycle changes), so callers can only observe its result, not swap
-    // it. Used by TerminalTabsModelTests to assert that workflow-tab sessions
-    // see every other tab's conversationID in their exclude set.
+    // Test-visible accessor: the closure itself stays private (re-bound by
+    // TerminalTabsModel during tab life-cycle changes), so callers can only
+    // observe its result, not swap it.
     func currentExcludedSessionIDs() -> Set<String> {
         excludedSessionIDs()
     }
@@ -296,13 +270,9 @@ final class TerminalClaudeSession {
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
     func shellSpawnArgs(appearanceIsDark: Bool = true) -> [String] {
-        // Inject the plumage theme per-session via --settings instead of
-        // writing it into the user's global ~/.claude/settings.json — that
-        // earlier approach also re-skinned the user's own claude terminal.
-        // The dark/light variant is picked from the embedding view's
-        // colorScheme so claude's accents stay legible on the transparent
-        // terminal background. Inline JSON contains no single quotes so
-        // shellQuote wraps it safely with one quote pair.
+        // Per-session theme via --settings — writing the user's global
+        // ~/.claude/settings.json re-skinned their own claude terminal. Dark/light follows
+        // the view's colorScheme; the JSON has no single quotes, so shellQuote wraps it safely.
         var args = [
             "--settings", ClaudeThemeInstaller.perSessionSettingsJSON(dark: appearanceIsDark),
         ]
@@ -311,22 +281,18 @@ final class TerminalClaudeSession {
             args += ["--permission-mode", permissionMode.rawCLIValue]
         }
         args += modelChoice.cliArg
-        // cwd, binary, and every attach arg go through the SAME validated
-        // quoting — no value enters the `/bin/sh -c` string without an
-        // isShellSafe check, so validation isn't split between here and the
-        // call site.
+        // cwd, binary, and every attach arg go through the SAME validated quoting —
+        // no value enters the `/bin/sh -c` string without an isShellSafe check, so
+        // validation isn't split between here and the call site.
         let quotedCwd = Self.shellQuote(cwd.path)
         let quotedBin = Self.shellQuote(binaryURL.path)
         let attach = Self.shellQuotedAttachArgs(args)
         return ["-c", "cd \(quotedCwd) && exec \(quotedBin) \(attach)"]
     }
 
-    // Inherit the parent app's full environment so claude finds the same
-    // auth state (credentials, env tokens, keychain access) that the
-    // chat-mode subprocess gets. The earlier minimal-allowlist approach
-    // left interactive claude unauthenticated even though chat mode
-    // worked. Override TERM and augment PATH for a launched-from-Finder
-    // Plumage that didn't inherit the user's shell PATH.
+    // Inherit the parent app's full environment — a minimal allowlist left
+    // interactive claude unauthenticated even though chat mode worked. Override TERM
+    // and augment PATH for a Finder-launched Plumage without the user's shell PATH.
     static func spawnEnvironment() -> [String] {
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "xterm-256color"
@@ -342,11 +308,9 @@ final class TerminalClaudeSession {
         args.map(shellQuote).joined(separator: " ")
     }
 
-    // Single-quote-wraps a value for POSIX sh. The precondition is fail-closed:
-    // it fires on the three characters single-quoting cannot neutralize
-    // (\0, \n, \r) — crashing is strictly safer than emitting an injectable
-    // shell string. All current inputs are static/enum/UUID-derived, so it is
-    // unreachable in practice; it guards against a future user-controlled arg.
+    // Single-quote-wraps a value for POSIX sh. Fail-closed precondition: fires on
+    // the three chars single-quoting cannot neutralize (\0, \n, \r) — crashing beats
+    // emitting an injectable shell string. Guards against a future user-controlled arg.
     static func shellQuote(_ value: String) -> String {
         precondition(isShellSafe(value), "shellQuote: unsafe arg")
         let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
@@ -373,16 +337,14 @@ final class TerminalClaudeSession {
 
     private func startLogWatcher() {
         guard logWatcher == nil else { return }
-        // Ephemeral sessions (sessionIDStoreURL == nil) opt out of reconcile,
-        // so the watcher would just fan out FSEvents into MainActor hops that
-        // immediately bail at reconcileSessionFromDisk's guard. With many
-        // open tabs the wasted hops add up; skip the watcher entirely.
+        // Ephemeral sessions opt out of reconcile, so the watcher would just fan
+        // out FSEvents into MainActor hops that bail at reconcile's guard. With
+        // many open tabs the wasted hops add up; skip the watcher entirely.
         guard sessionIDStoreURL != nil else { return }
         let watcher = SessionLogWatcher(directory: sessionLogDirectory()) { [weak self] in
-            // FSEvents callback fires on the watcher's own dispatch queue;
-            // hop to MainActor before touching @Observable state. The async
-            // variant keeps the directory scan itself off the MainActor —
-            // this path fires repeatedly while claude streams to its log.
+            // FSEvents fires on the watcher's queue; hop to MainActor before
+            // touching @Observable state. The async variant keeps the directory
+            // scan off the MainActor — this fires repeatedly while claude streams.
             Task { @MainActor [weak self] in
                 await self?.reconcileSessionFromDiskAsync()
             }
@@ -397,17 +359,13 @@ final class TerminalClaudeSession {
         launchInstant = nil
     }
 
-    // Scans the claude log directory for a `.jsonl` whose mtime is at or
-    // after `launchInstant` and whose name is neither the current
-    // conversationID nor in `excludedSessionIDs()`. The first match is
-    // adopted as the new conversationID and persisted, so an app-restart
-    // resumes the post-/clear session instead of the pre-/clear one.
+    // Adopts and persists the first `.jsonl` in the log dir with mtime >=
+    // `launchInstant` that is neither the current conversationID nor excluded —
+    // so an app-restart resumes the post-/clear session, not the pre-/clear one.
     func reconcileSessionFromDisk() {
-        // Ephemeral sessions (sessionIDStoreURL == nil) opt out of reconcile
-        // entirely: without persistence, /clear-rotation tracking has no
-        // place to write its result, and Cross-Session adoption is the only
-        // remaining behavior — which is what callers explicitly asked us to
-        // avoid.
+        // Ephemeral sessions opt out entirely: without persistence, /clear-rotation
+        // tracking has nowhere to write its result, leaving only cross-session
+        // adoption — exactly what callers explicitly asked to avoid.
         guard sessionIDStoreURL != nil else { return }
         guard let launchInstant else { return }
         let bestID = Self.scanAdoptableSession(
@@ -421,10 +379,9 @@ final class TerminalClaudeSession {
         Self.persistID(bestID, to: sessionIDStoreURL)
     }
 
-    // FSEvents hot-path variant: the directory scan (N stat calls) runs
-    // detached so streaming-log bursts don't pile sync disk I/O onto the
-    // MainActor. stop()/markStarted() keep the sync version — their one-shot
-    // reconcile must complete before teardown/return.
+    // FSEvents hot-path variant: the scan (N stat calls) runs detached so
+    // streaming-log bursts don't pile sync disk I/O onto the MainActor.
+    // stop()/markStarted() keep the sync version — must complete before teardown.
     func reconcileSessionFromDiskAsync() async {
         guard sessionIDStoreURL != nil else { return }
         guard let launchInstant else { return }

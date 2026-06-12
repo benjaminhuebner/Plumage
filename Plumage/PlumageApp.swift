@@ -64,9 +64,8 @@ struct PlumageApp: App {
         .commandsRemoved()
 
         // App-global, like Settings — opens with no project window required. A
-        // singleton `Window` auto-adds its Window-menu item; the scene-level
-        // shortcut binds ⇧⌘T to it and (unlike a CommandGroup button) fires
-        // regardless of which window is key, mirroring Welcome's ⇧⌘0.
+        // singleton `Window` auto-adds its Window-menu item; the scene-level ⇧⌘T
+        // (unlike a CommandGroup button) fires regardless of which window is key.
         Window("Template Manager", id: "template-manager") {
             TemplateManagerWindowView()
                 .environment(templateImportRequest)
@@ -106,6 +105,7 @@ struct PlumageApp: App {
         Settings {
             AppSettingsView()
         }
+        .windowResizability(.contentSize)
     }
 
     private func drainPendingURLs() {
@@ -161,19 +161,15 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Sync Plumage's bundled claude theme so the embedded terminal renders
-        // without opaque block backgrounds. Off-main: installIfNeeded is
-        // nonisolated pure file I/O and on iCloud Drive / NFS homes the writes
-        // can take tens of milliseconds — no reason to block the launch path.
-        // Failure is best-effort and swallowed inside the installer.
+        // Sync the bundled claude theme so the embedded terminal renders without
+        // opaque block backgrounds. Off-main: on iCloud Drive / NFS homes the writes
+        // can take tens of milliseconds. Failure is best-effort, swallowed inside.
         Task.detached(priority: .utility) {
             ClaudeThemeInstaller.installIfNeeded()
         }
-        // One-time, idempotent store migrations, in order: first move flat layer
-        // overrides to the folder-per-layer layout so saved layer edits keep
-        // applying, then rewrite legacy open-only layer blocks to the closed-marker
-        // format so they still fill placeholders, then move user-authored
-        // component skills and hooks into scope ownership. All pure file I/O, in sequence.
+        // One-time, idempotent store migrations, in order: flat layer overrides to
+        // folder-per-layer, legacy open-only layer blocks to closed-marker format,
+        // then user-authored component skills/hooks into scope ownership. Pure file I/O, in sequence.
         Task.detached(priority: .utility) {
             TemplateOverrideMigration.migrateStandard()
             TemplateLayerFormatMigration.migrateStandard()

@@ -43,6 +43,7 @@ struct NewSharedComponentSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Add") {
                     if onAdd(
                         NewSharedComponentRequest(
@@ -56,7 +57,7 @@ struct NewSharedComponentSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 440)
+        .frame(minWidth: 440, idealWidth: 440)
     }
 
     private var membershipList: some View {

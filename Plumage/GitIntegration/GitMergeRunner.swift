@@ -152,18 +152,44 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
                 originalBranch: originalBranch, defaultBranch: defaultBranch)
             throw error
         }
-        guard deleteBranch else {
-            return GitMergeOutcome(branchDeleteError: nil)
+        let outcome: GitMergeOutcome
+        var deletedBranch: String?
+        if deleteBranch {
+            // A branch checked out in a worktree cannot be deleted — remove the
+            // (clean) worktree first; a dirty one keeps worktree and branch.
+            switch await removeWorktreeOwning(
+                branch: issueBranch, binary: binary, repoURL: repoURL)
+            {
+            case .kept(let reason):
+                outcome = GitMergeOutcome(branchDeleteError: nil, worktreeCleanupNotice: reason)
+            case .none, .removed:
+                let deleteError = await safeDeleteBranch(
+                    binary: binary, repoURL: repoURL, branch: issueBranch, mode: mode)
+                if deleteError == nil { deletedBranch = issueBranch }
+                outcome = GitMergeOutcome(branchDeleteError: deleteError)
+            }
+        } else {
+            outcome = GitMergeOutcome(branchDeleteError: nil)
         }
-        // A branch checked out in a worktree cannot be deleted — remove the
-        // (clean) worktree first; a dirty one keeps worktree and branch.
-        switch await removeWorktreeOwning(branch: issueBranch, binary: binary, repoURL: repoURL) {
-        case .kept(let reason):
-            return GitMergeOutcome(branchDeleteError: nil, worktreeCleanupNotice: reason)
-        case .none, .removed:
-            let deleteError = await safeDeleteBranch(
-                binary: binary, repoURL: repoURL, branch: issueBranch, mode: mode)
-            return GitMergeOutcome(branchDeleteError: deleteError)
+        await restoreOriginalBranch(
+            binary: binary, repoURL: repoURL, originalBranch: originalBranch,
+            defaultBranch: defaultBranch, deletedBranch: deletedBranch)
+        return outcome
+    }
+
+    // A successful merge leaves HEAD on the default branch — put the user back
+    // where they started, unless that branch was just deleted.
+    private func restoreOriginalBranch(
+        binary: URL, repoURL: URL, originalBranch: String?,
+        defaultBranch: String, deletedBranch: String?
+    ) async {
+        guard let originalBranch, originalBranch != defaultBranch,
+            originalBranch != deletedBranch
+        else { return }
+        let restore = try? await callGit(
+            binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
+        if restore?.exitCode != 0 {
+            Self.logger.error("merge: could not restore original branch, staying on default branch")
         }
     }
 
@@ -230,10 +256,9 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
             throw GitMergeError.branchNotFound(name: issueBranch)
         }
 
-        // 3. Fast-forward must be possible: defaultBranch must be an ancestor
-        //    of issueBranch. merge-base --is-ancestor: 0 = yes, 1 = no,
-        //    anything else (128: bad ref) is a different failure — reporting
-        //    it as "not fast-forward" sent users rebasing for a typo.
+        // 3. Fast-forward must be possible: defaultBranch must be an ancestor of
+        //    issueBranch. --is-ancestor: 0 = yes, 1 = no, anything else (128: bad ref)
+        //    is a different failure — reporting it as "not fast-forward" sent users rebasing for a typo.
         let ffProbe = try await callGit(
             binary: binary, repoURL: repoURL,
             args: ["merge-base", "--is-ancestor", defaultBranch, issueBranch])
@@ -330,10 +355,9 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
     private func safeDeleteBranch(
         binary: URL, repoURL: URL, branch: String, mode: GitMergeMode
     ) async -> String? {
-        // After a squash, git considers the branch unmerged, so -d would
-        // always fail. -D is safe here: the ancestor pre-check plus the
-        // just-created squash commit guarantee the branch tree is contained
-        // in the default branch.
+        // After a squash, git considers the branch unmerged, so -d would always
+        // fail. -D is safe here: the ancestor pre-check plus the just-created
+        // squash commit guarantee the branch tree is contained in the default branch.
         let flag = mode == .squash ? "-D" : "-d"
         do {
             let result = try await callGit(

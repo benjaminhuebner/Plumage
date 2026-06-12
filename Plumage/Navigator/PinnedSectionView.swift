@@ -90,9 +90,9 @@ struct PinnedRow: View {
         }
         .buttonStyle(.plain)
         .help("Unpin")
-        .accessibilityLabel("Unpin")
-        // Opacity, not conditional existence: a hover-only button never
-        // exists for VoiceOver/keyboard users.
+        // Hidden for VoiceOver: an invisible hover-only button is a confusing
+        // stop, and the row's context menu offers Pin/Unpin accessibly.
+        .accessibilityHidden(true)
         .opacity(hovering ? 1 : 0)
     }
 }

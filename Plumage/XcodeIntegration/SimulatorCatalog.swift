@@ -87,11 +87,6 @@ nonisolated struct SimulatorCatalog: Sendable {
         return try Self.parseDevices(data: result.stdout)
     }
 
-    func bootedSimulators() async throws -> [Simulator] {
-        let all = try await listDevices()
-        return all.filter { $0.isAvailable && $0.runtime.platform == .iOS }
-    }
-
     func boot(udid: String) async throws {
         guard let binary = toolchain() else { throw XcodeProcessRunnerError.toolchainNotFound }
         let result = try await runner.run(

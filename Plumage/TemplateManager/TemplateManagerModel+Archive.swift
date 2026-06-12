@@ -13,7 +13,8 @@ extension TemplateManagerModel {
             let contents = try await importer.read(archiveURL: url)
             pendingImport?.cleanup()
             pendingImport = contents
-            pendingImportSelection = Set(contents.items.map(\.id))
+            // Conflicting items overwrite local edits without undo — opt-in only.
+            pendingImportSelection = Set(contents.items.filter { !$0.conflict }.map(\.id))
         } catch {
             showStructuralError(Self.archiveErrorMessage(error))
         }
@@ -41,12 +42,9 @@ extension TemplateManagerModel {
     }
 
     static func archiveErrorMessage(_ error: any Error) -> String {
-        switch error {
-        case let known as TemplateArchiveZipError: return known.displayMessage
-        case let known as TemplateArchiveImportError: return known.displayMessage
-        case let known as TemplateArchiveExportError: return known.displayMessage
-        case let known as TemplateArchiveProcessRunnerError: return known.displayMessage
-        default: return error.localizedDescription
+        if let known = error as? TemplateArchiveProcessRunnerError {
+            return known.displayMessage
         }
+        return error.localizedDescription
     }
 }

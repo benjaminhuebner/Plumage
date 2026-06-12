@@ -2,9 +2,7 @@ import Foundation
 
 // Without this, an older saved layer edit silently loses its Build-and-Test section:
 // those layers use the spaced `%% BUILD AND TEST %%`, which the now exact-match
-// `PlaceholderMerge` no longer maps to `<<<BUILD_AND_TEST>>>`. `PlaceholderMerge` parses
-// tolerantly, so the auto-close is belt-and-suspenders — the keyword rename is the part
-// only this pass can do.
+// `PlaceholderMerge` no longer maps to `<<<BUILD_AND_TEST>>>`. Only this pass can do the keyword rename.
 nonisolated enum TemplateLayerFormatMigration {
     // Only `BUILD AND TEST` ever contained whitespace, so it is the sole rename.
     static let keywordRenames = ["BUILD AND TEST": "BUILD_AND_TEST"]

@@ -182,6 +182,62 @@ struct GitMergeRunnerMergeTests {
                     repoURL: repoURL, branch: "issue/x"))
     }
 
+    @Test("successful merge restores the branch the user started on")
+    func successRestoresOriginalBranch() async throws {
+        let mock = cleanMock()
+        mock.stdoutForArgs[GitMergeRunnerPreCheckTests.symbolicRefArgs(repoURL: repoURL)] =
+            "feature/z\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        let outcome = try await runner.mergeIssueBranch(
+            repoURL: repoURL, defaultBranch: "main",
+            issueBranch: "issue/x", mode: .fastForward,
+            commitSubject: nil, deleteBranch: false)
+
+        #expect(outcome.branchDeleteError == nil)
+        #expect(
+            mock.recordedCalls.last
+                == GitMergeRunnerPreCheckTests.checkoutArgs(repoURL: repoURL, branch: "feature/z"))
+    }
+
+    @Test("no restore onto the just-deleted issue branch — HEAD stays on the default branch")
+    func noRestoreOntoDeletedIssueBranch() async throws {
+        let mock = cleanMock()
+        mock.stdoutForArgs[GitMergeRunnerPreCheckTests.symbolicRefArgs(repoURL: repoURL)] =
+            "issue/x\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        _ = try await runner.mergeIssueBranch(
+            repoURL: repoURL, defaultBranch: "main",
+            issueBranch: "issue/x", mode: .squash,
+            commitSubject: "Subj", deleteBranch: true)
+
+        #expect(
+            mock.recordedCalls.last
+                == GitMergeRunnerPreCheckTests.forceDeleteArgs(repoURL: repoURL, branch: "issue/x"))
+    }
+
+    @Test("restore still happens when the branch delete failed (branch survives)")
+    func restoreWhenDeleteFailed() async throws {
+        let mock = cleanMock()
+        mock.stdoutForArgs[GitMergeRunnerPreCheckTests.symbolicRefArgs(repoURL: repoURL)] =
+            "issue/x\n"
+        let deleteArgs = GitMergeRunnerPreCheckTests.deleteArgs(repoURL: repoURL, branch: "issue/x")
+        mock.exitCodeForArgs[deleteArgs] = 1
+        mock.stderrForArgs[deleteArgs] = "error: branch 'issue/x' not fully merged\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        let outcome = try await runner.mergeIssueBranch(
+            repoURL: repoURL, defaultBranch: "main",
+            issueBranch: "issue/x", mode: .fastForward,
+            commitSubject: nil, deleteBranch: true)
+
+        #expect(outcome.branchDeleteError != nil)
+        #expect(
+            mock.recordedCalls.last
+                == GitMergeRunnerPreCheckTests.checkoutArgs(repoURL: repoURL, branch: "issue/x"))
+    }
+
     @Test("checkoutFailed surfaces stderr")
     func checkoutFails() async throws {
         let mock = cleanMock()
