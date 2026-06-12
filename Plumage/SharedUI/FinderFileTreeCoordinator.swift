@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 // NSOutlineView tracks items by object identity — value-type nodes would
 // collapse expansion and selection on every rebuild.
@@ -29,6 +30,8 @@ final class FinderFileTreeCoordinator: NSObject {
 
     nonisolated static let internalDragType = NSPasteboard.PasteboardType(
         UTType.plumageFileTreeDrag.identifier)
+    nonisolated private static let logger = Logger(
+        subsystem: "com.plumage", category: "FinderFileTree")
 
     private(set) var rootItems: [FinderFileTreeItem] = []
     private var itemsByPath: [String: FinderFileTreeItem] = [:]
@@ -104,9 +107,15 @@ final class FinderFileTreeCoordinator: NSObject {
             return
         }
         syncNodePayloads()
-        outlineView.beginUpdates()
-        for diff in diffs { apply(diff, to: outlineView) }
-        outlineView.endUpdates()
+        // Reorders go through reloadItem(reloadChildren:)/reloadData(), which
+        // are not legal inside a begin/endUpdates batch — apply them after it.
+        let structural = diffs.filter { !$0.needsReorder }
+        if !structural.isEmpty {
+            outlineView.beginUpdates()
+            for diff in structural { apply(diff, to: outlineView) }
+            outlineView.endUpdates()
+        }
+        for diff in diffs where diff.needsReorder { apply(diff, to: outlineView) }
         applyExpansionState()
         reportContentHeight()
     }
@@ -238,9 +247,11 @@ final class FinderFileTreeCoordinator: NSObject {
         isApplyingExpansion = true
         defer { isApplyingExpansion = false }
         // Ancestors first, so a deep path expands its whole chain.
-        let ordered = expandedPaths.sorted {
-            $0.split(separator: "/").count < $1.split(separator: "/").count
-        }
+        let ordered =
+            expandedPaths
+            .map { (path: $0, depth: $0.split(separator: "/").count) }
+            .sorted { $0.depth < $1.depth }
+            .map(\.path)
         for path in ordered {
             guard let item = itemsByPath[path], item.node.isDirectory else { continue }
             if !outlineView.isItemExpanded(item) { outlineView.expandItem(item) }
@@ -421,7 +432,11 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
         guard let item = item as? FinderFileTreeItem else { return nil }
         if let canDrag, !canDrag(item.node) { return nil }
         guard let data = try? JSONEncoder().encode(FileTreeDragPayload(url: item.node.url))
-        else { return nil }
+        else {
+            Self.logger.warning(
+                "drag payload encode failed for \(item.node.relativePath, privacy: .public)")
+            return nil
+        }
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setData(data, forType: Self.internalDragType)
         pasteboardItem.setString(item.node.url.absoluteString, forType: .fileURL)
@@ -438,6 +453,7 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
         // Always drop ON the resolved folder row — native highlight lands
         // exactly there instead of an insertion line between rows.
         outlineView.setDropItem(target, dropChildIndex: NSOutlineViewDropOnItemIndex)
+        autoscrollThroughAncestors(info)
         if case .internalMove(let sources) = payload {
             let targetURL = target?.node.url
             for source in sources where Self.isAncestorOrSelf(source, of: targetURL) {
@@ -473,19 +489,60 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
         return outlineView?.parent(forItem: item) as? FinderFileTreeItem
     }
 
+    // Embedded mode: the inner scroll view has no overflow, so AppKit's own
+    // drag autoscroll never fires — drive the outer scroll surface instead.
+    private func autoscrollThroughAncestors(_ info: any NSDraggingInfo) {
+        guard let outlineView,
+            let inner = outlineView.enclosingScrollView,
+            let outerScroll = inner.enclosingScrollView,
+            let outerDocument = outerScroll.documentView
+        else { return }
+        let point = outerDocument.convert(info.draggingLocation, from: nil)
+        let visible = outerScroll.documentVisibleRect
+        let margin: CGFloat = 24
+        let probeY: CGFloat
+        if point.y < visible.minY + margin {
+            probeY = point.y - margin
+        } else if point.y > visible.maxY - margin {
+            probeY = point.y + margin
+        } else {
+            return
+        }
+        outerDocument.scrollToVisible(NSRect(x: visible.midX, y: probeY, width: 1, height: 1))
+    }
+
     // MARK: - Drop highlight roles
 
     func updateDropHighlight(target: FinderFileTreeItem?) {
         guard target !== dropHighlightTarget else { return }
+        let previous = dropHighlightTarget
         dropHighlightTarget = target
         guard let outlineView else { return }
-        for row in 0..<outlineView.numberOfRows {
+        // Fires per drag event — touch only the rows of the old and new
+        // target regions instead of every visible row.
+        var affected = affectedRows(of: previous)
+        affected.formUnion(affectedRows(of: target))
+        for row in affected {
             guard
                 let rowView = outlineView.rowView(atRow: row, makeIfNecessary: false)
                     as? FinderFileTreeRowView
             else { continue }
             rowView.dropRole = dropRole(forRow: row)
         }
+    }
+
+    private func affectedRows(of target: FinderFileTreeItem?) -> IndexSet {
+        guard let outlineView, let target else { return IndexSet() }
+        let targetRow = outlineView.row(forItem: target)
+        guard targetRow >= 0 else { return IndexSet() }
+        let targetLevel = outlineView.level(forRow: targetRow)
+        var last = targetRow
+        var next = targetRow + 1
+        while next < outlineView.numberOfRows, outlineView.level(forRow: next) > targetLevel {
+            last = next
+            next += 1
+        }
+        return IndexSet(integersIn: targetRow...last)
     }
 
     private func dropRole(forRow row: Int) -> FinderFileTreeDropRole {
@@ -512,11 +569,14 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
         var internalSources: [URL] = []
         var finderURLs: [URL] = []
         for item in pasteboard.pasteboardItems ?? [] {
-            if let data = item.data(forType: internalDragType),
-                let payload = try? JSONDecoder().decode(FileTreeDragPayload.self, from: data)
-            {
-                internalSources.append(payload.url)
-            } else if let urlString = item.string(forType: .fileURL),
+            if let data = item.data(forType: internalDragType) {
+                if let payload = try? JSONDecoder().decode(FileTreeDragPayload.self, from: data) {
+                    internalSources.append(payload.url)
+                    continue
+                }
+                logger.warning("internal drag payload failed to decode — treating as Finder drop")
+            }
+            if let urlString = item.string(forType: .fileURL),
                 let url = URL(string: urlString)
             {
                 finderURLs.append(url.standardizedFileURL)
@@ -573,6 +633,7 @@ extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
             outlineView.makeView(withIdentifier: identifier, owner: nil)
             as? FinderFileTreeCellView ?? FinderFileTreeCellView(identifier: identifier)
         cell.show(rowContent(item.node))
+        cell.setAccessibilityLabel(item.node.name)
         return cell
     }
 

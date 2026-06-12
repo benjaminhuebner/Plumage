@@ -102,6 +102,20 @@ struct MergeBranchSection: View {
                 Toggle("Delete branch after merge", isOn: $deleteBranchAfter)
                     .toggleStyle(.checkbox)
                     .disabled(isMerging)
+                // Lives in the control row, not the banner: the trailing banner
+                // edge sits under the floating Claude dock button.
+                if let onRebaseAndMerge {
+                    Button("Rebase & Merge") {
+                        onRebaseAndMerge(
+                            mergeMode,
+                            mergeMode == .squash ? trimmedSubject : nil,
+                            deleteBranchAfter)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .disabled(mergeDisabled)
+                    .accessibilityLabel("Rebase \(branch) and merge to main")
+                }
                 Spacer(minLength: 0)
             }
             if let blockingRunIssue {
@@ -109,11 +123,28 @@ struct MergeBranchSection: View {
             }
             if let errorMessage {
                 errorBanner(message: errorMessage)
+            } else if onRebaseAndMerge != nil {
+                rebaseRecoveryHint
             }
             if let nonFatalNotice {
                 nonFatalBanner(message: nonFatalNotice)
             }
         }
+    }
+
+    private var rebaseRecoveryHint: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "arrow.triangle.branch")
+                .foregroundStyle(.secondary)
+            Text("`main` has commits this branch lacks — use Rebase & Merge.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func blockedBanner(issue: String) -> some View {
@@ -140,18 +171,6 @@ struct MergeBranchSection: View {
                 .font(.callout)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if let onRebaseAndMerge {
-                Button("Rebase & Merge") {
-                    onRebaseAndMerge(
-                        mergeMode,
-                        mergeMode == .squash ? trimmedSubject : nil,
-                        deleteBranchAfter)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isMerging)
-                .accessibilityLabel("Rebase \(branch) and merge to main")
-            }
             dismissButton(action: onDismissError, label: "Dismiss merge error")
         }
         .padding(.horizontal, 12)
@@ -162,7 +181,7 @@ struct MergeBranchSection: View {
 
     private func nonFatalBanner(message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "checkmark.circle")
+            Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             Text(message)
                 .font(.callout)
@@ -183,6 +202,9 @@ struct MergeBranchSection: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        // The floating Claude dock button covers the window's bottom-right
+        // corner — without the inset the X is visible but unclickable.
+        .padding(.trailing, 36)
     }
 }
 
@@ -270,6 +292,22 @@ struct MergeBranchSection: View {
         errorMessage:
             "Cannot fast-forward: `main` has commits since `issue/00042-pr-merge-button` "
             + "was branched off. Use Rebase & Merge, or rebase manually.",
+        nonFatalNotice: nil,
+        onDismissError: {},
+        onDismissNotice: {},
+        onMerge: { _, _, _ in },
+        onRebaseAndMerge: { _, _, _ in }
+    )
+    .padding()
+    .frame(width: 600)
+}
+
+#Preview("Rebase recovery, banner dismissed") {
+    MergeBranchSection(
+        branch: "issue/00042-pr-merge-button",
+        subjectPrefill: "Add merge button to PR view",
+        isMerging: false,
+        errorMessage: nil,
         nonFatalNotice: nil,
         onDismissError: {},
         onDismissNotice: {},

@@ -54,6 +54,64 @@ struct TemplateManagerArchiveImportTests {
         #expect(model.structuralError == nil)
     }
 
+    @Test("Conflicting items start deselected")
+    func conflictItemsStartDeselected() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var catalog = TemplateCatalog.bundledDefault
+        catalog.templates.append(
+            TemplateDescriptor(
+                id: "my-temp", name: "My Temp", image: .symbol("star"),
+                categoryID: catalog.sortedCategories[0].id, predefined: false, order: 99,
+                templateLayers: ["my-temp"], gitignoreTags: [], mcpServers: [],
+                gateCommands: .xcode, stackSummary: "", xcodeMcpLine: ""))
+        let sourceOverrides = ScaffoldOverrides(
+            bundledRoot: root.appending(path: "bundled"),
+            overrideRoot: root.appending(path: "source-override"))
+        try sourceOverrides.writeOverride("archive layer", toRelative: "templates/my-temp/CLAUDE.md")
+        let archive = root.appending(path: "export.plumagetemplates")
+        try await TemplateArchiveExporter(
+            catalog: catalog, overrides: sourceOverrides, hookWirings: HookWiringStore()
+        ).export(.template("my-temp"), to: archive)
+
+        let model = makeModel(root)
+        try model.overrides.writeOverride("local edit", toRelative: "templates/my-temp/CLAUDE.md")
+        await model.beginImport(fromArchive: archive)
+
+        let pending = try #require(model.pendingImport)
+        defer { pending.cleanup() }
+        #expect(pending.items.first?.conflict == true)
+        #expect(!model.pendingImportSelection.contains("template:my-temp"))
+    }
+
+    @Test("A failed apply keeps the pending import so retry stays possible")
+    func failedApplyKeepsPendingImport() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appending(path: "export.plumagetemplates")
+        try await TemplateArchiveExporter(
+            catalog: .bundledDefault,
+            overrides: ScaffoldOverrides(
+                bundledRoot: root.appending(path: "bundled"),
+                overrideRoot: root.appending(path: "override")),
+            hookWirings: HookWiringStore()
+        ).export(.fullCatalog, to: archive)
+
+        // A directory at the manifest path makes the catalog save fail.
+        let manifestDir = root.appending(path: "manifest.json")
+        try FileManager.default.createDirectory(at: manifestDir, withIntermediateDirectories: true)
+        let model = makeModel(root)
+        await model.beginImport(fromArchive: archive)
+        try #require(model.pendingImport != nil)
+
+        model.confirmImport()
+
+        #expect(model.structuralError != nil)
+        #expect(model.pendingImport != nil)
+        #expect(!model.pendingImportSelection.isEmpty)
+        model.cancelImport()
+    }
+
     @Test("Exporting through the model writes a readable archive")
     func modelExportWritesArchive() async throws {
         let root = try makeRoot()

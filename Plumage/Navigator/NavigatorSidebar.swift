@@ -25,9 +25,6 @@ struct NavigatorSidebar: View {
     @SceneStorage("nav.expansion.col.done") private var doneExpanded = false
 
     @State private var settingsHovering = false
-    // Whether the current .projectFile route was produced by the tree (true)
-    // or the PINNED list (false) — the two regions never highlight together.
-    @State private var treeOwnsSelection = true
     @State private var treeContentHeight: CGFloat = 0
     @Environment(\.controlActiveState) private var controlActiveState
 
@@ -68,7 +65,7 @@ struct NavigatorSidebar: View {
     }
 
     private var issuesAndPinnedList: some View {
-        List(selection: listSelectionBinding) {
+        List(selection: navigator.listSelectionBinding(route: $selection, pinnedFiles: pinnedFiles)) {
             SidebarSectionHeader(title: "Issues", help: "New Issue") {
                 openCreateIssue(.draft)
             }
@@ -124,7 +121,7 @@ struct NavigatorSidebar: View {
                 onDrop: handleTreeDrop,
                 onSelect: { node in
                     guard let node else { return }
-                    treeOwnsSelection = true
+                    navigator.treeOwnsSelection = true
                     selection = .projectFile(relativePath: node.relativePath)
                 },
                 rowContent: { node in
@@ -137,7 +134,9 @@ struct NavigatorSidebar: View {
     }
 
     private var treeSelectedPath: String? {
-        guard treeOwnsSelection, case .projectFile(let rel) = selection else { return nil }
+        guard navigator.treeOwnsSelection, case .projectFile(let rel) = selection else {
+            return nil
+        }
         return rel
     }
 
@@ -237,35 +236,6 @@ struct NavigatorSidebar: View {
         return controlActiveState == .key
             ? Color(nsColor: .alternateSelectedControlTextColor)
             : .primary
-    }
-
-    private var listSelectionBinding: Binding<SidebarListSelection?> {
-        Binding(
-            get: {
-                switch selection {
-                case .kanban:
-                    return .kanban
-                case .issue(let folderName):
-                    return .issue(folderName: folderName)
-                case .projectFile(let rel) where !treeOwnsSelection && pinnedFiles.contains(rel):
-                    return .pinned(relativePath: rel)
-                default:
-                    return nil
-                }
-            },
-            set: { newValue in
-                guard let newValue else { return }
-                switch newValue {
-                case .kanban:
-                    selection = .kanban
-                case .issue(let folderName):
-                    selection = .issue(folderName: folderName)
-                case .pinned(let rel):
-                    treeOwnsSelection = false
-                    selection = .projectFile(relativePath: rel)
-                }
-            }
-        )
     }
 
     @ViewBuilder

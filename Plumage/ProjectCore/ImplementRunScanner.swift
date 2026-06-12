@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 nonisolated struct LiveImplementRun: Equatable, Sendable {
     let issue: String
@@ -16,6 +17,8 @@ nonisolated struct WorktreeImplementRun: Equatable, Sendable {
 }
 
 nonisolated enum ImplementRunScanner {
+    private static let logger = Logger(subsystem: "com.plumage", category: "ImplementRunScanner")
+
     static func liveImplementRun(in projectRoot: URL) -> LiveImplementRun? {
         guard let bundle = try? BundleResolver.findBundle(in: projectRoot) else { return nil }
         let runsDir = bundle.appendingPathComponent("runs", isDirectory: true)
@@ -33,12 +36,27 @@ nonisolated enum ImplementRunScanner {
             // kill(pid, 0) probe — kill(0, 0) probes our own process group.
             guard
                 let data = try? Data(contentsOf: file),
-                let runState = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                runState["kind"] as? String == "implement",
-                let rawPid = runState["agentPid"] as? Int,
-                let pid = pid_t(exactly: rawPid), pid > 0,
-                kill(pid, 0) == 0
-            else { continue }
+                let runState = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else {
+                Self.logger.warning(
+                    "run-state \(file.lastPathComponent, privacy: .public) is not a JSON object — skipping"
+                )
+                continue
+            }
+            guard let kind = runState["kind"] as? String else {
+                Self.logger.warning(
+                    "run-state \(file.lastPathComponent, privacy: .public) has no kind — skipping")
+                continue
+            }
+            guard kind == "implement" else { continue }
+            guard let rawPid = runState["agentPid"] as? Int, let pid = pid_t(exactly: rawPid)
+            else {
+                Self.logger.warning(
+                    "run-state \(file.lastPathComponent, privacy: .public) has no numeric agentPid — skipping"
+                )
+                continue
+            }
+            guard pid > 0, kill(pid, 0) == 0 else { continue }
             let issue =
                 runState["issue"] as? String
                 ?? file.deletingPathExtension().lastPathComponent
@@ -80,9 +98,14 @@ nonisolated enum ImplementRunScanner {
                 let entry = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                 let slug = entry["slug"] as? String,
                 let rawPid = entry["agentPid"] as? Int,
-                let pid = pid_t(exactly: rawPid), pid > 0,
-                kill(pid, 0) == 0
-            else { continue }
+                let pid = pid_t(exactly: rawPid)
+            else {
+                Self.logger.warning(
+                    "queue entry \(file.lastPathComponent, privacy: .public) has an unexpected shape — skipping"
+                )
+                continue
+            }
+            guard pid > 0, kill(pid, 0) == 0 else { continue }
             queued.append(QueuedImplementRun(issue: slug, agentPid: pid))
         }
         return queued

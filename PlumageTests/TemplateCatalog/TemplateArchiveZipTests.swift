@@ -28,6 +28,9 @@ struct TemplateArchiveZipValidationTests {
             "../evil.txt",
             "templates/../../evil.txt",
             "a/b/../../../c",
+            #"foo\..\bar"#,
+            #"templates/..\evil.txt"#,
+            #"\..\evil.txt"#,
         ])
     func traversalEntryRejected(_ name: String) {
         #expect(throws: TemplateArchiveZipError.entryEscapesDestination(name)) {

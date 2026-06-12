@@ -1,21 +1,18 @@
 import Foundation
 import SwiftUI
 
-// Scene-scoped state for the Template Manager window. Loads the resolved catalog
-// off-main (state-as-bridge), tracks the selected left-column item, and derives
-// the middle column's file list + membership for that item. File content is
-// resolved through `ScaffoldOverrides` (override-or-bundled), so the browser
-// shows the same bytes a new project would scaffold.
+// Scene-scoped state for the Template Manager window. Catalog loads off-main
+// (state-as-bridge); file content resolves through `ScaffoldOverrides`
+// (override-or-bundled), so the browser shows the bytes a new project would scaffold.
 @MainActor
 @Observable
 final class TemplateManagerModel {
     private(set) var catalog: TemplateCatalog = .bundledDefault
     var selection: TemplateCatalogItem? = .base
 
-    // The hierarchical content tree for the current selection (Base mirrors the
-    // scaffolded output layout; templates/shared show their fragment files). Drives
-    // the content column's outline. `contentFiles` is its flattened leaves, kept for
-    // selection retention, add/import lookups and the ● marker set.
+    // Content tree for the current selection (Base mirrors scaffolded output;
+    // templates/shared show fragment files). `contentFiles` is its flattened leaves,
+    // kept for selection retention, add/import lookups and the ● marker set.
     private(set) var contentTree: [FileNode] = []
     private(set) var contentFiles: [FileNode] = []
     private(set) var membership: CatalogMembership?
@@ -56,10 +53,9 @@ final class TemplateManagerModel {
     // Default on the first keystroke (before any save creates an override).
     private(set) var isEditorDirty = false
 
-    // Two-phase reset: `resetToDefault` bumps the token the editor observes; the
-    // editor discards its in-flight buffer and calls back into `finishReset`, which
-    // deletes the override. Without the discard, the editor's autosave-on-disappear
-    // would re-create the override we just removed.
+    // Two-phase reset: `resetToDefault` bumps the token, the editor discards its
+    // in-flight buffer and calls back into `finishReset`, which deletes the override.
+    // Without the discard, the editor's autosave-on-disappear would re-create it.
     private(set) var editorResetToken = 0
     // Forces the mounted editor to remount (and reseed from bundled) after a reset,
     // so the right column shows the reverted content while keeping the file selected.
@@ -73,10 +69,9 @@ final class TemplateManagerModel {
     // this raises the wiring sheet. Also set by the "Edit wiring…" action.
     var pendingHookWiring: FileNode?
 
-    // Transient sidebar editing state (mirrors `NavigatorModel.pendingCreate` /
-    // `renaming`). A non-nil `categoryRename` puts that category's header into an
-    // inline `TextField`; "New Category" creates the category then enters rename so
-    // the user types its name immediately (the Finder new-folder idiom).
+    // Transient sidebar editing state. A non-nil `categoryRename` puts that
+    // category's header into an inline `TextField`; "New Category" creates then
+    // enters rename so the user types the name immediately (Finder new-folder idiom).
     var categoryRename: CategoryRename?
 
     // A non-nil `contentRename` puts that content-tree row into an inline rename
@@ -134,6 +129,14 @@ final class TemplateManagerModel {
         let storeURL = hookWiringStoreURL ?? (try? HookWiringStore.standardURL())
         self.hookWiringStoreURL = storeURL
         self.hookWirings = storeURL.flatMap { try? HookWiringStore.load(from: $0) } ?? HookWiringStore()
+    }
+
+    // A strong-self task would pin the model (and the import staging dir)
+    // past window close — cancel everything in flight instead.
+    isolated deinit {
+        archiveImportTask?.cancel()
+        dropBannerTask?.cancel()
+        structuralErrorTask?.cancel()
     }
 
     func load() async {
@@ -370,11 +373,9 @@ final class TemplateManagerModel {
         return contents.count > 1
     }
 
-    // Delete a user-authored file: move its override to the Trash (recoverable) and
-    // drop it from the tree. A user skill is a directory — trash the whole
-    // `skills/<name>` tree, not just the selected file. A user hook drops its wiring
-    // too, so the next scaffold removes it from settings.json as well. A no-op for
-    // bundled-backed files (those reset, they don't delete).
+    // Trash (recoverable) a user-authored file's override. A user skill is a
+    // directory — trash the whole `skills/<name>` tree; a user hook drops its wiring
+    // too. A no-op for bundled-backed files (those reset, they don't delete).
     func delete(_ file: FileNode) {
         guard isUserAuthored(file) else { return }
         let target = deleteTarget(for: file)
@@ -439,10 +440,9 @@ final class TemplateManagerModel {
             set: { if self.contentRename != nil { self.contentRename?.name = $0 } })
     }
 
-    // Commit the inline rename: relocate the override file/folder to the new leaf name in
-    // the same directory (extension preserved for stem-only input, collision suffix-
-    // walked), carry hook wiring, and re-select the renamed row. A no-op on an unchanged
-    // or invalid name keeps the row as-is.
+    // Commit the inline rename: relocate the override to the new leaf name (extension
+    // preserved for stem-only input, collision suffix-walked), carry hook wiring, and
+    // re-select the renamed row. A no-op on an unchanged or invalid name.
     func commitContentRename() {
         guard let rename = contentRename else { return }
         contentRename = nil
@@ -544,11 +544,9 @@ final class TemplateManagerModel {
         }
     }
 
-    // Import Finder files/folders into the selected tree folder, copying them (the
-    // source stays) with suffix-on-collision and containment validation. Any file or
-    // folder is accepted; a dropped folder with a top-level `SKILL.md` is treated as a
-    // skill (routed to `skills/`) so it scaffolds correctly. A failed copy is surfaced
-    // in a banner. Returns whether anything was imported.
+    // Import Finder files/folders by copy, with suffix-on-collision and containment
+    // validation. A dropped folder with a top-level `SKILL.md` is treated as a skill
+    // (routed to `skills/`) so it scaffolds correctly. Returns whether anything imported.
     @discardableResult
     func importDropped(urls: [URL], into target: FileNode? = nil) -> Bool {
         importDropped(urls: urls, intoStoreDir: addTargetStorageDir(for: target))
@@ -565,7 +563,9 @@ final class TemplateManagerModel {
             }
             // The drop callback is synchronous; the archive read is a subprocess.
             // The task handle makes the hand-off awaitable for tests.
-            archiveImportTask = Task { await beginImport(fromArchive: archive) }
+            archiveImportTask = Task { [weak self] in
+                await self?.beginImport(fromArchive: archive)
+            }
             if urls.isEmpty { return true }
         }
         guard let overrideRoot = overrides.overrideRoot else {
@@ -682,11 +682,9 @@ final class TemplateManagerModel {
 
     // MARK: - Internal move (drag within the content tree)
 
-    // Move dropped tree nodes into `target`'s folder. A user-authored item is physically
-    // relocated inside the override store; a bundled / override-of-bundled item can't move
-    // in place and takes the tombstone path (Workstream B). Selection follows the first
-    // successfully moved item to its new path. A drop onto an item's own folder, or a
-    // folder into its own subtree, is skipped.
+    // Move dropped tree nodes into `target`'s folder. User-authored items relocate
+    // inside the override store; bundled / override-of-bundled items can't move in
+    // place and take the tombstone path. Drops onto own folder / own subtree are skipped.
     func moveNodes(_ sources: [FileNode], into target: FileNode) {
         guard let targetDir = TemplateContentDropResolver.targetStoreDir(for: target, scope: activeScope)
         else {
@@ -750,11 +748,9 @@ final class TemplateManagerModel {
         return (newStorePath, isDirectory)
     }
 
-    // Move a bundled (or override-of-bundled) file: it can't be relocated in place —
-    // its bytes live in the read-only app bundle — so its effective content is
-    // materialized as an override at the destination and the source path is tombstoned
-    // (suppressed) so it stops appearing at its old position. Any stale override and
-    // user wiring at the source are dropped. Bundled directories are out of scope.
+    // A bundled (or override-of-bundled) file can't relocate in place — its bytes
+    // live in the read-only app bundle — so its effective content is materialized as
+    // an override at the destination and the source path is tombstoned. Dirs out of scope.
     private func moveBundled(
         storePath: String, isDirectory: Bool, intoStoreDir targetDir: String, overrideRoot: URL
     ) -> (storage: String, isDirectory: Bool)? {
@@ -817,14 +813,9 @@ final class TemplateManagerModel {
     // The tier that owns loose files authored in the current selection.
     var activeScope: ManagerScope { selection.map(ManagerScope.scope(for:)) ?? .base }
 
-    // The override-store directory a new/dropped item lands in: the given node (a
-    // dropped-on row) or the current selection — a folder targets itself, a file its
-    // parent, and nothing selected the active tier's scope root. A file leaf's
-    // `relativePath` is already a scoped store path; a folder's is an output path mapped
-    // back through the active scope. A selected node *outside* the active scope subtree
-    // (e.g. a component's layer `CLAUDE.md` under `templates/<layer>`, or a global
-    // config) would pull a new loose item out of its tier — so the result is clamped
-    // back to the scope root, keeping loose files where they belong.
+    // Override-store directory a new/dropped item lands in: a folder targets itself,
+    // a file its parent, nothing selected the active tier's scope root. A node outside
+    // the active scope subtree is clamped to the scope root so loose items stay in their tier.
     func addTargetStorageDir(for node: FileNode? = nil) -> String {
         let root = activeScope.storageRoot
         guard let ref = node ?? selectedFile else { return root }
@@ -850,20 +841,17 @@ final class TemplateManagerModel {
         return search(contentTree)
     }
 
-    // Author a new override item of `kind`, seeded with its starter, suffix-walking on
-    // collision and validating containment via `ClaudeProjectFiles`. The new item is
-    // selected. Returns the created node (so a hook add can raise the wiring sheet), or
-    // nil on an invalid name / no override store / write failure.
+    // Author a new override item of `kind`, seeded with its starter, suffix-walking
+    // on collision, containment-validated. Returns the created node (so a hook add
+    // can raise the wiring sheet), or nil on invalid name / no store / write failure.
     @discardableResult
     func addUserFile(kind: UserTemplateKind, rawName: String) -> FileNode? {
         guard let name = UserTemplateKind.sanitizedName(from: rawName),
             let overrideRoot = overrides.overrideRoot
         else { return nil }
-        // The content tree is a file manager: when a folder is selected, every kind is
-        // created inside it (what the user asked for). With no folder selected the kind
-        // falls back to its sensible home — a typed kind to its canonical dir within the
-        // scope (so docs/skills/agents stay functional by default), a typeless one to the
-        // scope root. A hook always lands in the active tier's `hooks/` dir (+ wiring).
+        // With a folder selected, every kind is created inside it. With none, the kind
+        // falls back to its sensible home — typed kinds to their canonical dir within
+        // the scope, typeless to the scope root; a hook always lands in the tier's `hooks/` (+ wiring).
         let scope = activeScope
         let baseDir: String
         if kind != .hook, let selected = selectedFile, selected.isDirectory {
@@ -945,11 +933,9 @@ final class TemplateManagerModel {
         }
     }
 
-    // The on-disk filename for a hook member stored by base name: the real override
-    // file whose base matches (carrying a `.py`/`.rb` extension), else the default
-    // `<base>.sh`. This is what lets a Python member render, scaffold and trash by its
-    // real path, while every built-in / legacy base-name member stays `.sh`. Not
-    // `private` — `TemplateManagerModel+Tree` resolves leaf specs through it too.
+    // On-disk filename for a hook member stored by base name: the override file whose
+    // base matches (carrying `.py`/`.rb`), else the default `<base>.sh` — a Python member
+    // works by its real path, built-ins stay `.sh`. Not `private` — `+Tree` resolves through it.
     func hookFileName(forBase base: String) -> String {
         overrides.overrideFileNames(inRelativeDir: "hooks")
             .first { ($0 as NSString).deletingPathExtension == base } ?? "\(base).sh"
@@ -1194,10 +1180,6 @@ extension TemplateManagerModel {
         return nil
     }
 
-    func isUserAuthoredComponent(id: String) -> Bool {
-        !catalog.isPredefinedSharedComponent(id)
-    }
-
     func isMember(componentID: String, templateID: String) -> Bool {
         catalog.sharedComponent(id: componentID)?.isMember(templateID) ?? false
     }
@@ -1343,11 +1325,9 @@ extension TemplateManagerModel {
         refreshContent()
     }
 
-    // Resets the catalog structure to the bundled baseline (drops the overlay:
-    // catalog tombstones, custom items, reorders, membership overrides) and lifts every
-    // file tombstone, so a bundled file the user moved away reappears at its original
-    // path. File-content overrides are a separate store and are deliberately kept (so an
-    // edit — including the moved copy materialized at its new path — survives).
+    // Resets the catalog structure to the bundled baseline (drops the overlay) and
+    // lifts every file tombstone, so a bundled file the user moved away reappears at
+    // its original path. File-content overrides are deliberately kept — edits survive.
     func restoreAllDefaults() {
         do {
             try store.reset()
@@ -1361,10 +1341,8 @@ extension TemplateManagerModel {
     }
 
     // Unlike `restoreAllDefaults` (structure only), this also discards every file edit
-    // and user-authored file. A mounted editor must discard its buffer before the wipe,
-    // else its disappear-autosave re-creates a just-trashed override — so the wipe is
-    // deferred through the reset token (→ `finishReset` → `performFactoryReset`); with
-    // no editor mounted it runs immediately.
+    // and user-authored file. A mounted editor must discard its buffer first, else its
+    // disappear-autosave re-creates a just-trashed override — so the wipe defers through the reset token.
     func resetToFactoryDefaults() {
         if editingFileURL != nil {
             pendingFactoryReset = true
@@ -1375,10 +1353,9 @@ extension TemplateManagerModel {
     }
 
     private func performFactoryReset() {
-        // Run the destructive steps, capturing the first failure — then re-sync the model
-        // to whatever actually remains on disk regardless of outcome. The editor buffer
-        // was already discarded before we got here (deferred path), so a partial failure
-        // must not leave the window showing state that diverges from the store.
+        // Run the destructive steps, capturing the first failure — then re-sync the
+        // model to whatever actually remains on disk regardless of outcome, so a
+        // partial failure can't leave the window showing state that diverges from the store.
         var failure: Error?
         do {
             try overrides.trashEntireStore()
@@ -1427,8 +1404,9 @@ extension TemplateManagerModel {
         }
     }
 
-    // Lives here (not the Archive extension) because it assigns the
-    // private(set) catalog and wirings — memory changes only on apply success.
+    // Lives here because it assigns the private(set) catalog and wirings.
+    // On failure the pending state survives for retry/cancel — clearing it
+    // would also delete the staging dir and dead-end the import.
     func confirmImport() {
         guard let contents = pendingImport else { return }
         let importer = TemplateArchiveImporter(catalog: catalog, overrides: overrides)
@@ -1443,18 +1421,31 @@ extension TemplateManagerModel {
             catalog = result.catalog
             hookWirings = result.hookWirings
             refreshContent()
+            contents.cleanup()
+            pendingImport = nil
+            pendingImportSelection = []
         } catch {
             showStructuralError(Self.archiveErrorMessage(error))
         }
-        contents.cleanup()
-        pendingImport = nil
-        pendingImportSelection = []
     }
 
     func cancelImport() {
         pendingImport?.cleanup()
         pendingImport = nil
         pendingImportSelection = []
+    }
+
+    func importSelectionBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { self.pendingImportSelection.contains(id) },
+            set: { isOn in
+                if isOn {
+                    self.pendingImportSelection.insert(id)
+                } else {
+                    self.pendingImportSelection.remove(id)
+                }
+            }
+        )
     }
 
     func showStructuralError(_ message: String) {

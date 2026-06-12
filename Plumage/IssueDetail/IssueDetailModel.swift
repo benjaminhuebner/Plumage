@@ -66,10 +66,12 @@ final class IssueDetailModel {
     // run's branch underneath it, so the UI disables merge while set.
     private(set) var blockingImplementRun: LiveImplementRun?
     private(set) var lastMergeError: GitMergeError?
-    // Set when the merge wrote to disk but the spec-status flip failed
-    // afterwards — surfaced as a critical banner so the user knows to fix
-    // spec.md manually. Distinct from lastMergeError because the git side
-    // already succeeded.
+    // Survives the error banner's dismiss: the branch stays diverged until a
+    // rebase or merge succeeds, so the recovery action must outlive the banner.
+    private(set) var rebaseRecoveryAvailable = false
+    // Set when the merge wrote to disk but the spec-status flip failed afterwards —
+    // surfaced as a critical banner so the user knows to fix spec.md manually.
+    // Distinct from lastMergeError because the git side already succeeded.
     private(set) var lastMergeCriticalError: String?
     // Non-fatal info after a successful merge — e.g. the branch delete
     // failed but the merge itself landed.
@@ -80,12 +82,9 @@ final class IssueDetailModel {
     private var pendingPromptSave: Task<Void, Error>?
     private var observeTask: Task<Void, Never>?
 
-    // Called from the view's .onDisappear. Cancels the in-flight save chain
-    // and any pending kanban observation so subsequent state mutations that
-    // would land on a popped view stop firing. Cancellation propagates into
-    // any awaiting Task.detached but the inner synchronous mutator call has
-    // no cancellation point; an already-in-progress disk write still
-    // completes (autosave-on-disappear semantics).
+    // Cancels the in-flight save chain and kanban observation so state mutations
+    // that would land on a popped view stop firing. The inner synchronous mutator
+    // has no cancellation point — an in-progress disk write still completes (autosave semantics).
     func cancelPendingWork() {
         pendingFormWrite?.cancel()
         pendingFormWrite = nil
@@ -155,12 +154,9 @@ final class IssueDetailModel {
         self.configLoader = configLoader
         self.clock = clock
         self.discoverer = discoverer
-        // Pre-load synchronously so the view renders content immediately on
-        // first mount — avoids the ProgressView flash caused by idle→loaded
-        // transition after the async load() task fires. Local volumes only:
-        // even the stat can stall on a network mount; remote specs take the
-        // async load() path with the ProgressView placeholder. Capped at
-        // 64 KB so a pathological spec can't stall view construction.
+        // Pre-load synchronously so first mount renders without a ProgressView
+        // flash. Local volumes only — even the stat can stall on a network mount;
+        // remote specs take async load(). 64 KB cap so a pathological spec can't stall construction.
         if Self.volumeIsLocal(specURL),
             let attrs = try? FileManager.default.attributesOfItem(atPath: specURL.path),
             let size = attrs[.size] as? Int, size <= Self.preloadByteCap,
@@ -338,6 +334,7 @@ final class IssueDetailModel {
             )
         } catch let error as GitMergeError {
             lastMergeError = error
+            if case .notFastForward = error { rebaseRecoveryAvailable = true }
             return false
         } catch {
             // Wrap unknown runner errors into a generic .mergeFailed so the
@@ -370,6 +367,7 @@ final class IssueDetailModel {
         } else if let deleteErr = outcome.branchDeleteError {
             lastMergeNotice = "Merge succeeded, but branch was not deleted: \(deleteErr)"
         }
+        rebaseRecoveryAvailable = false
         await reloadFromDiskAfterOwnWrite()
         return true
     }
@@ -557,11 +555,9 @@ final class IssueDetailModel {
     }
 
     private func runFormWrite(_ mutation: FrontmatterMutation) async throws {
-        // Single-tail-chain: every form write awaits the prior pending one
-        // before reading disk + writing back. Without this, two pickers
-        // committing in the same turn would each read the same baseline,
-        // mutate independently, and the second write would clobber the
-        // first.
+        // Single-tail-chain: every form write awaits the prior pending one before
+        // reading disk + writing back. Without this, two pickers committing in the
+        // same turn would each read the same baseline and the second would clobber the first.
         guard let url = specURL else { return }
         let prior = pendingFormWrite
         let mutator = self.mutator
@@ -619,11 +615,9 @@ final class IssueDetailModel {
 
         let task = Task<Void, Error> {
             _ = try? await prior?.value
-            // Single atomic write: frontmatter `updated:` stamp + body
-            // splice in one mutator pass. Previously this was two writes
-            // (body via SpecWriter, then a second mutator call for the
-            // stamp), which could leave the file with the new body but a
-            // stale `updated:` on partial failure.
+            // Single atomic write: `updated:` stamp + body splice in one mutator
+            // pass — two separate writes could leave the file with the new body
+            // but a stale `updated:` on partial failure.
             try await Task.detached(priority: .userInitiated) {
                 try mutator.mutate(
                     specURL: url,
@@ -703,10 +697,9 @@ final class IssueDetailModel {
     }
 
     func observeKanban(currentIssue: DiscoveredIssue?) {
-        // Cancel any in-flight observation so a fast kanban-snapshot churn
-        // doesn't race two concurrent disk reads writing to the same fields.
-        // Owning the task here (instead of @State in the view) means it dies
-        // with the model — no ghost writes after view pop.
+        // Cancel any in-flight observation so fast kanban-snapshot churn doesn't
+        // race two concurrent disk reads writing the same fields. Owning the task
+        // here means it dies with the model — no ghost writes after view pop.
         observeTask?.cancel()
         observeTask = Task { [weak self] in
             await self?.observeExternalChange(currentIssue: currentIssue)
@@ -721,12 +714,9 @@ final class IssueDetailModel {
             noteSeenIssue(nil)
         }
         guard let url = specURL else { return }
-        // Probe disk in both the present-snapshot and missing-snapshot paths.
-        // The kanban can briefly show our folder as missing during an
-        // optimistic archive/trash before the on-disk move actually runs —
-        // setting `.fileDeleted` on the kanban signal alone would flash a
-        // banner that is correct only after the move lands. Reading disk
-        // here turns "snapshot says gone" into "disk confirms gone".
+        // Probe disk in both snapshot paths: the kanban can briefly show our folder
+        // as missing during an optimistic archive/trash before the on-disk move runs,
+        // so reading disk turns "snapshot says gone" into "disk confirms gone".
         if let normalized = await readNormalized(url) {
             if normalized == loadedSpecContent || normalized == lastWrittenContent { return }
             await handleExternalChange(diskContent: normalized)
@@ -780,17 +770,10 @@ final class IssueDetailModel {
         pasteboard.setString(folder, forType: .string)
     }
 
-    func revealInFinder() {
-        guard let folder = folderName, let projectURL else { return }
-        let url = IssueLayout.issueFolder(in: projectURL, folderName: folder)
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
     nonisolated static func extractBody(from content: String) -> String {
-        // Split on the second `---` line. Anything before (frontmatter)
-        // is dropped; everything after is the body, including any embedded
-        // `---` lines further down. CRLF input is normalized first so the
-        // function is safe to call on raw file content from any platform.
+        // Split on the second `---` line: frontmatter is dropped, everything after
+        // is the body (including embedded `---` lines). CRLF is normalized first so
+        // raw file content from any platform is safe.
         let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
         let lines = normalized.components(separatedBy: "\n")
         var seen = 0

@@ -17,6 +17,27 @@ struct WorktreeProvisionerTests {
         return GitWorktreeLister(runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
     }
 
+    @Test(
+        "option-shaped or unsafe slug is rejected before the script runs",
+        arguments: ["--init-file=/tmp/evil", "-x", "a b", "a/../b"])
+    func unsafeSlugRejected(_ slug: String) async throws {
+        let root = try makeTmpDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appending(component: "Proj", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let scriptRunner = MockGitProcessRunner()
+        let provisioner = WorktreeProvisioner(
+            runner: scriptRunner,
+            lister: listerReturning(porcelain: ""),
+            scriptURL: root.appending(component: "irrelevant.sh")
+        )
+
+        await #expect(throws: WorktreeProvisionError.unsafeSlug(slug)) {
+            _ = try await provisioner.provision(slug: slug, projectRoot: projectRoot)
+        }
+        #expect(scriptRunner.recordedCalls.isEmpty)
+    }
+
     @Test("missing bundled script throws scriptMissing")
     func missingScriptThrows() async throws {
         let root = try makeTmpDir()

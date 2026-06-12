@@ -28,6 +28,42 @@ final class NavigatorModel {
     // picks "Rename" from the context menu; cleared on commit/cancel.
     var renaming: RenameSession?
 
+    // Whether the current .projectFile route was produced by the tree (true)
+    // or the PINNED list (false) — the two regions never highlight together.
+    var treeOwnsSelection = true
+
+    func listSelectionBinding(
+        route: Binding<NavigatorRoute>, pinnedFiles: PinnedFilesModel
+    ) -> Binding<SidebarListSelection?> {
+        Binding(
+            get: {
+                switch route.wrappedValue {
+                case .kanban:
+                    return .kanban
+                case .issue(let folderName):
+                    return .issue(folderName: folderName)
+                case .projectFile(let rel)
+                where !self.treeOwnsSelection && pinnedFiles.contains(rel):
+                    return .pinned(relativePath: rel)
+                default:
+                    return nil
+                }
+            },
+            set: { newValue in
+                guard let newValue else { return }
+                switch newValue {
+                case .kanban:
+                    route.wrappedValue = .kanban
+                case .issue(let folderName):
+                    route.wrappedValue = .issue(folderName: folderName)
+                case .pinned(let rel):
+                    self.treeOwnsSelection = false
+                    route.wrappedValue = .projectFile(relativePath: rel)
+                }
+            }
+        )
+    }
+
     // Expanded folder paths of the sidebar file tree, persisted per project
     // so expansion survives app restart.
     var fileTreeExpansion: Set<String> = [] {
@@ -397,11 +433,6 @@ final class NavigatorModel {
             guard !Task.isCancelled else { return }
             self?.dropRejectMessage = nil
         }
-    }
-
-    func clearBanner() {
-        bannerResetTask?.cancel()
-        dropRejectMessage = nil
     }
 
     private nonisolated static func isAncestor(_ ancestor: URL, of descendant: URL) -> Bool {

@@ -89,6 +89,7 @@ struct NewTemplateSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Add") { if onAdd(request) { dismiss() } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canAdd)

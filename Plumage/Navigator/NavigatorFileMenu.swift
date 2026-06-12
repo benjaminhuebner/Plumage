@@ -11,6 +11,9 @@ struct NavigatorFileMenu: View {
         if nodes.count == 1, let node = nodes.first {
             singleItemMenu(node)
         } else {
+            Button("Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting(nodes.map(\.url))
+            }
             Button("Move to Trash", role: .destructive) {
                 navigator.requestTrash(urls: nodes.map(\.url))
             }

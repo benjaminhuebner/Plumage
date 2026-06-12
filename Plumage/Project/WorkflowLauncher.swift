@@ -21,23 +21,32 @@ final class WorkflowLauncher {
     private(set) var workflowTask: Task<Void, Never>?
     private(set) var pendingImplement: PendingImplementLaunch?
     private var pendingRequest: LaunchRequest?
+    // A failed worktree provision keeps its request so the user can retry —
+    // a transient banner alone would dead-end the launch.
+    private(set) var worktreeProvisionError: String?
+    private var failedWorktreeRequest: LaunchRequest?
+
+    isolated deinit {
+        workflowTask?.cancel()
+    }
 
     // Detection and provisioning seams; production defaults talk to git and
-    // the file system, tests swap in fixtures.
+    // the file system, tests swap in fixtures. The scans are @Sendable so the
+    // per-click directory walks and file reads run off the main actor.
     var listWorktreeRoots: @MainActor (URL) async -> [URL] = { projectURL in
         let worktrees = (try? await GitWorktreeLister().worktrees(repoURL: projectURL)) ?? []
         return worktrees.isEmpty ? [projectURL] : worktrees.map(\.path)
     }
-    var scanLiveRuns: @MainActor ([URL]) -> [WorktreeImplementRun] = {
+    var scanLiveRuns: @Sendable ([URL]) -> [WorktreeImplementRun] = {
         ImplementRunScanner.liveImplementRuns(acrossWorktreeRoots: $0)
     }
-    var scanQueuedRuns: @MainActor (URL) -> [QueuedImplementRun] = {
+    var scanQueuedRuns: @Sendable (URL) -> [QueuedImplementRun] = {
         ImplementRunScanner.queuedImplementRuns(in: $0)
     }
     var provisionWorktree: @MainActor (String, URL) async throws -> WorktreeProvisionResult = {
         try await WorktreeProvisioner().provision(slug: $0, projectRoot: $1)
     }
-    var runStateExists: @MainActor (URL, String) -> Bool = {
+    var runStateExists: @Sendable (URL, String) -> Bool = {
         ImplementRunScanner.runStateExists(for: $1, in: $0)
     }
 
@@ -77,10 +86,9 @@ final class WorkflowLauncher {
         openInspector: @escaping @MainActor () -> Void,
         showBanner: @escaping @MainActor (String) -> Void
     ) {
-        // Reject folder names that would corrupt the inject: \r submits in
-        // claude's REPL, \n splits, \0 is undefined. isShellSafe checks
-        // exactly these three. Folder names are user-controlled via Finder
-        // rename, so this is a real attack surface, not just defense in depth.
+        // Reject folder names with control chars: \r submits in claude's REPL,
+        // \n splits, \0 is undefined. Folder names are user-controlled via
+        // Finder rename, so this is a real attack surface.
         guard TerminalClaudeSession.isShellSafe(folderName) else {
             Self.log.warning(
                 "runWorkflow: refusing inject for \(action.slug, privacy: .public) — folderName contains control chars."
@@ -91,20 +99,18 @@ final class WorkflowLauncher {
 
         workflowTask?.cancel()
 
-        // Find-or-create a per-workflow tab so each Plan/Implement/Review
-        // gets its own claude subprocess with the right --permission-mode and
-        // leaves the main terminal free. A repeat click on the same
-        // action+issue selects the existing tab without a second inject.
+        // Find-or-create a per-workflow tab: each Plan/Implement/Review gets its
+        // own claude subprocess with the right --permission-mode; a repeat click
+        // on the same action+issue selects the existing tab without a second inject.
         if let existing = tabs.findWorkflowTab(action: action, slug: folderName) {
             openInspector()
             tabs.selectedTabID = existing.id
             return
         }
 
-        // Resolve the template (default or per-project override) into the
-        // sequence of lines that need to be injected into claude's REPL.
-        // Resolving before tab creation: a template whose `#if` blocks filter
-        // to empty for this issue type must not leave a dead tab behind.
+        // Resolve the template before tab creation: a template whose `#if`
+        // blocks filter to empty for this issue type must not leave a dead
+        // tab behind.
         let lines = WorkflowCommandResolver.resolve(
             action: action,
             slug: folderName,
@@ -147,10 +153,34 @@ final class WorkflowLauncher {
     private func routeImplement(_ request: LaunchRequest) async {
         let roots = await listWorktreeRoots(request.projectURL)
         if Task.isCancelled { return }
-        let live = scanLiveRuns(roots)
-        let queued = scanQueuedRuns(request.projectURL)
+        let projectURL = request.projectURL
+        let startingSlugs = Array(startingImplements.keys)
+        let scanLive = scanLiveRuns
+        let scanQueued = scanQueuedRuns
+        let stateExists = runStateExists
+        let scan = await Task.detached(priority: .userInitiated) {
+            let live = scanLive(roots)
+            // The same-issue check must see every worktree's queue; only the
+            // primary checkout's queue decides whether THIS checkout is busy.
+            let queuedByRoot = roots.map { (root: $0, runs: scanQueued($0)) }
+            let queuedPrimary =
+                queuedByRoot.first { Self.sameLocation($0.root, projectURL) }?.runs
+                ?? scanQueued(projectURL)
+            let runStates = Dictionary(
+                uniqueKeysWithValues: startingSlugs.map { ($0, stateExists(projectURL, $0)) })
+            return (
+                live: live,
+                queuedAnywhere: queuedByRoot.flatMap(\.runs),
+                queuedPrimary: queuedPrimary,
+                runStates: runStates
+            )
+        }.value
+        if Task.isCancelled { return }
+        let live = scan.live
+        let queuedAnywhere = scan.queuedAnywhere
+        let queued = scan.queuedPrimary
         reconcileStartingImplements(
-            tabs: request.tabs, projectURL: request.projectURL, queued: queued)
+            tabs: request.tabs, queued: queued, runStates: scan.runStates)
 
         if let owner = live.first(where: { $0.run.issue == request.folderName }) {
             request.showBanner(
@@ -158,7 +188,7 @@ final class WorkflowLauncher {
             )
             return
         }
-        if queued.contains(where: { $0.issue == request.folderName }) {
+        if queuedAnywhere.contains(where: { $0.issue == request.folderName }) {
             request.showBanner("\(request.folderName) is already waiting in the implement queue.")
             return
         }
@@ -179,11 +209,11 @@ final class WorkflowLauncher {
     // A starting tab stops being a blocker once its run shows up in the
     // file-based scan (run-state or queue entry), or once its tab is closed.
     private func reconcileStartingImplements(
-        tabs: TerminalTabsModel, projectURL: URL, queued: [QueuedImplementRun]
+        tabs: TerminalTabsModel, queued: [QueuedImplementRun], runStates: [String: Bool]
     ) {
         startingImplements = startingImplements.filter { slug, tabID in
             guard tabs.tabs.contains(where: { $0.id == tabID }) else { return false }
-            if runStateExists(projectURL, slug) { return false }
+            if runStates[slug] == true { return false }
             return !queued.contains { $0.issue == slug }
         }
     }
@@ -209,12 +239,31 @@ final class WorkflowLauncher {
                         "Implement runs in worktree \(result.worktreeRoot.path)")
                     self.startTab(request, worktreeRoot: result.worktreeRoot)
                 } catch let error as WorktreeProvisionError {
-                    request.showBanner(error.displayMessage)
+                    self.recordWorktreeFailure(error.localizedDescription, request: request)
                 } catch {
-                    request.showBanner("Worktree setup failed: \(error.localizedDescription)")
+                    self.recordWorktreeFailure(
+                        "Worktree setup failed: \(error.localizedDescription)",
+                        request: request)
                 }
             }
         }
+    }
+
+    private func recordWorktreeFailure(_ message: String, request: LaunchRequest) {
+        worktreeProvisionError = message
+        failedWorktreeRequest = request
+    }
+
+    func retryWorktreeProvision() {
+        guard let request = failedWorktreeRequest else { return }
+        dismissWorktreeProvisionError()
+        pendingRequest = request
+        confirmPendingImplement(.worktree)
+    }
+
+    func dismissWorktreeProvisionError() {
+        worktreeProvisionError = nil
+        failedWorktreeRequest = nil
     }
 
     func cancelPendingImplement() {
@@ -266,7 +315,7 @@ final class WorkflowLauncher {
         }
     }
 
-    private static func sameLocation(_ lhs: URL, _ rhs: URL) -> Bool {
+    nonisolated private static func sameLocation(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.resolvingSymlinksInPath().standardizedFileURL.path
             == rhs.resolvingSymlinksInPath().standardizedFileURL.path
     }

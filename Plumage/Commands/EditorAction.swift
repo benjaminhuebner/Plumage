@@ -1,13 +1,8 @@
 import Foundation
 
-// Equatable wrapper for closures published via FocusedValues. SwiftUI's
-// focusedSceneValue republishes the value whenever the body containing the
-// modifier evaluates AND the value differs from the previously published one.
-// Plain `() -> Void` has no Equatable conformance, so SwiftUI treats every
-// republish as "different" → on cascading state changes within one frame the
-// system fires "FocusedValue update tried to update multiple times per frame".
-// Wrapping the closure in a UUID-keyed value gives the focus system a stable
-// identity to compare across renders.
+// Equatable wrapper for FocusedValues closures: plain `() -> Void` isn't Equatable,
+// so every republish counts as "different" and cascading state changes fire
+// "FocusedValue update tried to update multiple times per frame" — a UUID key gives stable identity.
 struct EditorAction: Equatable, Sendable {
     let id: UUID
     // @MainActor-typed instead of @unchecked Sendable on the struct: the

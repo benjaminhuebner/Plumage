@@ -41,16 +41,16 @@ struct ProductionProcessRunnerIntegrationTests {
         #expect(result.exitCode == 1)
     }
 
-    @Test("cancellation aborts a long-running sleep")
+    @Test("cancellation does not hang on a long-running child")
     func cancellation() async throws {
         let sleepURL = URL(fileURLWithPath: "/bin/sleep")
         let started = Date()
         let task = Task {
             try await ProductionProcessRunner.spawnAt(binaryURL: sleepURL, args: ["60"])
         }
-        // Best-effort 100 ms so the cancel exercises the SIGTERM-mid-flight
-        // path; /bin/sleep emits nothing to handshake on, and a late spawn
-        // degrades to the pre-start cancel, which the assertions accept too.
+        // Deliberately a does-not-hang test, not a which-path test: /bin/sleep
+        // emits nothing to handshake on (spawnAt reads stdout only after exit),
+        // so the 100 ms is best-effort and a late spawn degrades to pre-start cancel.
         try await Task.sleep(for: .milliseconds(100))
         task.cancel()
 

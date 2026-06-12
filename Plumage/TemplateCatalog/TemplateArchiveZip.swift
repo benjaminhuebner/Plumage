@@ -1,12 +1,12 @@
 import Foundation
 
-nonisolated enum TemplateArchiveZipError: Error, Equatable {
+nonisolated enum TemplateArchiveZipError: LocalizedError, Equatable {
     case packFailed(String)
     case corruptArchive(String)
     case entryEscapesDestination(String)
     case symlinkEntry(String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .packFailed(let detail):
             return "Couldn't create the archive: \(detail.prefix(200))"
@@ -74,13 +74,14 @@ nonisolated struct TemplateArchiveZip: Sendable {
     }
 
     // Rejects absolute entries and any `..` path component — a hostile archive
-    // must not be able to write outside the staging directory.
+    // must not be able to write outside the staging directory. Backslash counts
+    // as a separator too: Windows-built zips may use it for traversal.
     static func validateEntryNames(_ names: [String]) throws {
         for name in names {
-            guard !name.hasPrefix("/") else {
+            guard !name.hasPrefix("/"), !name.hasPrefix("\\") else {
                 throw TemplateArchiveZipError.entryEscapesDestination(name)
             }
-            if name.split(separator: "/").contains("..") {
+            if name.split(whereSeparator: { $0 == "/" || $0 == "\\" }).contains("..") {
                 throw TemplateArchiveZipError.entryEscapesDestination(name)
             }
         }

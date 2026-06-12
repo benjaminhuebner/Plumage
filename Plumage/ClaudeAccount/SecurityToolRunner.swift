@@ -23,6 +23,8 @@ nonisolated struct ProductionSecurityToolRunner: SecurityToolRunning {
     static let defaultTimeout: TimeInterval = 3.0
     static let killGraceSeconds: TimeInterval = 1.0
 
+    // Whatever runs at binaryURL inherits the app's Keychain access — it must
+    // stay a trusted system path; the parameter exists for test injection only.
     let binaryURL: URL
     let timeout: TimeInterval
 

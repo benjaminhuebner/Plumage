@@ -4,6 +4,8 @@ struct TemplateArchiveImportSheet: View {
     @Bindable var model: TemplateManagerModel
     let items: [TemplateArchiveItem]
 
+    @State private var isConfirmingOverwrite = false
+
     private var hasSelectedConflict: Bool {
         items.contains { $0.conflict && model.pendingImportSelection.contains($0.id) }
     }
@@ -21,16 +23,42 @@ struct TemplateArchiveImportSheet: View {
 
             itemList
 
+            if let error = model.structuralError {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                    Text(error)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                }
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { model.cancelImport() }
-                Button("Import") { model.confirmImport() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.pendingImportSelection.isEmpty)
+                    .keyboardShortcut(.cancelAction)
+                Button("Import") {
+                    if hasSelectedConflict {
+                        isConfirmingOverwrite = true
+                    } else {
+                        model.confirmImport()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.pendingImportSelection.isEmpty)
             }
         }
         .padding(20)
-        .frame(width: 440)
+        .frame(minWidth: 440, idealWidth: 440)
+        .confirmationDialog(
+            "Overwrite local changes?",
+            isPresented: $isConfirmingOverwrite
+        ) {
+            Button("Import and Overwrite", role: .destructive) { model.confirmImport() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The selected items marked with a warning replace your local changes. This cannot be undone.")
+        }
     }
 
     private var itemList: some View {
@@ -38,7 +66,7 @@ struct TemplateArchiveImportSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(items) { item in
                     HStack(spacing: 6) {
-                        Toggle(isOn: selectionBinding(item.id)) {
+                        Toggle(isOn: model.importSelectionBinding(for: item.id)) {
                             Label(Self.label(for: item), systemImage: Self.icon(for: item.kind))
                         }
                         .toggleStyle(.checkbox)
@@ -72,18 +100,5 @@ struct TemplateArchiveImportSheet: View {
         case .sharedComponent: return "puzzlepiece"
         case .deletedDefaults: return "trash"
         }
-    }
-
-    private func selectionBinding(_ id: String) -> Binding<Bool> {
-        Binding(
-            get: { model.pendingImportSelection.contains(id) },
-            set: { isOn in
-                if isOn {
-                    model.pendingImportSelection.insert(id)
-                } else {
-                    model.pendingImportSelection.remove(id)
-                }
-            }
-        )
     }
 }

@@ -154,6 +154,49 @@ struct WorkflowLauncherTests {
         tabs.stopAll()
     }
 
+    @Test("an issue queued in another worktree is refused")
+    func sameIssueQueuedInOtherWorktreeIsRefused() async {
+        let tabs = makeTabs()
+        let launcher = makeIdleLauncher()
+        launcher.listWorktreeRoots = {
+            [$0, $0.appending(component: "Proj-wt", directoryHint: .isDirectory)]
+        }
+        launcher.scanQueuedRuns = { root in
+            root.lastPathComponent == "Proj-wt"
+                ? [QueuedImplementRun(issue: "00001-test", agentPid: 1)] : []
+        }
+        var banners: [String] = []
+
+        await runImplement(launcher, tabs: tabs, banners: &banners)
+
+        #expect(tabs.tabs.count == 1)
+        #expect(banners.first?.contains("already waiting") == true)
+        #expect(launcher.pendingImplement == nil)
+        tabs.stopAll()
+    }
+
+    @Test("a queue entry in another worktree does not mark the primary checkout busy")
+    func otherWorktreeQueueDoesNotBlockPrimary() async {
+        let tabs = makeTabs()
+        let launcher = makeIdleLauncher()
+        launcher.listWorktreeRoots = {
+            [$0, $0.appending(component: "Proj-wt", directoryHint: .isDirectory)]
+        }
+        launcher.scanQueuedRuns = { root in
+            root.lastPathComponent == "Proj-wt"
+                ? [QueuedImplementRun(issue: "00099-other", agentPid: 1)] : []
+        }
+        var banners: [String] = []
+
+        await runImplement(launcher, tabs: tabs, banners: &banners)
+
+        #expect(tabs.tabs.count == 2)
+        #expect(launcher.pendingImplement == nil)
+        #expect(banners.isEmpty)
+        launcher.cancel()
+        tabs.stopAll()
+    }
+
     @Test("busy primary checkout asks instead of starting")
     func busyPrimaryAsks() async {
         let tabs = makeTabs()
@@ -247,8 +290,8 @@ struct WorkflowLauncherTests {
         tabs.stopAll()
     }
 
-    @Test("provisioning failure banners the script error and opens no tab")
-    func provisionFailureShowsBanner() async {
+    @Test("provisioning failure keeps a persistent error and opens no tab")
+    func provisionFailureKeepsError() async {
         let tabs = makeTabs()
         let launcher = makeIdleLauncher()
         launcher.scanQueuedRuns = { _ in
@@ -272,8 +315,39 @@ struct WorkflowLauncherTests {
         launcher.confirmPendingImplement(.worktree)
         await launcher.workflowTask?.value
 
-        #expect(banners.first?.contains("target path already exists") == true)
+        #expect(launcher.worktreeProvisionError?.contains("target path already exists") == true)
+        #expect(banners.isEmpty)
         #expect(tabs.tabs.count == 1)
+        tabs.stopAll()
+    }
+
+    @Test("retry after a provisioning failure re-runs the kept request")
+    func provisionRetryReRunsRequest() async throws {
+        let tabs = makeTabs()
+        let launcher = makeIdleLauncher()
+        launcher.scanQueuedRuns = { _ in
+            [QueuedImplementRun(issue: "00099-other", agentPid: 1)]
+        }
+        launcher.provisionWorktree = { _, _ in
+            throw WorktreeProvisionError.scriptFailed(message: "transient failure")
+        }
+        var banners: [String] = []
+        await runImplement(launcher, tabs: tabs, banners: &banners)
+        launcher.confirmPendingImplement(.worktree)
+        await launcher.workflowTask?.value
+        #expect(launcher.worktreeProvisionError != nil)
+
+        let worktree = FileManager.default.temporaryDirectory
+            .appending(component: "Proj-00001-test", directoryHint: .isDirectory)
+        launcher.provisionWorktree = { _, _ in
+            WorktreeProvisionResult(worktreeRoot: worktree, reusedExisting: false)
+        }
+        launcher.retryWorktreeProvision()
+        await launcher.workflowTask?.value
+
+        #expect(launcher.worktreeProvisionError == nil)
+        #expect(tabs.tabs.count == 2)
+        launcher.cancel()
         tabs.stopAll()
     }
 

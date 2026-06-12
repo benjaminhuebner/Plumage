@@ -65,15 +65,9 @@ final class ClaudeSession {
     private var readTask: Task<Void, Never>?
     private var subcommandTask: Task<Void, Never>?
 
-    // Defaults to ~/.claude/projects but is injectable so tests can point at
-    // a temp directory and exercise resumeOrInitArgs / rehydrate without
-    // polluting the real home. sessionIDStoreOverride is the per-project
-    // file that persists the conversation UUID across project re-opens —
-    // mirror to TerminalClaudeSession so chat mode also resumes its claude
-    // session via --resume <uuid>. stateDirectory is the resolved project
-    // bundle (`<name>.plumage`); the chat-id store lives under its
-    // `sessions/` subfolder. CCI stays free of bundle resolution — the
-    // caller (ProjectWindow) resolves it once and passes it in.
+    // sessionLogRoot is injectable so tests avoid the real home. The chat-id store
+    // under stateDirectory's `sessions/` persists the conversation UUID across
+    // re-opens (--resume), mirroring TerminalClaudeSession; the caller resolves the bundle.
     init(
         cwd: URL,
         binaryURL: URL,
@@ -112,15 +106,9 @@ final class ClaudeSession {
         }
     }
 
-    // Safety net for abnormal teardown paths (scene killed, owner replaced
-    // without explicit stop()). The owning view's .onDisappear is the
-    // primary cleanup path; without this deinit a window-close path that
-    // skips that hook would leak readTask + stdout fd-pair indefinitely.
-    //
-    // isolated deinit (Swift 6.2) so we can touch the @MainActor state
-    // directly. Practically every release path lands on the main actor
-    // anyway (SwiftUI @State on MainActor) — the explicit isolation just
-    // makes the compiler happy without an assumeIsolated escape hatch.
+    // Safety net for abnormal teardown: a window-close that skips .onDisappear
+    // would leak readTask + the stdout fd-pair indefinitely. isolated deinit
+    // (Swift 6.2) so @MainActor state is touchable without assumeIsolated.
     isolated deinit {
         readTask?.cancel()
         subcommandTask?.cancel()
@@ -145,10 +133,9 @@ final class ClaudeSession {
         }
     }
 
-    // Helper for ProjectWindow's URL-change path: if the new URL matches the
-    // existing session's cwd, keeps the session; otherwise stops the prior
-    // and returns a fresh ClaudeSession bound to the new cwd. Centralises
-    // the binary-location lookup so the call site doesn't duplicate it.
+    // ProjectWindow URL-change path: keeps the session if the new URL matches its
+    // cwd, else stops the prior and returns a fresh one bound to the new cwd.
+    // Centralises the binary-location lookup so the call site doesn't duplicate it.
     static func rebuilt(
         for handleURL: URL,
         replacing prior: ClaudeSession,
@@ -166,13 +153,9 @@ final class ClaudeSession {
             modelChoice: newChoice)
     }
 
-    // Repoints where the conversation id is persisted after the project bundle
-    // was renamed. The bundle folder moved on disk and carried its `sessions/
-    // chat-id` along atomically, so the in-memory conversationID is still valid
-    // and only FUTURE persistID writes need the new path. The running subprocess
-    // (cwd = project root, log keyed by root — both unchanged) is untouched, so
-    // the live chat keeps going. Recomputes the store path the same way init
-    // does from the new bundle (stateDirectory).
+    // Repoint persistence after a bundle rename: the folder moved atomically with
+    // its `sessions/chat-id`, so the in-memory conversationID stays valid and only
+    // FUTURE persistID writes need the new path; the running subprocess is untouched.
     func repointSessionStore(toBundle bundle: URL) {
         sessionIDStoreURL =
             bundle
@@ -209,13 +192,9 @@ final class ClaudeSession {
         }
     }
 
-    // A Plumage slash command is a single leading-slash token with no further
-    // path separators ("/clear", "/mcp"). A Finder-dropped absolute path
-    // ("/Users/me/notes.txt") also starts with "/" but carries interior slashes,
-    // so route those to claude as a normal message instead of bouncing them off
-    // handleLocalSlashCommand as an "unknown command". A bare root-level file
-    // ("/notes.txt") is the rare exception we accept — Finder paths are
-    // effectively always under /Users, /Volumes, etc.
+    // A Plumage slash command is a single leading-slash token with no interior
+    // slashes ("/clear"). A Finder-dropped absolute path also starts with "/" but
+    // carries interior slashes — route those to claude as a normal message.
     private nonisolated static func looksLikeLocalCommand(_ trimmed: String) -> Bool {
         guard trimmed.hasPrefix("/") else { return false }
         let firstToken =
@@ -234,10 +213,9 @@ final class ClaudeSession {
             appendSystemMessage(statusReport())
         case "/mcp":
             appendSystemMessage("Listing MCP servers…")
-            // Tracked so stop()/clearAndRestart() teardown can cancel the
-            // child via dispatchSubcommand's withTaskCancellationHandler.
-            // Cancelling any prior tracked subcommand prevents two slash
-            // commands from racing for the slot.
+            // Tracked so stop()/clearAndRestart() can cancel the child via
+            // dispatchSubcommand's withTaskCancellationHandler; cancelling the
+            // prior subcommand prevents two slash commands racing for the slot.
             subcommandTask?.cancel()
             subcommandTask = Task { [weak self] in
                 await self?.dispatchSubcommand(["mcp", "list"], label: "MCP servers")
@@ -320,16 +298,13 @@ final class ClaudeSession {
             return
         }
 
-        // withTaskCancellationHandler: if the surrounding session is torn
-        // down (handOff / stop / clearAndRestart cancels this Task), send
-        // SIGTERM right away so the exit-await resolves instead of pinning
-        // a cooperative thread indefinitely. Matches ProductionProcessRunner.
+        // If the surrounding session is torn down (handOff/stop/clearAndRestart
+        // cancels this Task), send SIGTERM right away so the exit-await resolves
+        // instead of pinning a cooperative thread. Matches ProductionProcessRunner.
         let output: String = await withTaskCancellationHandler {
-            // Drain the shared stdout/stderr pipe in parallel with the exit-await,
-            // not after it: a subcommand emitting more than the ~64 KB pipe buffer
-            // before exit would block on write() and never terminate if we only
-            // read post-exit. Off the cooperative pool — readToEnd() is a blocking
-            // syscall. Matches the parallel-drain shape in ProductionProcessRunner.
+            // Drain the pipe in parallel with the exit-await: a subcommand emitting
+            // more than the ~64 KB pipe buffer would block on write() and never exit
+            // if we read post-exit. Off the cooperative pool — readToEnd() blocks.
             async let data = Task.detached { () -> Data in
                 (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
             }.value
@@ -380,10 +355,9 @@ final class ClaudeSession {
         process?.terminationHandler = nil
         try? stdinHandle?.close()
         stdinHandle = nil
-        // Without cancelling readTask the AsyncStream's onTermination never
-        // fires, so readabilityHandler keeps stdoutHandle + LineBuffer alive
-        // even though the subprocess is gone. handleExit, handOff and
-        // clearAndRestart already do this — stop() must too.
+        // Without cancelling readTask the AsyncStream's onTermination never fires,
+        // so readabilityHandler keeps stdoutHandle + LineBuffer alive even though
+        // the subprocess is gone. handleExit/handOff/clearAndRestart do this too.
         readTask?.cancel()
         readTask = nil
         subcommandTask?.cancel()
@@ -408,11 +382,9 @@ final class ClaudeSession {
         if autoSpawn { spawn() }
     }
 
-    // Returns the spawn args for a fresh claude attach: --session-id when the
-    // session file doesn't exist yet, --resume otherwise. claude's --session-id
-    // is strictly "create new" (its SY_ check rejects with "Session ID …
-    // already in use" if the .jsonl file is present), so we cannot blindly
-    // pass --session-id on every spawn.
+    // --session-id when the session file doesn't exist yet, --resume otherwise.
+    // claude's --session-id is strictly "create new" (rejects with "Session ID …
+    // already in use" if the .jsonl exists), so we can't pass it on every spawn.
     func resumeOrInitArgs() -> [String] {
         guard sessionLogExists() else {
             return ["--session-id", conversationID]
@@ -425,13 +397,9 @@ final class ClaudeSession {
     }
 
     private func sessionLogURL() -> URL {
-        // `/` → `-` mirrors claude CLI's own session-log encoding scheme so
-        // Plumage finds the same .jsonl file claude writes. Two paths with
-        // `-` in directory names could theoretically collide post-encoding
-        // (`/a/b-c/d` and `/a/b/c-d` both produce `-a-b-c-d`), but matching
-        // claude's behaviour is the contract — diverging here would just
-        // silently break rehydration. Keep in sync if claude ever changes
-        // its scheme.
+        // `/` → `-` mirrors claude CLI's session-log encoding so Plumage finds the
+        // same .jsonl claude writes. Paths with `-` could collide post-encoding, but
+        // matching claude is the contract — keep in sync if its scheme changes.
         let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
         return
             sessionLogRoot
@@ -439,27 +407,13 @@ final class ClaudeSession {
             .appendingPathComponent("\(conversationID).jsonl")
     }
 
-    // Parse claude's saved session log and replace `messages` with what was
-    // exchanged across previous runs (including terminal-mode turns Plumage
-    // never observed on its own stdout stream). Called from spawn() so chat
-    // mode always reflects the full conversation regardless of which mode it
-    // happened in.
-    //
-    // Skips when `messages` is already populated for this conversationID —
-    // the in-memory list is the live source after the first hydration and a
-    // second spawn (mode toggle within the same conversation) would just
-    // re-read an ever-larger JSONL file for no benefit. /clear regenerates
-    // conversationID and resets `messages`, which forces the next spawn to
-    // rehydrate the (then-empty-from-our-side) fresh session.
+    // Rehydration replaces `messages` from claude's saved session log (including
+    // terminal-mode turns Plumage never saw on stdout). Skipped once populated —
+    // the in-memory list is live after first hydration; /clear forces a re-read.
     nonisolated static let defaultRehydrationCap = 200
-    // Internal (not private) so tests can drive rehydrate against an injected
-    // sessionLogRoot tempdir without spinning up a real subprocess. Production
-    // call site stays inside spawn().
-    //
-    // Disk I/O runs on a detached cooperative task so a slow filesystem
-    // (NFS, external SSD) can't block the main thread while the session log
-    // is read. The decode pass is also off-actor — the file can be hundreds
-    // of KB for long conversations.
+    // Internal so tests can drive rehydrate against an injected sessionLogRoot
+    // without a real subprocess. Disk I/O and the decode pass run detached —
+    // a slow filesystem or a hundreds-of-KB log must not block the main thread.
     func rehydrateMessagesFromSessionLog() async {
         guard messages.isEmpty else { return }
         let file = sessionLogURL()
@@ -608,10 +562,9 @@ final class ClaudeSession {
 
         process = newProcess
         stdinHandle = stdinPipe.fileHandleForWriting
-        // Rehydrate from the on-disk log so chat mode reflects whatever the
-        // terminal-mode subprocess wrote since last time. Async + detached
-        // so a slow filesystem can't block the main thread while spawn()
-        // returns. Safe even on the first spawn (no file → no-op).
+        // Rehydrate from the on-disk log so chat mode reflects what terminal mode
+        // wrote since last time. Async + detached so a slow filesystem can't block
+        // spawn()'s return. Safe even on the first spawn (no file → no-op).
         Task { @MainActor [weak self] in
             await self?.rehydrateMessagesFromSessionLog()
         }
@@ -662,18 +615,9 @@ final class ClaudeSession {
         }
     }
 
-    // @unchecked Sendable: `partial` is mutated from two contexts —
-    // `readabilityHandler` on the FileHandle's background queue (append /
-    // flush during streaming) and the AsyncStream's onTermination on
-    // teardown. NSLock serializes every read and write of `partial`, so
-    // concurrent access is safe even though the compiler can't see it.
-    // Removing the lock or relaxing the contract would re-introduce a
-    // silent data race on the partial-line buffer.
-    //
-    // Buffers raw bytes and splits on 0x0A before decoding: decoding whole
-    // chunks drops the entire chunk when a multi-byte UTF-8 character spans
-    // a chunk boundary (String(data:encoding:) returns nil mid-character).
-    // Internal (not private) so tests can pin the chunk-split behavior.
+    // @unchecked Sendable: NSLock serializes every access to `partial` (mutated from
+    // readabilityHandler's queue and onTermination). Splits raw bytes on 0x0A before
+    // decoding — whole-chunk decode drops data when UTF-8 spans a chunk boundary.
     nonisolated final class LineBuffer: @unchecked Sendable {
         private let lock = NSLock()
         private var partial = Data()
@@ -731,11 +675,9 @@ final class ClaudeSession {
         }
     }
 
-    // Cap the live messages array to `rehydrationCap` (with a 2× slack so
-    // we only trim in bursts, not on every append). The rehydration path
-    // already truncates to the same cap; without this guard a long session
-    // with many tool-use turns grows unbounded, slowing ForEach diffs and
-    // memory in lockstep.
+    // Cap live messages at rehydrationCap with 2× slack so we trim in bursts, not
+    // on every append. Without this a long session with many tool-use turns grows
+    // unbounded, slowing ForEach diffs and memory in lockstep.
     private func appendMessage(_ message: ChatMessage) {
         messages.append(message)
         if messages.count > rehydrationCap * 2 {

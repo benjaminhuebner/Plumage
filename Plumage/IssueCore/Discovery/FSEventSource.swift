@@ -2,24 +2,13 @@ import CoreServices
 import Foundation
 import os
 
-// @unchecked Sendable: the `stream` ref is guarded by an OSAllocatedUnfairLock
-// instead of an actor so the synchronous IssueWatcher.init + onTermination
-// closure call sites stay synchronous. The FSEvents callback only reads the
-// immutable `onChange` closure (which is @Sendable).
-//
-// NOTE: unlike SessionLogWatcher, stop() deliberately does NOT add a
-// `queue.sync {}` drain barrier — that deadlocks reproducibly (EXC_BREAKPOINT
-// in __DISPATCH_WAIT_FOR_QUEUE__, verified 2026-06-02). The
-// dangling-callback race is closed via CF refcounting instead: the stream
-// context retains `self` (retain/release callbacks below), so an in-flight
-// callback can never see a freed pointer. Consequence: while a stream is
-// live, the stream holds +1 on self and deinit cannot run — every owner MUST
-// call stop() for teardown (all four watcher pipelines do, via onTeardown).
+// @unchecked Sendable: `stream` is lock-guarded so init/onTermination stay synchronous.
+// stop() must NOT drain via `queue.sync {}` — that deadlocks reproducibly; the dangling-callback
+// race is closed by the stream context retaining `self` instead, so every owner MUST call stop().
 nonisolated final class FSEventSource: @unchecked Sendable {
-    // FSEventStreamRef is an OpaquePointer (not Sendable) — wrap it so the
-    // lock's state type satisfies Sendable. FSEvents stream refs are
-    // CFTypeRef-style retain-counted and thread-safe by the framework's
-    // contract.
+    // FSEventStreamRef is an OpaquePointer (not Sendable) — wrap it so the lock's
+    // state type satisfies Sendable. FSEvents stream refs are CFTypeRef-style
+    // retain-counted and thread-safe by the framework's contract.
     private struct StreamBox: @unchecked Sendable {
         var ref: FSEventStreamRef?
     }

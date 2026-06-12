@@ -120,7 +120,8 @@ struct XcodeRunSessionMacTests {
     }
 }
 
-// Sendable launcher mock used by the macOS tests above.
+// @unchecked Sendable: all mutable state sits behind the NSLock — the lock,
+// not the type shape, provides the concurrency safety.
 final class RecordingAppLauncher: AppLaunching, @unchecked Sendable {
     private let lock = NSLock()
     private var _opened: [URL] = []

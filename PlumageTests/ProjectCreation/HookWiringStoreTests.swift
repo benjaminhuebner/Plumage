@@ -82,6 +82,38 @@ struct HookWiringStoreTests {
         #expect(loaded.wiring(named: "py-hook")?.fileName == "py-hook.py")
     }
 
+    @Test("A wiring with an unknown event survives load and save verbatim")
+    func unknownEventRoundTrips() throws {
+        let url = tmpURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let json =
+            #"[{"name":"future","fileName":"future.sh","event":"ToolNetworkRequest","matcher":null}]"#
+        try json.write(to: url, atomically: true, encoding: .utf8)
+
+        let store = try HookWiringStore.load(from: url)
+        #expect(store.wiring(named: "future")?.event == .unknown("ToolNetworkRequest"))
+
+        try store.save(to: url)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("ToolNetworkRequest"))
+    }
+
+    @Test("An unknown event never reaches composed settings hooks")
+    func unknownEventFilteredFromSettings() throws {
+        let composer = SettingsComposer(
+            overrides: ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: nil))
+        let data = try composer.tierHooksJSON(
+            builtinNames: [],
+            userWirings: [HookWiring(name: "future", event: .unknown("ToolNetworkRequest"))])
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(!text.contains("ToolNetworkRequest"))
+    }
+
+    @Test("allCases never offers the unknown case")
+    func allCasesExcludeUnknown() {
+        #expect(HookEvent.allCases.allSatisfy { !$0.isUnknown })
+    }
+
     @Test("upsert inserts then replaces by name")
     func upsertReplaces() {
         var store = HookWiringStore()

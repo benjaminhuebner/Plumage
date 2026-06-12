@@ -9,17 +9,32 @@ struct SidebarItemRow<Icon: View>: View {
     @ViewBuilder var icon: () -> Icon
 
     @State private var isHovering = false
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    // Semantic, not .white: the system colors adapt to accent/contrast
+    // settings and to the window losing key state.
+    private var selectedContentStyle: AnyShapeStyle {
+        controlActiveState == .key
+            ? AnyShapeStyle(Color(nsColor: .alternateSelectedControlTextColor))
+            : AnyShapeStyle(.primary)
+    }
+
+    private var selectionFill: Color {
+        controlActiveState == .key
+            ? Color(nsColor: .selectedContentBackgroundColor)
+            : Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    }
 
     var body: some View {
         HStack(spacing: 7) {
             icon()
                 .foregroundStyle(
-                    isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(Color.accentColor)
+                    isSelected ? selectedContentStyle : AnyShapeStyle(Color.accentColor)
                 )
                 .frame(width: 18, height: 18)
             Text(title)
                 .lineLimit(1)
-                .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                .foregroundStyle(isSelected ? selectedContentStyle : AnyShapeStyle(.primary))
         }
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -27,7 +42,7 @@ struct SidebarItemRow<Icon: View>: View {
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(.selection)
+                    .fill(selectionFill)
             } else if hoverEnabled && isHovering {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(.quaternary.opacity(0.6))

@@ -13,8 +13,7 @@ enum TemplateArchivePanels {
         panel.allowedContentTypes = [TemplateArchiveFileType.utType]
         panel.canCreateDirectories = true
         panel.prompt = "Export"
-        guard let window = NSApp.keyWindow else { return }
-        panel.beginSheetModal(for: window) { response in
+        present(panel) { response in
             guard response == .OK, let url = panel.url else { return }
             Task { await model.export(selection, to: url) }
         }
@@ -29,10 +28,23 @@ enum TemplateArchivePanels {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [TemplateArchiveFileType.utType]
         panel.prompt = "Import"
-        guard let window = NSApp.keyWindow else { return }
-        panel.beginSheetModal(for: window) { response in
+        present(panel) { response in
             guard response == .OK, let url = panel.url else { return }
             Task { await model.beginImport(fromArchive: url) }
+        }
+    }
+
+    // No key window (e.g. the click closed a popover mid-transition) must not
+    // swallow the action — fall back to any visible window, then app-modal.
+    private static func present(
+        _ panel: NSSavePanel, completion: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        let window =
+            NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
         }
     }
 }

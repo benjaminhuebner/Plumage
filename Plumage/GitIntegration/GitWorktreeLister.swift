@@ -5,11 +5,11 @@ nonisolated struct GitWorktree: Equatable, Sendable {
     let branch: String?
 }
 
-nonisolated enum GitWorktreeListError: Error, Sendable, Equatable {
+nonisolated enum GitWorktreeListError: LocalizedError, Sendable, Equatable {
     case gitNotFound
     case listFailed(stderr: String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"

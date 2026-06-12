@@ -21,10 +21,13 @@ nonisolated enum SettingsHookMerge {
             let generatedHooks = generatedObj["hooks"] as? [String: [[String: Any]]]
         else { return .unchanged }
 
-        let existingCommands = commandSet(in: existingObj["hooks"] as? [String: Any] ?? [:])
+        let existingHooks = existingObj["hooks"] as? [String: Any] ?? [:]
         var missingByEvent: [(event: String, groups: [[String: Any]])] = []
         var addedCommands: [String] = []
         for event in generatedHooks.keys.sorted() {
+            // Dedup per event: the same command under a different event is a
+            // distinct wiring, not a duplicate.
+            let existingCommands = commandSet(forEvent: existingHooks[event])
             let missing = (generatedHooks[event] ?? []).filter { group in
                 let commands = commands(in: group)
                 return !commands.isEmpty && commands.allSatisfy { !existingCommands.contains($0) }
@@ -38,11 +41,9 @@ nonisolated enum SettingsHookMerge {
         return .merged(merged, addedCommands: addedCommands)
     }
 
-    private static func commandSet(in hooks: [String: Any]) -> Set<String> {
+    private static func commandSet(forEvent value: Any?) -> Set<String> {
         var result: Set<String> = []
-        for value in hooks.values {
-            for group in value as? [[String: Any]] ?? [] { result.formUnion(commands(in: group)) }
-        }
+        for group in value as? [[String: Any]] ?? [] { result.formUnion(commands(in: group)) }
         return result
     }
 

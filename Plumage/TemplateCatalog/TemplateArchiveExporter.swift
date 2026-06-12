@@ -7,11 +7,11 @@ nonisolated enum TemplateArchiveSelection: Equatable, Sendable {
     case fullCatalog
 }
 
-nonisolated enum TemplateArchiveExportError: Error, Equatable {
+nonisolated enum TemplateArchiveExportError: LocalizedError, Equatable {
     case unknownItem(String)
     case missingImageFile(String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .unknownItem(let id):
             return "Can't export \"\(id)\": the item no longer exists."

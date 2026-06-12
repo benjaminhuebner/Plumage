@@ -27,4 +27,14 @@ final class WorkflowCommandTextView: NSTextView {
         // also offer RTF/RTFD types which Cmd-C prefers when present.
         [.string]
     }
+
+    // VoiceOver reads attachment characters (U+FFFC) as silence — substitute
+    // the chips' serialized tokens so directives and placeholders are spoken.
+    override func accessibilityString(for range: NSRange) -> String? {
+        guard let storage = textStorage, NSMaxRange(range) <= storage.length else {
+            return super.accessibilityString(for: range)
+        }
+        return WorkflowCommandSerialization.string(
+            from: storage.attributedSubstring(from: range))
+    }
 }

@@ -10,7 +10,9 @@ enum DragEscapeMonitor {
     static func run(onEscape: @escaping @MainActor () -> Void) async {
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { @Sendable event in
             if event.keyCode == 53 {
-                Task { @MainActor in onEscape() }
+                // Local monitors fire on the main thread; a Task would defer
+                // the cancel past further queued drag events.
+                MainActor.assumeIsolated { onEscape() }
                 return nil
             }
             return event

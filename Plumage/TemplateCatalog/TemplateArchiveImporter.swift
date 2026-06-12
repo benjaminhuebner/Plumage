@@ -1,18 +1,22 @@
 import Foundation
 
-nonisolated enum TemplateArchiveImportError: Error, Equatable {
+nonisolated enum TemplateArchiveImportError: LocalizedError, Equatable {
     case invalidManifest(String)
     case newerSchema(found: Int, supported: Int)
+    case unknownKind(field: String, value: String)
     case missingImageFile(String)
     case unreferencedImage(String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .invalidManifest(let detail):
             return "Not a readable template archive: \(detail.prefix(200))"
         case .newerSchema(let found, let supported):
             return
                 "This export comes from a newer Plumage (archive format \(found), this app reads up to \(supported)). Update Plumage to import it."
+        case .unknownKind(let field, let value):
+            return
+                "This archive uses a \(field) (\"\(value)\") this Plumage doesn't know — likely exported by a newer Plumage. Update Plumage to import it."
         case .missingImageFile(let path):
             return "Archive rejected: it references the image \"\(path)\" but doesn't contain it."
         case .unreferencedImage(let path):
@@ -198,6 +202,8 @@ nonisolated struct TemplateArchiveImporter: Sendable {
             case .newerSchema(let found, let supported):
                 throw TemplateArchiveImportError.newerSchema(found: found, supported: supported)
             }
+        } catch let error as UnknownKindError {
+            throw TemplateArchiveImportError.unknownKind(field: error.field, value: error.value)
         } catch let error as DecodingError {
             throw TemplateArchiveImportError.invalidManifest(String(describing: error))
         } catch {

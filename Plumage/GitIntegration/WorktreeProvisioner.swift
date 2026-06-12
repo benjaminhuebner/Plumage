@@ -5,13 +5,16 @@ nonisolated struct WorktreeProvisionResult: Equatable, Sendable {
     let reusedExisting: Bool
 }
 
-nonisolated enum WorktreeProvisionError: Error, Sendable, Equatable {
+nonisolated enum WorktreeProvisionError: LocalizedError, Sendable, Equatable {
+    case unsafeSlug(String)
     case scriptMissing(path: String)
     case pathOccupied(path: String)
     case scriptFailed(message: String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
+        case .unsafeSlug(let slug):
+            return "Issue slug \"\(slug)\" is not safe to pass to the worktree setup script."
         case .scriptMissing(let path):
             return "Bundled setup-worktree.sh is missing at \(path) — the app bundle looks damaged."
         case .pathOccupied(let path):
@@ -51,6 +54,10 @@ nonisolated struct WorktreeProvisioner: Sendable {
     }
 
     func provision(slug: String, projectRoot: URL) async throws -> WorktreeProvisionResult {
+        // A crafted slug like "--init-file=…" would be parsed as a script option.
+        guard GitBranchName.isSafe(slug) else {
+            throw WorktreeProvisionError.unsafeSlug(slug)
+        }
         let target = Self.expectedWorktreeRoot(projectRoot: projectRoot, slug: slug)
 
         // The script refuses an existing target; a worktree of this repo at
