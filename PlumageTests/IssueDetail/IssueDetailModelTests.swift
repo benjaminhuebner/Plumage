@@ -273,6 +273,68 @@ struct IssueDetailModelTests {
         #expect(!model.isBodyDirty)
     }
 
+    // MARK: - Auto-save
+
+    @Test("rapid body edits coalesce into a single debounced write")
+    func autoSaveCoalesces() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let counter = CountingMutator()
+        let model = IssueDetailModel(
+            specURL: env.specURL,
+            folderName: "00001-test",
+            projectURL: env.tmpDir,
+            mutator: counter,
+            clock: { self.now }
+        )
+        await model.load()
+        // Only the last debounce survives; the flush performs exactly one write.
+        model.bodyDraft = "H"
+        model.scheduleAutoSave()
+        model.bodyDraft = "He"
+        model.scheduleAutoSave()
+        model.bodyDraft = "Hello, world."
+        model.scheduleAutoSave()
+        await model.autoSaveNow()
+
+        #expect(counter.bodyWrites == 1)
+        let written = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(written.contains("Hello, world."))
+        #expect(model.autoSaveStatus == .saved)
+    }
+
+    @Test("autoSaveNow flushes trailing keystrokes before close")
+    func autoSaveFlushPersistsTrailing() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        model.bodyDraft = "Edited just before close."
+        // No debounce wait — simulate close landing inside the 500ms window.
+        await model.autoSaveNow()
+
+        let written = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(written.contains("Edited just before close."))
+        #expect(!model.isBodyDirty)
+    }
+
+    @Test("auto-save pauses while an external-change conflict is unresolved")
+    func autoSavePausesUnderConflict() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        model.bodyDraft = "Mine, unsaved."
+        let disk = Self.baseSpec(status: "blocked", body: "External.")
+        await model.handleExternalChange(diskContent: disk)
+        #expect(model.conflict != nil)
+
+        await model.autoSaveNow()
+
+        let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(onDisk.contains("Hello."))
+        #expect(!onDisk.contains("Mine, unsaved."))
+        #expect(model.autoSaveStatus == .idle)
+        #expect(model.isBodyDirty)
+    }
+
     @Test("load mirrors parsed issue into drafts so the view has one source of truth")
     func loadSyncsDrafts() async throws {
         let env = try makeEnvironment(
@@ -1162,6 +1224,18 @@ private final class LayoutTestEnvironment {
 
     deinit {
         try? FileManager.default.removeItem(at: tmpDir)
+    }
+}
+
+// Wraps the real mutator but counts body writes, to prove the debounce coalesced.
+private final class CountingMutator: FrontmatterMutating, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _bodyWrites = 0
+    var bodyWrites: Int { lock.withLock { _bodyWrites } }
+
+    func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws {
+        if case .set = mutation.body { lock.withLock { _bodyWrites += 1 } }
+        try FrontmatterMutator.mutate(specURL: specURL, mutation: mutation, now: now)
     }
 }
 

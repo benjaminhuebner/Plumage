@@ -17,7 +17,6 @@ struct IssueDetailView: View {
     @State private var hasAppliedSmartDefaultTab: Bool = false
     @State private var pendingSaveAlert: SaveAlert?
     @State private var saveAlertVisible: Bool = false
-    @State private var pendingPopAction: (() -> Void)?
     // Cached focused-scene values: computing inline yields a new value per body
     // re-eval, which the focus system flags as "FocusedValue update tried to update
     // multiple times per frame". Snapshot via .onChange so identities stay stable.
@@ -93,10 +92,7 @@ struct IssueDetailView: View {
             // (the only unregister) can be skipped — strong would pin the model.
             QuitCoordinator.shared.register(quitFlushID) { [weak model] in
                 guard let model, !model.isCreating else { return }
-                // try? per buffer: errors are unactionable mid-quit and must
-                // not stop the other buffer's flush.
-                try? await model.saveBody()
-                try? await model.savePrompt()
+                await model.autoSaveNow()
             }
             refreshBackToBoardCache()
             guard !model.isCreating else { return }
@@ -111,9 +107,9 @@ struct IssueDetailView: View {
         .onChange(of: dismissToOrigin == nil) { _, _ in refreshBackToBoardCache() }
         .onChange(of: model.loadedSpecContent) { _, _ in refreshDirtyCache() }
         .onChange(of: model.loadedBodyContent) { _, _ in refreshDirtyCache() }
-        .onChange(of: model.bodyDraft) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.bodyDraft) { _, _ in handleEditorBufferChange() }
         .onChange(of: model.loadedPromptContent) { _, _ in refreshDirtyCache() }
-        .onChange(of: model.promptDraft) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.promptDraft) { _, _ in handleEditorBufferChange() }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
         .onChange(of: currentKanbanIssue) { _, current in
             model.observeKanban(currentIssue: current)
@@ -131,26 +127,22 @@ struct IssueDetailView: View {
             // Auto-save on background only applies in loaded mode. In creating
             // mode there is no disk state yet — Cmd-W / back-nav dismisses
             // without persisting (per spec: keine Disk-Spur).
-            if phase != .active && !model.isCreating { attemptSave() }
+            if phase != .active && !model.isCreating { flushAutoSaveNow() }
         }
         .alert(
             "Failed to save",
             isPresented: $saveAlertVisible,
             presenting: pendingSaveAlert
-        ) { alert in
-            switch alert.kind {
-            case .pop:
-                let popAction = pendingPopAction ?? { dismiss() }
-                Button("Try again") { Task { await attemptPop(endAction: popAction) } }
-                Button("Discard changes", role: .destructive) { popAction() }
-            case .saveOnly:
-                Button("OK", role: .cancel) {}
-            }
+        ) { _ in
+            Button("OK", role: .cancel) {}
         } message: { alert in
             Text(alert.message)
         }
         .onDisappear {
             QuitCoordinator.shared.unregister(quitFlushID)
+            // A sidebar route switch bypasses the pop flush; strong-capture so the
+            // trailing write completes as the view releases its @State.
+            Task { [model] in await model.autoSaveNow() }
             model.cancelPendingWork()
             diffTabModel?.stop()
         }
@@ -251,7 +243,7 @@ struct IssueDetailView: View {
             } catch IssueDetailModel.SaveError.emptyTitle {
                 // Gated by canSaveInCreatingMode; no alert needed.
             } catch {
-                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                presentSaveAlert(message: error.localizedDescription)
             }
         }
     }
@@ -273,9 +265,8 @@ struct IssueDetailView: View {
                 branch: branch,
                 showsCopyID: !model.isCreating,
                 isCreating: model.isCreating,
-                saveDisabled: saveDisabled,
-                onCopyID: model.copyIDToPasteboard,
-                onSave: attemptSave
+                autoSaveStatus: model.autoSaveStatus,
+                onCopyID: model.copyIDToPasteboard
             )
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
@@ -305,7 +296,7 @@ struct IssueDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 5)
             if !model.isCreating {
-                BodyTabPicker(selectedTab: $model.selectedBodyTab)
+                BodyTabPicker(selectedTab: bodyTabBinding)
                     .padding(.horizontal, 12)
             }
         }
@@ -456,11 +447,6 @@ struct IssueDetailView: View {
         return issue.branch
     }
 
-    private var saveDisabled: Bool {
-        if model.isCreating { return !model.canSaveInCreatingMode }
-        return false
-    }
-
     private var detailFieldsDisabled: Bool {
         if model.isCreating { return false }
         return model.frontmatterError != nil
@@ -526,6 +512,26 @@ struct IssueDetailView: View {
         if publishedDirtyFolderName != next {
             publishedDirtyFolderName = next
         }
+    }
+
+    private func handleEditorBufferChange() {
+        refreshDirtyCache()
+        model.scheduleAutoSave()
+    }
+
+    private func flushAutoSaveNow() {
+        Task { await model.autoSaveNow() }
+    }
+
+    // Flush the edited buffer before the selected tab changes away from it.
+    private var bodyTabBinding: Binding<BodyTab> {
+        Binding(
+            get: { model.selectedBodyTab },
+            set: { newTab in
+                flushAutoSaveNow()
+                model.selectedBodyTab = newTab
+            }
+        )
     }
 
     private func applySmartDefaultTabIfNeeded() {
@@ -603,27 +609,18 @@ struct IssueDetailView: View {
             do {
                 try await work()
             } catch {
-                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                presentSaveAlert(message: error.localizedDescription)
             }
         }
     }
 
     private func attemptSave() {
-        // Fire-and-forget: IssueDetailModel serializes overlapping save calls
-        // on its own pending chains, so a rapid double-click of Save just
-        // queues a no-op (guard-by-dirty) after the in-flight write finishes.
         if model.isCreating {
             guard model.canSaveInCreatingMode else { return }
             createAndNavigate()
             return
         }
-        Task {
-            do {
-                try await saveAllEditableTabs()
-            } catch {
-                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
-            }
-        }
+        flushAutoSaveNow()
     }
 
     private func saveAllEditableTabs() async throws {
@@ -644,7 +641,7 @@ struct IssueDetailView: View {
             do {
                 try await saveAllEditableTabs()
             } catch {
-                presentSaveAlert(message: error.localizedDescription, kind: .saveOnly)
+                presentSaveAlert(message: error.localizedDescription)
                 return
             }
             runWorkflow(action, folderName, currentType)
@@ -666,20 +663,14 @@ struct IssueDetailView: View {
             endAction()
             return
         }
-        do {
-            // Flush both editable tabs. saveAllEditableTabs runs both saves
-            // even if one fails, so a failing body save doesn't strand a
-            // dirty prompt buffer (or vice versa).
-            try await saveAllEditableTabs()
-            endAction()
-        } catch {
-            pendingPopAction = endAction
-            presentSaveAlert(message: error.localizedDescription, kind: .pop)
-        }
+        // Everything is already on disk via auto-save; flush the trailing
+        // keystrokes and close. A conflict is surfaced by the banner, not here.
+        await model.autoSaveNow()
+        endAction()
     }
 
-    private func presentSaveAlert(message: String, kind: SaveAlert.Kind) {
-        pendingSaveAlert = SaveAlert(message: message, kind: kind)
+    private func presentSaveAlert(message: String) {
+        pendingSaveAlert = SaveAlert(message: message)
         saveAlertVisible = true
     }
 }

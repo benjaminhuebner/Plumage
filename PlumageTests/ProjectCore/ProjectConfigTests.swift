@@ -182,4 +182,69 @@ struct ProjectConfigTests {
         let decoded = try JSONDecoder().decode(ProjectConfig.self, from: data)
         #expect(decoded == original)
     }
+
+    @Test("decodes efforts: uniform string and per-type object")
+    func effortsDecode() throws {
+        let json = """
+            {
+              "name": "Effort",
+              "schemaVersion": 2,
+              "efforts": {
+                "chat": "high",
+                "implement": { "feature": "max", "chore": "low" }
+              }
+            }
+            """
+        let data = try #require(json.data(using: .utf8))
+        let config = try JSONDecoder().decode(ProjectConfig.self, from: data)
+        let efforts = try #require(config.efforts)
+        #expect(efforts.chatResolved == .high)
+        #expect(efforts.terminalsResolved == .default)
+        #expect(efforts.workflowResolved(.implement, type: .feature) == .max)
+        #expect(efforts.workflowResolved(.implement, type: .chore) == .low)
+        #expect(efforts.workflowResolved(.implement, type: .spike) == .default)
+        #expect(efforts.workflowResolved(.plan, type: .feature) == .default)
+    }
+
+    @Test("absent efforts field decodes to nil and resolves to defaults")
+    func effortsAbsent() throws {
+        let json = """
+            {
+              "name": "NoEffort",
+              "schemaVersion": 2,
+              "issueIdPadding": 5
+            }
+            """
+        let data = try #require(json.data(using: .utf8))
+        let config = try JSONDecoder().decode(ProjectConfig.self, from: data)
+        #expect(config.efforts == nil)
+        let empty = EffortsConfig()
+        #expect(empty.chatResolved == .default)
+        #expect(empty.terminalsResolved == .default)
+        for slot in ModelSlot.allCases {
+            #expect(EffortsConfig.slotDefault(for: slot) == .default)
+        }
+    }
+
+    @Test("efforts round-trips through ProjectConfig")
+    func effortsRoundTrip() throws {
+        let original = ProjectConfig(
+            name: "RTE",
+            schemaVersion: 2,
+            issueIdPadding: 5,
+            git: nil,
+            workflows: nil,
+            models: nil,
+            efforts: EffortsConfig(
+                chat: .high, terminals: nil,
+                plan: .uniform(.max),
+                implement: .perType([
+                    .feature: .max, .chore: .low, .spike: .default, .refactor: .default,
+                ])
+            )
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ProjectConfig.self, from: data)
+        #expect(decoded == original)
+    }
 }

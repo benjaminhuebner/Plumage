@@ -14,7 +14,7 @@ nonisolated enum ConfigWriter {
     // agentTimeouts, minPlumageVersion, projectType, createdAt, …) is
     // preserved bit-exact — including external edits to keys like
     // `git.defaultBranch` that arrived between load and save.
-    static let writableKeys: Set<String> = ["workflows", "models"]
+    static let writableKeys: Set<String> = ["workflows", "models", "efforts"]
 
     static func write(_ config: ProjectConfig, atBundle bundle: URL) throws {
         // Read the on-disk JSON as a generic dictionary first so every key
@@ -29,6 +29,7 @@ nonisolated enum ConfigWriter {
         // `models`/`workflows` are explicitly out of contract).
         try overlay(key: "workflows", value: config.workflows, into: &rootObject)
         try overlay(key: "models", value: config.models, into: &rootObject)
+        try overlay(key: "efforts", value: config.efforts, into: &rootObject)
 
         try writeRootObject(rootObject, to: configURL)
     }

@@ -148,6 +148,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
         nsView.chromeActive = isVisible
+        // SwiftTerm focuses only in makeNSView; on a tab switch (isVisible
+        // false→true) re-grab focus, but never for a dead exited-session view.
+        if isVisible, !context.coordinator.wasVisible, !isExited {
+            nsView.window?.makeFirstResponder(nsView)
+        }
+        context.coordinator.wasVisible = isVisible
         if context.coordinator.lastColorScheme != colorScheme {
             context.coordinator.lastColorScheme = colorScheme
             nsView.nativeBackgroundColor = .clear
@@ -186,6 +192,11 @@ private struct SwiftTermBridge: NSViewRepresentable {
         nsView.removeShiftEnterMonitor()
         nsView.removeMouseFocusMonitor()
         nsView.terminate()
+    }
+
+    private var isExited: Bool {
+        if case .exited = session.state { return true }
+        return false
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(session: session) }
@@ -233,6 +244,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         weak var session: TerminalClaudeSession?
         var lastColorScheme: ColorScheme?
         var markStartedTask: Task<Void, Never>?
+        var wasVisible = false
 
         init(session: TerminalClaudeSession) {
             self.session = session

@@ -182,20 +182,26 @@ struct ProjectWindow: View {
                 }
                 let chatModel =
                     initialConfig?.models?.chat ?? ModelsConfig.chatDefault
+                let chatEffort =
+                    initialConfig?.efforts?.chat ?? EffortsConfig.chatDefault
                 let terminalsModel =
                     initialConfig?.models?.terminals ?? ModelsConfig.terminalsDefault
+                let terminalsEffort =
+                    initialConfig?.efforts?.terminals ?? EffortsConfig.terminalsDefault
                 // Re-resolve the bundle for the (possibly new) handle — the
                 // window may have been reused for a different project.
                 let stateDirectory = Self.resolveStateDirectory(for: handle.url)
                 session = ClaudeSession.rebuilt(
                     for: handle.url, replacing: session,
-                    stateDirectory: stateDirectory, modelChoice: chatModel
+                    stateDirectory: stateDirectory, modelChoice: chatModel,
+                    effortChoice: chatEffort
                 )
                 // Window reused for a different handle, OR the terminals
                 // model preference changed in config: rebuild the tabs model
                 // so the next-spawned default tab uses the right model.
                 if terminalTabs.cwd != handle.url
                     || terminalTabs.mainSession.modelChoice != terminalsModel
+                    || terminalTabs.mainSession.effortChoice != terminalsEffort
                 {
                     terminalTabs.stopAll()
                     let newBinary =
@@ -205,16 +211,19 @@ struct ProjectWindow: View {
                         cwd: handle.url, binaryURL: newBinary,
                         stateDirectory: stateDirectory,
                         modelChoice: terminalsModel,
+                        effortChoice: terminalsEffort,
                         persistConversationID: false
                     )
                     terminalTabs = TerminalTabsModel(
                         cwd: handle.url,
                         binaryURL: newBinary,
                         initialSession: newInitial,
-                        modelsConfig: initialConfig?.models
+                        modelsConfig: initialConfig?.models,
+                        effortsConfig: initialConfig?.efforts
                     )
                 } else {
                     terminalTabs.modelsConfig = initialConfig?.models
+                    terminalTabs.effortsConfig = initialConfig?.efforts
                 }
                 // Chat shares the claude log dir with terminal; without this
                 // exclude the terminal's reconcile would adopt chat's session
@@ -492,6 +501,7 @@ struct ProjectWindow: View {
                     // immediately, without waiting for a window reopen.
                     model.setLoaded(saved)
                     terminalTabs.modelsConfig = saved.models
+                    terminalTabs.effortsConfig = saved.efforts
                 }
                 .environment(\.onProjectRenamed) { config, newBundle in
                     // Live re-wire after a rename. The bundle folder moved but

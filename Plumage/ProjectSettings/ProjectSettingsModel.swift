@@ -52,6 +52,14 @@ final class ProjectSettingsModel {
         ProjectSettingsModel.uniformWorkflowModels(.implementAction)
     var reviewModels: [IssueType: ModelChoice] =
         ProjectSettingsModel.uniformWorkflowModels(.reviewAction)
+    var chatEffort: EffortLevel = EffortsConfig.chatDefault
+    var terminalsEffort: EffortLevel = EffortsConfig.terminalsDefault
+    var planEfforts: [IssueType: EffortLevel] =
+        ProjectSettingsModel.uniformWorkflowEfforts(.planAction)
+    var implementEfforts: [IssueType: EffortLevel] =
+        ProjectSettingsModel.uniformWorkflowEfforts(.implementAction)
+    var reviewEfforts: [IssueType: EffortLevel] =
+        ProjectSettingsModel.uniformWorkflowEfforts(.reviewAction)
 
     enum LoadState: Sendable, Equatable {
         case loading
@@ -143,6 +151,11 @@ final class ProjectSettingsModel {
         planModels = Self.workflowModels(from: config.models?.plan, slot: .planAction)
         implementModels = Self.workflowModels(from: config.models?.implement, slot: .implementAction)
         reviewModels = Self.workflowModels(from: config.models?.review, slot: .reviewAction)
+        chatEffort = config.efforts?.chat ?? EffortsConfig.chatDefault
+        terminalsEffort = config.efforts?.terminals ?? EffortsConfig.terminalsDefault
+        planEfforts = Self.workflowEfforts(from: config.efforts?.plan, slot: .planAction)
+        implementEfforts = Self.workflowEfforts(from: config.efforts?.implement, slot: .implementAction)
+        reviewEfforts = Self.workflowEfforts(from: config.efforts?.review, slot: .reviewAction)
     }
 
     private static func uniformWorkflowModels(_ slot: ModelSlot) -> [IssueType: ModelChoice] {
@@ -154,6 +167,21 @@ final class ProjectSettingsModel {
         from setting: WorkflowModelSetting?, slot: ModelSlot
     ) -> [IssueType: ModelChoice] {
         let fallback = ModelsConfig.slotDefault(for: slot)
+        return Dictionary(
+            uniqueKeysWithValues: IssueType.allCases.map {
+                ($0, setting?.choice(for: $0) ?? fallback)
+            })
+    }
+
+    private static func uniformWorkflowEfforts(_ slot: ModelSlot) -> [IssueType: EffortLevel] {
+        let value = EffortsConfig.slotDefault(for: slot)
+        return Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
+    }
+
+    private static func workflowEfforts(
+        from setting: WorkflowEffortSetting?, slot: ModelSlot
+    ) -> [IssueType: EffortLevel] {
+        let fallback = EffortsConfig.slotDefault(for: slot)
         return Dictionary(
             uniqueKeysWithValues: IssueType.allCases.map {
                 ($0, setting?.choice(for: $0) ?? fallback)
@@ -327,6 +355,79 @@ final class ProjectSettingsModel {
         Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
     }
 
+    func effortBinding(for slot: ModelSlot) -> Binding<EffortLevel> {
+        Binding(
+            get: { self.effort(for: slot) },
+            set: { self.setEffort($0, for: slot) }
+        )
+    }
+
+    func effort(for slot: ModelSlot) -> EffortLevel {
+        switch slot {
+        case .chat: chatEffort
+        case .terminals: terminalsEffort
+        case .planAction, .implementAction, .reviewAction:
+            uniformWorkflowEffort(for: slot) ?? EffortsConfig.slotDefault(for: slot)
+        }
+    }
+
+    func setEffort(_ value: EffortLevel, for slot: ModelSlot) {
+        guard canEdit else { return }
+        switch slot {
+        case .chat: chatEffort = value
+        case .terminals: terminalsEffort = value
+        case .planAction, .implementAction, .reviewAction:
+            setWorkflowEfforts(Self.uniformEffort(value), for: slot)
+        }
+        scheduleSave()
+    }
+
+    func workflowEfforts(for slot: ModelSlot) -> [IssueType: EffortLevel] {
+        switch slot {
+        case .planAction: planEfforts
+        case .implementAction: implementEfforts
+        case .reviewAction: reviewEfforts
+        case .chat, .terminals: [:]
+        }
+    }
+
+    func isWorkflowEffortMixed(_ slot: ModelSlot) -> Bool {
+        Set(workflowEfforts(for: slot).values).count > 1
+    }
+
+    func uniformWorkflowEffort(for slot: ModelSlot) -> EffortLevel? {
+        let values = Set(workflowEfforts(for: slot).values)
+        return values.count == 1 ? values.first : nil
+    }
+
+    func workflowEffortBinding(for slot: ModelSlot, type: IssueType) -> Binding<EffortLevel> {
+        Binding(
+            get: { self.workflowEfforts(for: slot)[type] ?? EffortsConfig.slotDefault(for: slot) },
+            set: { self.setWorkflowEffort($0, for: slot, type: type) }
+        )
+    }
+
+    func setWorkflowEffort(_ value: EffortLevel, for slot: ModelSlot, type: IssueType) {
+        guard canEdit else { return }
+        var efforts = workflowEfforts(for: slot)
+        efforts[type] = value
+        setWorkflowEfforts(efforts, for: slot)
+        scheduleSave()
+    }
+
+    private func setWorkflowEfforts(_ efforts: [IssueType: EffortLevel], for slot: ModelSlot) {
+        switch slot {
+        case .planAction: planEfforts = efforts
+        case .implementAction: implementEfforts = efforts
+        case .reviewAction: reviewEfforts = efforts
+        case .chat, .terminals: break
+        }
+    }
+
+    private static func uniformEffort(_ value: EffortLevel) -> [IssueType: EffortLevel] {
+        Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
+    }
+
     // Public for ProjectSettingsView's onChange driver — every field bound
     // via @Bindable funnels through this.
     func scheduleSave() {
@@ -488,6 +589,14 @@ final class ProjectSettingsModel {
             review: workflowSetting(reviewModels, slot: .reviewAction)
         )
         if copy.models == ModelsConfig() { copy.models = nil }
+        copy.efforts = EffortsConfig(
+            chat: nilIfEffortSlotDefault(chatEffort, slot: .chat),
+            terminals: nilIfEffortSlotDefault(terminalsEffort, slot: .terminals),
+            plan: workflowEffortSetting(planEfforts, slot: .planAction),
+            implement: workflowEffortSetting(implementEfforts, slot: .implementAction),
+            review: workflowEffortSetting(reviewEfforts, slot: .reviewAction)
+        )
+        if copy.efforts == EffortsConfig() { copy.efforts = nil }
         return copy
     }
 
@@ -514,6 +623,18 @@ final class ProjectSettingsModel {
     ) -> WorkflowModelSetting? {
         let normalized = WorkflowModelSetting.perType(models).normalized
         if normalized == .uniform(ModelsConfig.slotDefault(for: slot)) { return nil }
+        return normalized
+    }
+
+    private func nilIfEffortSlotDefault(_ level: EffortLevel, slot: ModelSlot) -> EffortLevel? {
+        level == EffortsConfig.slotDefault(for: slot) ? nil : level
+    }
+
+    private func workflowEffortSetting(
+        _ efforts: [IssueType: EffortLevel], slot: ModelSlot
+    ) -> WorkflowEffortSetting? {
+        let normalized = WorkflowEffortSetting.perType(efforts).normalized
+        if normalized == .uniform(EffortsConfig.slotDefault(for: slot)) { return nil }
         return normalized
     }
 }

@@ -44,6 +44,7 @@ final class ClaudeSession {
     let cwd: URL
     let binaryURL: URL
     let modelChoice: ModelChoice
+    let effortChoice: EffortLevel
     private let autoSpawn: Bool
     private let sessionLogRoot: URL
     // var, not let: a project rename moves the bundle folder, so the
@@ -73,6 +74,7 @@ final class ClaudeSession {
         binaryURL: URL,
         stateDirectory: URL,
         modelChoice: ModelChoice = .default,
+        effortChoice: EffortLevel = .default,
         autoSpawn: Bool = true,
         sessionLogRoot: URL? = nil,
         sessionIDStoreOverride: URL? = nil,
@@ -81,6 +83,7 @@ final class ClaudeSession {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.modelChoice = modelChoice
+        self.effortChoice = effortChoice
         self.autoSpawn = autoSpawn
         self.rehydrationCap = rehydrationCap
         self.sessionLogRoot =
@@ -140,17 +143,23 @@ final class ClaudeSession {
         for handleURL: URL,
         replacing prior: ClaudeSession,
         stateDirectory: URL,
-        modelChoice: ModelChoice? = nil
+        modelChoice: ModelChoice? = nil,
+        effortChoice: EffortLevel? = nil
     ) -> ClaudeSession {
         let newChoice = modelChoice ?? prior.modelChoice
-        if prior.cwd == handleURL && prior.modelChoice == newChoice { return prior }
+        let newEffort = effortChoice ?? prior.effortChoice
+        if prior.cwd == handleURL && prior.modelChoice == newChoice
+            && prior.effortChoice == newEffort
+        {
+            return prior
+        }
         prior.stop()
         let binary =
             (try? ProductionProcessRunner.locateBinary())
             ?? URL(filePath: "/dev/null")
         return ClaudeSession(
             cwd: handleURL, binaryURL: binary, stateDirectory: stateDirectory,
-            modelChoice: newChoice)
+            modelChoice: newChoice, effortChoice: newEffort)
     }
 
     // Repoint persistence after a bundle rename: the folder moved atomically with
@@ -539,7 +548,7 @@ final class ClaudeSession {
                 "--input-format", "stream-json",
                 "--output-format", "stream-json",
                 "--verbose",
-            ] + resumeOrInitArgs() + modelChoice.cliArg
+            ] + resumeOrInitArgs() + modelChoice.cliArg + effortChoice.cliArg
         newProcess.standardInput = stdinPipe
         newProcess.standardOutput = stdoutPipe
         newProcess.standardError = FileHandle.nullDevice

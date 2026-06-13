@@ -5,9 +5,8 @@ struct IssueDetailTopBar: View {
     let branch: String?
     let showsCopyID: Bool
     let isCreating: Bool
-    let saveDisabled: Bool
+    let autoSaveStatus: IssueDetailModel.AutoSaveStatus
     let onCopyID: () -> Void
-    let onSave: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -34,14 +33,29 @@ struct IssueDetailTopBar: View {
                     .help("Copy folder name to clipboard")
             }
             if !isCreating {
-                Button("Save", systemImage: "square.and.arrow.down", action: onSave)
-                    .help("Save changes (⌘S)")
-                    .disabled(saveDisabled)
+                autoSaveBadge
             }
         }
         .buttonStyle(.borderless)
         .labelStyle(.titleAndIcon)
         .font(.caption)
+    }
+
+    @ViewBuilder
+    private var autoSaveBadge: some View {
+        switch autoSaveStatus {
+        case .saving:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("Saving…")
+            }
+            .foregroundStyle(.secondary)
+        case .saved:
+            Label("Saved", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .idle:
+            EmptyView()
+        }
     }
 }
 
@@ -51,9 +65,8 @@ struct IssueDetailTopBar: View {
         branch: "issue/00041-card-body-tabs",
         showsCopyID: true,
         isCreating: false,
-        saveDisabled: false,
-        onCopyID: {},
-        onSave: {}
+        autoSaveStatus: .saved,
+        onCopyID: {}
     )
     .padding()
     .frame(width: 800)

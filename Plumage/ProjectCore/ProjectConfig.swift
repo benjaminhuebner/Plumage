@@ -7,6 +7,7 @@ nonisolated struct ProjectConfig: Codable, Hashable, Sendable {
     let git: GitConfig?
     var workflows: WorkflowsConfig?
     var models: ModelsConfig?
+    var efforts: EffortsConfig?
 
     var gitDefaultBranch: String {
         git?.defaultBranch ?? "main"
@@ -130,6 +131,46 @@ nonisolated enum ModelSlot: Sendable, Hashable, CaseIterable {
         case .planAction: "Plan Button"
         case .implementAction: "Implement Button"
         case .reviewAction: "Review Button"
+        }
+    }
+}
+
+nonisolated struct EffortsConfig: Codable, Hashable, Sendable {
+    var chat: EffortLevel?
+    var terminals: EffortLevel?
+    var plan: WorkflowEffortSetting?
+    var implement: WorkflowEffortSetting?
+    var review: WorkflowEffortSetting?
+
+    // Every slot defaults to .default → no --effort flag, claude's own default.
+    static let chatDefault: EffortLevel = .default
+    static let terminalsDefault: EffortLevel = .default
+    static let planDefault: EffortLevel = .default
+    static let implementDefault: EffortLevel = .default
+    static let reviewDefault: EffortLevel = .default
+
+    func workflow(_ action: WorkflowAction) -> WorkflowEffortSetting? {
+        switch action {
+        case .plan: return plan
+        case .implement: return implement
+        case .review: return review
+        }
+    }
+
+    var chatResolved: EffortLevel { chat ?? Self.chatDefault }
+    var terminalsResolved: EffortLevel { terminals ?? Self.terminalsDefault }
+
+    func workflowResolved(_ action: WorkflowAction, type: IssueType) -> EffortLevel {
+        workflow(action)?.choice(for: type) ?? Self.slotDefault(for: action.modelSlot)
+    }
+
+    static func slotDefault(for slot: ModelSlot) -> EffortLevel {
+        switch slot {
+        case .chat: chatDefault
+        case .terminals: terminalsDefault
+        case .planAction: planDefault
+        case .implementAction: implementDefault
+        case .reviewAction: reviewDefault
         }
     }
 }

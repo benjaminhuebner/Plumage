@@ -27,6 +27,7 @@ struct ProjectSettingsView: View {
                     workflowCommandsSection
                     workflowModesSection
                     modelsSection
+                    effortSection
                 }
                 Spacer(minLength: 32)
             }
@@ -316,6 +317,35 @@ struct ProjectSettingsView: View {
                     )
                 case .planAction, .implementAction, .reviewAction:
                     WorkflowModelPickerRow(slot: slot, model: model)
+                }
+            }
+            Label(
+                "Changes only apply to new sessions and tabs.",
+                systemImage: "info.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 6)
+        }
+    }
+
+    @ViewBuilder
+    private var effortSection: some View {
+        sectionHeader(
+            title: "Effort",
+            description:
+                "Reasoning effort per session type. Default passes no flag — claude's own default."
+        )
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(ModelSlot.allCases, id: \.self) { slot in
+                switch slot {
+                case .chat, .terminals:
+                    EffortPickerRow(
+                        label: slot.label,
+                        choice: model.effortBinding(for: slot)
+                    )
+                case .planAction, .implementAction, .reviewAction:
+                    WorkflowEffortPickerRow(slot: slot, model: model)
                 }
             }
             Label(

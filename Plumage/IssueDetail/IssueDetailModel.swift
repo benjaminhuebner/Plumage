@@ -26,6 +26,12 @@ final class IssueDetailModel {
         case loaded(folderName: String)
     }
 
+    enum AutoSaveStatus: Equatable, Sendable {
+        case idle
+        case saving
+        case saved
+    }
+
     private(set) var kind: Kind
     private(set) var specURL: URL?
     let projectURL: URL?
@@ -46,6 +52,7 @@ final class IssueDetailModel {
 
     private(set) var issue: Issue?
     private(set) var loadState: LoadState = .idle
+    private(set) var autoSaveStatus: AutoSaveStatus = .idle
     private(set) var loadedSpecContent: String = ""
     private(set) var loadedBodyContent: String = ""
     var bodyDraft: String = ""
@@ -82,6 +89,11 @@ final class IssueDetailModel {
     private var pendingPromptSave: Task<Void, Error>?
     private var observeTask: Task<Void, Never>?
 
+    // Writes go through saveBody()/savePrompt() so their in-flight
+    // serialization and the external-change conflict guard still hold.
+    static let autoSaveDebounce: Duration = .milliseconds(500)
+    private var pendingAutoSave: Task<Void, Never>?
+
     // Cancels the in-flight save chain and kanban observation so state mutations
     // that would land on a popped view stop firing. The inner synchronous mutator
     // has no cancellation point — an in-progress disk write still completes (autosave semantics).
@@ -92,6 +104,8 @@ final class IssueDetailModel {
         pendingBodySave = nil
         pendingPromptSave?.cancel()
         pendingPromptSave = nil
+        pendingAutoSave?.cancel()
+        pendingAutoSave = nil
         observeTask?.cancel()
         observeTask = nil
     }
@@ -194,6 +208,7 @@ final class IssueDetailModel {
         pendingFormWrite?.cancel()
         pendingBodySave?.cancel()
         pendingPromptSave?.cancel()
+        pendingAutoSave?.cancel()
         observeTask?.cancel()
     }
 
@@ -631,8 +646,43 @@ final class IssueDetailModel {
 
         if let normalized = await readNormalized(url) {
             lastWrittenContent = normalized
+            // Auto-save fires mid-edit; applyLoaded would snap bodyDraft back to
+            // the written content and drop keystrokes typed during the write.
+            let preservedBodyDraft = bodyDraft
             applyLoaded(content: normalized)
+            if preservedBodyDraft != bodyDraft { bodyDraft = preservedBodyDraft }
         }
+    }
+
+    func scheduleAutoSave() {
+        guard !isCreating else { return }
+        pendingAutoSave?.cancel()
+        // Clear a stale "Saved" badge while the user is mid-edit.
+        autoSaveStatus = .idle
+        pendingAutoSave = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.autoSaveDebounce)
+            guard !Task.isCancelled else { return }
+            await self?.performAutoSave()
+        }
+    }
+
+    func autoSaveNow() async {
+        pendingAutoSave?.cancel()
+        pendingAutoSave = nil
+        await performAutoSave()
+    }
+
+    private func performAutoSave() async {
+        guard !isCreating else { return }
+        // A blind write under an unresolved conflict would clobber the disk copy.
+        if case .externalChange = conflict { return }
+        // Skip a no-op debounce so it doesn't churn the badge.
+        guard isBodyDirty || isPromptDirty else { return }
+        autoSaveStatus = .saving
+        var didFail = false
+        do { try await saveBody() } catch { didFail = true }
+        do { try await savePrompt() } catch { didFail = true }
+        autoSaveStatus = didFail ? .idle : .saved
     }
 
     var isPromptDirty: Bool { promptDraft != loadedPromptContent }

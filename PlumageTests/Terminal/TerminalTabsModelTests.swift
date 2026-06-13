@@ -418,6 +418,63 @@ struct TerminalTabsModelTests {
         #expect(wf.session.modelChoice == ModelsConfig.implementDefault)
     }
 
+    // MARK: - Efforts config threading
+
+    @Test("addTab picks up efforts.terminals from current config")
+    func addTabUsesTerminalsEffort() {
+        let model = makeModel()
+        model.effortsConfig = EffortsConfig(terminals: .high)
+        model.addTab()
+        #expect(model.tabs.last?.session.effortChoice == .high)
+    }
+
+    @Test("addWorkflowTab picks up efforts.<action> per workflow")
+    func addWorkflowTabUsesWorkflowEffort() {
+        let model = makeModel()
+        model.effortsConfig = EffortsConfig(
+            plan: .uniform(.high), implement: .uniform(.max), review: .uniform(.low)
+        )
+        let plan = model.addWorkflowTab(action: .plan, slug: "x", type: .feature)
+        let impl = model.addWorkflowTab(action: .implement, slug: "x", type: .feature)
+        let rev = model.addWorkflowTab(action: .review, slug: "x", type: .feature)
+        #expect(plan.session.effortChoice == .high)
+        #expect(impl.session.effortChoice == .max)
+        #expect(rev.session.effortChoice == .low)
+    }
+
+    @Test("addWorkflowTab resolves a per-type effort from the issue type")
+    func addWorkflowTabResolvesPerTypeEffort() {
+        let model = makeModel()
+        model.effortsConfig = EffortsConfig(
+            implement: .perType([.feature: .max, .chore: .low])
+        )
+        let feature = model.addWorkflowTab(action: .implement, slug: "a", type: .feature)
+        let chore = model.addWorkflowTab(action: .implement, slug: "b", type: .chore)
+        let spike = model.addWorkflowTab(action: .implement, slug: "c", type: .spike)
+        #expect(feature.session.effortChoice == .max)
+        #expect(chore.session.effortChoice == .low)
+        #expect(spike.session.effortChoice == .default)
+    }
+
+    @Test("per-type effort carries into the spawned session args")
+    func perTypeEffortReachesSpawnArgs() {
+        let model = makeModel()
+        model.effortsConfig = EffortsConfig(implement: .perType([.feature: .max, .chore: .low]))
+        let tab = model.addWorkflowTab(action: .implement, slug: "x", type: .chore)
+        let cmd = tab.session.shellSpawnArgs()[1]
+        #expect(cmd.contains("'--effort' 'low'"))
+    }
+
+    @Test("missing effortsConfig falls back to slot defaults (no flag)")
+    func defaultEffortFallback() {
+        let model = makeModel()
+        model.effortsConfig = nil
+        model.addTab()
+        let wf = model.addWorkflowTab(action: .implement, slug: "x", type: .feature)
+        #expect(model.tabs.last?.session.effortChoice == EffortsConfig.terminalsDefault)
+        #expect(wf.session.effortChoice == EffortsConfig.implementDefault)
+    }
+
     // MARK: - Helpers
 
     private func makeModel(

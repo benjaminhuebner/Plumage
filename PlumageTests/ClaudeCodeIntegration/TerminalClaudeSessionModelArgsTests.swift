@@ -61,4 +61,38 @@ struct TerminalClaudeSessionModelArgsTests {
         #expect(joined.contains("'--permission-mode' 'plan'"))
         #expect(joined.contains("'--model' 'opus'"))
     }
+
+    private func makeSession(model: ModelChoice, effort: EffortLevel) -> TerminalClaudeSession {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TCSEffort-\(UUID().uuidString)", isDirectory: true)
+        return TerminalClaudeSession(
+            cwd: tmp,
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            modelChoice: model,
+            effortChoice: effort,
+            persistConversationID: false
+        )
+    }
+
+    @Test("default effort adds no --effort flag")
+    func defaultEffortOmitsFlag() {
+        let joined = makeSession(model: .default, effort: .default).shellSpawnArgs()
+            .joined(separator: " ")
+        #expect(!joined.contains("--effort"))
+    }
+
+    @Test("a non-default effort injects --effort <level>")
+    func effortInjects() {
+        let joined = makeSession(model: .default, effort: .max).shellSpawnArgs()
+            .joined(separator: " ")
+        #expect(joined.contains("'--effort' 'max'"))
+    }
+
+    @Test("model and effort coexist in the spawn args")
+    func modelAndEffortCoexist() {
+        let joined = makeSession(model: .opus, effort: .high).shellSpawnArgs()
+            .joined(separator: " ")
+        #expect(joined.contains("'--model' 'opus'"))
+        #expect(joined.contains("'--effort' 'high'"))
+    }
 }

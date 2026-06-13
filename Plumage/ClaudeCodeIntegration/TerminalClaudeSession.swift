@@ -14,6 +14,7 @@ final class TerminalClaudeSession {
     let cwd: URL
     let binaryURL: URL
     let modelChoice: ModelChoice
+    let effortChoice: EffortLevel
     // nil disables disk persistence — additional tabs pass persistConversationID:
     // false so each gets a fresh UUID without touching the on-disk pointer. When a
     // tab does persist, the store lives under the bundle's `sessions/`, mirroring ClaudeSession.
@@ -54,6 +55,7 @@ final class TerminalClaudeSession {
         binaryURL: URL,
         stateDirectory: URL? = nil,
         modelChoice: ModelChoice = .default,
+        effortChoice: EffortLevel = .default,
         sessionIDStoreOverride: URL? = nil,
         sessionLogRoot: URL? = nil,
         excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] },
@@ -63,6 +65,7 @@ final class TerminalClaudeSession {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.modelChoice = modelChoice
+        self.effortChoice = effortChoice
         self.permissionMode = permissionMode
         if persistConversationID {
             let resolved =
@@ -281,6 +284,7 @@ final class TerminalClaudeSession {
             args += ["--permission-mode", permissionMode.rawCLIValue]
         }
         args += modelChoice.cliArg
+        args += effortChoice.cliArg
         // cwd, binary, and every attach arg go through the SAME validated quoting —
         // no value enters the `/bin/sh -c` string without an isShellSafe check, so
         // validation isn't split between here and the call site.

@@ -361,6 +361,78 @@ struct ProjectSettingsModelTests {
         let reloaded = try ConfigLoader.load(at: project)
         #expect(reloaded.workflows?.plan?.command == "/abc")
     }
+
+    @Test("setEffort triggers debounced write that lands on disk")
+    func setEffortDebouncedWrite() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        model.setEffort(.high, for: .chat)
+        await model.saveNow()
+
+        #expect(try ConfigLoader.load(at: project).efforts?.chat == .high)
+    }
+
+    @Test("effort at slot default elides the override from disk")
+    func effortSlotDefaultElides() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        model.setEffort(.max, for: .terminals)
+        await model.saveNow()
+        #expect(try ConfigLoader.load(at: project).efforts?.terminals == .max)
+
+        model.setEffort(EffortsConfig.terminalsDefault, for: .terminals)
+        await model.saveNow()
+        #expect(try ConfigLoader.load(at: project).efforts?.terminals == nil)
+    }
+
+    @Test("per-type effort pick persists the object form and flips mixed")
+    func perTypeEffortPersists() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        #expect(!model.isWorkflowEffortMixed(.implementAction))
+
+        model.setWorkflowEffort(.max, for: .implementAction, type: .feature)
+        #expect(model.isWorkflowEffortMixed(.implementAction))
+        #expect(model.uniformWorkflowEffort(for: .implementAction) == nil)
+        await model.saveNow()
+
+        #expect(
+            try ConfigLoader.load(at: project).efforts?.implement
+                == .perType([
+                    .feature: .max, .chore: .default, .spike: .default, .refactor: .default,
+                ]))
+    }
+
+    @Test("load seeds per-type efforts from a mixed config object")
+    func loadSeedsPerTypeEfforts() async throws {
+        let config = """
+            {
+              "schemaVersion": 2,
+              "name": "Sample",
+              "efforts": {
+                "implement": { "feature": "max", "chore": "low" }
+              }
+            }
+            """
+        let project = try TempProject.make(content: config)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        #expect(model.isWorkflowEffortMixed(.implementAction))
+        #expect(model.workflowEfforts(for: .implementAction)[.feature] == .max)
+        #expect(model.workflowEfforts(for: .implementAction)[.chore] == .low)
+        #expect(model.workflowEfforts(for: .implementAction)[.spike] == .default)
+    }
 }
 
 // @unchecked Sendable: the writer closure runs off MainActor since the

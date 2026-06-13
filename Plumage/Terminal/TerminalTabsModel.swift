@@ -14,6 +14,7 @@ final class TerminalTabsModel {
     // already-running tabs keep their original model (the spec calls out
     // "changes only take effect for new sessions/tabs").
     var modelsConfig: ModelsConfig?
+    var effortsConfig: EffortsConfig?
     // Injected by ProjectWindow — currently returns the chat session's
     // conversationID so terminal reconcile never adopts it. With every
     // tab running ephemeral, reconcile is structurally disabled (its
@@ -33,11 +34,13 @@ final class TerminalTabsModel {
         binaryURL: URL,
         initialSession: TerminalClaudeSession,
         modelsConfig: ModelsConfig? = nil,
+        effortsConfig: EffortsConfig? = nil,
         excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] }
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.modelsConfig = modelsConfig
+        self.effortsConfig = effortsConfig
         self.sharedExcludedSessionIDs = excludedSessionIDs
         let firstTab = TerminalTab(session: initialSession, title: Self.title(for: 0))
         self.tabs = [firstTab]
@@ -84,6 +87,7 @@ final class TerminalTabsModel {
             cwd: cwd,
             binaryURL: binaryURL,
             modelChoice: modelsConfig?.terminalsResolved ?? ModelsConfig.terminalsDefault,
+            effortChoice: effortsConfig?.terminalsResolved ?? EffortsConfig.terminalsDefault,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false
         )
@@ -121,11 +125,15 @@ final class TerminalTabsModel {
         let resolved =
             modelsConfig?.workflowResolved(action, type: type)
             ?? ModelsConfig.slotDefault(for: action.modelSlot)
+        let resolvedEffort =
+            effortsConfig?.workflowResolved(action, type: type)
+            ?? EffortsConfig.slotDefault(for: action.modelSlot)
         let permMode = override?.permissionMode ?? action.permissionMode
         let session = TerminalClaudeSession(
             cwd: worktreeRoot ?? cwd,
             binaryURL: binaryURL,
             modelChoice: resolved,
+            effortChoice: resolvedEffort,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
             permissionMode: permMode
