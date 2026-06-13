@@ -245,11 +245,21 @@ nonisolated struct ProjectScaffolder {
             excludes += GitExcludeWriter.plumageEphemeralPaths
         } else {
             excludes += ["\(spec.name).plumage/"]
+            try excludeBundleFromSwiftLint(name: spec.name, root: root)
         }
         if !git.claudeInGit { excludes += [".claude/", ".mcp.json"] }
         if !excludes.isEmpty {
             try GitExcludeWriter().append(paths: excludes, repoURL: root)
         }
+    }
+
+    // No-op when the template wrote no .swiftlint.yml (non-Swift); the entry
+    // mirrors the bundle's .git/info/exclude line so neither tool scans it.
+    private func excludeBundleFromSwiftLint(name: String, root: URL) throws {
+        let configURL = root.appending(path: ".swiftlint.yml")
+        guard let yaml = try? String(contentsOf: configURL, encoding: .utf8) else { return }
+        let updated = SwiftLintConfigEditor.addingExclude("\(name).plumage/", to: yaml)
+        try updated.write(to: configURL, atomically: true, encoding: .utf8)
     }
 
     // MARK: - helpers

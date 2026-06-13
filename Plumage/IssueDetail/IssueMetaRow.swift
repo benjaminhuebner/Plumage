@@ -4,6 +4,7 @@ struct IssueMetaRow: View {
     let status: IssueStatus
     let type: IssueType
     let labels: [String]
+    let existingLabels: [String]
     let dates: Dates?
     let onSelectStatus: (IssueStatus) -> Void
     let onSelectType: (IssueType) -> Void
@@ -30,6 +31,7 @@ struct IssueMetaRow: View {
                 .accessibilityHidden(true)
             LabelChipEditor(
                 labels: labels,
+                existingLabels: existingLabels,
                 onAdd: onAddLabel,
                 onRemove: onRemoveLabel
             )
@@ -123,6 +125,7 @@ struct IssueMetaRow: View {
         status: .waitingForReview,
         type: .feature,
         labels: ["settings", "workflow"],
+        existingLabels: ["ui", "backend", "perf"],
         dates: .init(created: Date(timeIntervalSinceNow: -3600), updated: Date()),
         onSelectStatus: { _ in },
         onSelectType: { _ in },

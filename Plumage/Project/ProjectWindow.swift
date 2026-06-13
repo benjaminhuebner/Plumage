@@ -332,13 +332,12 @@ struct ProjectWindow: View {
                 // the presenter's environment. IssueDetailView's
                 // @Environment(ProjectKanbanModel.self) crashes without these.
                 // openSpec stays deliberately unwired here (defaults to no-op):
-                // the create sheet navigates via onIssueCreated + dismiss(),
-                // never by routing the window behind itself.
+                // on create-success the sheet only dismisses, leaving the board
+                // put — the new card arrives via FSEvents, no route change.
                 .environment(kanban)
                 .environment(navigator)
-                .environment(\.onIssueCreated) { folderName in
+                .environment(\.onIssueCreated) { _ in
                     showCreateSheet = false
-                    selectedRoute = .issue(folderName: folderName)
                 }
                 .frame(minWidth: 720, minHeight: 600)
             }

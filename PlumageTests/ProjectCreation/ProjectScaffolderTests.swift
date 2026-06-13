@@ -472,4 +472,42 @@ struct ProjectScaffolderTests {
         #expect(written.contains("Reviewer agent"))
         #expect(!fm.fileExists(atPath: dir.appending(path: ".claude/agents/planner.md").path))
     }
+
+    @Test("A Swift project kept out of git excludes the bundle from SwiftLint")
+    func swiftLintExcludesBundleWhenOutOfGit() async throws {
+        let dir = tmpProjectDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(git: NoopGitInit()).create(
+            spec: NewProjectSpec(
+                kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir,
+                git: GitSetup(plumageInGit: false)))
+        let yaml = try String(
+            contentsOf: dir.appending(path: ".swiftlint.yml"), encoding: .utf8)
+        #expect(yaml.contains("MyApp.plumage/"))
+    }
+
+    @Test("A Swift project kept in git leaves the SwiftLint config untouched")
+    func swiftLintUntouchedWhenInGit() async throws {
+        let dir = tmpProjectDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(git: NoopGitInit()).create(
+            spec: NewProjectSpec(
+                kind: .macOS, name: "MyApp", tagline: "tl", projectDirectory: dir,
+                git: GitSetup(plumageInGit: true)))
+        let yaml = try String(
+            contentsOf: dir.appending(path: ".swiftlint.yml"), encoding: .utf8)
+        #expect(!yaml.contains("MyApp.plumage/"))
+    }
+
+    @Test("A non-Swift project out of git has no SwiftLint config to edit (no error)")
+    func nonSwiftHasNoSwiftLintConfig() async throws {
+        let fm = FileManager.default
+        let dir = tmpProjectDir()
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
+        _ = try await scaffolder(git: NoopGitInit()).create(
+            spec: NewProjectSpec(
+                kind: .other, name: "Thing", tagline: "tl", projectDirectory: dir,
+                git: GitSetup(plumageInGit: false)))
+        #expect(!fm.fileExists(atPath: dir.appending(path: ".swiftlint.yml").path))
+    }
 }

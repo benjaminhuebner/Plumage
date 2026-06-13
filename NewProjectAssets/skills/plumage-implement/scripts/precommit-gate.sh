@@ -382,7 +382,25 @@ track_b() {
     elif ! command -v swift-format >/dev/null 2>&1; then
         record 4 skip 0 "swift-format not installed"
     else
-        if find . -name "*.swift" -not -path "./.build/*" -not -path "./DerivedData/*" -not -path "./.swiftpm/*" -print0 2>/dev/null \
+        # When the bundle is kept out of git, swift-format skips it too (matching
+        # SwiftLint). The config flag wins; an older config without it falls back
+        # to the bundle-dir line the scaffolder writes into .git/info/exclude.
+        local bundle plumage_in_git="" bundle_excluded=0 prune
+        bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
+        if [ -n "$bundle" ] && command -v jq >/dev/null 2>&1; then
+            plumage_in_git=$(jq -r '.git.plumageInGit // empty' "$bundle/config.json" 2>/dev/null)
+        fi
+        if [ "$plumage_in_git" = "false" ]; then
+            bundle_excluded=1
+        elif [ "$plumage_in_git" != "true" ] && [ -f .git/info/exclude ] \
+            && grep -qE '\.plumage/$' .git/info/exclude; then
+            bundle_excluded=1
+        fi
+        prune=(-not -path "./.build/*" -not -path "./DerivedData/*" -not -path "./.swiftpm/*")
+        if [ "$bundle_excluded" -eq 1 ]; then
+            prune+=(-not -path "./*.plumage/*")
+        fi
+        if find . -name "*.swift" "${prune[@]}" -print0 2>/dev/null \
             | xargs -0 swift-format lint --strict > "$log" 2>&1; then
             record 4 pass $(( $(now) - t0 ))
         else

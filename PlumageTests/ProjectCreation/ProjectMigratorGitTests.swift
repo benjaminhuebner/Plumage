@@ -117,4 +117,28 @@ struct ProjectMigratorGitTests {
         #expect(!excludeLines.contains(".plumage/"))  // obsolete dotfolder, no longer excluded
         #expect(!excludeLines.contains(".claude/"))
     }
+
+    @Test("Existing repo excludes the bundle from SwiftLint when kept out of git")
+    func swiftLintExcludesBundle() async throws {
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        try fakeRepo(at: root, head: "ref: refs/heads/main\n")
+        _ = try await migrator().migrate(
+            spec: spec(root: root, git: MigrationGitSetup(initIfMissing: false, plumageInGit: false)))
+        let yaml = try String(
+            contentsOf: root.appending(path: ".swiftlint.yml"), encoding: .utf8)
+        #expect(yaml.contains("Acme.plumage/"))
+    }
+
+    @Test("SwiftLint config stays untouched when the bundle stays in git")
+    func swiftLintUntouchedWhenBundleInGit() async throws {
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        try fakeRepo(at: root, head: "ref: refs/heads/main\n")
+        _ = try await migrator().migrate(
+            spec: spec(root: root, git: MigrationGitSetup(initIfMissing: false, plumageInGit: true)))
+        let yaml = try String(
+            contentsOf: root.appending(path: ".swiftlint.yml"), encoding: .utf8)
+        #expect(!yaml.contains("Acme.plumage/"))
+    }
 }

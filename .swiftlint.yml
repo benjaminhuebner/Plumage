@@ -59,6 +59,7 @@ excluded:
   - .build
   - DerivedData
   - .swiftpm
+  - Plumage.plumage
 
 # --- Rule configuration ---
 

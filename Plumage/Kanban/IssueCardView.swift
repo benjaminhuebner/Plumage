@@ -18,6 +18,9 @@ struct IssueCardView: View {
         if let goal = issue.goal, !goal.isEmpty {
             parts.append(goal)
         }
+        if !issue.labels.isEmpty {
+            parts.append("labels: " + issue.labels.joined(separator: ", "))
+        }
         parts.append(issue.status.label)
         return parts.joined(separator: ", ")
     }
@@ -45,12 +48,17 @@ struct IssueCardView: View {
                 Text(goal)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    // Trade a goal line for the label row; the card height is fixed.
+                    .lineLimit(issue.labels.isEmpty ? 3 : 2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Spacer(minLength: 0)
+
+            if !issue.labels.isEmpty {
+                CardLabelRow(labels: issue.labels)
+            }
 
             HStack {
                 Text(IssueIDFormatter.padded(issue.id, width: padding))
@@ -77,6 +85,35 @@ struct IssueCardView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityHint("Opens issue detail")
+    }
+}
+
+private struct CardLabelRow: View {
+    let labels: [String]
+
+    var body: some View {
+        // Candidates run most-chips-first; ViewThatFits picks the largest that fits.
+        ViewThatFits(in: .horizontal) {
+            ForEach(0...labels.count, id: \.self) { hidden in
+                candidate(hidden: hidden)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func candidate(hidden: Int) -> some View {
+        let shown = labels.count - hidden
+        HStack(spacing: 4) {
+            ForEach(Array(labels.prefix(shown).enumerated()), id: \.offset) { _, label in
+                LabelChip(text: label)
+            }
+            if hidden > 0 {
+                LabelChip.overflow(count: hidden)
+            }
+        }
+        // Ideal width so the cascade drops whole chips instead of squeezing text.
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -107,7 +144,7 @@ struct IssueCardView: View {
                 created: .distantPast,
                 updated: .distantPast,
                 branch: "issue/00005-kanban",
-                labels: ["feature", "v0.1"],
+                labels: ["feature", "v0.1", "ui", "backend", "performance"],
                 goal: "Bring Kanban columns to life with type-tinted pills and a goal subtitle."
             ),
             padding: 5

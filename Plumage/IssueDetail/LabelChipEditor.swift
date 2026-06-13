@@ -2,11 +2,13 @@ import SwiftUI
 
 struct LabelChipEditor: View {
     let labels: [String]
+    let existingLabels: [String]
     let onAdd: (String) -> Void
     let onRemove: (String) -> Void
 
     @State private var isEditing = false
     @State private var draft: String = ""
+    @State private var showSuggestions = false
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
@@ -25,6 +27,10 @@ struct LabelChipEditor: View {
                     .focused($fieldFocused)
                     .onSubmit(commitDraft)
                     .onExitCommand { cancelDraft() }
+                    .onChange(of: draft) { _, _ in updateSuggestionVisibility() }
+                    .popover(isPresented: $showSuggestions, arrowEdge: .bottom) {
+                        suggestionList
+                    }
             }
             Button {
                 if isEditing {
@@ -40,8 +46,38 @@ struct LabelChipEditor: View {
             .buttonStyle(.plain)
             .accessibilityLabel(isEditing ? "Add label" : "Add new label")
             .accessibilityHint(isEditing ? "Commits the typed label" : "Shows the label input field")
-            .disabled(isEditing && !LabelChipEditor.isValid(draft))
+            .disabled(
+                isEditing
+                    && Self.acceptedLabel(
+                        draft: draft, existingLabels: existingLabels, currentLabels: labels) == nil
+            )
         }
+    }
+
+    @ViewBuilder
+    private var suggestionList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Self.matches(for: draft, in: existingLabels), id: \.self) { label in
+                Button {
+                    accept(label)
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(LabelColor.color(for: label))
+                            .frame(width: 10, height: 10)
+                        Text(label)
+                            .font(.callout)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(minWidth: 160, alignment: .leading)
+        .padding(.vertical, 4)
     }
 
     private func startEditing() {
@@ -54,18 +90,47 @@ struct LabelChipEditor: View {
         draft = ""
         isEditing = false
         fieldFocused = false
+        showSuggestions = false
     }
 
-    private func commitDraft() {
-        let trimmed = draft.trimmingCharacters(in: .whitespaces)
-        guard LabelChipEditor.isValid(trimmed), !labels.contains(trimmed) else {
-            cancelDraft()
-            return
-        }
-        onAdd(trimmed)
+    private func accept(_ label: String) {
+        onAdd(label)
         draft = ""
         isEditing = false
         fieldFocused = false
+        showSuggestions = false
+    }
+
+    private func commitDraft() {
+        guard
+            let label = Self.acceptedLabel(
+                draft: draft, existingLabels: existingLabels, currentLabels: labels)
+        else {
+            cancelDraft()
+            return
+        }
+        accept(label)
+    }
+
+    private func updateSuggestionVisibility() {
+        showSuggestions = isEditing && !Self.matches(for: draft, in: existingLabels).isEmpty
+    }
+
+    // Prefer an existing label over a free-typed one so the color stays
+    // consistent and prefix typos don't spawn near-duplicate labels.
+    nonisolated static func acceptedLabel(
+        draft: String, existingLabels: [String], currentLabels: [String]
+    ) -> String? {
+        if let top = matches(for: draft, in: existingLabels).first { return top }
+        let trimmed = draft.trimmingCharacters(in: .whitespaces)
+        guard isValid(trimmed), !currentLabels.contains(trimmed) else { return nil }
+        return trimmed
+    }
+
+    nonisolated static func matches(for draft: String, in existingLabels: [String]) -> [String] {
+        let needle = draft.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return [] }
+        return existingLabels.filter { $0.lowercased().hasPrefix(needle) }
     }
 
     nonisolated static func isValid(_ raw: String) -> Bool {
@@ -85,6 +150,7 @@ struct LabelChipEditor: View {
     StatefulPreviewWrapper(["feature", "ui"]) { labels in
         LabelChipEditor(
             labels: labels.wrappedValue,
+            existingLabels: ["settings", "workflow", "ui", "backend"],
             onAdd: { newLabel in labels.wrappedValue.append(newLabel) },
             onRemove: { label in labels.wrappedValue.removeAll { $0 == label } }
         )

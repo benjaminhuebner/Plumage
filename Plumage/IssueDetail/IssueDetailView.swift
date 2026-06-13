@@ -294,6 +294,7 @@ struct IssueDetailView: View {
                 status: currentStatus,
                 type: currentType,
                 labels: currentLabels,
+                existingLabels: projectExistingLabels,
                 dates: metaDates,
                 onSelectStatus: onSelectStatus,
                 onSelectType: onSelectType,
@@ -421,6 +422,14 @@ struct IssueDetailView: View {
     private var currentLabels: [String] {
         if model.isCreating { return model.labelsDraft }
         return model.issue?.labels ?? []
+    }
+
+    private var projectExistingLabels: [String] {
+        var all = Set<String>()
+        for case .valid(let issue) in kanban.issues {
+            all.formUnion(issue.labels)
+        }
+        return all.subtracting(currentLabels).sorted()
     }
 
     private var metaDates: IssueMetaRow.Dates? {
