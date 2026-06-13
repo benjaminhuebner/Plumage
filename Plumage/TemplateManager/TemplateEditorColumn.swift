@@ -60,14 +60,19 @@ struct TemplateEditorColumn: View {
     }
 
     private func previewHeader(_ file: FileNode) -> some View {
-        HStack {
-            Text(file.name)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
-            Text("Generated · read-only")
-                .font(.subheadline)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(file.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text("Generated · read-only")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Text("To edit settings.json, select Base in the sidebar.")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
