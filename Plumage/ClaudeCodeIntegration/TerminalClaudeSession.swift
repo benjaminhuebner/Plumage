@@ -28,6 +28,7 @@ final class TerminalClaudeSession {
     // sets one of plan/acceptEdits/default so claude boots with the right
     // permission policy without a follow-up TTY toggle.
     private let permissionMode: PermissionMode?
+    private let notificationSignalURL: URL?
 
     private(set) var state: State = .idle
     private(set) var conversationID: String
@@ -60,13 +61,15 @@ final class TerminalClaudeSession {
         sessionLogRoot: URL? = nil,
         excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] },
         persistConversationID: Bool = true,
-        permissionMode: PermissionMode? = nil
+        permissionMode: PermissionMode? = nil,
+        notificationSignalURL: URL? = nil
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
         self.modelChoice = modelChoice
         self.effortChoice = effortChoice
         self.permissionMode = permissionMode
+        self.notificationSignalURL = notificationSignalURL
         if persistConversationID {
             let resolved =
                 sessionIDStoreOverride
@@ -273,12 +276,14 @@ final class TerminalClaudeSession {
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
     func shellSpawnArgs(appearanceIsDark: Bool = true) -> [String] {
-        // Per-session theme via --settings — writing the user's global
-        // ~/.claude/settings.json re-skinned their own claude terminal. Dark/light follows
-        // the view's colorScheme; the JSON has no single quotes, so shellQuote wraps it safely.
-        var args = [
-            "--settings", ClaudeThemeInstaller.perSessionSettingsJSON(dark: appearanceIsDark),
-        ]
+        // Per-session theme via --settings (so we never reskin the user's global
+        // ~/.claude/settings.json); implement runs also fold in a Notification hook.
+        // shellQuote escapes any single quotes the hook's quoted path introduces.
+        let settingsJSON =
+            notificationSignalURL.flatMap {
+                AgentNotificationHook.settingsJSON(dark: appearanceIsDark, signalFileURL: $0)
+            } ?? ClaudeThemeInstaller.perSessionSettingsJSON(dark: appearanceIsDark)
+        var args = ["--settings", settingsJSON]
         args += resumeOrInitArgs()
         if let permissionMode {
             args += ["--permission-mode", permissionMode.rawCLIValue]
@@ -315,13 +320,13 @@ final class TerminalClaudeSession {
     // Single-quote-wraps a value for POSIX sh. Fail-closed precondition: fires on
     // the three chars single-quoting cannot neutralize (\0, \n, \r) — crashing beats
     // emitting an injectable shell string. Guards against a future user-controlled arg.
-    static func shellQuote(_ value: String) -> String {
+    nonisolated static func shellQuote(_ value: String) -> String {
         precondition(isShellSafe(value), "shellQuote: unsafe arg")
         let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
         return "'\(escaped)'"
     }
 
-    static func isShellSafe(_ value: String) -> Bool {
+    nonisolated static func isShellSafe(_ value: String) -> Bool {
         !value.contains("\0") && !value.contains("\n") && !value.contains("\r")
     }
 

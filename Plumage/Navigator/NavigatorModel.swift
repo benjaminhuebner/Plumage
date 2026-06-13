@@ -127,12 +127,16 @@ final class NavigatorModel {
     private let bannerDisplayDuration: Duration
     // Monotonic token so a slow `FileTreeBuilder.build` from an earlier
     // reload can't overwrite the tree a newer reload already published.
-    private var reloadGeneration = 0
+    private(set) var reloadGeneration = 0
     // path→inode snapshot of the previous reload, plus the project it described.
     // A reload of a *different* project resets the baseline so the first diff
     // doesn't mistake another project's files for deletions.
     private var fileInodes: [String: Int] = [:]
     private var inodeBaselineProject: URL?
+    // While inactive, coalesce sidebar reloads into one replayed on reactivation —
+    // a churning background run must not stack full-tree rebuilds on the main actor.
+    private var isActive = true
+    private var pendingReloadProjectURL: URL?
 
     init(bannerDisplayDuration: Duration = .seconds(3)) {
         self.bannerDisplayDuration = bannerDisplayDuration
@@ -156,39 +160,64 @@ final class NavigatorModel {
         }
         reloadGeneration &+= 1
         let generation = reloadGeneration
+        // The inode diff is only valid within the same project; a switch resets it.
+        let sameProject = inodeBaselineProject == projectURL
+        let previousInodes = fileInodes
         let result = await Task.detached(priority: .userInitiated) {
-            () -> (nodes: [FileNode], index: FileTreeBuilder.FileIndex) in
+            () -> (
+                nodes: [FileNode], index: FileTreeBuilder.FileIndex,
+                emptyPaths: Set<String>, rewrites: [RouteRewrite]
+            ) in
             let nodes = FileTreeBuilder.build(projectURL: projectURL)
-            return (nodes, FileTreeBuilder.fileIndex(in: nodes))
+            let index = FileTreeBuilder.fileIndex(in: nodes)
+            let emptyPaths = Self.collectEmptyContextPaths(nodes)
+            let rewrites =
+                sameProject
+                ? Self.deriveExternalRewrites(
+                    previousInodes: previousInodes,
+                    currentInodes: index.inodes,
+                    currentPaths: index.paths)
+                : []
+            return (nodes, index, emptyPaths, rewrites)
         }.value
         // A newer reload started while this build ran — its result is fresher,
         // so drop ours instead of clobbering it with stale nodes.
         guard generation == reloadGeneration else { return }
-        self.rootNodes = result.nodes
-        // Guard the assignment: `@Observable` fires on every set regardless of
-        // equality, so reassigning an identical set on an unrelated FSEvent
-        // reload would re-render every row that reads it. Only publish on a
-        // real change — the derived folder set is recomputed in lockstep.
-        let newEmptyPaths = Self.collectEmptyContextPaths(result.nodes)
-        if newEmptyPaths != emptyContextFilePaths {
-            self.emptyContextFilePaths = newEmptyPaths
-            self.foldersHidingEmptyContextFile = Self.collectFoldersHidingEmptyContextPaths(
-                newEmptyPaths)
+        // `@Observable` fires on every set regardless of equality; an FSEvent that
+        // only edits file contents rebuilds an identical tree, so guard each publish
+        // on a real change to avoid re-rendering every sidebar row.
+        if result.nodes != rootNodes {
+            self.rootNodes = result.nodes
         }
-        // Diff against the previous reload's inodes — but only within the same
-        // project; a project switch starts a fresh baseline (no spurious diff).
-        let sameProject = inodeBaselineProject == projectURL
-        externalRewrites =
-            sameProject
-            ? Self.deriveExternalRewrites(
-                previousInodes: fileInodes,
-                currentInodes: result.index.inodes,
-                currentPaths: result.index.paths)
-            : []
+        if result.emptyPaths != emptyContextFilePaths {
+            self.emptyContextFilePaths = result.emptyPaths
+            self.foldersHidingEmptyContextFile = Self.collectFoldersHidingEmptyContextPaths(
+                result.emptyPaths)
+        }
+        externalRewrites = result.rewrites
         fileInodes = result.index.inodes
         inodeBaselineProject = projectURL
         // `renaming` is intentionally preserved across reloads — an FSEvent
         // triggered mid-inline-edit must not kill the user's edit session.
+    }
+
+    // While inactive, coalesce the reload — it runs once on reactivation.
+    func reloadOrDefer(projectURL: URL) async -> Bool {
+        guard isActive else {
+            pendingReloadProjectURL = projectURL
+            return false
+        }
+        await reload(projectURL: projectURL)
+        return true
+    }
+
+    func setActive(_ active: Bool, projectURL: URL) async -> Bool {
+        let wasActive = isActive
+        isActive = active
+        guard active, !wasActive, pendingReloadProjectURL != nil else { return false }
+        pendingReloadProjectURL = nil
+        await reload(projectURL: projectURL)
+        return true
     }
 
     // Chained off the prior write (RecentProjects discipline): independent

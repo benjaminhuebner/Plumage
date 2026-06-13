@@ -79,6 +79,11 @@ final class ProjectKanbanModel {
     private var removalTask: Task<Void, Never>?
     private var errorClearTask: Task<Void, Never>?
     private var topOrderWriteTask: Task<Void, Never>?
+    // While inactive, coalesce snapshots to the latest and apply once on
+    // reactivation — a background run must not re-render the board per flip.
+    private var isActive = true
+    private var pendingSnapshot: [DiscoveredIssue]?
+    private var runProjectURL: URL?
 
     private nonisolated static let logger = Logger(
         subsystem: "com.plumage", category: "ProjectKanbanModel")
@@ -124,22 +129,50 @@ final class ProjectKanbanModel {
         let producer = producerFactory(projectURL)
         await producer.start()
         for await snapshot in producer.snapshots {
-            let reconciled = Self.reconcile(incoming: snapshot, pending: pendingDrop)
-            let entryOrders = Self.columnEntryOrders(
-                previous: issues, incoming: reconciled.snapshot)
-            let groups = Self.group(reconciled.snapshot)
-            // Mutate-only: the pending-drop clear and the FSEvent re-render look
-            // identical from this side; the view layer (KanbanColumnView's
-            // `.animation(.smooth, value:)`) decides whether the change animates.
-            self.issues = reconciled.snapshot
-            self.groupedIssues = groups
-            if reconciled.pendingCleared {
-                pendingDrop = nil
-            }
-            refreshBoardError(projectURL: projectURL)
-            scheduleTopOrderWrites(entryOrders, projectURL: projectURL)
+            ingest(snapshot, projectURL: projectURL)
         }
         await producer.stop()
+    }
+
+    func ingest(_ snapshot: [DiscoveredIssue], projectURL: URL) {
+        runProjectURL = projectURL
+        if isActive {
+            applySnapshot(snapshot, projectURL: projectURL)
+        } else {
+            pendingSnapshot = snapshot
+        }
+    }
+
+    func setActive(_ active: Bool) {
+        let wasActive = isActive
+        isActive = active
+        guard active, !wasActive, let snapshot = pendingSnapshot, let url = runProjectURL else {
+            return
+        }
+        pendingSnapshot = nil
+        applySnapshot(snapshot, projectURL: url)
+    }
+
+    private func applySnapshot(_ snapshot: [DiscoveredIssue], projectURL: URL) {
+        let reconciled = Self.reconcile(incoming: snapshot, pending: pendingDrop)
+        let entryOrders = Self.columnEntryOrders(previous: issues, incoming: reconciled.snapshot)
+        let groups = Self.group(reconciled.snapshot)
+        // `@Observable` re-renders on every set; skip identical snapshots so a
+        // content-only spec edit doesn't redraw the whole board.
+        if reconciled.snapshot != issues {
+            self.issues = reconciled.snapshot
+            self.groupedIssues = groups
+        }
+        if reconciled.pendingCleared {
+            pendingDrop = nil
+        }
+        // A non-empty board proves the issues dir exists; only stat when empty.
+        if reconciled.snapshot.isEmpty {
+            refreshBoardError(projectURL: projectURL)
+        } else if boardError != nil {
+            boardError = nil
+        }
+        scheduleTopOrderWrites(entryOrders, projectURL: projectURL)
     }
 
     private func scheduleTopOrderWrites(
@@ -173,10 +206,11 @@ final class ProjectKanbanModel {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(
             atPath: issuesDir.path, isDirectory: &isDirectory)
-        boardError =
+        let newError =
             (exists && isDirectory.boolValue)
             ? nil
             : "Issues folder missing: .claude/issues — the board can't load."
+        if newError != boardError { boardError = newError }
     }
 
     func requestArchive(folderName: String) {

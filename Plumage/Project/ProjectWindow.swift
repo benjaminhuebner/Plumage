@@ -59,7 +59,7 @@ struct ProjectWindow: View {
     @State private var quitHandlerID = UUID()
 
     @Environment(\.processRunner) private var processRunner
-    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.controlActiveState) private var controlActiveState
     @Environment(RecentProjects.self) private var recentProjects
     @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction: EditorAction?
 
@@ -141,6 +141,8 @@ struct ProjectWindow: View {
             .focusedSceneValue(\.gitPushAction, pushAction)
             .focusedSceneValue(\.gitPullAction, pullAction)
             .task(id: handle.url) {
+                MainThreadHangSampler.shared.startIfEnabled()
+                RunCompletionNotifier.shared.watchProjectRuns(root: handle.url)
                 if !hasMigratedLegacyPaneMode {
                     if legacyTerminalPaneMode == "terminal" {
                         isTerminalInspectorOpen = true
@@ -298,6 +300,7 @@ struct ProjectWindow: View {
                 persistedDestinationID = destination?.id ?? ""
             }
             .onDisappear {
+                RunCompletionNotifier.shared.unwatchProjectRuns(root: handle.url)
                 QuitCoordinator.shared.unregister(quitHandlerID)
                 session.stop()
                 terminalTabs.stopAll()
@@ -315,14 +318,13 @@ struct ProjectWindow: View {
                     detailOriginRoute = nil
                 }
             }
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active {
-                    Task {
-                        await navigator.reload(projectURL: handle.url)
-                        // External changes while backgrounded surface as the
-                        // reload's inode diff — re-point moved pins, drop gone.
-                        pinnedFiles.apply(rewrites: navigator.externalRewrites)
-                    }
+            .onChange(of: controlActiveState) { _, state in
+                kanban.setActive(state != .inactive)
+                Task {
+                    let reloaded = await navigator.setActive(
+                        state != .inactive, projectURL: handle.url)
+                    // The reconciled reload re-points moved pins / drops gone ones.
+                    if reloaded { pinnedFiles.apply(rewrites: navigator.externalRewrites) }
                 }
             }
             .onChange(of: navigator.routeRewrites) { _, rewrites in
@@ -783,13 +785,9 @@ struct ProjectWindow: View {
         sidebarFileWatcher = watcher
         sidebarFileWatcherTask = Task { [events = watcher.events] in
             for await _ in events {
-                await navigator.reload(projectURL: projectURL)
-                // External rename/move/delete of a pinned file surfaces as the
-                // reload's inode diff (`externalRewrites`): a moved file is
-                // re-pointed, a deleted one dropped. Reading the property right
-                // after the awaited reload is race-free — both run on the
-                // MainActor and this loop body is sequential.
-                pinnedFiles.apply(rewrites: navigator.externalRewrites)
+                let reloaded = await navigator.reloadOrDefer(projectURL: projectURL)
+                // Pins follow the reload's inode diff; valid only when it ran.
+                if reloaded { pinnedFiles.apply(rewrites: navigator.externalRewrites) }
             }
         }
     }

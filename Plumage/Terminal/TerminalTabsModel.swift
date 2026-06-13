@@ -129,6 +129,12 @@ final class TerminalTabsModel {
             effortsConfig?.workflowResolved(action, type: type)
             ?? EffortsConfig.slotDefault(for: action.modelSlot)
         let permMode = override?.permissionMode ?? action.permissionMode
+        // Implement runs fold a Notification hook into --settings to signal
+        // attention; create its app-support dir up front so the append succeeds.
+        let notificationSignalURL = action == .implement ? AgentNotificationHook.signalFileURL() : nil
+        if let dir = notificationSignalURL?.deletingLastPathComponent() {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
         let session = TerminalClaudeSession(
             cwd: worktreeRoot ?? cwd,
             binaryURL: binaryURL,
@@ -136,7 +142,8 @@ final class TerminalTabsModel {
             effortChoice: resolvedEffort,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
-            permissionMode: permMode
+            permissionMode: permMode,
+            notificationSignalURL: notificationSignalURL
         )
         let baseTitle = action.tabTitle(slug: slug)
         let tab = TerminalTab(

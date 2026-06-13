@@ -129,6 +129,7 @@ struct PlumageApp: App {
 @MainActor
 final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     private(set) var pendingURLs: [URL] = []
+    let runAlertCoordinator = RunAlertCoordinator()
 
     func application(_ application: NSApplication, open urls: [URL]) {
         pendingURLs.append(contentsOf: urls)
@@ -161,6 +162,8 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        runAlertCoordinator.start()
+        RunCompletionNotifier.shared.activate()
         // Sync the bundled claude theme so the embedded terminal renders without
         // opaque block backgrounds. Off-main: on iCloud Drive / NFS homes the writes
         // can take tens of milliseconds. Failure is best-effort, swallowed inside.
