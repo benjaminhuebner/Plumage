@@ -28,9 +28,9 @@ extension TemplateManagerModel {
         if showsConfigs(item) {
             // Generated configs always show (even with no override yet).
             leaves += ManagerConfig.allCases.map { ($0.relativePath, configNode($0)) }
-        } else if let preview = tierSettingsPreviewNode(for: scope) {
-            // A tier shows a read-only preview of the settings entries it contributes.
-            leaves.append((".claude/settings.json", preview))
+        } else if let node = tierSettingsNode(for: scope) {
+            // A tier owns an editable settings.json whose override replaces its auto-wiring.
+            leaves.append((".claude/settings.json", node))
         }
         // User-created (possibly empty) folders show at their output positions — read
         // inside the scope subtree and mapped back to the project layout.
@@ -293,9 +293,13 @@ extension TemplateManagerModel {
         // their output position (e.g. `.editorconfig` at root, or `myfolder/x.txt` inside
         // a user-created folder), minus the generated configs already shown as nodes.
         let configPaths = Set(ManagerConfig.allCases.map(\.relativePath))
+        // The tier's settings.json slot surfaces only as the editable config node, never
+        // here too — otherwise a saved tier override would show as a duplicate loose file.
+        let tierSettingsPath = Self.tierSettingsStorePath(for: scope)
         let arbitrary = overrides.overrideRootArbitraryFiles(
             inRoot: root, excludingTopLevel: Self.scopedTypedTopLevel(for: scope))
-        for path in arbitrary where !configPaths.contains(scoped(path)) {
+        for path in arbitrary
+        where !configPaths.contains(scoped(path)) && scoped(path) != tierSettingsPath {
             add(output: path, relative: scoped(path))
         }
         return specs

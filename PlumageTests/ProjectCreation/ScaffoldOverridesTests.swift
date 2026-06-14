@@ -39,6 +39,27 @@ struct ScaffoldOverridesTests {
         #expect(entry.variants.last == "templates/t1/docs/x.md")
     }
 
+    @Test("tierSettingsRelativePath: Base is the global slot, tiers nest under their root")
+    func tierSettingsSlotPath() {
+        #expect(ScaffoldOverrides.tierSettingsRelativePath(forStorageRoot: "") == ".claude/settings.json")
+        #expect(
+            ScaffoldOverrides.tierSettingsRelativePath(forStorageRoot: "components/swift-shared")
+                == "components/swift-shared/.claude/settings.json")
+        #expect(
+            ScaffoldOverrides.tierSettingsRelativePath(forStorageRoot: "templates/macOS")
+                == "templates/macOS/.claude/settings.json")
+    }
+
+    @Test("tierSettingsOverrideData returns the override bytes only once written")
+    func tierSettingsOverrideRoundTrip() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+        #expect(overrides.tierSettingsOverrideData(forStorageRoot: "components/c1") == nil)
+        try write("{}", to: tree.override, rel: "components/c1/.claude/settings.json")
+        #expect(overrides.tierSettingsOverrideData(forStorageRoot: "components/c1") == Data("{}".utf8))
+    }
+
     @Test("composedArbitraryFileVariants reproduces a real .claude/ loose file (#00084)")
     func composedArbitraryFilesIncludesClaude() throws {
         let tree = try makeTree()

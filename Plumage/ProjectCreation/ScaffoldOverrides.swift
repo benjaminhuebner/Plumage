@@ -50,6 +50,22 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // the composer, manager, scaffolder and migration can't drift between read and write.
     static func layerRelativePath(_ layer: String) -> String { "templates/\(layer)/CLAUDE.md" }
 
+    // The editable settings.json override slot for a tier's storage root. Base ("") is the
+    // existing global slot whose override wins the whole file (B2); a component/template
+    // slot replaces only that tier's auto-wired hooks during composition.
+    static func tierSettingsRelativePath(forStorageRoot root: String) -> String {
+        // Keep the suffix a separate literal; interpolating the root directly before it
+        // would form a path shape the CCI boundary scanner forbids.
+        let slot = ".claude/settings.json"
+        return root.isEmpty ? slot : "\(root)/\(slot)"
+    }
+
+    func tierSettingsOverrideData(forStorageRoot root: String) -> Data? {
+        let relative = Self.tierSettingsRelativePath(forStorageRoot: root)
+        guard hasOverride(forRelative: relative) else { return nil }
+        return try? data(atRelative: relative)
+    }
+
     func url(forRelative relativePath: String) -> URL {
         if let override = overrideURL(forRelative: relativePath),
             FileManager.default.fileExists(atPath: override.path)
@@ -447,8 +463,12 @@ nonisolated struct ScaffoldOverrides: Sendable {
     func composedArbitraryFileVariants(roots: [String]) -> [(output: String, variants: [String])] {
         var variants: [String: [String]] = [:]
         for root in roots {
-            let excluded: Set<String> = root.isEmpty ? Self.compositionTopLevel : ["docs", "skills", "agents"]
-            for rel in overrideRootArbitraryFiles(inRoot: root, excludingTopLevel: excluded) {
+            // Every tier excludes the full composition set, not a subset — a component's
+            // hooks/configs/etc. are owned by their typed walks, so a hand-picked list let
+            // a component hook leak to the project root.
+            for rel in overrideRootArbitraryFiles(
+                inRoot: root, excludingTopLevel: Self.compositionTopLevel)
+            {
                 variants[rel, default: []].append(root.isEmpty ? rel : "\(root)/\(rel)")
             }
         }

@@ -64,6 +64,50 @@ struct ProjectMigratorTests {
         #expect(report.added.contains("Acme.plumage/config.json"))
     }
 
+    @Test("A component hook is migrated into .claude/hooks/ — never leaked to the project root")
+    func componentHookDoesNotLeakOnMigrate() async throws {
+        let ov = fileManager.temporaryDirectory.appending(
+            path: "MigOv-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: ov) }
+        let hookURL = ov.appending(path: "components/swift-shared/hooks/comp-hook.sh")
+        try fileManager.createDirectory(
+            at: hookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: hookURL, atomically: true, encoding: .utf8)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        let wirings = [HookWiring(name: "comp-hook", event: .stop)]
+        _ = try await migrator(overrideRoot: ov, hookWirings: wirings).migrate(
+            spec: spec(root: root, kind: .macOS))
+
+        #expect(fileManager.fileExists(atPath: root.appending(path: ".claude/hooks/comp-hook.sh").path))
+        #expect(!fileManager.fileExists(atPath: root.appending(path: "hooks").path))
+        #expect(!fileManager.fileExists(atPath: root.appending(path: "components").path))
+    }
+
+    @Test("A tier settings.json override replaces that tier's hooks in the migrated settings")
+    func tierSettingsOverrideReplacesHooksOnMigrate() async throws {
+        let ov = fileManager.temporaryDirectory.appending(
+            path: "MigOv-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: ov) }
+        let slot = ov.appending(path: "components/swift-shared/.claude/settings.json")
+        try fileManager.createDirectory(
+            at: slot.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"x/.claude/hooks/comp-custom.sh"}]}]}}"#
+            .write(to: slot, atomically: true, encoding: .utf8)
+
+        let (root, parent) = try existingDir()
+        defer { try? fileManager.removeItem(at: parent) }
+        _ = try await migrator(overrideRoot: ov).migrate(spec: spec(root: root, kind: .macOS))
+
+        let settings = try String(
+            contentsOf: root.appending(path: ".claude/settings.json"), encoding: .utf8)
+        #expect(settings.contains("comp-custom.sh"))
+        #expect(!settings.contains("format-swift.sh"))
+        // Base is a different, non-overridden tier — its hooks still wire.
+        #expect(settings.contains("force-plumage-skill.sh"))
+    }
+
     @Test("Pre-existing CLAUDE.md and .gitignore are preserved byte-for-byte and reported as skipped")
     func preservesExistingFiles() async throws {
         let (root, parent) = try existingDir()

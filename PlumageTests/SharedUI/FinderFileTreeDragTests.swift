@@ -41,8 +41,8 @@ struct FinderFileTreeDragTests {
         #expect(urls.map(\.path) == ["/tmp/drag-tests/docs/notes.md"])
     }
 
-    @Test("the drag pasteboard also carries the plain file URL for external readers")
-    func dragCarriesFileURL() throws {
+    @Test("an internal drag carries only the custom type, never .fileURL")
+    func dragOmitsFileURL() throws {
         let coordinator = FinderFileTreeCoordinator()
         coordinator.setNodes(makeNodes())
         let item = try #require(coordinator.item(forPath: "docs/notes.md"))
@@ -50,7 +50,10 @@ struct FinderFileTreeDragTests {
         let pasteboardItem = try #require(
             coordinator.outlineView(NSOutlineView(), pasteboardWriterForItem: item)
                 as? NSPasteboardItem)
-        #expect(pasteboardItem.string(forType: .fileURL) != nil)
+        // The .fileURL-only import catcher overlay must stay blind to in-tree moves;
+        // dropPayload reads the custom type and external drag-out is disabled.
+        #expect(pasteboardItem.types.contains(FinderFileTreeCoordinator.internalDragType))
+        #expect(pasteboardItem.string(forType: .fileURL) == nil)
     }
 
     @Test("canDrag exclusion produces no pasteboard writer")

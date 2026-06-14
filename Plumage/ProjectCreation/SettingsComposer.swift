@@ -40,12 +40,30 @@ nonisolated struct SettingsComposer {
         userWirings: [HookWiring] = []
     ) throws -> Data {
         let selected = Set(catalog.effectiveHooks(forTemplate: templateID))
-        var groupsByEvent: [HookEvent: [Settings.HookGroup]] = [:]
+        let userHooks = catalog.effectiveUserHooks(forTemplate: templateID, overrides: overrides)
+        let userHookBases = Set(userHooks.map(\.base))
 
-        // Built-in wirings: filtered to the kind's profile and the hooks toggle, in
-        // declaration order (ordering within an event is intentional).
+        // A component/template tier's own settings.json override is authoritative — its hooks
+        // replace that tier's auto-wiring (Base's override wins the whole file upstream).
+        // Invalid JSON throws rather than silently dropping hooks; empty here = byte-identical.
+        var overriddenRoots = Set<String>()
+        var tierOverrides: [ParsedTierSettings] = []
+        for root in catalog.looseSurfaceRoots(forTemplate: templateID) where !root.isEmpty {
+            guard let data = overrides.tierSettingsOverrideData(forStorageRoot: root) else { continue }
+            tierOverrides.append(try JSONDecoder().decode(ParsedTierSettings.self, from: data))
+            overriddenRoots.insert(root)
+        }
+        let builtinTier = builtinHookTiers(forTemplate: templateID)
+        var userTier: [String: String] = [:]
+        for hook in userHooks { userTier[hook.base] = Self.tierRoot(ofHookRelativePath: hook.relativePath) }
+
+        var groupsByEvent: [HookEvent: [Settings.HookGroup]] = [:]
+        // Built-in wirings in declaration order (intentional within an event), minus any
+        // whose owning tier is overridden.
         for wiring in Self.wirings
-        where selected.contains(wiring.name) && toggles.isEnabled(.hooks, wiring.name) {
+        where selected.contains(wiring.name) && toggles.isEnabled(.hooks, wiring.name)
+            && !overriddenRoots.contains(builtinTier[wiring.name] ?? "")
+        {
             guard let event = HookEvent(rawValue: wiring.event) else { continue }
             groupsByEvent[event, default: []].append(
                 Settings.HookGroup(
@@ -54,13 +72,12 @@ nonisolated struct SettingsComposer {
         }
 
         // User wirings: gated by the template's scope-owned user hooks (directory =
-        // membership) and the hooks toggle. Appended after the built-ins per event. The
+        // membership) and the hooks toggle, minus any whose owning tier is overridden. The
         // wiring carries the real filename so a `.py` hook points at `…/hooks/<name>.py`.
-        let userHookBases = Set(
-            catalog.effectiveUserHooks(forTemplate: templateID, overrides: overrides).map(\.base))
         for wiring in userWirings
         where userHookBases.contains(wiring.name) && toggles.isEnabled(.hooks, wiring.name)
             && !wiring.event.isUnknown
+            && !overriddenRoots.contains(userTier[wiring.name] ?? "")
         {
             groupsByEvent[wiring.event, default: []].append(
                 Settings.HookGroup(
@@ -68,12 +85,43 @@ nonisolated struct SettingsComposer {
                     hooks: [.init(command: Self.command(forFileName: wiring.fileName))]))
         }
 
+        // Override tiers contribute their parsed hooks last (base → components → template
+        // order), and union their permissions onto the generated set.
+        var allow = permissions(forTemplate: templateID)
+        for parsed in tierOverrides {
+            for event in parsed.hooks.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+                groupsByEvent[event, default: []].append(contentsOf: parsed.hooks[event] ?? [])
+            }
+            for permission in parsed.permissions where !allow.contains(permission) {
+                allow.append(permission)
+            }
+        }
+
         let settings = Settings(
             hooks: Settings.Hooks(groupsByEvent: groupsByEvent),
-            permissions: .init(allow: permissions(forTemplate: templateID)))
+            permissions: .init(allow: allow))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(settings)
+    }
+
+    // Built-in hook name → owning tier storage root: workflow hooks belong to Base (""),
+    // a shared component's manifest hooks to that component. Drives which built-in wirings a
+    // tier override suppresses.
+    private func builtinHookTiers(forTemplate templateID: String) -> [String: String] {
+        var tiers: [String: String] = [:]
+        for name in catalog.base.workflowHooks { tiers[name] = "" }
+        for component in catalog.sharedComponents(forTemplate: templateID) {
+            for name in component.files(ofKind: .hook) { tiers[name] = "components/\(component.id)" }
+        }
+        return tiers
+    }
+
+    // The storage root a scoped user-hook path belongs to: "hooks/x" → Base (""),
+    // "components/<id>/hooks/x" or "templates/<id>/hooks/x" → that tier.
+    static func tierRoot(ofHookRelativePath relativePath: String) -> String {
+        guard let range = relativePath.range(of: "/hooks/") else { return "" }
+        return String(relativePath[relativePath.startIndex..<range.lowerBound])
     }
 
     func localSettingsJSON() -> Data {
@@ -175,17 +223,55 @@ private nonisolated struct Settings: Encodable {
         }
     }
 
-    struct HookGroup: Encodable {
+    struct HookGroup: Codable {
         let matcher: String?
         let hooks: [HookCommand]
     }
 
-    struct HookCommand: Encodable {
+    struct HookCommand: Codable {
         let type = "command"
         let command: String
+
+        enum CodingKeys: String, CodingKey { case type, command }
+
+        init(command: String) { self.command = command }
+
+        // `type` is the constant "command"; decode only `command` so a hand-edited tier
+        // override parses, while encoding still emits both keys (byte-identical).
+        init(from decoder: any Decoder) throws {
+            command = try decoder.container(keyedBy: CodingKeys.self).decode(
+                String.self, forKey: .command)
+        }
     }
 
     struct Permissions: Encodable {
         let allow: [String]
+    }
+}
+
+// A tier's hand-edited settings.json, parsed back into the composer's hook structures so it
+// can replace that tier's auto-wiring. Unknown event keys round-trip via `HookEvent.unknown`;
+// malformed JSON throws (the caller surfaces it rather than dropping the tier's hooks).
+private nonisolated struct ParsedTierSettings: Decodable {
+    let hooks: [HookEvent: [Settings.HookGroup]]
+    let permissions: [String]
+
+    private enum CodingKeys: String, CodingKey { case hooks, permissions }
+    private struct PermissionsBlock: Decodable { let allow: [String]? }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var parsed: [HookEvent: [Settings.HookGroup]] = [:]
+        if container.contains(.hooks) {
+            let events = try container.nestedContainer(
+                keyedBy: Settings.Hooks.EventKey.self, forKey: .hooks)
+            for key in events.allKeys {
+                guard let event = HookEvent(rawValue: key.stringValue) else { continue }
+                parsed[event] = try events.decode([Settings.HookGroup].self, forKey: key)
+            }
+        }
+        hooks = parsed
+        permissions =
+            try container.decodeIfPresent(PermissionsBlock.self, forKey: .permissions)?.allow ?? []
     }
 }

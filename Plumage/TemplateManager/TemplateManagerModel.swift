@@ -176,20 +176,17 @@ final class TemplateManagerModel {
 
     // MARK: - Editing
 
-    // The generated read-only text shown for a tier's settings preview node; non-nil
-    // puts the right column into read-only mode (no override slot, no editor).
-    private(set) var editingPreviewText: String?
-
     // No disk write: the editor reads via the bundled fallback and only a save creates
     // an override, so opening a file never pins it to its current bundled content.
     // Called on every right-column selection change (an event boundary, not `body`).
     func beginEditing(_ file: FileNode?) {
         isEditorDirty = false
-        editingPreviewText = nil
-        if let file, Self.isTierSettingsPreviewPath(file.relativePath) {
-            editingFileURL = nil
-            editingFallbackURL = nil
-            editingPreviewText = tierSettingsPreviewContent(for: activeScope)
+        // A tier's settings.json is a generated-baseline config like Base's: edit it in the
+        // override slot, seeding the buffer from the tier's auto-wired baseline.
+        if let file, Self.isTierSettingsStorePath(file.relativePath) {
+            editingFileURL = overrides.overrideURL(forRelative: file.relativePath)
+            editingFallbackURL = writeConfigPreview(
+                tierSettingsBaseline(for: activeScope), name: "settings.json")
             return
         }
         guard let file, !file.isDirectory,
@@ -272,7 +269,7 @@ final class TemplateManagerModel {
     // and checks authorship against that — never the output path.
     private func isUserAuthoredStore(_ storePath: String) -> Bool {
         if managerConfig(forRelative: storePath) != nil { return false }
-        if Self.isTierSettingsPreviewPath(storePath) { return false }
+        if Self.isTierSettingsStorePath(storePath) { return false }
         return !overrides.hasBundledOriginal(forRelative: storePath)
     }
 
@@ -660,7 +657,7 @@ final class TemplateManagerModel {
 
     func isReadOnlyContentNode(_ node: FileNode) -> Bool {
         managerConfig(forRelative: node.relativePath) != nil
-            || Self.isTierSettingsPreviewPath(node.relativePath)
+            || Self.isTierSettingsStorePath(node.relativePath)
     }
 
     // Plans a dropped URL: a folder with a top-level `SKILL.md` routes to `skills/`

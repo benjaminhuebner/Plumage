@@ -53,32 +53,39 @@ extension TemplateManagerModel {
             isDirectory: false, children: nil)
     }
 
-    // MARK: - Per-tier generated settings preview
+    // MARK: - Per-tier editable settings.json
 
-    // A synthetic, non-store path so the read-only preview never collides with a real
-    // override slot (a tier's `.claude/settings.json` is a legitimate loose file).
-    static func tierSettingsPreviewPath(for scope: ManagerScope) -> String? {
+    // The override-store slot for a tier's editable settings.json, or nil for Base (whose
+    // settings.json is the global config slot above, a whole-file B2 override).
+    static func tierSettingsStorePath(for scope: ManagerScope) -> String? {
         switch scope {
         case .base: return nil
-        case .template, .component: return "\(scope.storageRoot)/generated-settings-preview"
+        case .template, .component:
+            return ScaffoldOverrides.tierSettingsRelativePath(forStorageRoot: scope.storageRoot)
         }
     }
 
-    static func isTierSettingsPreviewPath(_ path: String) -> Bool {
-        path.hasSuffix("/generated-settings-preview")
-            && (path.hasPrefix("templates/") || path.hasPrefix("components/"))
+    static func isTierSettingsStorePath(_ path: String) -> Bool {
+        (path.hasPrefix("templates/") || path.hasPrefix("components/"))
+            && path.hasSuffix("/.claude/settings.json")
     }
 
-    func tierSettingsPreviewNode(for scope: ManagerScope) -> FileNode? {
-        guard let path = Self.tierSettingsPreviewPath(for: scope) else { return nil }
+    // The node's store-relative path is the slot but its tree position is the project-root
+    // `.claude/settings.json`; saving an edit makes the tier authoritative, its hooks
+    // replacing auto-wiring at scaffold.
+    func tierSettingsNode(for scope: ManagerScope) -> FileNode? {
+        guard let path = Self.tierSettingsStorePath(for: scope) else { return nil }
+        let url =
+            overrides.overrideURL(forRelative: path)
+            ?? overrides.bundledRoot.appending(path: path)
         return FileNode(
-            url: overrides.bundledRoot.appending(path: path), relativePath: path,
-            name: "settings.json", isDirectory: false, children: nil)
+            url: url, relativePath: path, name: "settings.json", isDirectory: false, children: nil)
     }
 
-    // Exactly what this tier contributes to a scaffolded settings.json: a component's
-    // built-in manifest hooks plus its scoped user hooks; a template's scoped user hooks.
-    func tierSettingsPreviewContent(for scope: ManagerScope) -> String {
+    // The editor seeds from exactly what the tier contributes today (a component's built-in
+    // manifest hooks plus its scoped user hooks; a template's scoped user hooks), so a saved
+    // edit is a deliberate divergence from that auto-wiring.
+    func tierSettingsBaseline(for scope: ManagerScope) -> String {
         var builtinNames: [String] = []
         if case .component(let id) = scope, let component = catalog.sharedComponent(id: id) {
             builtinNames = component.files(ofKind: .hook)

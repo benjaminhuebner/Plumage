@@ -254,4 +254,107 @@ struct SettingsComposerTests {
                 with: ctx.composer.settingsJSON(for: .macOS, userWirings: [wiring])) as? [String: Any])
         #expect(!(try hookNames(obj).contains("ghost")))
     }
+
+    // MARK: - Per-tier settings.json override
+
+    // A composer over a real override store seeded with arbitrary file contents (hook
+    // scripts, tier settings.json overrides) at the given store-relative paths.
+    private func storeComposer(
+        files: [String: String]
+    ) throws -> (composer: SettingsComposer, cleanup: () -> Void) {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "SettingsComposer-\(UUID().uuidString)", directoryHint: .isDirectory)
+        for (rel, content) in files {
+            let url = root.appending(path: rel)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        let overrides = ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: root)
+        return (SettingsComposer(overrides: overrides), { try? FileManager.default.removeItem(at: root) })
+    }
+
+    @Test("A store with no tier settings override stays byte-identical to the default composer")
+    func noTierOverrideByteIdentical() throws {
+        let ctx = try storeComposer(files: [:])
+        defer { ctx.cleanup() }
+        for kind in ProjectKind.allCases {
+            #expect(
+                try ctx.composer.settingsJSON(for: kind) == composer.settingsJSON(for: kind),
+                "byte mismatch for \(kind)")
+        }
+    }
+
+    @Test("A component tier settings override replaces that component's auto-wired hooks")
+    func componentTierOverrideReplacesAutoWiring() throws {
+        let override = #"""
+            {"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"x/.claude/hooks/custom.sh"}]}]}}
+            """#
+        let ctx = try storeComposer(files: ["components/swift-shared/.claude/settings.json": override])
+        defer { ctx.cleanup() }
+        let names = try hookNames(
+            try #require(
+                try JSONSerialization.jsonObject(with: ctx.composer.settingsJSON(for: .macOS))
+                    as? [String: Any]))
+        #expect(!names.contains("format-swift"))
+        #expect(!names.contains("lint-swift"))
+        #expect(names.contains("custom"))
+        // Base's own hooks (a different, non-overridden tier) still auto-wire.
+        #expect(names.contains("force-plumage-skill"))
+    }
+
+    @Test("An empty tier settings override suppresses that tier's hooks entirely")
+    func emptyTierOverrideSuppresses() throws {
+        let ctx = try storeComposer(files: ["components/swift-shared/.claude/settings.json": "{}"])
+        defer { ctx.cleanup() }
+        let names = try hookNames(
+            try #require(
+                try JSONSerialization.jsonObject(with: ctx.composer.settingsJSON(for: .macOS))
+                    as? [String: Any]))
+        #expect(!names.contains("format-swift"))
+        #expect(!names.contains("lint-swift"))
+        #expect(names.contains("force-plumage-skill"))
+    }
+
+    @Test("A tier override's permissions union onto the generated allow-list")
+    func tierOverridePermissionsUnion() throws {
+        let override = #"{"permissions":{"allow":["Bash(custom-tool:*)"]}}"#
+        let ctx = try storeComposer(files: ["components/swift-shared/.claude/settings.json": override])
+        defer { ctx.cleanup() }
+        let perms = try permissions(
+            try #require(
+                try JSONSerialization.jsonObject(with: ctx.composer.settingsJSON(for: .macOS))
+                    as? [String: Any]))
+        #expect(perms.contains("Bash(custom-tool:*)"))
+        #expect(perms.contains("Bash(git status:*)"))
+    }
+
+    @Test("A malformed tier settings override throws, never silently dropping hooks")
+    func malformedTierOverrideThrows() throws {
+        let ctx = try storeComposer(files: ["components/swift-shared/.claude/settings.json": "{not json"])
+        defer { ctx.cleanup() }
+        #expect(throws: (any Error).self) { try ctx.composer.settingsJSON(for: .macOS) }
+    }
+
+    @Test("A template tier override replaces that template's user-hook wiring")
+    func templateTierOverrideReplacesUserHooks() throws {
+        let override = #"""
+            {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"x/.claude/hooks/tmpl-custom.sh"}]}]}}
+            """#
+        let ctx = try storeComposer(files: [
+            "templates/macOS/hooks/tmpl-hook.sh": "#!/bin/sh\n",
+            "templates/macOS/.claude/settings.json": override,
+        ])
+        defer { ctx.cleanup() }
+        let wiring = HookWiring(name: "tmpl-hook", event: .stop)
+        let names = try hookNames(
+            try #require(
+                try JSONSerialization.jsonObject(
+                    with: ctx.composer.settingsJSON(for: .macOS, userWirings: [wiring]))
+                    as? [String: Any]))
+        #expect(!names.contains("tmpl-hook"))
+        #expect(names.contains("tmpl-custom"))
+        // The swift-shared tier is not overridden, so its hooks still wire.
+        #expect(names.contains("format-swift"))
+    }
 }

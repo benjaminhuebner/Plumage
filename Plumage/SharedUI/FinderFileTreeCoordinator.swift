@@ -438,8 +438,10 @@ extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
             return nil
         }
         let pasteboardItem = NSPasteboardItem()
+        // Only the custom type — not .fileURL. The .fileURL-only import catcher must stay
+        // blind to in-tree drags so they reach the outline; dropPayload reads the custom
+        // type first and external drag-out is off, so .fileURL was redundant.
         pasteboardItem.setData(data, forType: Self.internalDragType)
-        pasteboardItem.setString(item.node.url.absoluteString, forType: .fileURL)
         return pasteboardItem
     }
 

@@ -17,6 +17,11 @@ struct TemplateContentColumn: View {
             membershipArea
                 .modifier(FinderImportDrop(model: model))
         }
+        // Finder import runs through a click-transparent AppKit overlay: the outline
+        // below loses cross-process drops after a relayout (see ImportDropCatcher).
+        .overlay {
+            ImportDropCatcher { urls in _ = model.importDropped(urls: urls) }
+        }
         .overlay(alignment: .bottom) {
             if let banner = model.dropBanner {
                 Text(banner)

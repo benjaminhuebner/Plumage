@@ -64,8 +64,8 @@ struct TemplateManagerConfigTests {
         #expect(!ctx.model.isUserAuthored(node))
     }
 
-    @Test("A template tier shows a read-only settings preview with only its own wirings")
-    func templateTierSettingsPreview() throws {
+    @Test("A template tier settings.json is editable, seeded with only its own wirings")
+    func templateTierSettingsEditable() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
         ctx.model.selection = .template("macOS")
@@ -77,16 +77,19 @@ struct TemplateManagerConfigTests {
         let node = try #require(find(ctx.model.contentTree, path: [".claude", "settings.json"]))
         ctx.model.beginEditing(node)
 
-        #expect(ctx.model.editingFileURL == nil)
-        let preview = try #require(ctx.model.editingPreviewText)
-        #expect(preview.contains("tmpl-hook.sh"))
+        #expect(
+            ctx.model.editingFileURL
+                == ctx.override.appending(path: "templates/macOS/.claude/settings.json"))
+        let fallback = try #require(ctx.model.editingFallbackURL)
+        let seeded = try String(contentsOf: fallback, encoding: .utf8)
+        #expect(seeded.contains("tmpl-hook.sh"))
         // Inherited Base wirings are not the template's contribution.
-        #expect(!preview.contains("force-plumage-skill"))
+        #expect(!seeded.contains("force-plumage-skill"))
         #expect(!ctx.model.isUserAuthored(node))
     }
 
-    @Test("A component tier preview lists its built-in wirings, nothing inherited")
-    func componentTierSettingsPreview() throws {
+    @Test("A component tier settings.json is editable, seeded with its built-in wirings")
+    func componentTierSettingsEditable() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
         ctx.model.selection = .sharedComponent("swift-shared")
@@ -95,14 +98,18 @@ struct TemplateManagerConfigTests {
         let node = try #require(find(ctx.model.contentTree, path: [".claude", "settings.json"]))
         ctx.model.beginEditing(node)
 
-        let preview = try #require(ctx.model.editingPreviewText)
-        #expect(preview.contains("format-swift.sh"))
-        #expect(preview.contains("lint-swift.sh"))
-        #expect(!preview.contains("force-plumage-skill"))
+        #expect(
+            ctx.model.editingFileURL
+                == ctx.override.appending(path: "components/swift-shared/.claude/settings.json"))
+        let fallback = try #require(ctx.model.editingFallbackURL)
+        let seeded = try String(contentsOf: fallback, encoding: .utf8)
+        #expect(seeded.contains("format-swift.sh"))
+        #expect(seeded.contains("lint-swift.sh"))
+        #expect(!seeded.contains("force-plumage-skill"))
     }
 
-    @Test("The Base settings preview omits foreign tier user hooks")
-    func baseSettingsPreviewOmitsForeignHooks() throws {
+    @Test("The Base settings baseline omits foreign tier user hooks")
+    func baseSettingsBaselineOmitsForeignHooks() throws {
         let ctx = makeModel()
         defer { ctx.cleanup() }
         ctx.model.selection = .sharedComponent("swift-shared")
@@ -111,10 +118,27 @@ struct TemplateManagerConfigTests {
         ctx.model.saveWiring(forHook: hook, event: .stop, matcher: nil)
 
         #expect(!ctx.model.generatedConfigContent(.settings).contains("comp-hook"))
-        // The component's own preview carries it instead.
+        // The component's own baseline carries it instead.
         #expect(
-            ctx.model.tierSettingsPreviewContent(for: .component("swift-shared"))
+            ctx.model.tierSettingsBaseline(for: .component("swift-shared"))
                 .contains("comp-hook.sh"))
+    }
+
+    @Test("A saved tier settings override marks the node overridden with no duplicate leaf")
+    func tierSettingsOverrideMarksOnce() throws {
+        let ctx = makeModel()
+        defer { ctx.cleanup() }
+        try ctx.model.overrides.writeOverride(
+            "{}", toRelative: "components/swift-shared/.claude/settings.json")
+        ctx.model.selection = .sharedComponent("swift-shared")
+        ctx.model.refreshContent()
+
+        let node = try #require(find(ctx.model.contentTree, path: [".claude", "settings.json"]))
+        #expect(ctx.model.isOverridden(node))
+        // The slot surfaces once (the editable node), never also as an arbitrary loose file.
+        let settingsLeaves = TemplateManagerModel.flattenLeaves(ctx.model.contentTree)
+            .filter { $0.name == "settings.json" }
+        #expect(settingsLeaves.count == 1)
     }
 
     @Test("A saved config override marks the node overridden")
