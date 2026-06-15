@@ -1,19 +1,5 @@
 import SwiftUI
 
-struct ModelPickerRow: View {
-    let label: String
-    @Binding var choice: ModelChoice
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .frame(width: 160, alignment: .leading)
-            ModelPickerCore(choice: $choice)
-            Spacer(minLength: 0)
-        }
-    }
-}
-
 struct ModelPickerCore: View {
     @Binding var choice: ModelChoice
     var mixed: Bool = false
@@ -33,7 +19,7 @@ struct ModelPickerCore: View {
     @FocusState private var customFieldFocused: Bool
 
     var body: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 6) {
             Picker("", selection: selectionBinding) {
                 ForEach(Self.presets, id: \.self) { option in
                     Text(option.displayName).tag(Selection.preset(option))
@@ -47,11 +33,11 @@ struct ModelPickerCore: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(maxWidth: 220, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if showsCustomField {
                 TextField("Model name or alias", text: $customText)
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 240)
+                    .frame(maxWidth: .infinity)
                     .focused($customFieldFocused)
                     .onSubmit(commitCustomText)
                     .onChange(of: customFieldFocused) { _, focused in

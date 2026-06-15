@@ -301,15 +301,36 @@ final class ProjectSettingsModel {
     }
 
     // A pick on a workflow slot's collapsed header overwrites all four types.
+    // Switching model also drops any effort the new model can't honour.
     func setModel(_ value: ModelChoice, for slot: ModelSlot) {
         guard canEdit else { return }
         switch slot {
-        case .chat: chatModel = value
-        case .terminals: terminalsModel = value
+        case .chat:
+            chatModel = value
+            chatEffort = clampedEffort(chatEffort, for: value)
+        case .terminals:
+            terminalsModel = value
+            terminalsEffort = clampedEffort(terminalsEffort, for: value)
         case .planAction, .implementAction, .reviewAction:
             setWorkflowModels(Self.uniform(value), for: slot)
+            clampWorkflowEfforts(for: slot, model: value)
         }
         scheduleSave()
+    }
+
+    private func clampedEffort(_ effort: EffortLevel, for model: ModelChoice) -> EffortLevel {
+        model.supportedEfforts.contains(effort) ? effort : .default
+    }
+
+    private func clampWorkflowEfforts(for slot: ModelSlot, model: ModelChoice) {
+        var efforts = workflowEfforts(for: slot)
+        for type in IssueType.allCases {
+            efforts[type] = clampedEffort(
+                efforts[type] ?? EffortsConfig.slotDefault(for: slot),
+                for: model
+            )
+        }
+        setWorkflowEfforts(efforts, for: slot)
     }
 
     func workflowModels(for slot: ModelSlot) -> [IssueType: ModelChoice] {
@@ -342,6 +363,12 @@ final class ProjectSettingsModel {
         var models = workflowModels(for: slot)
         models[type] = value
         setWorkflowModels(models, for: slot)
+        var efforts = workflowEfforts(for: slot)
+        efforts[type] = clampedEffort(
+            efforts[type] ?? EffortsConfig.slotDefault(for: slot),
+            for: value
+        )
+        setWorkflowEfforts(efforts, for: slot)
         scheduleSave()
     }
 

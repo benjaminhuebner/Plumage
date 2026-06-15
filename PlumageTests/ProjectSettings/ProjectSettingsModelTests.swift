@@ -412,6 +412,56 @@ struct ProjectSettingsModelTests {
                 ]))
     }
 
+    @Test("switching to a model without the current effort resets it; supported effort stays")
+    func setModelClampsChatEffort() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        model.setEffort(.xhigh, for: .chat)
+        model.setModel(.sonnet, for: .chat)
+        #expect(model.effort(for: .chat) == .default)
+
+        model.setEffort(.high, for: .chat)
+        model.setModel(.haiku, for: .chat)
+        #expect(model.effort(for: .chat) == .default)
+
+        model.setEffort(.high, for: .terminals)
+        model.setModel(.sonnet, for: .terminals)
+        #expect(model.effort(for: .terminals) == .high)
+    }
+
+    @Test("collapsed-header model change clamps each per-type effort individually")
+    func setModelClampsWorkflowEffortsPerType() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        model.setWorkflowEffort(.xhigh, for: .planAction, type: .feature)
+        model.setWorkflowEffort(.max, for: .planAction, type: .chore)
+
+        model.setModel(.sonnet, for: .planAction)
+        #expect(model.workflowEfforts(for: .planAction)[.feature] == .default)
+        #expect(model.workflowEfforts(for: .planAction)[.chore] == .max)
+    }
+
+    @Test("per-type model pick clamps that type's effort")
+    func setWorkflowModelClampsEffort() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        model.setWorkflowEffort(.xhigh, for: .implementAction, type: .feature)
+        model.setWorkflowModel(.sonnet, for: .implementAction, type: .feature)
+        #expect(model.workflowEfforts(for: .implementAction)[.feature] == .default)
+    }
+
     @Test("load seeds per-type efforts from a mixed config object")
     func loadSeedsPerTypeEfforts() async throws {
         let config = """

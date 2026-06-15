@@ -56,6 +56,17 @@ nonisolated enum ModelChoice: Hashable, Sendable, Codable {
         }
     }
 
+    // xhigh is Opus/Fable only, Sonnet drops it, Haiku takes no effort; unknown
+    // models offer every level and let claude reject what it can't honour.
+    var supportedEfforts: [EffortLevel] {
+        switch self {
+        case .haiku: [.default]
+        case .sonnet: [.default, .low, .medium, .high, .max]
+        case .default, .fable, .opus, .custom:
+            [.default, .low, .medium, .high, .xhigh, .max]
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         self.init(storageValue: try container.decode(String.self))

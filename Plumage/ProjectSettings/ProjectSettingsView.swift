@@ -26,8 +26,7 @@ struct ProjectSettingsView: View {
                     projectSection
                     workflowCommandsSection
                     workflowModesSection
-                    modelsSection
-                    effortSection
+                    modelsAndEffortSection
                 }
                 Spacer(minLength: 32)
             }
@@ -303,21 +302,24 @@ struct ProjectSettingsView: View {
     }
 
     @ViewBuilder
-    private var modelsSection: some View {
+    private var modelsAndEffortSection: some View {
         sectionHeader(
-            title: "Models",
-            description: "Model selection per session type."
+            title: "Models & Effort",
+            description:
+                "Model and reasoning effort per session type. Effort default passes no flag — claude's own default."
         )
         VStack(alignment: .leading, spacing: 8) {
+            modelEffortColumnHeader
             ForEach(ModelSlot.allCases, id: \.self) { slot in
                 switch slot {
                 case .chat, .terminals:
-                    ModelPickerRow(
+                    ModelEffortPickerRow(
                         label: slot.label,
-                        choice: model.modelBinding(for: slot)
+                        modelChoice: model.modelBinding(for: slot),
+                        effortChoice: model.effortBinding(for: slot)
                     )
                 case .planAction, .implementAction, .reviewAction:
-                    WorkflowModelPickerRow(slot: slot, model: model)
+                    WorkflowModelEffortPickerRow(slot: slot, model: model)
                 }
             }
             Label(
@@ -331,32 +333,18 @@ struct ProjectSettingsView: View {
     }
 
     @ViewBuilder
-    private var effortSection: some View {
-        sectionHeader(
-            title: "Effort",
-            description:
-                "Reasoning effort per session type. Default passes no flag — claude's own default."
-        )
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(ModelSlot.allCases, id: \.self) { slot in
-                switch slot {
-                case .chat, .terminals:
-                    EffortPickerRow(
-                        label: slot.label,
-                        choice: model.effortBinding(for: slot)
-                    )
-                case .planAction, .implementAction, .reviewAction:
-                    WorkflowEffortPickerRow(slot: slot, model: model)
-                }
-            }
-            Label(
-                "Changes only apply to new sessions and tabs.",
-                systemImage: "info.circle"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.top, 6)
+    private var modelEffortColumnHeader: some View {
+        HStack(spacing: ModelEffortColumns.spacing) {
+            Color.clear
+                .frame(width: ModelEffortColumns.label, height: 1)
+            Text("Model")
+                .frame(width: ModelEffortColumns.model, alignment: .leading)
+            Text("Effort")
+                .frame(width: ModelEffortColumns.effort, alignment: .leading)
+            Spacer(minLength: 0)
         }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder

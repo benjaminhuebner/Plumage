@@ -79,4 +79,16 @@ struct ModelChoiceTests {
         #expect(ModelChoice.fable.displayName == "Fable")
         #expect(ModelChoice.custom("claude-x").displayName == "claude-x")
     }
+
+    @Test("supportedEfforts varies by model")
+    func supportedEfforts() {
+        let all: [EffortLevel] = [.default, .low, .medium, .high, .xhigh, .max]
+        #expect(ModelChoice.opus.supportedEfforts == all)
+        #expect(ModelChoice.fable.supportedEfforts == all)
+        #expect(ModelChoice.default.supportedEfforts == all)
+        #expect(ModelChoice.custom("anything").supportedEfforts == all)
+        #expect(ModelChoice.sonnet.supportedEfforts == [.default, .low, .medium, .high, .max])
+        #expect(!ModelChoice.sonnet.supportedEfforts.contains(.xhigh))
+        #expect(ModelChoice.haiku.supportedEfforts == [.default])
+    }
 }
