@@ -3,7 +3,6 @@ import SwiftUI
 
 struct NewProjectWindowView: View {
     @State private var model = NewProjectModel()
-    @State private var didCreate = false
     @Environment(\.dismiss) private var dismiss
     @Environment(RecentProjects.self) private var recentProjects
     @Environment(\.openWindow) private var openWindow
@@ -30,15 +29,12 @@ struct NewProjectWindowView: View {
         // Load the persisted catalog (custom templates, enabled flags) into the grid.
         // Re-runs on reopen since the single-instance window's view reappears.
         .task { await model.loadCatalog() }
-        // Opening New Project closed Welcome, so a close that didn't create a
-        // project must bring Welcome back or the app is left with no window. The
-        // single-instance `Window` also keeps its `@State` across close/reopen,
-        // so every close must reset it. The save panel is app-modal and doesn't
-        // remove this view, so it won't trip this.
-        .onDisappear(perform: handleWindowClose)
+        // Reset on close: the single-instance Window keeps its @State across
+        // close/reopen. Welcome is never reopened here — it appears only at
+        // launch or via the Window menu.
+        .onDisappear(perform: resetState)
         .onChange(of: model.createdProject) { _, created in
             guard let created else { return }
-            didCreate = true
             OpenProjectCommand.openConfirmed(
                 url: created.root,
                 recentProjects: recentProjects,
@@ -49,20 +45,8 @@ struct NewProjectWindowView: View {
         }
     }
 
-    private func handleWindowClose() {
-        if !didCreate { restoreWelcome() }
-        resetState()
-    }
-
-    // `openWindow` on an already-visible Welcome just surfaces it — the
-    // single-instance scene never duplicates — so this is safe to call blindly.
-    private func restoreWelcome() {
-        openWindow(id: "welcome")
-    }
-
     private func resetState() {
         model = NewProjectModel()
-        didCreate = false
     }
 
     private var header: some View {

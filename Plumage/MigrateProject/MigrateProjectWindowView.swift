@@ -2,7 +2,6 @@ import SwiftUI
 
 struct MigrateProjectWindowView: View {
     @Environment(MigrationRequest.self) private var request
-    @Environment(\.openWindow) private var openWindow
     @State private var model: MigrateProjectModel?
 
     var body: some View {
@@ -23,14 +22,6 @@ struct MigrateProjectWindowView: View {
             guard let url = request.folderURL else { return }
             model = MigrateProjectModel(folderURL: url)
             await model?.load()
-        }
-        // Opening Migrate closed Welcome, so a close that didn't open a project
-        // must bring Welcome back or the app is left with no window. Must live on
-        // the window root, not the `generation`-keyed flow view: a re-present
-        // swaps the flow view's identity (firing *its* onDisappear) while the
-        // window stays open — only the root disappears on a real close.
-        .onDisappear {
-            if model?.didOpenProject != true { openWindow(id: "welcome") }
         }
     }
 }
