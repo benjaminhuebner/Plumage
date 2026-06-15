@@ -116,6 +116,19 @@ struct ProjectKanbanModelTests {
         #expect(model.lastMergeCompleted == "00002-bar")
     }
 
+    @Test("a snapshot without the pending-removal issue clears the dialog")
+    func pendingRemovalClearsWhenIssueVanishes() {
+        let url = URL(filePath: "/tmp/probe")
+        let model = ProjectKanbanModel()
+        model.setActive(true)
+        model.ingest([Self.sampleValid(folder: "00001-foo")], projectURL: url)
+        model.requestArchive(folderName: "00001-foo")
+        #expect(model.pendingRemoval != nil)
+        // Externally removed → the next snapshot no longer carries the folder.
+        model.ingest([], projectURL: url)
+        #expect(model.pendingRemoval == nil)
+    }
+
     private static func sampleValid(folder: String) -> DiscoveredIssue {
         .valid(
             Plumage.Issue(

@@ -493,6 +493,12 @@ final class TemplateManagerModel {
     func saveWiring(forHook file: FileNode, event: HookEvent, matcher: String?) {
         guard let base = UserTemplateKind.hookBaseName(forRelativePath: file.relativePath)
         else { return }
+        // The wiring sheet can outlive the hook if it's deleted externally; don't
+        // record a wiring that points at a path that no longer exists.
+        guard FileManager.default.fileExists(atPath: file.url.path) else {
+            showDropBanner("Can't wire \(file.name): it no longer exists.")
+            return
+        }
         let trimmed = matcher?.trimmingCharacters(in: .whitespacesAndNewlines)
         // Record the hook's real filename so `settings.json` points at the exact path
         // (e.g. `hooks/my-hook.py`), not a `.sh` derived from the base name.
@@ -509,9 +515,13 @@ final class TemplateManagerModel {
     // cleanly (mirrors `TemplatesSettingsModel`).
     private func saveHookWirings() {
         guard let url = hookWiringStoreURL else { return }
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? hookWirings.save(to: url)
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try hookWirings.save(to: url)
+        } catch {
+            showDropBanner("Couldn't save hook wiring: \(error.localizedDescription)")
+        }
     }
 
     // The only place that touches disk for marker state — runs on the event boundary
@@ -1200,6 +1210,20 @@ extension TemplateManagerModel {
         Binding(
             get: { self.pendingComponentDeletion != nil },
             set: { if !$0 { self.pendingComponentDeletion = nil } }
+        )
+    }
+
+    var pendingDeleteConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { self.pendingDeleteConfirmation != nil },
+            set: { if !$0 { self.pendingDeleteConfirmation = nil } }
+        )
+    }
+
+    var pendingBatchDeleteBinding: Binding<Bool> {
+        Binding(
+            get: { self.pendingBatchDelete != nil },
+            set: { if !$0 { self.pendingBatchDelete = nil } }
         )
     }
 

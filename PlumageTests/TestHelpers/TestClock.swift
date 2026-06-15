@@ -67,8 +67,12 @@ nonisolated final class ManualClock: Clock, @unchecked Sendable {
     }
 
     func waitForWaiterCount(_ expected: Int) async throws {
-        try await waitUntil(timeout: .seconds(2)) { [self] in
-            lock.withLock { waiters.count } == expected
+        // Yield-spin, not real-time sleep: the waiter registers from another
+        // cooperative task, so yielding lets it run without wall-clock flakiness.
+        for _ in 0..<100_000 {
+            if lock.withLock({ waiters.count }) == expected { return }
+            await Task.yield()
         }
+        throw WaitTimeoutError()
     }
 }

@@ -6,7 +6,7 @@ nonisolated enum GitMergeMode: String, Sendable, Equatable {
     case fastForward
 }
 
-nonisolated enum GitMergeError: Error, Sendable, Equatable {
+nonisolated enum GitMergeError: Error, LocalizedError, Sendable, Equatable {
     case gitNotFound
     case implementRunActive(issue: String)
     case mergedIssueRunActive(issue: String, location: String)
@@ -18,6 +18,8 @@ nonisolated enum GitMergeError: Error, Sendable, Equatable {
     case rebaseFailed(stderr: String)
     case branchCheckedOutElsewhere(branch: String)
     case worktreeDirty(path: String)
+
+    var errorDescription: String? { displayMessage }
 
     var displayMessage: String {
         switch self {

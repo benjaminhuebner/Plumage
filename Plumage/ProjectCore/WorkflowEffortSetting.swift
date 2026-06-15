@@ -12,11 +12,6 @@ nonisolated enum WorkflowEffortSetting: Hashable, Sendable, Codable {
         }
     }
 
-    var uniformValue: EffortLevel? {
-        if case .uniform(let level) = self { return level }
-        return nil
-    }
-
     // Completes missing types and collapses an all-identical map to .uniform.
     var normalized: WorkflowEffortSetting {
         switch self {

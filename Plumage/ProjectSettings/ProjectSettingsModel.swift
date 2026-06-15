@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import os
 
 @Observable
 @MainActor
@@ -19,6 +20,8 @@ final class ProjectSettingsModel {
     }
 
     let projectURL: URL
+
+    private static let logger = Logger(subsystem: "com.plumage", category: "ProjectSettingsModel")
 
     private(set) var loadState: LoadState = .loading
     private(set) var saveStatus: SaveStatus = .idle
@@ -540,9 +543,12 @@ final class ProjectSettingsModel {
         // race the file (writer_B reads pre-A disk state and overwrites
         // writer_A's contribution).
         let prior = inFlightSave
-        let task = Task { @MainActor in
+        // [weak self]: a chained save can outlive the settings view; without it
+        // the task would keep the model alive and write through a stale bundleURL
+        // after a rename moved the bundle.
+        let task = Task { @MainActor [weak self] in
             await prior?.value
-            await self.doSave()
+            await self?.doSave()
         }
         inFlightSave = task
         await task.value
@@ -567,6 +573,9 @@ final class ProjectSettingsModel {
             saveStatus = .saved
             onSaved(snapshot)
         } catch {
+            // A teardown flush (onDisappear) writes after the banner overlay is
+            // gone, so log too — the failed status alone would go unseen there.
+            Self.logger.warning("settings save failed: \(error.localizedDescription, privacy: .public)")
             saveStatus = .failed(message: error.localizedDescription)
         }
     }

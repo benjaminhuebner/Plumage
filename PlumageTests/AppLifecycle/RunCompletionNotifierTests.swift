@@ -28,7 +28,7 @@ struct RunCompletionNotifierTests {
         var posted: (title: String, slug: String)?
         let notifier = RunCompletionNotifier(
             isFrontmost: { false },
-            post: { title, slug, _ in posted = (title, slug) })
+            post: { title, slug, _, _ in posted = (title, slug) })
         let didPost = notifier.runFinished(
             title: "Add Foo", slug: "00001-a", projectRoot: URL(filePath: "/p"))
         #expect(didPost)
@@ -42,8 +42,30 @@ struct RunCompletionNotifierTests {
         var postCount = 0
         let notifier = RunCompletionNotifier(
             isFrontmost: { true },
-            post: { _, _, _ in postCount += 1 })
+            post: { _, _, _, _ in postCount += 1 })
         #expect(!notifier.runFinished(title: "X", slug: "s", projectRoot: URL(filePath: "/p")))
         #expect(postCount == 0)
+    }
+
+    @MainActor
+    @Test("runFinished is suppressed when not authorized")
+    func suppressedWhenUnauthorized() {
+        // Default init leaves authorized = false; shouldPost short-circuits
+        // before the real banner path runs.
+        let notifier = RunCompletionNotifier(isFrontmost: { false })
+        #expect(!notifier.runFinished(title: "X", slug: "s", projectRoot: URL(filePath: "/p")))
+    }
+
+    @MainActor
+    @Test("a second run of the same slug gets a distinct notification identifier")
+    func distinctIdentifiersPerRun() {
+        var ids: [String] = []
+        let notifier = RunCompletionNotifier(
+            isFrontmost: { false }, post: { _, _, _, id in ids.append(id) })
+        _ = notifier.runFinished(title: "X", slug: "00001-a", projectRoot: URL(filePath: "/p"))
+        _ = notifier.runFinished(title: "X", slug: "00001-a", projectRoot: URL(filePath: "/p"))
+        #expect(ids.count == 2)
+        #expect(ids[0] != ids[1])
+        #expect(ids.allSatisfy { $0.hasPrefix("run-finished-00001-a-") })
     }
 }

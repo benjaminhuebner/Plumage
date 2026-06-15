@@ -335,16 +335,19 @@ struct ProjectWindow: View {
                 // way.
                 pinnedFiles.apply(rewrites: rewrites)
             }
+            .onChange(of: navigator.externalRewrites) { _, rewrites in
+                // External (FSEvent-driven) renames/moves/deletes already update
+                // pins on reload; the route must follow them too or it strands
+                // in a conflict on a vanished folder.
+                applyRouteRewrites(rewrites)
+            }
             .sheet(isPresented: $showCreateSheet) {
                 NavigationStack {
                     IssueDetailView(projectURL: handle.url, initialStatus: createInitialStatus)
                 }
-                // Sheets present in their own SwiftUI tree and don't inherit
-                // the presenter's environment. IssueDetailView's
-                // @Environment(ProjectKanbanModel.self) crashes without these.
-                // openSpec stays deliberately unwired here (defaults to no-op):
-                // on create-success the sheet only dismisses, leaving the board
-                // put — the new card arrives via FSEvents, no route change.
+                // A sheet runs in its own SwiftUI tree, so pass the envs
+                // IssueDetailView reads or it crashes; openSpec is left absent so
+                // create-success just dismisses and the new card arrives via FSEvents.
                 .environment(kanban)
                 .environment(navigator)
                 .environment(\.onIssueCreated) { _ in
@@ -657,13 +660,8 @@ struct ProjectWindow: View {
     // `.issue` routes follow their folder under .claude/issues/ the same way.
     private func applyRouteRewrites(_ rewrites: [RouteRewrite]) {
         cancelStalePendingImplement(rewrites)
-        switch selectedRoute {
-        case .projectFile(let current):
-            applyFileRouteRewrites(rewrites, current: current)
-        case .issue(let folderName):
-            applyIssueRouteRewrites(rewrites, folderName: folderName)
-        case .kanban, .projectSettings:
-            return
+        if let rewritten = NavigatorRoute.rewritten(selectedRoute, by: rewrites) {
+            selectedRoute = rewritten
         }
     }
 
@@ -677,53 +675,6 @@ struct ProjectWindow: View {
             case .moved(let old, _), .removed(let old):
                 if old == issuePath || issuePath.hasPrefix(old + "/") {
                     workflowLauncher.cancelPendingImplement()
-                    return
-                }
-            }
-        }
-    }
-
-    private func applyFileRouteRewrites(_ rewrites: [RouteRewrite], current: String) {
-        for rewrite in rewrites {
-            switch rewrite {
-            case .moved(let old, let new):
-                if current == old {
-                    selectedRoute = .projectFile(relativePath: new)
-                    return
-                }
-                if current.hasPrefix(old + "/") {
-                    selectedRoute = .projectFile(
-                        relativePath: new + String(current.dropFirst(old.count)))
-                    return
-                }
-            case .removed(let old):
-                if current == old || current.hasPrefix(old + "/") {
-                    selectedRoute = .kanban
-                    return
-                }
-            }
-        }
-    }
-
-    private func applyIssueRouteRewrites(_ rewrites: [RouteRewrite], folderName: String) {
-        let issuesPrefix = ".claude/issues/"
-        let issuePath = issuesPrefix + folderName
-        for rewrite in rewrites {
-            switch rewrite {
-            case .moved(let old, let new):
-                guard old == issuePath || issuePath.hasPrefix(old + "/") else { continue }
-                let renamed = new.hasPrefix(issuesPrefix) ? String(new.dropFirst(issuesPrefix.count)) : ""
-                if old == issuePath, !renamed.isEmpty, !renamed.contains("/") {
-                    selectedRoute = .issue(folderName: renamed)
-                } else {
-                    // Moved out of the issues directory (or an ancestor moved):
-                    // the route can't follow — fall back to the board.
-                    selectedRoute = .kanban
-                }
-                return
-            case .removed(let old):
-                if old == issuePath || issuePath.hasPrefix(old + "/") {
-                    selectedRoute = .kanban
                     return
                 }
             }

@@ -222,16 +222,7 @@ final class FinderFileTreeCoordinator: NSObject {
     // path namespaces (Template Manager's output vs. store paths).
     private func childNodes(forParentPath parentPath: String?) -> [FileNode] {
         guard let parentPath else { return currentNodes }
-        func find(_ nodes: [FileNode]) -> FileNode? {
-            for node in nodes {
-                if node.relativePath == parentPath { return node }
-                if let children = node.children, let found = find(children) {
-                    return found
-                }
-            }
-            return nil
-        }
-        return find(currentNodes)?.children ?? []
+        return itemsByPath[parentPath]?.node.children ?? []
     }
 
     // MARK: - Expansion

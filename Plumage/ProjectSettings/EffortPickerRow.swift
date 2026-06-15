@@ -8,7 +8,7 @@ struct EffortPickerRow: View {
         HStack {
             Text(label)
                 .frame(width: 160, alignment: .leading)
-            EffortPickerCore(choice: $choice)
+            EffortPickerCore(choice: $choice, accessibilityLabel: "\(label) effort")
             Spacer(minLength: 0)
         }
     }
@@ -17,6 +17,7 @@ struct EffortPickerRow: View {
 struct EffortPickerCore: View {
     @Binding var choice: EffortLevel
     var mixed: Bool = false
+    let accessibilityLabel: String
 
     static let presets: [EffortLevel] = [.default, .low, .medium, .high, .xhigh, .max]
 
@@ -37,6 +38,7 @@ struct EffortPickerCore: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .frame(maxWidth: 220, alignment: .leading)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var selectionBinding: Binding<Selection> {

@@ -128,6 +128,21 @@ struct ClaudeProjectFilesTests {
 
         #expect(renamed.lastPathComponent == "bar.txt")
     }
+
+    @Test("renameFile rejects a name that escapes the parent directory")
+    func renameFileRejectsTraversal() throws {
+        let fixture = try ClaudeFilesFixture()
+        try fixture.makeFile(at: ".claude/docs/foo.md", content: "x")
+        let source = fixture.root.appendingPathComponent(".claude/docs/foo.md")
+
+        #expect(throws: CocoaError.self) {
+            _ = try ClaudeProjectFiles.renameFile(at: source, to: "../../escaped.md")
+        }
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: fixture.root.appendingPathComponent("escaped.md").path))
+    }
 }
 
 private final class ClaudeFilesFixture {

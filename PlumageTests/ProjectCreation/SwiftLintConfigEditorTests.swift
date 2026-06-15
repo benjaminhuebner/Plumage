@@ -47,6 +47,18 @@ struct SwiftLintConfigEditorTests {
         #expect(SwiftLintConfigEditor.addingExclude("   ", to: yaml) == yaml)
     }
 
+    @Test("leaves a flow-style excluded key untouched instead of duplicating it")
+    func leavesFlowStyleExcludedUntouched() {
+        let yaml = "excluded: [.build, DerivedData]\n"
+        #expect(SwiftLintConfigEditor.addingExclude("Plumage.plumage", to: yaml) == yaml)
+    }
+
+    @Test("leaves a commented excluded key untouched instead of duplicating it")
+    func leavesCommentedExcludedUntouched() {
+        let yaml = "excluded:  # build artifacts\n  - .build\n"
+        #expect(SwiftLintConfigEditor.addingExclude("Plumage.plumage", to: yaml) == yaml)
+    }
+
     @Test("applying twice equals applying once")
     func isIdempotent() {
         let yaml = "excluded:\n  - .build\n"

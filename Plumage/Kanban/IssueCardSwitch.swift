@@ -63,73 +63,74 @@ struct IssueCardSwitch: View {
         // DragGesture keeps firing throughout the drag.
         let cardOpacity: Double = isDragSource ? 0 : (isLocked ? 0.7 : 1.0)
 
-        IssueCardView(issue: value, padding: padding)
-            .opacity(cardOpacity)
-            .frame(maxHeight: isDragSource ? 0 : nil)
-            .clipped()
-            .contentShape(Rectangle())
-            .help(isLocked ? "Card has unsaved edits in the editor" : "")
-            // Single geometry observer: the frame registry is the source of
-            // truth for both the drop-target resolver and the drag-source
-            // frame at lift time. A previous version kept a parallel
-            // @State copy and a second onGeometryChange, doubling the
-            // layout-pass cost per card.
-            .reportCardFrame(folderName: value.folderName, registry: frameRegistry)
-            // IssueCardView already calls .accessibilityElement(children: .combine);
-            // .isButton is added here because the card-as-button trait belongs
-            // to the gesture-bearing wrapper, not the rendering view.
-            .accessibilityAddTraits(.isButton)
-            .accessibilityActions {
-                // Within-column reorder is otherwise gesture-only — these
-                // actions are the keyboard/VoiceOver path to the same drop.
-                if let above = columnNeighbor(of: value, offset: -1) {
-                    Button("Move Up") {
-                        guard !isLocked else { return }
-                        kanban.dispatchDrop(
-                            payload,
-                            to: .aboveCard(folderName: above, column: value.column),
-                            projectURL: projectURL)
-                    }
-                }
-                if let below = columnNeighbor(of: value, offset: 1) {
-                    Button("Move Down") {
-                        guard !isLocked else { return }
-                        kanban.dispatchDrop(
-                            payload,
-                            to: .belowCard(folderName: below, column: value.column),
-                            projectURL: projectURL)
-                    }
-                }
-                ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
-                    Button("Move to \(target.name)") {
-                        guard !isLocked else { return }
-                        kanban.dispatchDrop(payload, to: .column(target), projectURL: projectURL)
-                    }
+        IssueCardView(
+            issue: value, padding: padding,
+            isHighlighted: kanban.highlightedIssueID == value.folderName
+        )
+        .opacity(cardOpacity)
+        .frame(maxHeight: isDragSource ? 0 : nil)
+        .clipped()
+        .contentShape(Rectangle())
+        .help(isLocked ? "Card has unsaved edits in the editor" : "")
+        // Frame registry is the single source for both the drop-target resolver
+        // and the drag-source frame; a parallel @State copy would double the
+        // per-card layout pass.
+        .reportCardFrame(folderName: value.folderName, registry: frameRegistry)
+        // IssueCardView already calls .accessibilityElement(children: .combine);
+        // .isButton is added here because the card-as-button trait belongs
+        // to the gesture-bearing wrapper, not the rendering view.
+        .accessibilityAddTraits(.isButton)
+        .accessibilityActions {
+            // Within-column reorder is otherwise gesture-only — these
+            // actions are the keyboard/VoiceOver path to the same drop.
+            if let above = columnNeighbor(of: value, offset: -1) {
+                Button("Move Up") {
+                    guard !isLocked else { return }
+                    kanban.dispatchDrop(
+                        payload,
+                        to: .aboveCard(folderName: above, column: value.column),
+                        projectURL: projectURL)
                 }
             }
-            .contextMenu {
-                IssueContextMenuItems(
-                    folderName: value.folderName,
-                    folderURL: IssueLayout.issueFolder(
-                        in: projectURL, folderName: value.folderName),
-                    projectURL: projectURL
-                )
+            if let below = columnNeighbor(of: value, offset: 1) {
+                Button("Move Down") {
+                    guard !isLocked else { return }
+                    kanban.dispatchDrop(
+                        payload,
+                        to: .belowCard(folderName: below, column: value.column),
+                        projectURL: projectURL)
+                }
             }
-            .modifier(
-                CardInteraction(
-                    enabled: !isLocked,
-                    payload: payload,
-                    sourceIssue: value,
-                    sourceFrameProvider: { [frameRegistry] in
-                        frameRegistry.rows[value.folderName] ?? .zero
-                    },
-                    onTap: { openSpec(.issue(folderName: value.folderName)) },
-                    onDispatch: { dispatchedPayload, target in
-                        kanban.applyOptimisticDrop(
-                            dispatchedPayload, to: target, projectURL: projectURL)
-                    }
-                )
+            ForEach(IssueColumn.allCases.filter { $0 != value.column }, id: \.self) { target in
+                Button("Move to \(target.name)") {
+                    guard !isLocked else { return }
+                    kanban.dispatchDrop(payload, to: .column(target), projectURL: projectURL)
+                }
+            }
+        }
+        .contextMenu {
+            IssueContextMenuItems(
+                folderName: value.folderName,
+                folderURL: IssueLayout.issueFolder(
+                    in: projectURL, folderName: value.folderName),
+                projectURL: projectURL
             )
+        }
+        .modifier(
+            CardInteraction(
+                enabled: !isLocked,
+                payload: payload,
+                sourceIssue: value,
+                sourceFrameProvider: { [frameRegistry] in
+                    frameRegistry.rows[value.folderName] ?? .zero
+                },
+                onTap: { openSpec(.issue(folderName: value.folderName)) },
+                onDispatch: { dispatchedPayload, target in
+                    kanban.applyOptimisticDrop(
+                        dispatchedPayload, to: target, projectURL: projectURL)
+                }
+            )
+        )
     }
 }
 

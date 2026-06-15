@@ -28,6 +28,8 @@ struct IssueDetailView: View {
     @State private var publishedCloseAction: EditorAction?
     @State private var publishedBackToBoardAction: EditorAction?
     @State private var quitFlushID = UUID()
+    // Cached so the O(n×m) union+sort runs per board change, not per body eval.
+    @State private var cachedExistingLabels: [String] = []
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -95,6 +97,7 @@ struct IssueDetailView: View {
                 await model.autoSaveNow()
             }
             refreshBackToBoardCache()
+            seedExistingLabels()
             guard !model.isCreating else { return }
             await model.load()
             await model.loadPrompt()
@@ -111,14 +114,16 @@ struct IssueDetailView: View {
         .onChange(of: model.loadedPromptContent) { _, _ in refreshDirtyCache() }
         .onChange(of: model.promptDraft) { _, _ in handleEditorBufferChange() }
         .onChange(of: model.frontmatterError) { _, _ in refreshEditorMessages() }
-        .onChange(of: currentKanbanIssue) { _, current in
-            model.observeKanban(currentIssue: current)
-        }
+        .onChange(of: currentKanbanIssue) { _, current in boardDidChange(current) }
         .onChange(of: kanban.lastRemovalCompleted) { _, completed in
-            if let completed, completed == model.folderName { popToBoard() }
+            guard let completed, completed == model.folderName else { return }
+            popToBoard()
+            kanban.clearLastRemovalCompleted()
         }
         .onChange(of: kanban.lastMergeCompleted) { _, completed in
-            if let completed, completed == model.folderName { popToBoard() }
+            guard let completed, completed == model.folderName else { return }
+            popToBoard()
+            kanban.clearLastMergeCompleted()
         }
         .onChange(of: model.conflict) { _, conflict in
             if conflict == .fileDeleted { popToBoard() }
@@ -266,7 +271,8 @@ struct IssueDetailView: View {
                 showsCopyID: !model.isCreating,
                 isCreating: model.isCreating,
                 autoSaveStatus: model.autoSaveStatus,
-                onCopyID: model.copyIDToPasteboard
+                onCopyID: model.copyIDToPasteboard,
+                onRetry: { Task { await model.autoSaveNow() } }
             )
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
@@ -285,7 +291,7 @@ struct IssueDetailView: View {
                 status: currentStatus,
                 type: currentType,
                 labels: currentLabels,
-                existingLabels: projectExistingLabels,
+                existingLabels: cachedExistingLabels,
                 dates: metaDates,
                 onSelectStatus: onSelectStatus,
                 onSelectType: onSelectType,
@@ -296,7 +302,7 @@ struct IssueDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 5)
             if !model.isCreating {
-                BodyTabPicker(selectedTab: bodyTabBinding)
+                BodyTabPicker(selectedTab: model.bodyTabBinding)
                     .padding(.horizontal, 12)
             }
         }
@@ -392,14 +398,6 @@ struct IssueDetailView: View {
 
     // MARK: - Mode-aware data sources
 
-    private var currentKanbanIssue: DiscoveredIssue? {
-        // Project the single kanban entry this view cares about so .onChange
-        // doesn't fire on every unrelated snapshot. Cheap: O(n) once per
-        // kanban update, vs. O(n) per render via .onChange(of: kanban.issues).
-        guard let folder = model.folderName else { return nil }
-        return kanban.issues.first { $0.id == folder }
-    }
-
     private var currentStatus: IssueStatus {
         if model.isCreating { return model.statusDraft }
         return model.issue?.status ?? model.statusDraft
@@ -415,12 +413,28 @@ struct IssueDetailView: View {
         return model.issue?.labels ?? []
     }
 
-    private var projectExistingLabels: [String] {
+    private var currentKanbanIssue: DiscoveredIssue? {
+        guard let folder = model.folderName else { return nil }
+        return kanban.issues.first { $0.id == folder }
+    }
+
+    private func boardDidChange(_ current: DiscoveredIssue?) {
+        model.observeKanban(currentIssue: current)
+        seedExistingLabels()
+    }
+
+    private func seedExistingLabels() {
+        cachedExistingLabels = Self.existingLabels(in: kanban.issues, excluding: currentLabels)
+    }
+
+    private static func existingLabels(
+        in issues: [DiscoveredIssue], excluding current: [String]
+    ) -> [String] {
         var all = Set<String>()
-        for case .valid(let issue) in kanban.issues {
+        for case .valid(let issue) in issues {
             all.formUnion(issue.labels)
         }
-        return all.subtracting(currentLabels).sorted()
+        return all.subtracting(current).sorted()
     }
 
     private var metaDates: IssueMetaRow.Dates? {
@@ -524,16 +538,6 @@ struct IssueDetailView: View {
     }
 
     // Flush the edited buffer before the selected tab changes away from it.
-    private var bodyTabBinding: Binding<BodyTab> {
-        Binding(
-            get: { model.selectedBodyTab },
-            set: { newTab in
-                flushAutoSaveNow()
-                model.selectedBodyTab = newTab
-            }
-        )
-    }
-
     private func applySmartDefaultTabIfNeeded() {
         // Only on the very first load per view lifetime, so reopening the
         // same card doesn't snap the user's deliberate tab choice back to
@@ -572,7 +576,7 @@ struct IssueDetailView: View {
 
     private var mergeBannerMessage: String? {
         if let critical = model.lastMergeCriticalError { return critical }
-        if let error = model.lastMergeError { return error.displayMessage }
+        if let error = model.lastMergeError { return error.localizedDescription }
         return nil
     }
 

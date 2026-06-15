@@ -7,6 +7,7 @@ struct IssueDetailTopBar: View {
     let isCreating: Bool
     let autoSaveStatus: IssueDetailModel.AutoSaveStatus
     let onCopyID: () -> Void
+    let onRetry: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -53,6 +54,14 @@ struct IssueDetailTopBar: View {
         case .saved:
             Label("Saved", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
+        case .error(let message):
+            HStack(spacing: 4) {
+                Label("Save failed", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help(message)
+                Button("Retry", action: onRetry)
+                    .controlSize(.small)
+            }
         case .idle:
             EmptyView()
         }
@@ -66,7 +75,8 @@ struct IssueDetailTopBar: View {
         showsCopyID: true,
         isCreating: false,
         autoSaveStatus: .saved,
-        onCopyID: {}
+        onCopyID: {},
+        onRetry: {}
     )
     .padding()
     .frame(width: 800)

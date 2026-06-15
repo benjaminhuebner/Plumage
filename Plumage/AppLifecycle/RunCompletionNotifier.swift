@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import UserNotifications
+import os
 
 // Authorization is requested once; denial degrades to silence (no prompt loop,
 // no crash). Posts only while Plumage is backgrounded.
@@ -8,21 +9,25 @@ import UserNotifications
 final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = RunCompletionNotifier()
 
+    private static let logger = Logger(subsystem: "com.plumage", category: "RunCompletionNotifier")
+
     private var authorized = false
     private var requested = false
+    private var postSeq: UInt64 = 0
 
     private let isFrontmost: @MainActor () -> Bool
-    private let post: @MainActor (_ title: String, _ slug: String, _ projectRoot: URL) -> Void
+    private let post: @MainActor (_ title: String, _ slug: String, _ projectRoot: URL, _ identifier: String) -> Void
 
     private struct RunWatch {
-        let source: FSEventSource
+        var sources: [FSEventSource]
+        var worktreeRoots: [URL]
         var liveSlugs: Set<String>
     }
     private var watches: [String: RunWatch] = [:]
 
     init(
         isFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive },
-        post: (@MainActor (String, String, URL) -> Void)? = nil
+        post: (@MainActor (String, String, URL, String) -> Void)? = nil
     ) {
         self.isFrontmost = isFrontmost
         if let post {
@@ -53,17 +58,19 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
     @discardableResult
     func runFinished(title: String, slug: String, projectRoot: URL) -> Bool {
         guard Self.shouldPost(isFrontmost: isFrontmost(), authorized: authorized) else { return false }
-        post(title, slug, projectRoot)
+        // A repeated identifier silently replaces the prior banner in
+        // UNUserNotificationCenter, so a second run of the slug needs a fresh one.
+        postSeq &+= 1
+        post(title, slug, projectRoot, "run-finished-\(slug)-\(postSeq)")
         return true
     }
 
-    private static func postBanner(title: String, slug: String, projectRoot: URL) {
+    private static func postBanner(title: String, slug: String, projectRoot: URL, identifier: String) {
         let content = UNMutableNotificationContent()
         content.title = "Issue \(title)"
         content.body = "Run finished — waiting for review"
         content.userInfo = ["projectRoot": projectRoot.path]
-        let request = UNNotificationRequest(
-            identifier: "run-finished-\(slug)", content: content, trigger: nil)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
 
@@ -71,47 +78,91 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
     // so a run-state file vanishing is the finish signal even with no window focus.
     func watchProjectRuns(root: URL) {
         let key = root.standardizedFileURL.path
-        guard watches[key] == nil, let bundle = try? BundleResolver.findBundle(in: root) else { return }
-        let runsDir = bundle.appendingPathComponent("runs", isDirectory: true)
-        try? FileManager.default.createDirectory(at: runsDir, withIntermediateDirectories: true)
-        let source = FSEventSource(directory: runsDir) { [weak self] in
-            Task { @MainActor in self?.checkFinished(root: root) }
+        guard watches[key] == nil else { return }
+        guard let bundle = try? BundleResolver.findBundle(in: root) else {
+            Self.logger.warning(
+                "no bundle at \(root.path, privacy: .public) — run notifications off for this project")
+            return
         }
-        source.start()
-        watches[key] = RunWatch(source: source, liveSlugs: Self.currentLiveSlugs(root: root))
+        let source = Self.makeSource(forRunsIn: bundle, root: root, owner: self)
+        watches[key] = RunWatch(
+            sources: [source], worktreeRoots: [root],
+            liveSlugs: Self.currentLiveSlugs(roots: [root]))
+        // Worktree runs write to a separate bundle copy the primary runs dir
+        // never sees; the git enumeration is kept off the FSEvent hot path.
+        Task { @MainActor [weak self] in await self?.expandWorktreeWatches(root: root, key: key) }
     }
 
     func unwatchProjectRuns(root: URL) {
         let key = root.standardizedFileURL.path
-        watches[key]?.source.stop()
+        watches[key]?.sources.forEach { $0.stop() }
         watches[key] = nil
+    }
+
+    private static func makeSource(
+        forRunsIn bundle: URL, root: URL, owner: RunCompletionNotifier
+    )
+        -> FSEventSource
+    {
+        let runsDir = bundle.appendingPathComponent("runs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: runsDir, withIntermediateDirectories: true)
+        let source = FSEventSource(directory: runsDir) { [weak owner] in
+            Task { @MainActor in owner?.checkFinished(root: root) }
+        }
+        source.start()
+        return source
+    }
+
+    private func expandWorktreeWatches(root: URL, key: String) async {
+        let roots = await Self.worktreeRoots(root: root)
+        let primaryKey = root.standardizedFileURL.path
+        var added: [FSEventSource] = []
+        for worktree in roots where worktree.standardizedFileURL.path != primaryKey {
+            guard let bundle = try? BundleResolver.findBundle(in: worktree) else { continue }
+            added.append(Self.makeSource(forRunsIn: bundle, root: worktree, owner: self))
+        }
+        guard watches[key] != nil else {
+            added.forEach { $0.stop() }
+            return
+        }
+        watches[key]?.sources.append(contentsOf: added)
+        watches[key]?.worktreeRoots = roots
+        watches[key]?.liveSlugs = Self.currentLiveSlugs(roots: roots)
     }
 
     nonisolated static func finishedSlugs(was: Set<String>, now: Set<String>) -> Set<String> {
         was.subtracting(now)
     }
 
-    private static func currentLiveSlugs(root: URL) -> Set<String> {
-        ImplementRunScanner.liveImplementRun(in: root).map { [$0.issue] } ?? []
+    private static func worktreeRoots(root: URL) async -> [URL] {
+        let worktrees = (try? await GitWorktreeLister().worktrees(repoURL: root)) ?? []
+        return worktrees.isEmpty ? [root] : worktrees.map(\.path)
+    }
+
+    private static func currentLiveSlugs(roots: [URL]) -> Set<String> {
+        Set(ImplementRunScanner.liveImplementRuns(acrossWorktreeRoots: roots).map { $0.run.issue })
     }
 
     private func checkFinished(root: URL) {
         let key = root.standardizedFileURL.path
-        guard var watch = watches[key] else { return }
-        let now = Self.currentLiveSlugs(root: root)
+        guard let watch = watches[key] else { return }
+        let now = Self.currentLiveSlugs(roots: watch.worktreeRoots)
         let finished = Self.finishedSlugs(was: watch.liveSlugs, now: now)
-        watch.liveSlugs = now
-        watches[key] = watch
+        watches[key]?.liveSlugs = now
         for slug in finished {
-            runFinished(
-                title: Self.issueTitle(root: root, slug: slug) ?? slug, slug: slug, projectRoot: root)
+            Task { @MainActor [weak self] in
+                let title = await Self.issueTitle(root: root, slug: slug) ?? slug
+                self?.runFinished(title: title, slug: slug, projectRoot: root)
+            }
         }
     }
 
-    private static func issueTitle(root: URL, slug: String) -> String? {
-        let specURL = root.appendingPathComponent(".claude/issues/\(slug)/spec.md")
-        guard let content = try? String(contentsOf: specURL, encoding: .utf8) else { return nil }
-        return (try? SpecParser.parse(content: content, folderName: slug).get())?.title
+    private static func issueTitle(root: URL, slug: String) async -> String? {
+        await Task.detached { () -> String? in
+            let specURL = root.appendingPathComponent(".claude/issues/\(slug)/spec.md")
+            guard let content = try? String(contentsOf: specURL, encoding: .utf8) else { return nil }
+            return (try? SpecParser.parse(content: content, folderName: slug).get())?.title
+        }.value
     }
 
     nonisolated func userNotificationCenter(

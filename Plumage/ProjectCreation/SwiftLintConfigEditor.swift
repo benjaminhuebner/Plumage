@@ -9,6 +9,9 @@ nonisolated enum SwiftLintConfigEditor {
 
         var lines = yaml.components(separatedBy: "\n")
         guard let keyIndex = lines.firstIndex(where: isExcludedKey) else {
+            // A flow-style or commented `excluded:` can't be spliced into safely;
+            // leave the file as-is rather than appending a duplicate key.
+            if lines.contains(where: hasExcludedKey) { return yaml }
             return appendingExcludedSection(trimmedEntry, to: yaml)
         }
 
@@ -28,6 +31,13 @@ nonisolated enum SwiftLintConfigEditor {
     private static func isExcludedKey(_ line: String) -> Bool {
         guard let first = line.first, !first.isWhitespace else { return false }
         return line.trimmingCharacters(in: .whitespaces) == "excluded:"
+    }
+
+    // Any top-level `excluded:` key, including flow-style (`excluded: [a, b]`) or
+    // commented forms that isExcludedKey's bare-key match misses.
+    private static func hasExcludedKey(_ line: String) -> Bool {
+        guard let first = line.first, !first.isWhitespace else { return false }
+        return line.trimmingCharacters(in: .whitespaces).hasPrefix("excluded:")
     }
 
     private static func listItem(_ line: String) -> (indent: String, value: String)? {

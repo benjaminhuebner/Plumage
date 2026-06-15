@@ -1,11 +1,14 @@
 import AppKit
 import Foundation
+import os
 
 // Requests dock attention only while not frontmost, for a hook signal that maps
 // to a live run.
 @MainActor
 @Observable
 final class RunAlertCoordinator {
+    private static let logger = Logger(subsystem: "com.plumage", category: "RunAlertCoordinator")
+
     private let signalURL: URL
     private let isFrontmost: @MainActor () -> Bool
     private let hasLiveRun: @Sendable (URL) -> Bool
@@ -21,7 +24,9 @@ final class RunAlertCoordinator {
             ImplementRunScanner.liveImplementRun(in: $0) != nil
         },
         requestAttention: @escaping @MainActor () -> Void = {
-            NSApp.requestUserAttention(.criticalRequest)
+            // Informational (one bounce), not critical — a run signal is routine,
+            // not an exceptional condition warranting a persistent bounce.
+            NSApp.requestUserAttention(.informationalRequest)
         }
     ) {
         self.signalURL = signalURL
@@ -32,7 +37,13 @@ final class RunAlertCoordinator {
 
     func start() {
         let dir = signalURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            Self.logger.error(
+                "signal dir unavailable, dock attention off: \(error.localizedDescription, privacy: .public)"
+            )
+        }
         // Start past the current end so a relaunch never bounces for stale lines.
         if let file = try? FileHandle(forReadingFrom: signalURL) {
             readOffset = (try? file.seekToEnd()) ?? 0
@@ -69,8 +80,9 @@ final class RunAlertCoordinator {
         guard let data = try? file.readToEnd(), !data.isEmpty else { return }
         readOffset += UInt64(data.count)
         guard let text = String(data: data, encoding: .utf8) else { return }
+        let decoder = JSONDecoder()
         for line in text.split(whereSeparator: \.isNewline) {
-            if let signal = AgentNotificationSignal.parse(line: String(line)) {
+            if let signal = AgentNotificationSignal.parse(line: String(line), decoder: decoder) {
                 handle(signal)
             }
         }

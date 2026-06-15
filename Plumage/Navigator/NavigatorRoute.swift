@@ -18,6 +18,66 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
 }
 
 nonisolated extension NavigatorRoute {
+    // nil = unaffected, so the caller keeps the current route; an out-of-scope
+    // move or a removal resolves to .kanban.
+    static func rewritten(_ route: NavigatorRoute, by rewrites: [RouteRewrite]) -> NavigatorRoute? {
+        switch route {
+        case .projectFile(let current):
+            return rewrittenProjectFile(current, by: rewrites)
+        case .issue(let folderName):
+            return rewrittenIssue(folderName, by: rewrites)
+        case .kanban, .projectSettings:
+            return nil
+        }
+    }
+
+    private static func rewrittenProjectFile(
+        _ current: String, by rewrites: [RouteRewrite]
+    )
+        -> NavigatorRoute?
+    {
+        for rewrite in rewrites {
+            switch rewrite {
+            case .moved(let old, let new):
+                if current == old { return .projectFile(relativePath: new) }
+                if current.hasPrefix(old + "/") {
+                    return .projectFile(relativePath: new + String(current.dropFirst(old.count)))
+                }
+            case .removed(let old):
+                if current == old || current.hasPrefix(old + "/") { return .kanban }
+            }
+        }
+        return nil
+    }
+
+    private static func rewrittenIssue(
+        _ folderName: String, by rewrites: [RouteRewrite]
+    )
+        -> NavigatorRoute?
+    {
+        let issuesPrefix = ".claude/issues/"
+        let issuePath = issuesPrefix + folderName
+        for rewrite in rewrites {
+            switch rewrite {
+            case .moved(let old, let new):
+                guard old == issuePath || issuePath.hasPrefix(old + "/") else { continue }
+                let renamed =
+                    new.hasPrefix(issuesPrefix) ? String(new.dropFirst(issuesPrefix.count)) : ""
+                if old == issuePath, !renamed.isEmpty, !renamed.contains("/") {
+                    return .issue(folderName: renamed)
+                }
+                // Moved out of the issues directory (or an ancestor moved): the
+                // route can't follow.
+                return .kanban
+            case .removed(let old):
+                if old == issuePath || issuePath.hasPrefix(old + "/") { return .kanban }
+            }
+        }
+        return nil
+    }
+}
+
+nonisolated extension NavigatorRoute {
     // JSONEncoder/Decoder are Sendable; caching saves a per-call allocation
     // on the SceneStorage persist hot path.
     private static let encoder = JSONEncoder()

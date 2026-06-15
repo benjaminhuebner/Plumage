@@ -9,6 +9,7 @@ struct LabelChipEditor: View {
     @State private var isEditing = false
     @State private var draft: String = ""
     @State private var showSuggestions = false
+    @State private var matchesCache: [String] = []
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
@@ -27,7 +28,8 @@ struct LabelChipEditor: View {
                     .focused($fieldFocused)
                     .onSubmit(commitDraft)
                     .onExitCommand { cancelDraft() }
-                    .onChange(of: draft) { _, _ in updateSuggestionVisibility() }
+                    .onChange(of: draft) { _, _ in refreshMatches() }
+                    .onChange(of: existingLabels, initial: true) { _, _ in refreshMatches() }
                     .popover(isPresented: $showSuggestions, arrowEdge: .bottom) {
                         suggestionList
                     }
@@ -57,7 +59,7 @@ struct LabelChipEditor: View {
     @ViewBuilder
     private var suggestionList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Self.matches(for: draft, in: existingLabels), id: \.self) { label in
+            ForEach(matchesCache, id: \.self) { label in
                 Button {
                     accept(label)
                 } label: {
@@ -112,8 +114,9 @@ struct LabelChipEditor: View {
         accept(label)
     }
 
-    private func updateSuggestionVisibility() {
-        showSuggestions = isEditing && !Self.matches(for: draft, in: existingLabels).isEmpty
+    private func refreshMatches() {
+        matchesCache = Self.matches(for: draft, in: existingLabels)
+        showSuggestions = isEditing && !matchesCache.isEmpty
     }
 
     // Prefer an existing label over a free-typed one so the color stays
@@ -121,8 +124,13 @@ struct LabelChipEditor: View {
     nonisolated static func acceptedLabel(
         draft: String, existingLabels: [String], currentLabels: [String]
     ) -> String? {
-        if let top = matches(for: draft, in: existingLabels).first { return top }
         let trimmed = draft.trimmingCharacters(in: .whitespaces)
+        // Substitute only on an exact existing label (normalizes casing/dupes); a
+        // prefix match stays a click-only suggestion, so "back" stays creatable
+        // even when "backend" exists.
+        if let exact = existingLabels.first(where: { $0.lowercased() == trimmed.lowercased() }) {
+            return exact
+        }
         guard isValid(trimmed), !currentLabels.contains(trimmed) else { return nil }
         return trimmed
     }

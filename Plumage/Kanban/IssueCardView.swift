@@ -3,15 +3,11 @@ import SwiftUI
 struct IssueCardView: View {
     let issue: Issue
     let padding: Int
+    // Resolved by the wrapper so only the 1-2 cards whose highlight actually
+    // flips re-render, instead of every card subscribing to highlightedIssueID.
+    let isHighlighted: Bool
 
-    // Model read, not an env value: re-assigning an env value at the window
-    // root re-evaluated the whole detail subtree twice per highlight.
-    @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var isHighlighted: Bool {
-        kanban.highlightedIssueID == issue.folderName
-    }
 
     private var accessibilityDescription: String {
         var parts = ["\(issue.type.rawValue.capitalized) · \(issue.title)"]
@@ -91,29 +87,51 @@ struct IssueCardView: View {
 private struct CardLabelRow: View {
     let labels: [String]
 
-    var body: some View {
-        // Candidates run most-chips-first; ViewThatFits picks the largest that fits.
-        ViewThatFits(in: .horizontal) {
-            ForEach(0...labels.count, id: \.self) { hidden in
-                candidate(hidden: hidden)
-            }
-        }
-        .accessibilityHidden(true)
-    }
+    @State private var availableWidth: CGFloat = 0
 
-    @ViewBuilder
-    private func candidate(hidden: Int) -> some View {
-        let shown = labels.count - hidden
+    var body: some View {
+        let shown = CardLabelFit.fitCount(labels: labels, width: availableWidth)
         HStack(spacing: 4) {
             ForEach(Array(labels.prefix(shown).enumerated()), id: \.offset) { _, label in
                 LabelChip(text: label)
             }
-            if hidden > 0 {
-                LabelChip.overflow(count: hidden)
+            if shown < labels.count {
+                LabelChip.overflow(count: labels.count - shown)
             }
         }
-        // Ideal width so the cascade drops whole chips instead of squeezing text.
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) {
+            $0.size.width
+        } action: {
+            availableWidth = $0
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+// Single-pass truncation: estimate each chip's width and keep the whole chips
+// that fit, reserving room for the "+N" pill. Replaces an O(n²) ViewThatFits
+// cascade; conservative, so it drops a chip rather than clip on a fixed-width card.
+nonisolated enum CardLabelFit {
+    static func fitCount(labels: [String], width: CGFloat) -> Int {
+        guard width > 0 else { return labels.count }
+        let spacing: CGFloat = 4
+        let overflowReserve: CGFloat = 34
+        var used: CGFloat = 0
+        var shown = 0
+        for (index, label) in labels.enumerated() {
+            let next = used + (shown > 0 ? spacing : 0) + chipWidth(label)
+            let reserve = index < labels.count - 1 ? spacing + overflowReserve : 0
+            guard next + reserve <= width else { break }
+            used = next
+            shown += 1
+        }
+        return shown
+    }
+
+    // caption.monospaced ≈ 7pt/char + 12pt padding, capped at LabelChip's own 80pt frame.
+    static func chipWidth(_ text: String) -> CGFloat {
+        min(CGFloat(text.count) * 7 + 12, 80)
     }
 }
 
@@ -132,7 +150,8 @@ private struct CardLabelRow: View {
                 labels: [],
                 goal: nil
             ),
-            padding: 5
+            padding: 5,
+            isHighlighted: false
         )
         IssueCardView(
             issue: Issue(
@@ -147,7 +166,8 @@ private struct CardLabelRow: View {
                 labels: ["feature", "v0.1", "ui", "backend", "performance"],
                 goal: "Bring Kanban columns to life with type-tinted pills and a goal subtitle."
             ),
-            padding: 5
+            padding: 5,
+            isHighlighted: false
         )
         IssueCardView(
             issue: Issue(
@@ -166,7 +186,8 @@ private struct CardLabelRow: View {
                     count: 4
                 )
             ),
-            padding: 5
+            padding: 5,
+            isHighlighted: false
         )
         IssueCardView(
             issue: Issue(
@@ -181,7 +202,8 @@ private struct CardLabelRow: View {
                 labels: [],
                 goal: "Stuck on an external decision."
             ),
-            padding: 5
+            padding: 5,
+            isHighlighted: false
         )
     }
     .padding()

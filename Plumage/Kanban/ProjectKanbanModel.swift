@@ -66,7 +66,6 @@ final class ProjectKanbanModel {
 
     var pendingDropFolderName: String? { pendingDrop?.folderName }
     var pendingDropExpectedStatus: IssueStatus? { pendingDrop?.expectedStatus }
-    var pendingDropExpectedOrder: SetValue<Double?>? { pendingDrop?.expectedOrder }
 
     private let producerFactory: @Sendable (URL) -> IssueSnapshotProducer
     private let highlightClock: any Clock<Duration>
@@ -157,6 +156,13 @@ final class ProjectKanbanModel {
         let reconciled = Self.reconcile(incoming: snapshot, pending: pendingDrop)
         let entryOrders = Self.columnEntryOrders(previous: issues, incoming: reconciled.snapshot)
         let groups = Self.group(reconciled.snapshot)
+        // An externally removed issue must drop a confirm dialog still naming it,
+        // else "Archive"/"Trash" silently no-ops on a folder that's already gone.
+        if let pending = pendingRemoval,
+            !reconciled.snapshot.contains(where: { $0.id == pending.folderName })
+        {
+            pendingRemoval = nil
+        }
         // `@Observable` re-renders on every set; skip identical snapshots so a
         // content-only spec edit doesn't redraw the whole board.
         if reconciled.snapshot != issues {
@@ -256,6 +262,16 @@ final class ProjectKanbanModel {
     // duplicated from lastRemovalCompleted — generalizing would obscure which completion fired.
     func signalMergeCompleted(folderName: String) {
         lastMergeCompleted = folderName
+    }
+
+    // One-shot completion signals: the matching detail view clears them after it
+    // pops, so a later detail reopened on the same folder doesn't pop on a stale value.
+    func clearLastRemovalCompleted() {
+        lastRemovalCompleted = nil
+    }
+
+    func clearLastMergeCompleted() {
+        lastMergeCompleted = nil
     }
 
     #if DEBUG

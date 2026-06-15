@@ -51,7 +51,7 @@ struct KanbanView: View {
         }
         .overlay(alignment: .topLeading) {
             FloatingDragOverlay(controller: kanbanDrag) { item in
-                IssueCardView(issue: item.issue, padding: padding)
+                IssueCardView(issue: item.issue, padding: padding, isHighlighted: false)
             }
         }
         .environment(kanbanDrag)

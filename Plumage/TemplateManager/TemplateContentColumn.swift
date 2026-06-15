@@ -65,9 +65,7 @@ struct TemplateContentColumn: View {
         }
         .confirmationDialog(
             model.pendingDeleteConfirmation.map { "Delete “\($0.name)” and its contents?" } ?? "",
-            isPresented: Binding(
-                get: { model.pendingDeleteConfirmation != nil },
-                set: { if !$0 { model.pendingDeleteConfirmation = nil } }),
+            isPresented: model.pendingDeleteConfirmationBinding,
             titleVisibility: .visible,
             presenting: model.pendingDeleteConfirmation
         ) { _ in
@@ -78,9 +76,7 @@ struct TemplateContentColumn: View {
         }
         .confirmationDialog(
             "Delete \(model.pendingBatchDelete?.count ?? 0) items?",
-            isPresented: Binding(
-                get: { model.pendingBatchDelete != nil },
-                set: { if !$0 { model.pendingBatchDelete = nil } }),
+            isPresented: model.pendingBatchDeleteBinding,
             titleVisibility: .visible
         ) {
             Button("Move to Trash", role: .destructive) { model.confirmPendingBatchDelete() }
@@ -173,7 +169,14 @@ struct TemplateContentColumn: View {
                 }
             },
             onSelect: { node in model.selectedFile = node },
-            rowContent: { node in TemplateContentRow(model: model, node: node) }
+            rowContent: { node in
+                TemplateContentRow(
+                    model: model, node: node,
+                    needsWiring: node.isDirectory
+                        ? model.aggregateNeedsWiring(node) : model.needsWiring(node),
+                    overridden: node.isDirectory
+                        ? model.aggregateOverridden(node) : model.isOverridden(node))
+            }
         )
     }
 
@@ -221,12 +224,10 @@ struct TemplateContentColumn: View {
 private struct TemplateContentRow: View {
     let model: TemplateManagerModel
     let node: FileNode
+    let needsWiring: Bool
+    let overridden: Bool
 
     var body: some View {
-        let needsWiring =
-            node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
-        let overridden =
-            node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
         HStack(spacing: 6) {
             if model.contentRename?.id == node.id {
                 FinderFileTreeRowIcon(node: node)

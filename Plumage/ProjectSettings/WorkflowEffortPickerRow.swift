@@ -31,7 +31,8 @@ struct WorkflowEffortPickerRow: View {
                 )
                 EffortPickerCore(
                     choice: model.effortBinding(for: slot),
-                    mixed: model.isWorkflowEffortMixed(slot)
+                    mixed: model.isWorkflowEffortMixed(slot),
+                    accessibilityLabel: "\(slot.label) effort"
                 )
                 Spacer(minLength: 0)
             }
@@ -42,7 +43,8 @@ struct WorkflowEffortPickerRow: View {
                             .frame(width: 136, alignment: .leading)
                             .padding(.leading, 24)
                         EffortPickerCore(
-                            choice: model.workflowEffortBinding(for: slot, type: type)
+                            choice: model.workflowEffortBinding(for: slot, type: type),
+                            accessibilityLabel: "\(type.rawValue.capitalized) effort"
                         )
                         Spacer(minLength: 0)
                     }

@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct IssueWorkflowActionBar: View {
+    static let aiGradient = LinearGradient(
+        colors: [.orange, .pink, .purple, .blue],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
     let status: IssueStatus
     let type: IssueType
     let runWorkflow: (WorkflowAction) -> Void
@@ -29,6 +35,9 @@ struct IssueWorkflowActionBar: View {
         } label: {
             Label(action.label, systemImage: action.systemImage)
                 .labelStyle(.titleAndIcon)
+                .foregroundStyle(
+                    enabled ? AnyShapeStyle(Self.aiGradient) : AnyShapeStyle(.secondary)
+                )
         }
         .buttonStyle(.bordered)
         .controlSize(.regular)

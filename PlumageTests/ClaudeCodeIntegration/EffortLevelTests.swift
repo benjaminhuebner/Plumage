@@ -3,17 +3,17 @@ import Testing
 
 @testable import Plumage
 
+private let effortLevelCases: [(EffortLevel, String)] = [
+    (.default, "default"),
+    (.low, "low"),
+    (.medium, "medium"),
+    (.high, "high"),
+    (.xhigh, "xhigh"),
+    (.max, "max"),
+]
+
 @Suite("EffortLevel")
 struct EffortLevelTests {
-    static let levelCases: [(EffortLevel, String)] = [
-        (.default, "default"),
-        (.low, "low"),
-        (.medium, "medium"),
-        (.high, "high"),
-        (.xhigh, "xhigh"),
-        (.max, "max"),
-    ]
-
     @Test("cliArg adds --effort for every level except default")
     func cliArgs() {
         #expect(EffortLevel.default.cliArg.isEmpty)
@@ -24,13 +24,13 @@ struct EffortLevelTests {
         #expect(EffortLevel.max.cliArg == ["--effort", "max"])
     }
 
-    @Test("storageValue matches the claude CLI levels", arguments: levelCases)
+    @Test("storageValue matches the claude CLI levels", arguments: effortLevelCases)
     func storageValues(level: EffortLevel, storage: String) {
         #expect(level.storageValue == storage)
         #expect(EffortLevel(storageValue: storage) == level)
     }
 
-    @Test("Codable round-trips every level via JSON", arguments: levelCases.map(\.0))
+    @Test("Codable round-trips every level via JSON", arguments: effortLevelCases.map(\.0))
     func roundTrip(level: EffortLevel) throws {
         let data = try JSONEncoder().encode(level)
         let decoded = try JSONDecoder().decode(EffortLevel.self, from: data)

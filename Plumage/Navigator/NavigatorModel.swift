@@ -147,6 +147,7 @@ final class NavigatorModel {
     // retention; this just stops the timer from outliving the model.)
     isolated deinit {
         bannerResetTask?.cancel()
+        expansionPersist?.cancel()
     }
 
     func reload(projectURL: URL) async {

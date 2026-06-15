@@ -90,7 +90,7 @@ that's just what it has been tested with.
   <tr>
     <td width="50%" valign="top">
       <a href="Docs/screenshots/project-settings.png"><img src="Docs/screenshots/project-settings.png" width="100%" alt="Per-project settings"></a>
-      <p><strong>Per-project settings</strong><br>Customize the workflow slash-commands and the permission mode passed to <code>claude</code> for each action. Saved to <code>&lt;name&gt;.plumage/config.json</code>.</p>
+      <p><strong>Per-project settings</strong><br>Customize the workflow slash-commands and, per action, the permission mode, model, and effort level passed to <code>claude</code>. Saved to <code>&lt;name&gt;.plumage/config.json</code>.</p>
     </td>
     <td width="50%" valign="top">
       <a href="Docs/screenshots/terminal.png"><img src="Docs/screenshots/terminal.png" width="100%" alt="Embedded Claude terminal"></a>
@@ -111,9 +111,9 @@ waiting-for-review → done`.
 The default workflow is fully integrated into the app, but it’s not rigid. If you prefer a different process, you can customize the workflow directly within Plumage.
 
 The commands are defaults, not hardcoded. `/plumage-plan`, `/plumage-implement`, and
-`/plumage-review` — along with the permission mode passed to `claude` for each — are fully
-customizable per project and saved to `<name>.plumage/config.json`. Point them at your own
-slash-commands and Plumage drives those instead.
+`/plumage-review` — along with the permission mode, model, and effort level passed to `claude`
+for each — are fully customizable per project and saved to `<name>.plumage/config.json`. Point
+them at your own slash-commands and Plumage drives those instead.
 
 A typical pass through it:
 

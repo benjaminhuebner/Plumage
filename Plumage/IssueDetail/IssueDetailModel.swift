@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import SwiftUI
+import os
 
 @MainActor
 @Observable
@@ -30,7 +32,10 @@ final class IssueDetailModel {
         case idle
         case saving
         case saved
+        case error(message: String)
     }
+
+    private static let logger = Logger(subsystem: "com.plumage", category: "IssueDetailModel")
 
     private(set) var kind: Kind
     private(set) var specURL: URL?
@@ -333,9 +338,9 @@ final class IssueDetailModel {
         let mutatorFn = mutator
         let now = clock()
 
-        // Sync read of a small TOML file — matches the established ConfigLoader-
-        // on-MainActor convention.
-        let defaultBranch = configLoader(projectURL)?.gitDefaultBranch ?? "main"
+        let loader = configLoader
+        let defaultBranch =
+            await Task.detached { loader(projectURL)?.gitDefaultBranch }.value ?? "main"
 
         let outcome: GitMergeOutcome
         do {
@@ -435,7 +440,9 @@ final class IssueDetailModel {
         }
 
         let runner = mergeRunner
-        let defaultBranch = configLoader(projectURL)?.gitDefaultBranch ?? "main"
+        let loader = configLoader
+        let defaultBranch =
+            await Task.detached { loader(projectURL)?.gitDefaultBranch }.value ?? "main"
         do {
             try await runner.rebaseIssueBranch(
                 repoURL: projectURL,
@@ -672,6 +679,17 @@ final class IssueDetailModel {
         await performAutoSave()
     }
 
+    var bodyTabBinding: Binding<BodyTab> {
+        Binding(
+            get: { self.selectedBodyTab },
+            set: { newTab in
+                // Flush the edited buffer before switching away from it.
+                Task { [weak self] in await self?.autoSaveNow() }
+                self.selectedBodyTab = newTab
+            }
+        )
+    }
+
     private func performAutoSave() async {
         guard !isCreating else { return }
         // A blind write under an unresolved conflict would clobber the disk copy.
@@ -679,10 +697,15 @@ final class IssueDetailModel {
         // Skip a no-op debounce so it doesn't churn the badge.
         guard isBodyDirty || isPromptDirty else { return }
         autoSaveStatus = .saving
-        var didFail = false
-        do { try await saveBody() } catch { didFail = true }
-        do { try await savePrompt() } catch { didFail = true }
-        autoSaveStatus = didFail ? .idle : .saved
+        var failure: String?
+        do { try await saveBody() } catch { failure = error.localizedDescription }
+        do { try await savePrompt() } catch { failure = error.localizedDescription }
+        if let failure {
+            Self.logger.warning("auto-save failed: \(failure, privacy: .public)")
+            autoSaveStatus = .error(message: failure)
+        } else {
+            autoSaveStatus = .saved
+        }
     }
 
     var isPromptDirty: Bool { promptDraft != loadedPromptContent }
@@ -825,7 +848,7 @@ final class IssueDetailModel {
         // is the body (including embedded `---` lines). CRLF is normalized first so
         // raw file content from any platform is safe.
         let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        let lines = normalized.components(separatedBy: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
         var seen = 0
         var bodyStart = 0
         for (index, line) in lines.enumerated() {

@@ -1,11 +1,8 @@
 import Foundation
 
 nonisolated enum ClaudeProjectFiles {
-    static let claudeRelativePath = ".claude"
     static let claudeMDRelativePath = ".claude/CLAUDE.md"
     static let claudeLocalMDRelativePath = ".claude/CLAUDE.local.md"
-    static let settingsRootRelativePath = ".claude"
-    static let skillsRelativePath = ".claude/skills"
     static let mcpJSONRelativePath = ".mcp.json"
 
     // Mirrors IssueArchiver.maxArchiveSuffix — same rationale (deterministic
@@ -109,6 +106,9 @@ nonisolated enum ClaudeProjectFiles {
             return url
         }
         let target = try findFreeName(in: parent, base: normalized)
+        // A typed name like "../../.bashrc" resolves above the parent; reject it
+        // the same way the create paths do.
+        try requireContained(target, within: parent)
         try FileManager.default.moveItem(at: url, to: target)
         return target
     }

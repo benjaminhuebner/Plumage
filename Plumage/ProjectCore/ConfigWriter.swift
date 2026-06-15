@@ -9,16 +9,10 @@ nonisolated enum ConfigWriter {
         case writeFailed(message: String)
     }
 
-    // Top-level keys ConfigWriter is allowed to touch. Everything else on
-    // disk (name, schemaVersion, issueIdPadding, git, plumageManaged, paths,
-    // agentTimeouts, minPlumageVersion, projectType, createdAt, …) is
-    // preserved bit-exact — including external edits to keys like
-    // `git.defaultBranch` that arrived between load and save.
-    static let writableKeys: Set<String> = ["workflows", "models", "efforts"]
-
     static func write(_ config: ProjectConfig, atBundle bundle: URL) throws {
         // Read the on-disk JSON as a generic dictionary first so every key
-        // outside `writableKeys` survives untouched.
+        // outside the three writable subsections survives untouched — including
+        // external edits to keys like `git.defaultBranch` between load and save.
         let configURL = try guardedConfigURL(atBundle: bundle)
         var rootObject = try readRootObject(at: configURL)
 
@@ -34,11 +28,9 @@ nonisolated enum ConfigWriter {
         try writeRootObject(rootObject, to: configURL)
     }
 
-    // Persists the display `name` while leaving every other on-disk key
-    // bit-exact. `name` is deliberately NOT in `writableKeys`: the debounced
-    // settings auto-save must never touch it (a rename moves the bundle folder
-    // too, which only ProjectRenamer coordinates). This is the single explicit
-    // entry point that mutates it.
+    // Persists the display `name` only. The debounced settings auto-save must
+    // never touch `name` — a rename moves the bundle folder too, which only
+    // ProjectRenamer coordinates.
     static func writeName(_ name: String, atBundle bundle: URL) throws {
         let configURL = try guardedConfigURL(atBundle: bundle)
         var rootObject = try readRootObject(at: configURL)

@@ -130,6 +130,8 @@ struct PlumageApp: App {
 final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     private(set) var pendingURLs: [URL] = []
     let runAlertCoordinator = RunAlertCoordinator()
+    private var themeInstallTask: Task<Void, Never>?
+    private var launchMigrationTask: Task<Void, Never>?
 
     func application(_ application: NSApplication, open urls: [URL]) {
         pendingURLs.append(contentsOf: urls)
@@ -152,6 +154,9 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Idempotent launch work; drop the rest on quit rather than orphaning it.
+        themeInstallTask?.cancel()
+        launchMigrationTask?.cancel()
         let coordinator = QuitCoordinator.shared
         guard !coordinator.isEmpty else { return .terminateNow }
         Task { @MainActor in
@@ -167,16 +172,19 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
         // Sync the bundled claude theme so the embedded terminal renders without
         // opaque block backgrounds. Off-main: on iCloud Drive / NFS homes the writes
         // can take tens of milliseconds. Failure is best-effort, swallowed inside.
-        Task.detached(priority: .utility) {
+        themeInstallTask = Task.detached(priority: .utility) {
             ClaudeThemeInstaller.installIfNeeded()
         }
         // One-time, idempotent store migrations, in order: flat layer overrides to
         // folder-per-layer, legacy open-only layer blocks to closed-marker format,
         // then user-authored component skills/hooks into scope ownership. Pure file I/O, in sequence.
-        Task.detached(priority: .utility) {
+        launchMigrationTask = Task.detached(priority: .utility) {
             TemplateOverrideMigration.migrateStandard()
+            guard !Task.isCancelled else { return }
             TemplateLayerFormatMigration.migrateStandard()
+            guard !Task.isCancelled else { return }
             LooseFileScopeMigration.migrateStandard()
+            guard !Task.isCancelled else { return }
             HookScopeMigration.migrateStandard()
         }
     }

@@ -72,6 +72,7 @@ struct IssueDetailModelTests {
         #expect(written.contains("status: blocked"))
         #expect(written.contains("order: 42"))
         #expect(discovererCalls.value == 0)
+        #expect(model.issue?.status == .blocked)
     }
 
     @Test("commitStatus into an empty column clears a stale order")
@@ -300,6 +301,25 @@ struct IssueDetailModelTests {
         let written = try String(contentsOf: env.specURL, encoding: .utf8)
         #expect(written.contains("Hello, world."))
         #expect(model.autoSaveStatus == .saved)
+    }
+
+    @Test("a failed auto-save surfaces an error status instead of going silent")
+    func autoSaveSurfacesError() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = IssueDetailModel(
+            specURL: env.specURL,
+            folderName: "00001-test",
+            projectURL: env.tmpDir,
+            mutator: ThrowingMutator(),
+            clock: { self.now }
+        )
+        await model.load()
+        model.bodyDraft = "Changed."
+        await model.autoSaveNow()
+        guard case .error = model.autoSaveStatus else {
+            Issue.record("expected .error, got \(model.autoSaveStatus)")
+            return
+        }
     }
 
     @Test("autoSaveNow flushes trailing keystrokes before close")
@@ -1236,6 +1256,13 @@ private final class CountingMutator: FrontmatterMutating, @unchecked Sendable {
     func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws {
         if case .set = mutation.body { lock.withLock { _bodyWrites += 1 } }
         try FrontmatterMutator.mutate(specURL: specURL, mutation: mutation, now: now)
+    }
+}
+
+private struct ThrowingMutator: FrontmatterMutating, Sendable {
+    struct Failure: Error {}
+    func mutate(specURL: URL, mutation: FrontmatterMutation, now: Date) throws {
+        throw Failure()
     }
 }
 

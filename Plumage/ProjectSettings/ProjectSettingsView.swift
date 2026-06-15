@@ -252,6 +252,7 @@ struct ProjectSettingsView: View {
                 }
                 .controlSize(.small)
                 .fixedSize()
+                .accessibilityLabel("Insert type-guarded block")
                 .help("Insert a type-guarded block — lines until #else/#end only run for the chosen issue type.")
                 Button {
                     insertDirectiveLine("#else", into: binding)
@@ -286,7 +287,7 @@ struct ProjectSettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(WorkflowAction.allCases, id: \.self) { action in
                 WorkflowModePickerRow(
-                    label: action.settingsLabel,
+                    label: action.label,
                     mode: model.permissionModeBinding(for: action),
                     fallback: model.resolvedFallbackMode(for: action)
                 )

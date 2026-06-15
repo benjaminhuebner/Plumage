@@ -12,11 +12,6 @@ nonisolated enum WorkflowModelSetting: Hashable, Sendable, Codable {
         }
     }
 
-    var uniformValue: ModelChoice? {
-        if case .uniform(let choice) = self { return choice }
-        return nil
-    }
-
     // Completes missing types and collapses an all-identical map to .uniform
     // so disk mirrors the UI semantics.
     var normalized: WorkflowModelSetting {

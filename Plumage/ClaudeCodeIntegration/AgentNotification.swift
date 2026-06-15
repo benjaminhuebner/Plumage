@@ -14,10 +14,10 @@ nonisolated struct AgentNotificationSignal: Codable, Equatable, Sendable {
         case message
     }
 
-    static func parse(line: String) -> AgentNotificationSignal? {
+    static func parse(line: String, decoder: JSONDecoder = JSONDecoder()) -> AgentNotificationSignal? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(AgentNotificationSignal.self, from: data)
+        return try? decoder.decode(AgentNotificationSignal.self, from: data)
     }
 }
 

@@ -56,11 +56,18 @@ struct LabelChipEditorTests {
         #expect(LabelChipEditor.matches(for: "zzz", in: ["kanban", "ui"]).isEmpty)
     }
 
-    @Test("accept: prefers the top existing match over the typed text")
-    func acceptPrefersTopExistingMatch() {
+    @Test("accept: substitutes an exact existing label, normalizing casing")
+    func acceptSubstitutesExactExistingLabel() {
+        #expect(
+            LabelChipEditor.acceptedLabel(
+                draft: "Kanban", existingLabels: ["kanban"], currentLabels: []) == "kanban")
+    }
+
+    @Test("accept: a prefix of an existing label stays creatable as typed")
+    func acceptCreatesPrefixOfExistingLabel() {
         #expect(
             LabelChipEditor.acceptedLabel(draft: "ka", existingLabels: ["kanban"], currentLabels: [])
-                == "kanban")
+                == "ka")
     }
 
     @Test("accept: falls back to a valid free-typed label when nothing matches")
