@@ -5,36 +5,33 @@ import Testing
 
 @Suite("RunAlertCoordinator attention gating")
 struct RunAlertCoordinatorTests {
-    @Test("alerts only when backgrounded with a live run")
+    @Test("alerts whenever backgrounded, regardless of any run")
     func pureGating() {
-        #expect(RunAlertCoordinator.shouldAlert(isFrontmost: false, hasLiveRun: true))
-        #expect(!RunAlertCoordinator.shouldAlert(isFrontmost: true, hasLiveRun: true))
-        #expect(!RunAlertCoordinator.shouldAlert(isFrontmost: false, hasLiveRun: false))
-        #expect(!RunAlertCoordinator.shouldAlert(isFrontmost: true, hasLiveRun: false))
+        #expect(RunAlertCoordinator.shouldAlert(isFrontmost: false))
+        #expect(!RunAlertCoordinator.shouldAlert(isFrontmost: true))
     }
 
     @MainActor
     private func makeCoordinator(
-        frontmost: Bool, live: Bool, onAlert: @escaping @MainActor () -> Void
+        frontmost: Bool, onAlert: @escaping @MainActor () -> Void
     ) -> RunAlertCoordinator {
         RunAlertCoordinator(
             signalURL: URL(filePath: "/tmp/unused-\(UUID().uuidString)"),
             isFrontmost: { frontmost },
-            hasLiveRun: { _ in live },
             requestAttention: onAlert
         )
     }
 
-    private func sampleSignal() -> AgentNotificationSignal {
+    private func sampleSignal(cwd: String = "/p") -> AgentNotificationSignal {
         AgentNotificationSignal(
-            sessionID: "s", cwd: "/p", notificationType: "idle_prompt", message: nil)
+            sessionID: "s", cwd: cwd, notificationType: "idle_prompt", message: nil)
     }
 
     @MainActor
-    @Test("backgrounded + live run bounces the dock")
+    @Test("backgrounded bounces the dock")
     func bouncesWhenBackgrounded() {
         var alerts = 0
-        let coordinator = makeCoordinator(frontmost: false, live: true) { alerts += 1 }
+        let coordinator = makeCoordinator(frontmost: false) { alerts += 1 }
         #expect(coordinator.handle(sampleSignal()))
         #expect(alerts == 1)
     }
@@ -43,17 +40,19 @@ struct RunAlertCoordinatorTests {
     @Test("frontmost suppresses the bounce")
     func suppressedWhenFrontmost() {
         var alerts = 0
-        let coordinator = makeCoordinator(frontmost: true, live: true) { alerts += 1 }
+        let coordinator = makeCoordinator(frontmost: true) { alerts += 1 }
         #expect(!coordinator.handle(sampleSignal()))
         #expect(alerts == 0)
     }
 
     @MainActor
-    @Test("a signal without a live run is ignored")
-    func suppressedWhenStale() {
+    @Test("a backgrounded session with no implement run still bounces")
+    func bouncesWithoutImplementRun() {
+        // The gate no longer requires a live implement run — plan/review/ad-hoc
+        // sessions (which never create run-state) must still pull the user back.
         var alerts = 0
-        let coordinator = makeCoordinator(frontmost: false, live: false) { alerts += 1 }
-        #expect(!coordinator.handle(sampleSignal()))
-        #expect(alerts == 0)
+        let coordinator = makeCoordinator(frontmost: false) { alerts += 1 }
+        #expect(coordinator.handle(sampleSignal(cwd: "/some/other/checkout")))
+        #expect(alerts == 1)
     }
 }

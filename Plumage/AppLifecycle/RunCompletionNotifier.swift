@@ -16,7 +16,8 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
     private var postSeq: UInt64 = 0
 
     private let isFrontmost: @MainActor () -> Bool
-    private let post: @MainActor (_ title: String, _ slug: String, _ projectRoot: URL, _ identifier: String) -> Void
+    private let post:
+        @MainActor (_ title: String, _ slug: String, _ projectRoot: URL, _ body: String, _ identifier: String) -> Void
 
     private struct RunWatch {
         var sources: [FSEventSource]
@@ -27,7 +28,7 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     init(
         isFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive },
-        post: (@MainActor (String, String, URL, String) -> Void)? = nil
+        post: (@MainActor (String, String, URL, String, String) -> Void)? = nil
     ) {
         self.isFrontmost = isFrontmost
         if let post {
@@ -56,19 +57,24 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     @discardableResult
-    func runFinished(title: String, slug: String, projectRoot: URL) -> Bool {
+    func runFinished(
+        title: String, slug: String, projectRoot: URL,
+        body: String = "Run finished — waiting for review"
+    ) -> Bool {
         guard Self.shouldPost(isFrontmost: isFrontmost(), authorized: authorized) else { return false }
         // A repeated identifier silently replaces the prior banner in
         // UNUserNotificationCenter, so a second run of the slug needs a fresh one.
         postSeq &+= 1
-        post(title, slug, projectRoot, "run-finished-\(slug)-\(postSeq)")
+        post(title, slug, projectRoot, body, "run-finished-\(slug)-\(postSeq)")
         return true
     }
 
-    private static func postBanner(title: String, slug: String, projectRoot: URL, identifier: String) {
+    private static func postBanner(
+        title: String, slug: String, projectRoot: URL, body: String, identifier: String
+    ) {
         let content = UNMutableNotificationContent()
         content.title = "Issue \(title)"
-        content.body = "Run finished — waiting for review"
+        content.body = body
         content.userInfo = ["projectRoot": projectRoot.path]
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
@@ -157,7 +163,7 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    private static func issueTitle(root: URL, slug: String) async -> String? {
+    static func issueTitle(root: URL, slug: String) async -> String? {
         await Task.detached { () -> String? in
             let specURL = root.appendingPathComponent(".claude/issues/\(slug)/spec.md")
             guard let content = try? String(contentsOf: specURL, encoding: .utf8) else { return nil }

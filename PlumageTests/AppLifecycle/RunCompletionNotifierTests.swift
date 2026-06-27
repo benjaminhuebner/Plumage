@@ -28,7 +28,7 @@ struct RunCompletionNotifierTests {
         var posted: (title: String, slug: String)?
         let notifier = RunCompletionNotifier(
             isFrontmost: { false },
-            post: { title, slug, _, _ in posted = (title, slug) })
+            post: { title, slug, _, _, _ in posted = (title, slug) })
         let didPost = notifier.runFinished(
             title: "Add Foo", slug: "00001-a", projectRoot: URL(filePath: "/p"))
         #expect(didPost)
@@ -37,12 +37,24 @@ struct RunCompletionNotifierTests {
     }
 
     @MainActor
+    @Test("runFinished passes the body through, defaulting to the review wording")
+    func bodyPassThrough() {
+        var bodies: [String] = []
+        let notifier = RunCompletionNotifier(
+            isFrontmost: { false }, post: { _, _, _, body, _ in bodies.append(body) })
+        _ = notifier.runFinished(
+            title: "X", slug: "s", projectRoot: URL(filePath: "/p"), body: "Plan finished")
+        _ = notifier.runFinished(title: "Y", slug: "t", projectRoot: URL(filePath: "/p"))
+        #expect(bodies == ["Plan finished", "Run finished — waiting for review"])
+    }
+
+    @MainActor
     @Test("runFinished is suppressed while frontmost")
     func suppressedWhenFrontmost() {
         var postCount = 0
         let notifier = RunCompletionNotifier(
             isFrontmost: { true },
-            post: { _, _, _, _ in postCount += 1 })
+            post: { _, _, _, _, _ in postCount += 1 })
         #expect(!notifier.runFinished(title: "X", slug: "s", projectRoot: URL(filePath: "/p")))
         #expect(postCount == 0)
     }
@@ -61,7 +73,7 @@ struct RunCompletionNotifierTests {
     func distinctIdentifiersPerRun() {
         var ids: [String] = []
         let notifier = RunCompletionNotifier(
-            isFrontmost: { false }, post: { _, _, _, id in ids.append(id) })
+            isFrontmost: { false }, post: { _, _, _, _, id in ids.append(id) })
         _ = notifier.runFinished(title: "X", slug: "00001-a", projectRoot: URL(filePath: "/p"))
         _ = notifier.runFinished(title: "X", slug: "00001-a", projectRoot: URL(filePath: "/p"))
         #expect(ids.count == 2)

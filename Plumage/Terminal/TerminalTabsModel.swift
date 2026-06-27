@@ -129,12 +129,8 @@ final class TerminalTabsModel {
             effortsConfig?.workflowResolved(action, type: type)
             ?? EffortsConfig.slotDefault(for: action.modelSlot)
         let permMode = override?.permissionMode ?? action.permissionMode
-        // Implement runs fold a Notification hook into --settings to signal
-        // attention; create its app-support dir up front so the append succeeds.
-        let notificationSignalURL = action == .implement ? AgentNotificationHook.signalFileURL() : nil
-        if let dir = notificationSignalURL?.deletingLastPathComponent() {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
+        // The signal dir is created once at launch by RunAlertCoordinator.start(),
+        // so the default notificationSignalURL needs no dir-create here.
         let session = TerminalClaudeSession(
             cwd: worktreeRoot ?? cwd,
             binaryURL: binaryURL,
@@ -142,9 +138,24 @@ final class TerminalTabsModel {
             effortChoice: resolvedEffort,
             excludedSessionIDs: sharedExcludedSessionIDs,
             persistConversationID: false,
-            permissionMode: permMode,
-            notificationSignalURL: notificationSignalURL
+            permissionMode: permMode
         )
+        // Plan/review self-exit posts a completion banner; implement is excluded
+        // because its run-state path already banners — wiring it would double-fire.
+        if action == .plan || action == .review {
+            let projectRoot = cwd
+            let issueSlug = slug
+            let bannerBody = action == .plan ? "Plan finished" : "Review finished"
+            session.onProcessFinished = {
+                Task { @MainActor in
+                    let title =
+                        await RunCompletionNotifier.issueTitle(root: projectRoot, slug: issueSlug)
+                        ?? issueSlug
+                    RunCompletionNotifier.shared.runFinished(
+                        title: title, slug: issueSlug, projectRoot: projectRoot, body: bannerBody)
+                }
+            }
+        }
         let baseTitle = action.tabTitle(slug: slug)
         let tab = TerminalTab(
             session: session,

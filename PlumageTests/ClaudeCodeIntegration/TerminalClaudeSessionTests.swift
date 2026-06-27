@@ -193,6 +193,26 @@ struct TerminalClaudeSessionTests {
         #expect(light.contains("custom:plumage-light"))
     }
 
+    @Test("shellSpawnArgs injects the Notification attention hook by default")
+    func shellArgsInjectsAttentionHookByDefault() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = TerminalClaudeSession(
+            cwd: env.cwdRoot,
+            binaryURL: env.fakeBinary,
+            sessionIDStoreOverride: env.sessionIDStore,
+            sessionLogRoot: env.sessionLogRoot
+        )
+        let expected = try #require(
+            AgentNotificationHook.settingsJSON(
+                dark: true, signalFileURL: AgentNotificationHook.signalFileURL()))
+        let cmd = session.shellSpawnArgs(appearanceIsDark: true)[1]
+        // The hook JSON embeds a single-quoted path, so the emitted token is the
+        // shell-quoted (quote-escaped) form, not the raw JSON.
+        #expect(cmd.contains("'--settings' \(TerminalClaudeSession.shellQuote(expected))"))
+        #expect(cmd.contains("Notification"))
+    }
+
     @Test("shellSpawnArgs omits --permission-mode by default (nil mode)")
     func shellArgsOmitsPermissionModeByDefault() throws {
         let env = try TempEnv.make()
@@ -368,6 +388,50 @@ struct TerminalClaudeSessionTests {
         session.registerStopHandler { fired += 1 }
         session.stop()
         #expect(fired == 0)
+    }
+
+    // MARK: - onProcessFinished
+
+    @Test("markExited(code: 0) fires onProcessFinished")
+    func cleanExitFiresCompletion() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        var finished = 0
+        session.onProcessFinished = { finished += 1 }
+        session.attach()
+        session.markStarted()
+        session.markExited(code: 0)
+        #expect(finished == 1)
+    }
+
+    @Test("a non-zero markExited does not fire onProcessFinished")
+    func crashExitSkipsCompletion() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        var finished = 0
+        session.onProcessFinished = { finished += 1 }
+        session.attach()
+        session.markStarted()
+        session.markExited(code: 1)
+        #expect(finished == 0)
+    }
+
+    @Test("stop() does not fire onProcessFinished, even with a trailing markExited")
+    func stopSkipsCompletion() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        var finished = 0
+        session.onProcessFinished = { finished += 1 }
+        session.attach()
+        session.markStarted()
+        session.stop()
+        // PTY's processTerminated → markExited(0) after a user close is a no-op
+        // (state already .exited), so closing a tab posts no completion banner.
+        session.markExited(code: 0)
+        #expect(finished == 0)
     }
 
     // MARK: - pendingInput queue
@@ -609,12 +673,14 @@ struct TerminalClaudeSessionTests {
         func makeSession(
             excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] }
         ) -> TerminalClaudeSession {
+            // Opt out of the attention hook so theme-only --settings assertions hold.
             TerminalClaudeSession(
                 cwd: cwdRoot,
                 binaryURL: fakeBinary,
                 sessionIDStoreOverride: sessionIDStore,
                 sessionLogRoot: sessionLogRoot,
-                excludedSessionIDs: excludedSessionIDs
+                excludedSessionIDs: excludedSessionIDs,
+                notificationSignalURL: nil
             )
         }
 

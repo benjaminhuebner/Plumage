@@ -2,8 +2,6 @@ import AppKit
 import Foundation
 import os
 
-// Requests dock attention only while not frontmost, for a hook signal that maps
-// to a live run.
 @MainActor
 @Observable
 final class RunAlertCoordinator {
@@ -11,7 +9,6 @@ final class RunAlertCoordinator {
 
     private let signalURL: URL
     private let isFrontmost: @MainActor () -> Bool
-    private let hasLiveRun: @Sendable (URL) -> Bool
     private let requestAttention: @MainActor () -> Void
 
     private var watcher: FSEventSource?
@@ -20,18 +17,14 @@ final class RunAlertCoordinator {
     init(
         signalURL: URL = AgentNotificationHook.signalFileURL(),
         isFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive },
-        hasLiveRun: @escaping @Sendable (URL) -> Bool = {
-            ImplementRunScanner.liveImplementRun(in: $0) != nil
-        },
         requestAttention: @escaping @MainActor () -> Void = {
-            // Informational (one bounce), not critical — a run signal is routine,
-            // not an exceptional condition warranting a persistent bounce.
-            NSApp.requestUserAttention(.informationalRequest)
+            // Critical bounces until the app is activated; a session genuinely
+            // waiting on the user is too easy to miss with a single bounce.
+            NSApp.requestUserAttention(.criticalRequest)
         }
     ) {
         self.signalURL = signalURL
         self.isFrontmost = isFrontmost
-        self.hasLiveRun = hasLiveRun
         self.requestAttention = requestAttention
     }
 
@@ -61,14 +54,13 @@ final class RunAlertCoordinator {
         watcher = nil
     }
 
-    nonisolated static func shouldAlert(isFrontmost: Bool, hasLiveRun: Bool) -> Bool {
-        hasLiveRun && !isFrontmost
+    nonisolated static func shouldAlert(isFrontmost: Bool) -> Bool {
+        !isFrontmost
     }
 
     @discardableResult
     func handle(_ signal: AgentNotificationSignal) -> Bool {
-        let live = hasLiveRun(URL(filePath: signal.cwd))
-        guard Self.shouldAlert(isFrontmost: isFrontmost(), hasLiveRun: live) else { return false }
+        guard Self.shouldAlert(isFrontmost: isFrontmost()) else { return false }
         requestAttention()
         return true
     }

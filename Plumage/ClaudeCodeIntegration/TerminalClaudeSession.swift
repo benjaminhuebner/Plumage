@@ -50,6 +50,10 @@ final class TerminalClaudeSession {
     // SwiftTermBridge.makeNSView so window-close terminates the child without relying
     // on SwiftUI's teardown timing. The real Process lives in SwiftTerm, not here.
     private var stopHandler: (() -> Void)?
+    // Fired from markExited(code:) only on a clean (code 0) agent-initiated exit —
+    // never on stop() (user close flips to .exited first, short-circuiting markExited)
+    // nor on crash/killed. Drives the plan/review completion banner.
+    var onProcessFinished: (@MainActor () -> Void)?
 
     init(
         cwd: URL,
@@ -62,7 +66,7 @@ final class TerminalClaudeSession {
         excludedSessionIDs: @escaping @MainActor () -> Set<String> = { [] },
         persistConversationID: Bool = true,
         permissionMode: PermissionMode? = nil,
-        notificationSignalURL: URL? = nil
+        notificationSignalURL: URL? = AgentNotificationHook.signalFileURL()
     ) {
         self.cwd = cwd
         self.binaryURL = binaryURL
@@ -135,6 +139,7 @@ final class TerminalClaudeSession {
         case .starting, .running:
             stopLogWatcher()
             state = .exited(code: code, reason: Self.classify(code))
+            if code == 0 { onProcessFinished?() }
         }
     }
 
@@ -276,9 +281,8 @@ final class TerminalClaudeSession {
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
     func shellSpawnArgs(appearanceIsDark: Bool = true) -> [String] {
-        // Per-session theme via --settings (so we never reskin the user's global
-        // ~/.claude/settings.json); implement runs also fold in a Notification hook.
-        // shellQuote escapes any single quotes the hook's quoted path introduces.
+        // Scoped to --settings so the user's global ~/.claude/settings.json is
+        // never reskinned; shellQuote escapes quotes the hook's path introduces.
         let settingsJSON =
             notificationSignalURL.flatMap {
                 AgentNotificationHook.settingsJSON(dark: appearanceIsDark, signalFileURL: $0)
