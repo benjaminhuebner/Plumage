@@ -52,6 +52,8 @@ final class TemplateManagerModel {
     // Live dirty state of the embedded editor, so the header can offer Reset to
     // Default on the first keystroke (before any save creates an override).
     private(set) var isEditorDirty = false
+    // Live auto-save status of the embedded editor, surfaced as a header indicator.
+    private(set) var editorSaveStatus: DocEditorModel.AutoSaveStatus = .idle
 
     // Two-phase reset: `resetToDefault` bumps the token, the editor discards its
     // in-flight buffer and calls back into `finishReset`, which deletes the override.
@@ -141,8 +143,13 @@ final class TemplateManagerModel {
 
     func load() async {
         let store = self.store
-        let loaded = await Task.detached(priority: .userInitiated) { store.load() }.value
-        catalog = loaded
+        let result = await Task.detached(priority: .userInitiated) { store.loadDiagnosed() }.value
+        catalog = result.catalog
+        if result.corrupt {
+            showStructuralError(
+                "The saved template structure couldn't be read and was reset to defaults. "
+                    + "The original file is kept in Application Support and can be restored.")
+        }
         if selection == nil { selection = .base }
         refreshContent()
     }
@@ -181,6 +188,7 @@ final class TemplateManagerModel {
     // Called on every right-column selection change (an event boundary, not `body`).
     func beginEditing(_ file: FileNode?) {
         isEditorDirty = false
+        editorSaveStatus = .idle
         // A tier's settings.json is a generated-baseline config like Base's: edit it in the
         // override slot, seeding the buffer from the tier's auto-wired baseline.
         if let file, Self.isTierSettingsStorePath(file.relativePath) {
@@ -222,6 +230,10 @@ final class TemplateManagerModel {
 
     func setEditorDirty(_ dirty: Bool) {
         if isEditorDirty != dirty { isEditorDirty = dirty }
+    }
+
+    func setEditorSaveStatus(_ status: DocEditorModel.AutoSaveStatus) {
+        if editorSaveStatus != status { editorSaveStatus = status }
     }
 
     // True when the selected file's override diverges from bundled — drives the ●
@@ -1136,7 +1148,12 @@ extension TemplateManagerModel {
             updated.templates[index].image = image
         }
 
-        writeOwnLayer(forTemplate: descriptor, startingFrom: request.startingPoint)
+        do {
+            try writeOwnLayer(forTemplate: descriptor, startingFrom: request.startingPoint)
+        } catch {
+            showStructuralError("Couldn't write the template's starter file: \(error.localizedDescription)")
+            return false
+        }
 
         guard persist(updated) else { return false }
         selection = .template(id)
@@ -1166,7 +1183,7 @@ extension TemplateManagerModel {
     // Seeds the template's own layer file. `.empty` gets a heading starter; `.copy`
     // concatenates the source template's own layer content so the user starts from
     // the same text and edits from there.
-    private func writeOwnLayer(forTemplate descriptor: TemplateDescriptor, startingFrom: TemplateStartingPoint) {
+    private func writeOwnLayer(forTemplate descriptor: TemplateDescriptor, startingFrom: TemplateStartingPoint) throws {
         let relativePath = ScaffoldOverrides.layerRelativePath(descriptor.id)
         var content = "# \(descriptor.name)\n"
         if case .copy(let sourceID) = startingFrom, let source = catalog.template(id: sourceID) {
@@ -1175,7 +1192,7 @@ extension TemplateManagerModel {
                 .joined(separator: "\n\n")
             if !copied.isEmpty { content = copied }
         }
-        _ = try? overrides.writeOverride(content, toRelative: relativePath)
+        _ = try overrides.writeOverride(content, toRelative: relativePath)
     }
 
     // MARK: - Shared-component membership & authoring
@@ -1236,7 +1253,12 @@ extension TemplateManagerModel {
         var updated = catalog
         let component = updated.addSharedComponent(
             name: request.name, kind: request.kind, memberTemplateIDs: request.memberTemplateIDs)
-        writeComponentStarter(for: component)
+        do {
+            try writeComponentStarter(for: component)
+        } catch {
+            showStructuralError("Couldn't write the component's starter file: \(error.localizedDescription)")
+            return false
+        }
         guard persist(updated) else { return false }
         selection = .sharedComponent(component.id)
         refreshContent()
@@ -1269,7 +1291,7 @@ extension TemplateManagerModel {
         refreshContent()
     }
 
-    private func writeComponentStarter(for component: SharedComponent) {
+    private func writeComponentStarter(for component: SharedComponent) throws {
         guard let file = component.files.first else { return }
         let relativePath = relativePath(for: file.kind, file: file.name)
         let content: String
@@ -1282,7 +1304,7 @@ extension TemplateManagerModel {
         case .skill: content = "# \(component.name)\n"
         case .config: content = "{}\n"
         }
-        _ = try? overrides.writeOverride(content, toRelative: relativePath)
+        _ = try overrides.writeOverride(content, toRelative: relativePath)
     }
 
     // MARK: - Delete templates

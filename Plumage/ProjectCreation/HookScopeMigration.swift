@@ -1,9 +1,12 @@
 import Foundation
+import os
 
 // One-time migration: component-member user hooks move from the shared global
 // `hooks/` into `components/<id>/hooks/`. Built-in memberships and unowned global
 // hooks (= Base ownership) stay untouched. Runs off-main after `LooseFileScopeMigration`.
 nonisolated enum HookScopeMigration {
+    private static let logger = Logger(subsystem: "com.plumage", category: "HookScopeMigration")
+
     @discardableResult
     static func migrateStandard() -> [String] {
         guard let root = ScaffoldOverrides.standardOverrideRoot() else { return [] }
@@ -18,7 +21,11 @@ nonisolated enum HookScopeMigration {
     @discardableResult
     static func migrate(overrideRoot: URL, bundledRoot: URL, store: TemplateCatalogStore) -> [String] {
         let fileManager = FileManager.default
-        var catalog = store.load()
+        // A corrupt manifest is left untouched: migrating the bundled fallback over it
+        // would overwrite the user's structure on the next save (the manager warns instead).
+        let loaded = store.loadDiagnosed()
+        guard !loaded.corrupt else { return [] }
+        var catalog = loaded.catalog
         var moved: [String] = []
         var catalogChanged = false
 
@@ -56,7 +63,6 @@ nonisolated enum HookScopeMigration {
             }
             let source = overrideRoot.appending(path: "hooks/\(fileName)")
 
-            var allMembersOwnCopy = true
             for member in members {
                 let destDir = overrideRoot.appending(
                     path: "components/\(member.componentID)/hooks", directoryHint: .isDirectory)
@@ -67,7 +73,6 @@ nonisolated enum HookScopeMigration {
                             at: destDir, withIntermediateDirectories: true)
                         try fileManager.copyItem(at: source, to: dest)
                     } catch {
-                        allMembersOwnCopy = false
                         continue  // leave this membership in place on a failed copy; retried next launch
                     }
                 }
@@ -76,11 +81,32 @@ nonisolated enum HookScopeMigration {
                 catalogChanged = true
                 moved.append("\(member.componentID)/\(fileName)")
             }
-            // Drop the global copy only when no member still depends on it.
-            if allMembersOwnCopy { try? fileManager.removeItem(at: source) }
+            // Drop the global source only once every member owns a byte-identical copy — a
+            // pre-existing but divergent dest must not let the user's source be removed.
+            let everyMemberHasVerifiedCopy = members.allSatisfy { member in
+                let dest = overrideRoot.appending(
+                    path: "components/\(member.componentID)/hooks/\(fileName)")
+                return fileManager.contentsEqual(atPath: source.path, andPath: dest.path)
+            }
+            if everyMemberHasVerifiedCopy {
+                do {
+                    try fileManager.removeItem(at: source)
+                } catch {
+                    Self.logger.warning(
+                        "couldn't remove migrated hook source \(source.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
         }
 
-        if catalogChanged { try? store.save(catalog) }
+        if catalogChanged {
+            do {
+                try store.save(catalog)
+            } catch {
+                Self.logger.warning(
+                    "couldn't persist hook migration: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         return moved.sorted()
     }
 }

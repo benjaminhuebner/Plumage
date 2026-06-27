@@ -180,4 +180,57 @@ struct HookScopeMigrationTests {
                     == bundled.effectiveHooks(forTemplate: kind.rawValue))
         }
     }
+
+    @Test("A divergent pre-existing dest keeps the global source instead of removing it")
+    func divergentDestKeepsSource() throws {
+        let ctx = makeCtx()
+        defer { ctx.cleanup() }
+        try seedMemberHook(ctx.store, name: "my-hook")
+        try write("#!/bin/sh\n# SOURCE\n", to: ctx.overrideRoot, rel: "hooks/my-hook.sh")
+        try write(
+            "#!/bin/sh\n# STALE\n", to: ctx.overrideRoot,
+            rel: "components/swift-shared/hooks/my-hook.sh")
+
+        _ = migrate(ctx)
+
+        #expect(exists(ctx.overrideRoot, "hooks/my-hook.sh"))
+        #expect(
+            try String(
+                contentsOf: ctx.overrideRoot.appending(path: "hooks/my-hook.sh"), encoding: .utf8)
+                == "#!/bin/sh\n# SOURCE\n")
+    }
+
+    @Test("A corrupt manifest is left untouched by the migration")
+    func corruptManifestSkipsMigration() throws {
+        let ctx = makeCtx()
+        defer { ctx.cleanup() }
+        try seedMemberHook(ctx.store, name: "my-hook")
+        try write("#!/bin/sh\n", to: ctx.overrideRoot, rel: "hooks/my-hook.sh")
+        let manifestURL = try #require(ctx.store.manifestURL)
+        try Data("{ broken".utf8).write(to: manifestURL)
+
+        let moved = migrate(ctx)
+
+        #expect(moved.isEmpty)
+        #expect(exists(ctx.overrideRoot, "hooks/my-hook.sh"))
+        #expect(TemplateCatalogStore(manifestURL: manifestURL).loadDiagnosed().corrupt == true)
+    }
+
+    @Test("A failed copy keeps both the membership and the global source")
+    func failedCopyKeepsMembershipAndSource() throws {
+        let ctx = makeCtx()
+        defer { ctx.cleanup() }
+        try seedMemberHook(ctx.store, name: "my-hook")
+        try write("#!/bin/sh\n", to: ctx.overrideRoot, rel: "hooks/my-hook.sh")
+        // A file where the destination directory must go makes the copy throw.
+        try write("x", to: ctx.overrideRoot, rel: "components/swift-shared/hooks")
+
+        let moved = migrate(ctx)
+
+        #expect(moved.isEmpty)
+        #expect(exists(ctx.overrideRoot, "hooks/my-hook.sh"))
+        #expect(
+            ctx.store.load().sharedComponent(id: "swift-shared")?
+                .files(ofKind: .hook).contains("my-hook") == true)
+    }
 }

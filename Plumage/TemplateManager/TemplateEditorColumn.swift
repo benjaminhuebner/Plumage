@@ -22,6 +22,7 @@ struct TemplateEditorColumn: View {
                         fallbackURL: model.editingFallbackURL,
                         onSave: { model.notifySaved(relativePath: file.relativePath) },
                         onDirtyChange: { model.setEditorDirty($0) },
+                        onSaveStatusChange: { model.setEditorSaveStatus($0) },
                         resetToken: model.editorResetToken,
                         onResetComplete: { model.finishReset() }
                     )
@@ -54,6 +55,7 @@ struct TemplateEditorColumn: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+            saveBadge
             if model.isUserAuthored(file) {
                 Button("Delete", role: .destructive) { model.requestDelete(file) }
             } else if model.isOverridden(file) || model.isEditorDirty {
@@ -64,5 +66,33 @@ struct TemplateEditorColumn: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var saveBadge: some View {
+        switch model.editorSaveStatus {
+        case .saving:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("Saving…")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        case .saved:
+            Label("Saved", systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        case .error(let message):
+            Label("Save failed", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .help(message)
+        case .idle:
+            if model.isEditorDirty {
+                Label("Unsaved", systemImage: "pencil")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }

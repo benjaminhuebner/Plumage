@@ -49,6 +49,44 @@ struct TemplateCatalogStoreTests {
         #expect(loaded != .bundledDefault)
     }
 
+    // MARK: - Corrupt manifest is preserved, never silently overwritten
+
+    // The only proof a corrupt manifest survived an overwrite is a set-aside copy of its
+    // original bytes; save() must move it aside before writing the new overlay.
+    @Test("A corrupt manifest is set aside, not silently overwritten by the next save")
+    func corruptManifestPreservedAcrossSave() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appending(
+            path: "TCStoreCorrupt-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let manifestURL = dir.appending(path: TemplateCatalogStore.fileName)
+        let corrupt = Data("{ this is not a valid manifest".utf8)
+        try corrupt.write(to: manifestURL)
+
+        let store = TemplateCatalogStore(manifestURL: manifestURL)
+        _ = store.load()
+        try store.save(.bundledDefault)
+
+        let sidecar = try #require(
+            (try? fm.contentsOfDirectory(atPath: dir.path))?
+                .first { $0.hasPrefix("template-manifest.corrupt-") },
+            "expected a set-aside copy of the corrupt manifest")
+        #expect(try Data(contentsOf: dir.appending(path: sidecar)) == corrupt)
+        #expect(TemplateCatalogStore(manifestURL: manifestURL).loadDiagnosed().corrupt == false)
+    }
+
+    @Test("loadDiagnosed flags an unreadable manifest but still returns the bundled default")
+    func loadDiagnosedFlagsCorruptManifest() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "diag-\(UUID().uuidString).json")
+        try Data("not json".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let result = TemplateCatalogStore(manifestURL: url).loadDiagnosed()
+        #expect(result.corrupt == true)
+        #expect(result.catalog == .bundledDefault)
+    }
+
     // MARK: - Bundled default mirrors today's ProjectKind set
 
     @Test("Categories equal the ProjectKindGroup set, in declaration order")

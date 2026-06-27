@@ -13,6 +13,8 @@ struct DocEditorView: View {
     // Fired whenever the dirty state flips, so a host can react to the first edit
     // (e.g. surface a Reset button immediately rather than after a save).
     let onDirtyChange: ((Bool) -> Void)?
+    // Fired whenever the auto-save status changes, so a host can show a save indicator.
+    let onSaveStatusChange: ((DocEditorModel.AutoSaveStatus) -> Void)?
     // A host-driven counter: each increment asks the editor to discard its in-flight
     // buffer (so the disappear-autosave is a no-op), then calls `onResetComplete`.
     // Lets a "revert" host tear the editor down without its edits being saved back.
@@ -47,12 +49,14 @@ struct DocEditorView: View {
     init(
         fileURL: URL, displayName: String? = nil, fallbackURL: URL? = nil,
         onSave: (() -> Void)? = nil, onDirtyChange: ((Bool) -> Void)? = nil,
+        onSaveStatusChange: ((DocEditorModel.AutoSaveStatus) -> Void)? = nil,
         resetToken: Int = 0, onResetComplete: (() -> Void)? = nil
     ) {
         self.fileURL = fileURL
         self.displayName = displayName ?? fileURL.lastPathComponent
         self.onSave = onSave
         self.onDirtyChange = onDirtyChange
+        self.onSaveStatusChange = onSaveStatusChange
         self.resetToken = resetToken
         self.onResetComplete = onResetComplete
         _model = State(initialValue: DocEditorModel(fileURL: fileURL, fallbackURL: fallbackURL))
@@ -94,13 +98,14 @@ struct DocEditorView: View {
         .focusedSceneValue(\.specEditorClose, publishedSaveAction)
         .focusedSceneValue(\.specEditorDirtyFolderName, publishedDirtyName)
         .task(id: model.fileURL) {
+            model.onSaved = { onSave?() }
             if publishedSaveAction == nil {
-                publishedSaveAction = EditorAction { attemptSave() }
+                publishedSaveAction = EditorAction { Task { await model.autoSaveNow() } }
             }
             // ⌘Q doesn't run .onDisappear reliably; the QuitCoordinator
             // awaits this flush before the app terminates.
             QuitCoordinator.shared.register(quitFlushID) { [weak model] in
-                try? await model?.saveIfDirty()
+                await model?.autoSaveNow()
             }
             loadFailed = nil
             do {
@@ -109,9 +114,20 @@ struct DocEditorView: View {
                 loadFailed = "Failed to load \(displayName): \(error.localizedDescription)"
             }
             refreshDirtyCache()
+            model.startPeriodicFlush()
         }
-        .onChange(of: model.buffer) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.buffer) { _, _ in
+            refreshDirtyCache()
+            model.scheduleAutoSave()
+        }
         .onChange(of: model.loadedContent) { _, _ in refreshDirtyCache() }
+        .onChange(of: model.autoSaveStatus) { _, status in
+            onSaveStatusChange?(status)
+            if case .error(let message) = status {
+                saveAlertMessage = message
+                saveAlertVisible = true
+            }
+        }
         .onChange(of: resetToken) { _, _ in
             // Discard before the host tears us down, so .onDisappear's autosave
             // sees a clean buffer and won't rewrite the file being reset.
@@ -126,19 +142,17 @@ struct DocEditorView: View {
                 probeTask?.cancel()
                 probeTask = Task { await model.probeExternalChange() }
             } else {
-                attemptSave()
+                Task { await model.autoSaveNow() }
             }
         }
         .onDisappear {
             QuitCoordinator.shared.unregister(quitFlushID)
-            // attemptSave is fire-and-forget; cancelPendingWork ensures any
-            // earlier queued saves are cancelled rather than landing post-pop.
-            // The latest save still runs because attemptSave queues a new
-            // task after the cancel (the model's saveGeneration check
-            // prevents the cancelled one from clobbering state on return).
-            attemptSave()
+            model.stopPeriodicFlush()
+            // Strong-capture so the trailing flush completes as the view releases its
+            // @State; only the debounce is dropped, never the in-flight write.
+            Task { [model] in await model.autoSaveNow() }
             probeTask?.cancel()
-            model.cancelPendingWork()
+            model.cancelPendingAutoSave()
         }
         .alert(
             "Failed to save",
@@ -148,18 +162,6 @@ struct DocEditorView: View {
             Button("OK", role: .cancel) {}
         } message: { message in
             Text(message)
-        }
-    }
-
-    private func attemptSave() {
-        Task {
-            do {
-                try await model.saveIfDirty()
-                onSave?()
-            } catch {
-                saveAlertMessage = error.localizedDescription
-                saveAlertVisible = true
-            }
         }
     }
 

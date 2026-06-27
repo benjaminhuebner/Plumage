@@ -193,6 +193,108 @@ struct DocEditorModelTests {
         let onDisk = try String(contentsOf: url, encoding: .utf8)
         #expect(onDisk == "rebuilt")
     }
+
+    // The loss fix: an edit reaches disk on its own with no close or quit, so a
+    // force-quit after the debounce loses at most sub-debounce changes.
+    @Test("An edit is auto-saved after the debounce without any close or quit")
+    func debouncedEditPersists() async throws {
+        let fixture = try DocFixture()
+        let url = try fixture.writeFile(named: "edit.md", content: "v1")
+        let model = DocEditorModel(fileURL: url)
+        try await model.load()
+        model.buffer = "typed"
+        model.scheduleAutoSave()
+        var landed = false
+        for _ in 0..<60 where !landed {
+            if (try? String(contentsOf: url, encoding: .utf8)) == "typed" {
+                landed = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(landed, "debounced autosave must land the edit without a flush")
+        #expect(model.isDirty == false)
+    }
+
+    @Test("autoSaveNow flushes a dirty edit immediately and reports saved")
+    func flushPersistsImmediately() async throws {
+        let fixture = try DocFixture()
+        let url = try fixture.writeFile(named: "edit.md", content: "v1")
+        let model = DocEditorModel(fileURL: url)
+        try await model.load()
+        model.buffer = "edited"
+        await model.autoSaveNow()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "edited")
+        #expect(model.autoSaveStatus == .saved)
+        #expect(model.isDirty == false)
+    }
+
+    @Test("A reset cancels a pending debounced save so the edit can't overtake it")
+    func resetCancelsPendingDebounce() async throws {
+        let fixture = try DocFixture()
+        let url = try fixture.writeFile(named: "reset.md", content: "v1")
+        let model = DocEditorModel(fileURL: url)
+        try await model.load()
+        model.buffer = "in-progress edit"
+        model.scheduleAutoSave()
+        model.discardEdits()
+        #expect(model.buffer == "v1")
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(try String(contentsOf: url, encoding: .utf8) == "v1")
+        #expect(model.isDirty == false)
+    }
+
+    // Mirrors .onDisappear: the flush must complete even though teardown also drops the
+    // debounce — cancelling the debounce must never cancel the in-flight write.
+    @Test("The teardown sequence flushes the edit while also cancelling the debounce")
+    func teardownFlushSurvivesDebounceCancel() async throws {
+        let fixture = try DocFixture()
+        let url = try fixture.writeFile(named: "teardown.md", content: "v1")
+        let model = DocEditorModel(fileURL: url)
+        try await model.load()
+        model.buffer = "edited"
+        model.scheduleAutoSave()
+        let flush = Task { await model.autoSaveNow() }
+        model.cancelPendingAutoSave()
+        await flush.value
+        #expect(try String(contentsOf: url, encoding: .utf8) == "edited")
+        #expect(model.isDirty == false)
+    }
+
+    @Test("A registered quit-flush persists an unsaved edit on the ⌘Q path")
+    func quitFlushPersistsEdit() async throws {
+        let fixture = try DocFixture()
+        let url = try fixture.writeFile(named: "quit.md", content: "v1")
+        let model = DocEditorModel(fileURL: url)
+        try await model.load()
+        model.buffer = "edited before quit"
+        let coordinator = QuitCoordinator()
+        coordinator.register(UUID()) { [weak model] in await model?.autoSaveNow() }
+        await coordinator.runAll(timeout: .seconds(3))
+        #expect(try String(contentsOf: url, encoding: .utf8) == "edited before quit")
+    }
+
+    // No scheduleAutoSave here: only the periodic flush may write, proving the crash net
+    // fires during uninterrupted typing where the debounce never would.
+    @Test("A periodic flush writes a continuously-dirty buffer without an explicit save")
+    func periodicFlushPersists() async throws {
+        let fixture = try DocFixture()
+        let url = try fixture.writeFile(named: "periodic.md", content: "v1")
+        let model = DocEditorModel(fileURL: url)
+        try await model.load()
+        model.buffer = "still typing"
+        model.startPeriodicFlush(every: .milliseconds(100))
+        var landed = false
+        for _ in 0..<40 where !landed {
+            if (try? String(contentsOf: url, encoding: .utf8)) == "still typing" {
+                landed = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        model.stopPeriodicFlush()
+        #expect(landed, "periodic flush must persist a dirty buffer without a debounce or explicit save")
+    }
 }
 
 private final class DocFixture {

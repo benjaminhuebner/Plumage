@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // One-time migration: previously a component's skill was the shared global
 // `skills/<name>/` tracked by a `.skill` membership; the new model makes each component
@@ -7,6 +8,8 @@ import Foundation
 // they were never the leak this fixes. Runs off-main after `TemplateOverrideMigration`
 // (it depends on the layout that migration establishes).
 nonisolated enum LooseFileScopeMigration {
+    private static let logger = Logger(subsystem: "com.plumage", category: "LooseFileScopeMigration")
+
     // Runs against the standard override store and catalog manifest, if reachable.
     @discardableResult
     static func migrateStandard() -> [String] {
@@ -21,7 +24,11 @@ nonisolated enum LooseFileScopeMigration {
     @discardableResult
     static func migrate(overrideRoot: URL, store: TemplateCatalogStore) -> [String] {
         let fileManager = FileManager.default
-        var catalog = store.load()
+        // A corrupt manifest is left untouched: migrating the bundled fallback over it
+        // would overwrite the user's structure on the next save (the manager warns instead).
+        let loaded = store.loadDiagnosed()
+        guard !loaded.corrupt else { return [] }
+        var catalog = loaded.catalog
         var moved: [String] = []
 
         // Group the legacy memberships by skill name so a shared skill is handled once.
@@ -37,7 +44,6 @@ nonisolated enum LooseFileScopeMigration {
             // No physical source: a membership we can't fulfil — leave it as-is.
             guard fileManager.fileExists(atPath: source.path) else { continue }
 
-            var allMembersOwnCopy = true
             for componentID in componentIDs {
                 let destDir = overrideRoot.appending(
                     path: "components/\(componentID)/skills", directoryHint: .isDirectory)
@@ -48,18 +54,38 @@ nonisolated enum LooseFileScopeMigration {
                             at: destDir, withIntermediateDirectories: true)
                         try fileManager.copyItem(at: source, to: dest)
                     } catch {
-                        allMembersOwnCopy = false
                         continue  // leave this membership in place on a failed copy; retried next launch
                     }
                 }
                 catalog.removeFile(fromComponentID: componentID, kind: .skill, fileName: skill)
                 moved.append("\(componentID)/\(skill)")
             }
-            // Drop the global copy only when no member still depends on it.
-            if allMembersOwnCopy { try? fileManager.removeItem(at: source) }
+            // Drop the global source only once every member owns an identical copy — a
+            // pre-existing but divergent dest must not let the user's source be removed.
+            let everyMemberHasVerifiedCopy = componentIDs.allSatisfy { componentID in
+                let dest = overrideRoot.appending(
+                    path: "components/\(componentID)/skills/\(skill)", directoryHint: .isDirectory)
+                return fileManager.contentsEqual(atPath: source.path, andPath: dest.path)
+            }
+            if everyMemberHasVerifiedCopy {
+                do {
+                    try fileManager.removeItem(at: source)
+                } catch {
+                    Self.logger.warning(
+                        "couldn't remove migrated skill source \(source.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
         }
 
-        if !moved.isEmpty { try? store.save(catalog) }
+        if !moved.isEmpty {
+            do {
+                try store.save(catalog)
+            } catch {
+                Self.logger.warning(
+                    "couldn't persist skill migration: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         return moved.sorted()
     }
 }

@@ -86,7 +86,8 @@ struct LooseFileScopeMigrationTests {
         let moved = LooseFileScopeMigration.migrate(overrideRoot: ctx.overrideRoot, store: ctx.store)
 
         #expect(moved == ["swift-shared/legacy"])
-        #expect(!exists(ctx.overrideRoot, "skills/legacy/SKILL.md"))  // global copy dropped
+        // A divergent global source is not a verified copy of the owned dest, so it stays.
+        #expect(exists(ctx.overrideRoot, "skills/legacy/SKILL.md"))
         // The pre-existing destination is preserved verbatim, not clobbered.
         #expect(
             try String(

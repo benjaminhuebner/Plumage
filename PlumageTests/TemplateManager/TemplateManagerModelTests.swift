@@ -37,6 +37,34 @@ struct TemplateManagerModelTests {
             name: (rel as NSString).lastPathComponent, isDirectory: isDirectory, children: nil)
     }
 
+    // A starter-write failure must surface, not persist a component with no file. A file
+    // where the hooks/ dir would go makes the write throw.
+    @Test("A component whose starter file can't be written is not persisted as a phantom")
+    func starterWriteFailureSurfaces() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appending(
+            path: "TMStarter-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let bundled = base.appending(path: "bundled", directoryHint: .isDirectory)
+        let override = base.appending(path: "override", directoryHint: .isDirectory)
+        try fm.createDirectory(at: bundled, withIntermediateDirectories: true)
+        try fm.createDirectory(at: override, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        try Data().write(to: override.appending(path: "hooks"))
+
+        let overrides = ScaffoldOverrides(bundledRoot: bundled, overrideRoot: override)
+        let store = TemplateCatalogStore(manifestURL: base.appending(path: "manifest.json"))
+        let model = TemplateManagerModel(
+            store: store, overrides: overrides, hookWiringStoreURL: nil)
+
+        let created = model.addSharedComponent(
+            NewSharedComponentRequest(name: "Phantom", kind: .hook, memberTemplateIDs: []))
+
+        #expect(created == false, "creation must fail when the starter file can't be written")
+        #expect(
+            model.catalog.sharedComponents.contains { $0.name == "Phantom" } == false,
+            "no phantom component without its file")
+    }
+
     @Test("Editing a bundled-backed file targets the override slot and seeds from bundled")
     func bundledBackedEditTargets() throws {
         let ctx = try makeModel()
