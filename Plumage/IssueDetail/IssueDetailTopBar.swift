@@ -15,6 +15,11 @@ struct IssueDetailTopBar: View {
                 Text(paddedID)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
+                if showsCopyID {
+                    Button("Copy ID", systemImage: "doc.on.doc", action: onCopyID)
+                        .labelStyle(.iconOnly)
+                        .help("Copy folder name to clipboard")
+                }
             }
             if paddedID != nil, branch != nil {
                 Text("|")
@@ -29,10 +34,6 @@ struct IssueDetailTopBar: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            if showsCopyID {
-                Button("Copy ID", systemImage: "doc.on.doc", action: onCopyID)
-                    .help("Copy folder name to clipboard")
-            }
             if !isCreating {
                 autoSaveBadge
             }

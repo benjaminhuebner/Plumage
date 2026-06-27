@@ -18,7 +18,6 @@ struct IssueWorkflowActionBar: View {
             ForEach(WorkflowAction.allCases, id: \.self) { action in
                 button(for: action)
             }
-            Spacer(minLength: 0)
         }
     }
 
