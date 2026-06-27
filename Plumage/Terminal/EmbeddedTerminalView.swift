@@ -89,6 +89,10 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // dead keys); the default sends ESC+letter, losing composition on a German
         // keyboard. Trade-off: Option word-nav is lost, but claude's REPL doesn't use it.
         view.optionAsMetaKey = false
+        // claude enables full mouse tracking; with reporting on, every drag goes
+        // to claude and the selection is cleared on each re-render. Off keeps
+        // drag-to-select + Cmd-C alive — the wheel is forwarded explicitly instead.
+        view.allowMouseReporting = false
         view.nativeBackgroundColor = .clear
         view.wantsLayer = true
         view.layer?.isOpaque = false
@@ -185,12 +189,12 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // Drop the stop-hook before terminate() so a stop() during teardown
         // doesn't end up calling terminate() on a half-disposed view.
         coordinator.session?.clearStopHandler()
-        // Tear down AppKit resources on MainActor so PersistentCursorTerminalView's
-        // nonisolated deinit (would otherwise touch NSEvent.removeMonitor /
-        // Timer.invalidate from arbitrary threads) finds both properties nil and no-ops.
-        nsView.stopCursorKeepAlive()
+        // Remove the event monitors on MainActor so the nonisolated deinit (which
+        // would otherwise touch NSEvent.removeMonitor from arbitrary threads) finds
+        // them nil and no-ops.
         nsView.removeShiftEnterMonitor()
         nsView.removeMouseFocusMonitor()
+        nsView.removeScrollMonitor()
         nsView.terminate()
     }
 
@@ -260,49 +264,37 @@ private struct SwiftTermBridge: NSViewRepresentable {
     }
 }
 
-// claude's REPL sends DECRST 25 (hide cursor) constantly. Overriding hideCursor
-// isn't enough — SwiftTerm's internal Terminal.cursorHidden is unreachable, but
-// feeding `\e[?25h` flips it back; a 120 ms repeater wins the race against the hides.
+// claude's REPL sends DECRST 25 (hide cursor) while rendering; the no-op
+// hideCursor override below keeps SwiftTerm from tearing down the caret view,
+// so the cursor stays solid without re-feeding `\e[?25h` on a timer.
 final class PersistentCursorTerminalView: LocalProcessTerminalView {
-    // nonisolated(unsafe): Timer? is touched from a MainActor start/stop pair and
-    // a nonisolated deinit fallback (the host may short-circuit teardown). Swift 6
-    // rejects a MainActor deinit reading isolated state, hence the unsafe storage.
-    nonisolated(unsafe) private var cursorKeepAlive: Timer?
-
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // Timer is started lazily once the view actually enters a window
-        // (see viewDidMoveToWindow). Starting in init() ran the 20Hz timer
-        // even when the terminal mode wasn't visible.
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
-        // Fallback when dismantleNSView was skipped (normal teardown nils both on
-        // MainActor, making this a no-op). Timer.invalidate / NSEvent.removeMonitor
-        // are main-thread APIs and deinit can run off-main — ferry onto the main queue.
-        guard cursorKeepAlive != nil || shiftEnterMonitor != nil || mouseFocusMonitor != nil
+        // Fallback when dismantleNSView was skipped (normal teardown nils these on
+        // MainActor, making this a no-op). NSEvent.removeMonitor is main-thread-only
+        // and deinit can run off-main — ferry onto the main queue.
+        guard shiftEnterMonitor != nil || mouseFocusMonitor != nil || scrollMonitor != nil
         else { return }
         // @unchecked Sendable: only carries the main-thread-bound references
         // across the queue hop; nothing reads them concurrently.
         struct Teardown: @unchecked Sendable {
-            let timer: Timer?
             let tokens: [Any]
         }
         let teardown = Teardown(
-            timer: cursorKeepAlive,
-            tokens: [shiftEnterMonitor, mouseFocusMonitor].compactMap { $0 }
+            tokens: [shiftEnterMonitor, mouseFocusMonitor, scrollMonitor].compactMap { $0 }
         )
-        cursorKeepAlive = nil
         shiftEnterMonitor = nil
         mouseFocusMonitor = nil
+        scrollMonitor = nil
         if Thread.isMainThread {
-            teardown.timer?.invalidate()
             teardown.tokens.forEach { NSEvent.removeMonitor($0) }
         } else {
             DispatchQueue.main.async {
-                teardown.timer?.invalidate()
                 teardown.tokens.forEach { NSEvent.removeMonitor($0) }
             }
         }
@@ -327,6 +319,70 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         }
     }
 
+    // SwiftTerm's scrollWheel is `public`, not `open` — it can't be overridden
+    // from this module, so a local monitor intercepts the wheel (like the
+    // mouseFocus/shiftEnter monitors below).
+    nonisolated(unsafe) private var scrollMonitor: Any?
+    private var scrollAccumulator = TerminalWheelAccumulator()
+
+    private func installScrollMonitor() {
+        guard scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+            [weak self] event in
+            guard let self else { return event }
+            return self.forwardScrollToTerminal(event) ? nil : event
+        }
+    }
+
+    func removeScrollMonitor() {
+        if let token = scrollMonitor {
+            NSEvent.removeMonitor(token)
+            scrollMonitor = nil
+        }
+    }
+
+    // claude's TUI lives in the alternate buffer, where SwiftTerm's own
+    // scrollback can't move — forward the wheel as the mouse-wheel buttons
+    // (Cb 64/65) claude already listens for so its transcript scrolls.
+    private func forwardScrollToTerminal(_ event: NSEvent) -> Bool {
+        guard let terminal, let window, window === event.window,
+            bounds.contains(convert(event.locationInWindow, from: nil))
+        else { return false }
+        guard terminal.mouseMode != .off else { return false }
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
+            scrollAccumulator.reset()
+        }
+        let notches =
+            event.hasPreciseScrollingDeltas
+            ? scrollAccumulator.notches(forPreciseDelta: Double(event.scrollingDeltaY))
+            : scrollAccumulator.notches(forLineDelta: Double(event.deltaY))
+        guard let button = TerminalWheelAccumulator.button(forNotchDirection: notches) else {
+            return true
+        }
+        let cell = terminalCell(for: event)
+        let flags = terminal.encodeButton(
+            button: button, release: false,
+            shift: event.modifierFlags.contains(.shift),
+            meta: event.modifierFlags.contains(.option),
+            control: event.modifierFlags.contains(.control))
+        for _ in 0..<abs(notches) {
+            terminal.sendEvent(buttonFlags: flags, x: cell.col, y: cell.row)
+        }
+        return true
+    }
+
+    private func terminalCell(for event: NSEvent) -> (col: Int, row: Int) {
+        guard let terminal, bounds.width > 0, bounds.height > 0 else { return (0, 0) }
+        let point = convert(event.locationInWindow, from: nil)
+        let col = min(
+            max(Int(point.x / bounds.width * CGFloat(terminal.cols)), 0), terminal.cols - 1)
+        // NSView is not flipped (origin bottom-left); terminal row 0 is the top.
+        let row = min(
+            max(Int((bounds.height - point.y) / bounds.height * CGFloat(terminal.rows)), 0),
+            terminal.rows - 1)
+        return (col, row)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
@@ -336,43 +392,28 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
             // sole file-drop handler — no super conflict for .fileURL drags.
             registerForDraggedTypes([.fileURL])
         } else {
-            stopCursorKeepAlive()
             removeShiftEnterMonitor()
             removeMouseFocusMonitor()
+            removeScrollMonitor()
             unregisterDraggedTypes()
         }
     }
 
     private func refreshChrome() {
         if window != nil && chromeActive {
-            startCursorKeepAlive()
             installShiftEnterMonitor()
             installMouseFocusMonitor()
+            installScrollMonitor()
         } else {
-            stopCursorKeepAlive()
             removeShiftEnterMonitor()
             removeMouseFocusMonitor()
+            removeScrollMonitor()
         }
     }
 
-    private func startCursorKeepAlive() {
-        cursorKeepAlive?.invalidate()
-        // .common modes so the timer survives event tracking on the inspector
-        // divider; tolerance lets the kernel coalesce ticks. RunLoop.main fires on
-        // the main thread, so MainActor.assumeIsolated never traps and saves a Task hop per tick.
-        let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.terminal?.feed(text: "\u{1B}[?25h")
-            }
-        }
-        timer.tolerance = 0.06
-        RunLoop.main.add(timer, forMode: .common)
-        cursorKeepAlive = timer
-    }
-
-    override func hideCursor(source: Terminal) {
-        // Intentionally empty — see class comment.
-    }
+    // No-op so claude's DECRST 25 (hide cursor) doesn't tear down the caret view;
+    // keeps the cursor solid without a re-show timer (see class comment).
+    override func hideCursor(source: Terminal) {}
 
     // SwiftTerm selects on drag without taking first responder, so Cmd+C/V
     // (nil-target menu actions) route to whichever text view holds focus.
@@ -479,12 +520,36 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
             forClasses: [NSURL.self], options: options)
         return objects as? [URL] ?? []
     }
+}
 
-    // Called from SwiftTerm's existing terminate() when the host removes the
-    // view, so we don't need to access Timer from a non-isolated deinit (which
-    // Swift 6 rejects).
-    func stopCursorKeepAlive() {
-        cursorKeepAlive?.invalidate()
-        cursorKeepAlive = nil
+// Sub-notch trackpad deltas accumulate in `carry`; whole notches emit and the
+// remainder carries to the next event so slow drags still scroll.
+nonisolated struct TerminalWheelAccumulator {
+    private(set) var carry: Double = 0
+    static let pointsPerNotch: Double = 3
+
+    mutating func notches(forPreciseDelta delta: Double) -> Int {
+        carry += delta
+        let whole = (carry / Self.pointsPerNotch).rounded(.towardZero)
+        carry -= whole * Self.pointsPerNotch
+        return Int(whole)
+    }
+
+    // Classic wheels report deltaY already in lines — one notch per line.
+    mutating func notches(forLineDelta delta: Double) -> Int {
+        carry += delta
+        let whole = carry.rounded(.towardZero)
+        carry -= whole
+        return Int(whole)
+    }
+
+    mutating func reset() { carry = 0 }
+
+    // SwiftTerm wheel convention: positive delta scrolls toward history
+    // (wheel-up, button 4 → Cb 64), negative toward newer output (button 5 → 65).
+    static func button(forNotchDirection direction: Int) -> Int? {
+        if direction > 0 { return 4 }
+        if direction < 0 { return 5 }
+        return nil
     }
 }

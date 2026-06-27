@@ -398,7 +398,10 @@ struct ProjectWindow: View {
                 .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(tabsModel: terminalTabs, isOpen: isTerminalInspectorOpen)
-                        .inspectorColumnWidth(min: 400, ideal: 480, max: 560)
+                        // Fixed, non-draggable width: a sash live-resize re-enters AppKit
+                        // layout on the SwiftTerm NSView and hits a Swift exclusivity crash —
+                        // removing the drag range removes the only reachable trigger.
+                        .inspectorColumnWidth(480)
                 }
         }
         .toolbar {
