@@ -82,13 +82,16 @@ struct ModelChoiceTests {
 
     @Test("supportedEfforts varies by model")
     func supportedEfforts() {
-        let all: [EffortLevel] = [.default, .low, .medium, .high, .xhigh, .max]
+        let all: [EffortLevel] = [.default, .low, .medium, .high, .xhigh, .max, .ultracode]
         #expect(ModelChoice.opus.supportedEfforts == all)
         #expect(ModelChoice.fable.supportedEfforts == all)
         #expect(ModelChoice.default.supportedEfforts == all)
         #expect(ModelChoice.custom("anything").supportedEfforts == all)
+        #expect(ModelChoice.opus.supportedEfforts.last == .ultracode)
         #expect(ModelChoice.sonnet.supportedEfforts == [.default, .low, .medium, .high, .max])
         #expect(!ModelChoice.sonnet.supportedEfforts.contains(.xhigh))
+        #expect(!ModelChoice.sonnet.supportedEfforts.contains(.ultracode))
+        #expect(!ModelChoice.haiku.supportedEfforts.contains(.ultracode))
         #expect(ModelChoice.haiku.supportedEfforts == [.default])
     }
 }

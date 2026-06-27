@@ -39,6 +39,36 @@ struct AgentNotificationTests {
         #expect(obj?["hooks"] != nil)
     }
 
+    @Test("settings JSON without effort overrides is byte-identical to today")
+    func settingsJSONByteIdentical() throws {
+        let signalURL = URL(
+            filePath: "/Users/x/Library/Application Support/Plumage/agent-notifications.jsonl")
+        let base = try #require(
+            AgentNotificationHook.settingsJSON(dark: true, signalFileURL: signalURL))
+        let empty = try #require(
+            AgentNotificationHook.settingsJSON(
+                dark: true, signalFileURL: signalURL, effortOverrides: [:]))
+        #expect(base == empty)
+        #expect(!base.contains("ultracode"))
+    }
+
+    @Test("settings JSON merges ultracode into the hooked object")
+    func settingsJSONMergesUltracode() throws {
+        let signalURL = URL(
+            filePath: "/Users/x/Library/Application Support/Plumage/agent-notifications.jsonl")
+        let json = try #require(
+            AgentNotificationHook.settingsJSON(
+                dark: true, signalFileURL: signalURL, effortOverrides: ["ultracode": true]))
+        #expect(json.contains(#""ultracode":true"#))
+        #expect(TerminalClaudeSession.isShellSafe(json))
+        let data = try #require(json.data(using: .utf8))
+        let obj = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // The hook and the boolean coexist in one object (implement-run case).
+        #expect(obj["hooks"] != nil)
+        #expect(obj["ultracode"] as? Bool == true)
+    }
+
     @Test("maps a signal to the live run in the same checkout (parallel-safe)")
     func mapsToLiveRun() {
         let runs = [

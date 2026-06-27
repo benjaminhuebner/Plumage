@@ -283,10 +283,14 @@ final class TerminalClaudeSession {
     func shellSpawnArgs(appearanceIsDark: Bool = true) -> [String] {
         // Scoped to --settings so the user's global ~/.claude/settings.json is
         // never reskinned; shellQuote escapes quotes the hook's path introduces.
+        let overrides = effortChoice.settingsOverrides
         let settingsJSON =
             notificationSignalURL.flatMap {
-                AgentNotificationHook.settingsJSON(dark: appearanceIsDark, signalFileURL: $0)
-            } ?? ClaudeThemeInstaller.perSessionSettingsJSON(dark: appearanceIsDark)
+                AgentNotificationHook.settingsJSON(
+                    dark: appearanceIsDark, signalFileURL: $0, effortOverrides: overrides)
+            }
+            ?? ClaudeThemeInstaller.perSessionSettingsJSON(
+                dark: appearanceIsDark, effortOverrides: overrides)
         var args = ["--settings", settingsJSON]
         args += resumeOrInitArgs()
         if let permissionMode {

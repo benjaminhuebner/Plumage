@@ -578,6 +578,43 @@ struct ClaudeSessionTests {
 
     // MARK: - Helpers
 
+    private func makeSession(effort: EffortLevel) -> ClaudeSession {
+        ClaudeSession(
+            cwd: URL(filePath: "/tmp"),
+            binaryURL: URL(filePath: "/usr/bin/true"),
+            stateDirectory: URL(filePath: "/tmp"),
+            effortChoice: effort,
+            autoSpawn: false,
+            sessionLogRoot: FileManager.default.temporaryDirectory
+                .appendingPathComponent("plumage-spawnargs-\(UUID().uuidString)"),
+            sessionIDStoreOverride: FileManager.default.temporaryDirectory
+                .appendingPathComponent("plumage-spawnargs-store-\(UUID().uuidString)")
+        )
+    }
+
+    @Test("spawnArguments routes ultracode through --settings, not --effort")
+    func spawnArgumentsUltracode() throws {
+        let args = makeSession(effort: .ultracode).spawnArguments()
+        #expect(!args.contains("--effort"))
+        let idx = try #require(args.firstIndex(of: "--settings"))
+        #expect(args[args.index(after: idx)] == #"{"ultracode":true}"#)
+    }
+
+    @Test("spawnArguments keeps --effort for a normal level and adds no --settings")
+    func spawnArgumentsNormalLevel() {
+        let args = makeSession(effort: .max).spawnArguments()
+        #expect(args.contains("--effort"))
+        #expect(args.contains("max"))
+        #expect(!args.contains("--settings"))
+    }
+
+    @Test("spawnArguments for the default level emits neither --effort nor --settings")
+    func spawnArgumentsDefaultLevel() {
+        let args = makeSession(effort: .default).spawnArguments()
+        #expect(!args.contains("--effort"))
+        #expect(!args.contains("--settings"))
+    }
+
     private func makeSession(
         cwd: URL = URL(filePath: "/tmp"),
         sessionLogRoot: URL? = nil,

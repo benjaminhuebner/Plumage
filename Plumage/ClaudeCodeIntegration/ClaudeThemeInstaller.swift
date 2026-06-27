@@ -51,9 +51,15 @@ nonisolated enum ClaudeThemeInstaller {
     // appearance. Built at the call site (TerminalClaudeSession.shellSpawnArgs)
     // from the embedding view's colorScheme. No single quotes or newlines so
     // shellQuotedAttachArgs wraps it with one quote pair.
-    static func perSessionSettingsJSON(dark: Bool) -> String {
+    static func perSessionSettingsJSON(dark: Bool, effortOverrides: [String: Bool] = [:]) -> String {
         let theme = dark ? settingsThemeValue : lightSettingsThemeValue
-        return #"{"theme":"\#(theme)","promptSuggestionEnabled":false}"#
+        // Spliced after the fixed keys so an empty map yields byte-identical JSON.
+        let overrides =
+            effortOverrides
+            .sorted { $0.key < $1.key }
+            .map { #","\#($0.key)":\#($0.value ? "true" : "false")"# }
+            .joined()
+        return #"{"theme":"\#(theme)","promptSuggestionEnabled":false\#(overrides)}"#
     }
 
     static func installIfNeeded(bundle: Bundle = .main, fileManager: FileManager = .default) {

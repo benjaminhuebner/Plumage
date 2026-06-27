@@ -10,11 +10,12 @@ private let effortLevelCases: [(EffortLevel, String)] = [
     (.high, "high"),
     (.xhigh, "xhigh"),
     (.max, "max"),
+    (.ultracode, "ultracode"),
 ]
 
 @Suite("EffortLevel")
 struct EffortLevelTests {
-    @Test("cliArg adds --effort for every level except default")
+    @Test("cliArg adds --effort for every level except default and ultracode")
     func cliArgs() {
         #expect(EffortLevel.default.cliArg.isEmpty)
         #expect(EffortLevel.low.cliArg == ["--effort", "low"])
@@ -22,6 +23,23 @@ struct EffortLevelTests {
         #expect(EffortLevel.high.cliArg == ["--effort", "high"])
         #expect(EffortLevel.xhigh.cliArg == ["--effort", "xhigh"])
         #expect(EffortLevel.max.cliArg == ["--effort", "max"])
+        #expect(EffortLevel.ultracode.cliArg.isEmpty)
+    }
+
+    @Test("settingsOverrides carries ultracode only for the ultracode level")
+    func settingsOverrides() {
+        #expect(EffortLevel.ultracode.settingsOverrides == ["ultracode": true])
+        for level in [EffortLevel.default, .low, .medium, .high, .xhigh, .max] {
+            #expect(level.settingsOverrides.isEmpty)
+        }
+    }
+
+    @Test("settingsCLIArgs is a standalone --settings only for ultracode")
+    func settingsCLIArgs() {
+        #expect(EffortLevel.ultracode.settingsCLIArgs == ["--settings", #"{"ultracode":true}"#])
+        for level in [EffortLevel.default, .low, .medium, .high, .xhigh, .max] {
+            #expect(level.settingsCLIArgs.isEmpty)
+        }
     }
 
     @Test("storageValue matches the claude CLI levels", arguments: effortLevelCases)
@@ -63,5 +81,6 @@ struct EffortLevelTests {
         #expect(EffortLevel.default.displayName == "Default")
         #expect(EffortLevel.xhigh.displayName == "Extra High")
         #expect(EffortLevel.max.displayName == "Max")
+        #expect(EffortLevel.ultracode.displayName == "Ultracode")
     }
 }

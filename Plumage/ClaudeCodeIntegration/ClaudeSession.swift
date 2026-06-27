@@ -391,6 +391,17 @@ final class ClaudeSession {
         if autoSpawn { spawn() }
     }
 
+    // Chat carries no theme --settings, so settingsCLIArgs only fills it for ultracode.
+    func spawnArguments() -> [String] {
+        [
+            "--print",
+            "--input-format", "stream-json",
+            "--output-format", "stream-json",
+            "--verbose",
+        ] + resumeOrInitArgs() + modelChoice.cliArg + effortChoice.cliArg
+            + effortChoice.settingsCLIArgs
+    }
+
     // --session-id when the session file doesn't exist yet, --resume otherwise.
     // claude's --session-id is strictly "create new" (rejects with "Session ID …
     // already in use" if the .jsonl exists), so we can't pass it on every spawn.
@@ -540,15 +551,7 @@ final class ClaudeSession {
 
         newProcess.executableURL = binaryURL
         newProcess.currentDirectoryURL = cwd
-        // resumeOrInitArgs chooses --session-id vs --resume based on whether
-        // the session log already exists, mirroring claude's own behaviour.
-        newProcess.arguments =
-            [
-                "--print",
-                "--input-format", "stream-json",
-                "--output-format", "stream-json",
-                "--verbose",
-            ] + resumeOrInitArgs() + modelChoice.cliArg + effortChoice.cliArg
+        newProcess.arguments = spawnArguments()
         newProcess.standardInput = stdinPipe
         newProcess.standardOutput = stdoutPipe
         newProcess.standardError = FileHandle.nullDevice

@@ -95,4 +95,13 @@ struct TerminalClaudeSessionModelArgsTests {
         #expect(joined.contains("'--model' 'opus'"))
         #expect(joined.contains("'--effort' 'high'"))
     }
+
+    @Test("ultracode carries the --settings boolean and no --effort token")
+    func ultracodeUsesSettingsNotEffort() {
+        let joined = makeSession(model: .opus, effort: .ultracode).shellSpawnArgs()
+            .joined(separator: " ")
+        #expect(!joined.contains("--effort"))
+        #expect(joined.contains(#""ultracode":true"#))
+        #expect(joined.contains("'--model' 'opus'"))
+    }
 }

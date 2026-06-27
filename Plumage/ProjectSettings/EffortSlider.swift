@@ -91,6 +91,18 @@ struct EffortSlider: View {
         case .high: "high"
         case .xhigh: "xhigh"
         case .max: "max"
+        case .ultracode: "ultracode"
         }
     }
+}
+
+#Preview {
+    @Previewable @State var choice: EffortLevel = .ultracode
+    EffortSlider(
+        choice: $choice,
+        stops: ModelChoice.opus.supportedEfforts,
+        accessibilityLabel: "Preview effort"
+    )
+    .frame(width: ModelEffortColumns.effort)
+    .padding()
 }

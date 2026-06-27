@@ -41,6 +41,35 @@ struct ClaudeThemeInstallerTests {
         }
     }
 
+    @Test("perSessionSettingsJSON without effort overrides is byte-identical to today")
+    func perSessionJSONByteIdentical() {
+        #expect(
+            ClaudeThemeInstaller.perSessionSettingsJSON(dark: true)
+                == #"{"theme":"custom:plumage","promptSuggestionEnabled":false}"#)
+        #expect(
+            ClaudeThemeInstaller.perSessionSettingsJSON(dark: false)
+                == #"{"theme":"custom:plumage-light","promptSuggestionEnabled":false}"#)
+        // An explicit empty map must not change a single byte either.
+        #expect(
+            ClaudeThemeInstaller.perSessionSettingsJSON(dark: true, effortOverrides: [:])
+                == ClaudeThemeInstaller.perSessionSettingsJSON(dark: true))
+    }
+
+    @Test("perSessionSettingsJSON folds ultracode in while staying theme-correct and shell-safe")
+    func perSessionJSONFoldsUltracode() throws {
+        let raw = ClaudeThemeInstaller.perSessionSettingsJSON(
+            dark: true, effortOverrides: ["ultracode": true])
+        #expect(
+            raw == #"{"theme":"custom:plumage","promptSuggestionEnabled":false,"ultracode":true}"#)
+        #expect(!raw.contains("'"))
+        #expect(!raw.contains("\n"))
+        let data = try #require(raw.data(using: .utf8))
+        let json = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["theme"] as? String == "custom:plumage")
+        #expect(json["ultracode"] as? Bool == true)
+    }
+
     @Test("perSessionSettingsJSON pins promptSuggestionEnabled=false")
     func perSessionDisablesPromptSuggestions() throws {
         for dark in [true, false] {

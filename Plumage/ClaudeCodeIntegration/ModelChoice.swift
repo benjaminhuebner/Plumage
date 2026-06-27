@@ -56,14 +56,14 @@ nonisolated enum ModelChoice: Hashable, Sendable, Codable {
         }
     }
 
-    // xhigh is Opus/Fable only, Sonnet drops it, Haiku takes no effort; unknown
-    // models offer every level and let claude reject what it can't honour.
+    // xhigh and ultracode are Opus/Fable only, Sonnet drops them, Haiku takes no
+    // effort; unknown models offer every level and let claude reject what it can't honour.
     var supportedEfforts: [EffortLevel] {
         switch self {
         case .haiku: [.default]
         case .sonnet: [.default, .low, .medium, .high, .max]
         case .default, .fable, .opus, .custom:
-            [.default, .low, .medium, .high, .xhigh, .max]
+            [.default, .low, .medium, .high, .xhigh, .max, .ultracode]
         }
     }
 

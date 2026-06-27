@@ -47,11 +47,13 @@ nonisolated enum AgentNotificationHook {
 
     // nil if the result wouldn't be shell-safe, so the caller falls back to
     // theme-only rather than emit an injectable string.
-    static func settingsJSON(dark: Bool, signalFileURL: URL) -> String? {
+    static func settingsJSON(
+        dark: Bool, signalFileURL: URL, effortOverrides: [String: Bool] = [:]
+    ) -> String? {
         let theme =
             dark
             ? ClaudeThemeInstaller.settingsThemeValue : ClaudeThemeInstaller.lightSettingsThemeValue
-        let settings: [String: Any] = [
+        var settings: [String: Any] = [
             "theme": theme,
             "promptSuggestionEnabled": false,
             "hooks": [
@@ -60,6 +62,9 @@ nonisolated enum AgentNotificationHook {
                 ]
             ],
         ]
+        for (key, value) in effortOverrides {
+            settings[key] = value
+        }
         guard
             let data = try? JSONSerialization.data(withJSONObject: settings, options: [.sortedKeys]),
             let json = String(data: data, encoding: .utf8),

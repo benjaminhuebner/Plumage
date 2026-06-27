@@ -462,6 +462,27 @@ struct ProjectSettingsModelTests {
         #expect(model.workflowEfforts(for: .implementAction)[.feature] == .default)
     }
 
+    @Test("switching off an xhigh-tier model clamps a stored ultracode back to default")
+    func setModelClampsUltracode() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+
+        model.setModel(.opus, for: .chat)
+        model.setEffort(.ultracode, for: .chat)
+        #expect(model.effort(for: .chat) == .ultracode)
+        model.setModel(.sonnet, for: .chat)
+        #expect(model.effort(for: .chat) == .default)
+
+        model.setModel(.opus, for: .implementAction)
+        model.setWorkflowEffort(.ultracode, for: .implementAction, type: .feature)
+        #expect(model.workflowEfforts(for: .implementAction)[.feature] == .ultracode)
+        model.setModel(.haiku, for: .implementAction)
+        #expect(model.workflowEfforts(for: .implementAction)[.feature] == .default)
+    }
+
     @Test("load seeds per-type efforts from a mixed config object")
     func loadSeedsPerTypeEfforts() async throws {
         let config = """
