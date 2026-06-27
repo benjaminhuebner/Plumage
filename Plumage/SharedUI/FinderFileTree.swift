@@ -44,6 +44,8 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
     var canDrag: ((FileNode) -> Bool)?
     var validateDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
     var onDrop: ((FileTreeDropPayload, FileNode?) -> Bool)?
+    // Shares this tree's coordinator with a sibling overlay without a SwiftUI-state write.
+    var coordinatorHandle: FinderFileTreeCoordinatorHandle?
     let onSelect: (FileNode?) -> Void
     @ViewBuilder let rowContent: (FileNode) -> RowContent
 
@@ -106,6 +108,7 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
             coordinator?.updateDropHighlight(target: nil)
         }
         context.coordinator.outlineView = outline
+        coordinatorHandle?.coordinator = context.coordinator
 
         // A bare outline can't render (row loading hangs off its clip view) —
         // embedded mode keeps the clip but inert: the frame always matches
@@ -132,6 +135,7 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let coordinator = context.coordinator
+        coordinatorHandle?.coordinator = coordinator
         coordinator.onSelect = onSelect
         coordinator.onExpansionChange = { expandedPaths = $0 }
         coordinator.onRenameRequest = onRenameRequest
@@ -151,6 +155,12 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
             coordinator.handleReveal(revealRequest)
         }
     }
+}
+
+// A non-observed reference box: the import overlay reads the live coordinator through it
+// without retaining the coordinator or triggering a SwiftUI update when it's set.
+final class FinderFileTreeCoordinatorHandle {
+    weak var coordinator: FinderFileTreeCoordinator?
 }
 
 final class FinderFileTreeOutlineView: NSOutlineView {

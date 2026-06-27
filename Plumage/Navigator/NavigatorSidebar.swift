@@ -26,6 +26,7 @@ struct NavigatorSidebar: View {
 
     @State private var settingsHovering = false
     @State private var treeContentHeight: CGFloat = 0
+    @State private var treeCoordinatorHandle = FinderFileTreeCoordinatorHandle()
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
@@ -42,6 +43,7 @@ struct NavigatorSidebar: View {
                     .padding(.trailing, 12)
                 fileTree
                     .frame(height: max(treeContentHeight, 1))
+                    .overlay { importDropCatcher }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -119,6 +121,7 @@ struct NavigatorSidebar: View {
                         target.url, projectURL: projectURL)
                 },
                 onDrop: handleTreeDrop,
+                coordinatorHandle: treeCoordinatorHandle,
                 onSelect: { node in
                     guard let node else { return }
                     navigator.treeOwnsSelection = true
@@ -155,6 +158,38 @@ struct NavigatorSidebar: View {
             }
         }
         return true
+    }
+
+    // Finder import goes through a click-transparent overlay because the outline below stops
+    // receiving cross-process drops after a reload's relayout (see ImportDropCatcher); the
+    // overlay resolves the folder under the cursor itself, the outline keeps internal moves.
+    private var importDropCatcher: some View {
+        ImportDropCatcher(
+            onImport: { urls, point in
+                guard let folder = resolveImportTarget(atWindowPoint: point) else { return }
+                Task {
+                    await navigator.handleFinderDrop(
+                        urls: urls, targetFolder: folder.url, projectURL: projectURL)
+                }
+            },
+            onDragChange: { point in
+                let target = resolveImportTarget(atWindowPoint: point)
+                treeCoordinatorHandle.coordinator?.updateImportHighlight(target: target)
+                return target == nil ? [] : .copy
+            },
+            onDragExit: {
+                treeCoordinatorHandle.coordinator?.updateImportHighlight(target: nil)
+            }
+        )
+    }
+
+    // Only the folder under the cursor inside the whitelisted subtree — same rule as the
+    // outline's validateDrop, so the overlay rejects exactly what the tree would.
+    private func resolveImportTarget(atWindowPoint point: NSPoint) -> FileNode? {
+        guard let folder = treeCoordinatorHandle.coordinator?.folderTarget(atWindowPoint: point),
+            FileTreeDropResolver.isInsideWhitelistedTree(folder.url, projectURL: projectURL)
+        else { return nil }
+        return folder
     }
 
     // The List hugs its (countable) content so the file tree below gets the

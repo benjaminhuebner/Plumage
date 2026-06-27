@@ -302,6 +302,29 @@ final class FinderFileTreeCoordinator: NSObject {
         return contextMenu(nodes)
     }
 
+    // MARK: - Overlay drop targeting
+
+    // Folder under a window-coordinate point (folder row → itself, file row → its parent),
+    // resolved like menu(for:). The import overlay sits above the outline, so the outline's
+    // own validateDrop never runs for Finder drags — this serves that lookup instead.
+    func folderTarget(atWindowPoint windowPoint: NSPoint) -> FileNode? {
+        folderItem(atWindowPoint: windowPoint)?.node
+    }
+
+    // The overlay can't reach the outline's per-row drop drawing any other way.
+    func updateImportHighlight(target: FileNode?) {
+        updateDropHighlight(target: target.flatMap { item(forPath: $0.relativePath) })
+    }
+
+    private func folderItem(atWindowPoint windowPoint: NSPoint) -> FinderFileTreeItem? {
+        guard let outlineView else { return nil }
+        let point = outlineView.convert(windowPoint, from: nil)
+        let row = outlineView.row(at: point)
+        guard row >= 0, let item = outlineView.item(atRow: row) as? FinderFileTreeItem
+        else { return nil }
+        return dropTargetItem(forProposed: item)
+    }
+
     // MARK: - Keyboard and mouse
 
     func requestRenameForSelection() -> Bool {
