@@ -46,6 +46,21 @@ struct MergeBranchSection: View {
     }
 
     private var mergeDisabled: Bool {
+        Self.mergeDisabled(
+            isMerging: isMerging,
+            blockingRunIssue: blockingRunIssue,
+            mergeMode: mergeMode,
+            trimmedSubject: trimmedSubject)
+    }
+
+    // Evidence state is deliberately not an input: evidence is informative
+    // only and must never block a merge.
+    nonisolated static func mergeDisabled(
+        isMerging: Bool,
+        blockingRunIssue: String?,
+        mergeMode: GitMergeMode,
+        trimmedSubject: String
+    ) -> Bool {
         isMerging || blockingRunIssue != nil || (mergeMode == .squash && trimmedSubject.isEmpty)
     }
 

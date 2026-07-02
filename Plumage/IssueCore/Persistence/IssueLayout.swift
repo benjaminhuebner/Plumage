@@ -27,6 +27,10 @@ nonisolated enum IssueLayout {
         issueFolder(in: projectURL, folderName: folderName).appendingPathComponent("PR.md")
     }
 
+    static func evidenceURL(in projectURL: URL, folderName: String) -> URL {
+        issueFolder(in: projectURL, folderName: folderName).appendingPathComponent("evidence.json")
+    }
+
     static func templateURL(in projectURL: URL) -> URL {
         issuesDirectory(in: projectURL).appendingPathComponent("_TEMPLATE.md")
     }

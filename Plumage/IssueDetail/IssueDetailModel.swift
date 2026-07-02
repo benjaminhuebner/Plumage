@@ -67,6 +67,9 @@ final class IssueDetailModel {
     // Pre-parsed PR.md blocks so PRTabView renders without re-parsing on every
     // body evaluation. Populated together with prContent in loadPR().
     private(set) var prBlocks: [PRMarkdownParser.Block] = []
+    private(set) var evidence: EvidenceState = .missing
+    private(set) var evidenceIsStale: Bool = false
+    private(set) var doneWhenCriteria: [DoneWhenCriterion] = []
     var selectedBodyTab: BodyTab = .spec
     private(set) var conflict: ConflictState?
     private(set) var frontmatterError: FrontmatterError?
@@ -126,6 +129,7 @@ final class IssueDetailModel {
     private nonisolated let configLoader: @Sendable (URL) -> ProjectConfig?
     private nonisolated let clock: @Sendable () -> Date
     private nonisolated let discoverer: @Sendable (URL) -> [DiscoveredIssue]
+    private nonisolated let evidenceCommitCounter: @Sendable (URL, String, String) async -> Int?
 
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
 
@@ -159,6 +163,9 @@ final class IssueDetailModel {
         clock: @escaping @Sendable () -> Date = { Date() },
         discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = {
             IssueDiscovery.discoverIssues(in: $0)
+        },
+        evidenceCommitCounter: @escaping @Sendable (URL, String, String) async -> Int? = {
+            try? await GitRevListRunner().countCommits(repoURL: $0, from: $1, to: $2)
         }
     ) {
         self.kind = .loaded(folderName: folderName)
@@ -173,6 +180,7 @@ final class IssueDetailModel {
         self.configLoader = configLoader
         self.clock = clock
         self.discoverer = discoverer
+        self.evidenceCommitCounter = evidenceCommitCounter
         // Pre-load synchronously so first mount renders without a ProgressView
         // flash. Local volumes only — even the stat can stall on a network mount;
         // remote specs take async load(). 64 KB cap so a pathological spec can't stall construction.
@@ -182,6 +190,12 @@ final class IssueDetailModel {
             let content = try? String(contentsOf: specURL, encoding: .utf8)
         {
             applyLoaded(content: content)
+            // Status is known before the first frame, so the status-driven
+            // tab must be too — deferring it to the async load path flashed
+            // the spec tab before snapping to the pull-request tab.
+            if let issue {
+                selectedBodyTab = Self.defaultTab(for: issue.status)
+            }
         }
     }
 
@@ -236,6 +250,9 @@ final class IssueDetailModel {
         clock: @escaping @Sendable () -> Date = { Date() },
         discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = {
             IssueDiscovery.discoverIssues(in: $0)
+        },
+        evidenceCommitCounter: @escaping @Sendable (URL, String, String) async -> Int? = {
+            try? await GitRevListRunner().countCommits(repoURL: $0, from: $1, to: $2)
         }
     ) {
         self.kind = .creating(initialStatus: creatingInitialStatus)
@@ -250,6 +267,7 @@ final class IssueDetailModel {
         self.configLoader = configLoader
         self.clock = clock
         self.discoverer = discoverer
+        self.evidenceCommitCounter = evidenceCommitCounter
         self.statusDraft = creatingInitialStatus
         // In creating mode the form must render immediately — there is
         // nothing on disk to load. Mark loaded so the view skips the
@@ -283,6 +301,7 @@ final class IssueDetailModel {
         loadedSpecContent = content
         loadedBodyContent = Self.extractBody(from: content)
         bodyDraft = loadedBodyContent
+        doneWhenCriteria = DoneWhenParser.criteria(in: content)
         // applyLoaded only runs after load()/save() in loaded mode; folderName
         // is always non-nil here. Use the kind's folderName so the parsed
         // Issue carries the right identifier.
@@ -769,6 +788,84 @@ final class IssueDetailModel {
         prBlocks = result.blocks
     }
 
+    func loadEvidence() async {
+        guard let folder = folderName, let projectURL else {
+            evidence = .missing
+            return
+        }
+        let url = IssueLayout.evidenceURL(in: projectURL, folderName: folder)
+        evidence = await Task.detached(priority: .utility) { () -> EvidenceState in
+            let data: Data
+            do {
+                data = try Data(contentsOf: url)
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+                return .missing
+            } catch {
+                return .unreadable(.unreadable(message: error.localizedDescription))
+            }
+            switch EvidenceParser.parse(data: data) {
+            case .success(let evidence): return .loaded(evidence)
+            case .failure(let error): return .unreadable(error)
+            }
+        }.value
+        await refreshEvidenceStaleness()
+    }
+
+    func doneWhenBinding(at index: Int) -> Binding<Bool> {
+        Binding(
+            get: { [weak self] in
+                guard let self, self.doneWhenCriteria.indices.contains(index) else { return false }
+                return self.doneWhenCriteria[index].isChecked
+            },
+            set: { [weak self] newValue in
+                Task { await self?.toggleDoneWhenCriterion(at: index, to: newValue) }
+            }
+        )
+    }
+
+    func toggleDoneWhenCriterion(at index: Int, to isChecked: Bool) async {
+        if case .externalChange = conflict { return }
+        guard let url = specURL else { return }
+        let prior = pendingFormWrite
+        let task = Task<Void, Error> {
+            _ = try? await prior?.value
+            try await Task.detached(priority: .userInitiated) {
+                try DoneWhenMutator.mutate(specURL: url, criterionIndex: index, isChecked: isChecked)
+            }.value
+        }
+        pendingFormWrite = task
+        defer {
+            if pendingFormWrite == task { pendingFormWrite = nil }
+        }
+        do {
+            try await task.value
+        } catch {
+            autoSaveStatus = .error(message: "Could not update criterion: \(error)")
+            return
+        }
+        // A dirty draft still holds the pre-tick checkbox; patch it so a later
+        // auto-save doesn't write the tick back out of spec.md.
+        if isBodyDirty {
+            bodyDraft =
+                (try? DoneWhenMutator.transform(
+                    content: bodyDraft, criterionIndex: index, isChecked: isChecked)) ?? bodyDraft
+        }
+        await reloadFromDiskAfterOwnWrite()
+    }
+
+    private func refreshEvidenceStaleness() async {
+        guard case .loaded(let loadedEvidence) = evidence,
+            let reference = EvidenceStalenessReference.reference(for: loadedEvidence),
+            let branch = loadedEvidence.branch ?? issue?.branch,
+            let projectURL
+        else {
+            evidenceIsStale = false
+            return
+        }
+        let count = await evidenceCommitCounter(projectURL, reference.head, branch)
+        evidenceIsStale = count.map { reference.isStale(commitsAfterHead: $0) } ?? false
+    }
+
     func observeKanban(currentIssue: DiscoveredIssue?) {
         // Cancel any in-flight observation so fast kanban-snapshot churn doesn't
         // race two concurrent disk reads writing the same fields. Owning the task
@@ -776,7 +873,16 @@ final class IssueDetailModel {
         observeTask?.cancel()
         observeTask = Task { [weak self] in
             await self?.observeExternalChange(currentIssue: currentIssue)
+            await self?.refreshReviewArtifacts()
         }
+    }
+
+    // The kanban snapshot pokes this model for every change in the issue's
+    // folder (evidence stamp included), so PR.md and evidence.json stay live
+    // without a watcher of their own.
+    private func refreshReviewArtifacts() async {
+        await loadPR()
+        await loadEvidence()
     }
 
     func observeExternalChange(currentIssue: DiscoveredIssue?) async {

@@ -13,6 +13,9 @@ nonisolated struct Issue: Hashable, Sendable {
     let mergeSubject: String?
     let order: Double?
     let goal: String?
+    // Fingerprint of the sibling evidence.json, set during discovery — makes
+    // snapshot equality notice evidence-only changes the spec text can't show.
+    var evidenceStamp: String?
 
     init(
         id: Int,

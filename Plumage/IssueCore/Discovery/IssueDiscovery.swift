@@ -57,13 +57,26 @@ nonisolated enum IssueDiscovery {
             }
             switch SpecParser.parse(content: content, folderName: folder.lastPathComponent) {
             case .success(let issue):
-                return .valid(issue)
+                var stamped = issue
+                stamped.evidenceStamp = evidenceStamp(for: folder)
+                return .valid(stamped)
             case .failure(let err):
                 return .invalid(folder: folder, error: err)
             }
         }
 
         return discovered.sortedForKanban()
+    }
+
+    private static func evidenceStamp(for folder: URL) -> String? {
+        let url = folder.appendingPathComponent("evidence.json")
+        guard
+            let values = try? url.resourceValues(forKeys: [
+                .contentModificationDateKey, .fileSizeKey,
+            ]),
+            let modified = values.contentModificationDate
+        else { return nil }
+        return "\(values.fileSize ?? 0)-\(modified.timeIntervalSince1970)"
     }
 
     static func extractID(fromFolderName folderName: String) -> (id: Int?, slug: String) {

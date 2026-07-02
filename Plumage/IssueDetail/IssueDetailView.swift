@@ -323,53 +323,25 @@ struct IssueDetailView: View {
                 layout: editorLayout
             )
         case .pullRequest:
-            VStack(alignment: .leading, spacing: 12) {
-                PRTabView(blocks: model.prBlocks)
-                    .task(id: model.selectedBodyTab) {
-                        // Reload-on-show: PR.md changes externally (e.g.
-                        // /plumage-implement just wrote it), and the tab is
-                        // read-only so there's no dirty-conflict to worry about.
-                        if model.selectedBodyTab == .pullRequest {
-                            await model.loadPR()
-                        }
+            // One scroll surface for everything: rigid sections beside a nested
+            // ScrollView overflowed the non-scrolling split-view detail and
+            // blanked the whole window.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    PRTabView(blocks: model.prBlocks)
+                    if currentStatus == .waitingForReview, let issue = model.issue {
+                        reviewSections(issue: issue)
                     }
-                if currentStatus == .waitingForReview, let issue = model.issue {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Divider()
-                        MergeBranchSection(
-                            branch: issue.branch,
-                            subjectPrefill: model.mergeSubjectPrefill,
-                            isMerging: model.isMerging,
-                            blockingRunIssue: model.blockingImplementRun?.issue,
-                            errorMessage: mergeBannerMessage,
-                            nonFatalNotice: model.lastMergeNotice,
-                            onDismissError: {
-                                model.clearMergeError()
-                                model.clearMergeCriticalError()
-                            },
-                            onDismissNotice: { model.clearMergeNotice() },
-                            onMerge: { mode, commitSubject, deleteBranch in
-                                Task {
-                                    await performMerge(
-                                        mode: mode,
-                                        commitSubject: commitSubject,
-                                        deleteBranch: deleteBranch)
-                                }
-                            },
-                            onRebaseAndMerge: rebaseAndMergeAction
-                        )
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
-                    .task {
-                        // Poll while the merge section is visible: the
-                        // run-state file isn't covered by any watcher, and the
-                        // button must re-enable when the run finishes.
-                        while !Task.isCancelled {
-                            await model.refreshMergeBlocker()
-                            try? await Task.sleep(for: .seconds(3))
-                        }
-                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .task(id: model.selectedBodyTab) {
+                // Reload-on-show: PR.md changes externally (e.g.
+                // /plumage-implement just wrote it), and the tab is
+                // read-only so there's no dirty-conflict to worry about.
+                if model.selectedBodyTab == .pullRequest {
+                    await model.loadPR()
+                    await model.loadEvidence()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -379,6 +351,54 @@ struct IssueDetailView: View {
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func reviewSections(issue: Issue) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+            EvidenceSection(state: model.evidence, isStale: model.evidenceIsStale)
+            if !model.doneWhenCriteria.isEmpty {
+                DoneWhenChecklist(
+                    criteria: model.doneWhenCriteria,
+                    isDisabled: model.conflict != nil,
+                    binding: { model.doneWhenBinding(at: $0) }
+                )
+            }
+            MergeBranchSection(
+                branch: issue.branch,
+                subjectPrefill: model.mergeSubjectPrefill,
+                isMerging: model.isMerging,
+                blockingRunIssue: model.blockingImplementRun?.issue,
+                errorMessage: mergeBannerMessage,
+                nonFatalNotice: model.lastMergeNotice,
+                onDismissError: {
+                    model.clearMergeError()
+                    model.clearMergeCriticalError()
+                },
+                onDismissNotice: { model.clearMergeNotice() },
+                onMerge: { mode, commitSubject, deleteBranch in
+                    Task {
+                        await performMerge(
+                            mode: mode,
+                            commitSubject: commitSubject,
+                            deleteBranch: deleteBranch)
+                    }
+                },
+                onRebaseAndMerge: rebaseAndMergeAction
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
+        .task {
+            // Poll while the merge section is visible: the
+            // run-state file isn't covered by any watcher, and the
+            // button must re-enable when the run finishes.
+            while !Task.isCancelled {
+                await model.refreshMergeBlocker()
+                try? await Task.sleep(for: .seconds(3))
             }
         }
     }

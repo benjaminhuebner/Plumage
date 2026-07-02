@@ -183,6 +183,41 @@ struct IssueDiscoveryTests {
         }
     }
 
+    @Test("evidence.json changes the issue's evidence stamp; absence yields nil")
+    func evidenceStampTracksFile() throws {
+        let project = try makeTempProject()
+        try writeIssue(in: project, folder: "00001-with-evidence", id: 1, type: "feature")
+
+        let before = IssueDiscovery.discoverIssues(in: project)
+        guard case .valid(let unstamped) = try #require(before.first) else {
+            Testing.Issue.record("expected .valid, got \(before)")
+            return
+        }
+        #expect(unstamped.evidenceStamp == nil)
+
+        let evidenceURL = project.appendingPathComponent(
+            ".claude/issues/00001-with-evidence/evidence.json")
+        try #"{"version": 1, "issue": "00001-with-evidence"}"#
+            .write(to: evidenceURL, atomically: true, encoding: .utf8)
+        let after = IssueDiscovery.discoverIssues(in: project)
+        guard case .valid(let stamped) = try #require(after.first) else {
+            Testing.Issue.record("expected .valid, got \(after)")
+            return
+        }
+        let firstStamp = try #require(stamped.evidenceStamp)
+
+        try #"{"version": 1, "issue": "00001-with-evidence", "tasks": []}"#
+            .write(to: evidenceURL, atomically: true, encoding: .utf8)
+        let rewritten = IssueDiscovery.discoverIssues(in: project)
+        guard case .valid(let restamped) = try #require(rewritten.first) else {
+            Testing.Issue.record("expected .valid, got \(rewritten)")
+            return
+        }
+        #expect(restamped.evidenceStamp != nil)
+        #expect(restamped.evidenceStamp != firstStamp)
+        #expect(before != after)
+    }
+
     private func folderName(for discovered: DiscoveredIssue) -> String {
         switch discovered {
         case .valid(let issue): issue.folderName

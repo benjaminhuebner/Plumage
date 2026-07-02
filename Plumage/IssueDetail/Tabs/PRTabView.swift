@@ -3,6 +3,7 @@ import SwiftUI
 struct PRTabView: View {
     let blocks: [PRMarkdownParser.Block]
 
+    // Scroll-less on purpose: the PR tab wraps this in its own ScrollView.
     var body: some View {
         if blocks.isEmpty {
             BodyTabEmptyState(
@@ -11,19 +12,17 @@ struct PRTabView: View {
                 detail:
                     "Created by `/plumage-implement` once the issue moves to `waiting-for-review`."
             )
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        view(for: block)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .textSelection(.enabled)
-            }
             .frame(minHeight: 240)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                    view(for: block)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .textSelection(.enabled)
         }
     }
 
