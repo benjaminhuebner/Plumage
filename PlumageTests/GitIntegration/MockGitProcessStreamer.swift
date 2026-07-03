@@ -16,6 +16,7 @@ nonisolated final class MockGitProcessStreamer: GitProcessStreaming, @unchecked 
         var scripts: [[String]: [Script]] = [:]
         var error: GitProcessRunnerError?
         var calls: [[String]] = []
+        var environments: [[String: String]?] = []
     }
 
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
@@ -27,6 +28,10 @@ nonisolated final class MockGitProcessStreamer: GitProcessStreaming, @unchecked 
 
     var calls: [[String]] {
         lock.withLock { $0.calls }
+    }
+
+    var environments: [[String: String]?] {
+        lock.withLock { $0.environments }
     }
 
     // Queue a script for `args`. Each call to stream() consumes the first
@@ -43,10 +48,12 @@ nonisolated final class MockGitProcessStreamer: GitProcessStreaming, @unchecked 
     func stream(
         binaryURL: URL,
         args: [String],
-        cwd: URL?
+        cwd: URL?,
+        environment: [String: String]?
     ) async throws -> (AsyncStream<GitStreamLine>, () async -> GitStreamOutcome) {
         let pulled: (script: Script?, error: GitProcessRunnerError?) = lock.withLock { state in
             state.calls.append(args)
+            state.environments.append(environment)
             if let err = state.error { return (nil, err) }
             var queue = state.scripts[args] ?? []
             let head = queue.isEmpty ? nil : queue.removeFirst()

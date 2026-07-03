@@ -8,6 +8,7 @@ struct PlumageApp: App {
     @State private var migrationRequest = MigrationRequest()
     @State private var templateImportRequest = TemplateArchiveImportRequest()
     @State private var updater = UpdaterModel()
+    @State private var settingsNavigation = SettingsNavigation()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -101,11 +102,13 @@ struct PlumageApp: App {
         // reopen; Welcome appears only when nothing restores.
         .environment(recentProjects)
         .environment(migrationRequest)
+        .environment(settingsNavigation)
 
         Settings {
             AppSettingsView()
         }
         .windowResizability(.contentSize)
+        .environment(settingsNavigation)
     }
 
     private func drainPendingURLs() {

@@ -41,14 +41,16 @@ struct TemplatesSettingsTab: View {
             }
             .formStyle(.grouped)
             Divider()
-            Button {
-                openWindow(id: "template-manager")
-            } label: {
-                Label("Open Template Manager…", systemImage: "rectangle.3.group")
-                    .frame(maxWidth: .infinity)
+            HStack {
+                Spacer()
+                Button {
+                    openWindow(id: "template-manager")
+                } label: {
+                    Label("Open Template Manager…", systemImage: "rectangle.3.group")
+                }
             }
-            .controlSize(.large)
-            .padding(12)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
         .onAppear { model.reload() }
     }

@@ -3,6 +3,7 @@ import Foundation
 nonisolated enum ApplicationSupport {
     static let appFolderName = "Plumage"
     static let recentFileName = "recent.json"
+    static let githubAccountsFileName = "github-accounts.json"
 
     static func appFolderURL(using fileManager: FileManager = .default) throws -> URL {
         let base = try fileManager.url(
@@ -28,5 +29,9 @@ nonisolated enum ApplicationSupport {
 
     static func recentFileURL(using fileManager: FileManager = .default) throws -> URL {
         try appFolderURL(using: fileManager).appendingPathComponent(recentFileName)
+    }
+
+    static func githubAccountsFileURL(using fileManager: FileManager = .default) throws -> URL {
+        try appFolderURL(using: fileManager).appendingPathComponent(githubAccountsFileName)
     }
 }

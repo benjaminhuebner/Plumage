@@ -10,10 +10,20 @@ nonisolated struct ProjectConfig: Codable, Hashable, Sendable {
     var gitDefaultBranch: String {
         git?.defaultBranch ?? "main"
     }
+
+    var githubAccountID: String? {
+        git?.githubAccountID
+    }
 }
 
 nonisolated struct GitConfig: Codable, Hashable, Sendable {
     let defaultBranch: String?
+    var githubAccountID: String?
+
+    init(defaultBranch: String?, githubAccountID: String? = nil) {
+        self.defaultBranch = defaultBranch
+        self.githubAccountID = githubAccountID
+    }
 }
 
 nonisolated struct WorkflowsConfig: Codable, Hashable, Sendable {

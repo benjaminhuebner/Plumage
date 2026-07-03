@@ -15,7 +15,10 @@ struct ProjectWindow: View {
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var showCommitSheet = false
     @State private var showSyncSheet = false
-    @State private var syncOperation: GitSyncOperation = .push
+    // Owned here (not built inline in the sheet closure) so the instance is
+    // stable across ProjectWindow re-renders — otherwise each re-render made a
+    // fresh model and the view showed one whose async remote load never ran.
+    @State private var syncModel: GitSyncModel?
     @State private var commitAction: EditorAction?
     @State private var pushAction: EditorAction?
     @State private var pullAction: EditorAction?
@@ -63,6 +66,7 @@ struct ProjectWindow: View {
     @Environment(\.processRunner) private var processRunner
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(RecentProjects.self) private var recentProjects
+    @Environment(SettingsNavigation.self) private var settingsNavigation
     @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction: EditorAction?
 
     init(handle: ProjectHandle) {
@@ -379,14 +383,16 @@ struct ProjectWindow: View {
                 )
             }
             .sheet(isPresented: $showSyncSheet) {
-                GitSyncView(
-                    model: GitSyncModel(
-                        repoURL: handle.url,
-                        operation: syncOperation,
-                        currentBranch: gitModel.repoState.branchName
-                    ),
-                    onDismiss: { showSyncSheet = false }
-                )
+                if let syncModel {
+                    GitSyncView(
+                        model: syncModel,
+                        onDismiss: { showSyncSheet = false },
+                        onAddAccount: {
+                            settingsNavigation.selectedTab = .accounts
+                            SettingsOpener.open()
+                        }
+                    )
+                }
             }
     }
 
@@ -796,6 +802,15 @@ struct ProjectWindow: View {
         if case .loaded(let config) = model.state { config } else { nil }
     }
 
+    private func makeSyncModel(operation: GitSyncOperation) -> GitSyncModel {
+        GitSyncModel(
+            repoURL: handle.url,
+            operation: operation,
+            currentBranch: gitModel.repoState.branchName,
+            boundAccountID: currentConfig()?.githubAccountID
+        )
+    }
+
     private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")
 
     private func refreshGitActions() {
@@ -808,13 +823,17 @@ struct ProjectWindow: View {
             }
             if pushAction == nil {
                 pushAction = EditorAction {
-                    syncOperation = .push
+                    // One sync sheet at a time: re-invoking while it's open would
+                    // swap in a fresh model whose id-less .task never re-fires.
+                    guard !showSyncSheet else { return }
+                    syncModel = makeSyncModel(operation: .push)
                     showSyncSheet = true
                 }
             }
             if pullAction == nil {
                 pullAction = EditorAction {
-                    syncOperation = .pull
+                    guard !showSyncSheet else { return }
+                    syncModel = makeSyncModel(operation: .pull)
                     showSyncSheet = true
                 }
             }

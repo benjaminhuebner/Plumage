@@ -26,7 +26,8 @@ nonisolated protocol GitProcessStreaming: Sendable {
     func stream(
         binaryURL: URL,
         args: [String],
-        cwd: URL?
+        cwd: URL?,
+        environment: [String: String]?
     ) async throws -> (AsyncStream<GitStreamLine>, () async -> GitStreamOutcome)
 }
 
@@ -37,12 +38,19 @@ nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
     func stream(
         binaryURL: URL,
         args: [String],
-        cwd: URL?
+        cwd: URL?,
+        environment: [String: String]?
     ) async throws -> (AsyncStream<GitStreamLine>, () async -> GitStreamOutcome) {
         let process = Process()
         process.executableURL = binaryURL
         process.arguments = args
         if let cwd { process.currentDirectoryURL = cwd }
+        if let environment {
+            // Merge onto the inherited env, don't replace it — a bare assignment
+            // would drop PATH and everything else git needs.
+            process.environment = ProcessInfo.processInfo.environment
+                .merging(environment) { _, injected in injected }
+        }
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
