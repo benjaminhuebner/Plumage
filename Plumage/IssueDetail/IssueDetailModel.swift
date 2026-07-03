@@ -93,6 +93,8 @@ final class IssueDetailModel {
     // Non-fatal info after a successful merge — e.g. the branch delete
     // failed but the merge itself landed.
     private(set) var lastMergeNotice: String?
+    private(set) var mergeTargets: [String] = []
+    var selectedMergeTarget: String?
 
     // Single tail-chain for every spec.md write (form commits, body saves,
     // done-when toggles): each writer awaits the prior one, so two
@@ -132,6 +134,9 @@ final class IssueDetailModel {
     private nonisolated let clock: @Sendable () -> Date
     private nonisolated let discoverer: @Sendable (URL) -> [DiscoveredIssue]
     private nonisolated let evidenceCommitCounter: @Sendable (URL, String, String) async -> Int?
+    private nonisolated let localBranchLister: @Sendable (URL) async -> [String]
+    private nonisolated let storedMergeTargetLoader: @Sendable (URL) -> String?
+    private nonisolated let storedMergeTargetSaver: @Sendable (URL, String) -> Void
 
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
 
@@ -166,6 +171,17 @@ final class IssueDetailModel {
         },
         evidenceCommitCounter: @escaping @Sendable (URL, String, String) async -> Int? = {
             try? await GitRevListRunner().countCommits(repoURL: $0, from: $1, to: $2)
+        },
+        localBranchLister: @escaping @Sendable (URL) async -> [String] = {
+            (try? await GitBranchLister().branches(repoURL: $0)) ?? []
+        },
+        storedMergeTargetLoader: @escaping @Sendable (URL) -> String? = {
+            guard let bundle = try? BundleResolver.resolve(from: $0).bundle else { return nil }
+            return MergeTargetStore.load(bundle: bundle)
+        },
+        storedMergeTargetSaver: @escaping @Sendable (URL, String) -> Void = {
+            guard let bundle = try? BundleResolver.resolve(from: $0).bundle else { return }
+            try? MergeTargetStore.save($1, bundle: bundle)
         }
     ) {
         self.kind = .loaded(folderName: folderName)
@@ -181,6 +197,9 @@ final class IssueDetailModel {
         self.clock = clock
         self.discoverer = discoverer
         self.evidenceCommitCounter = evidenceCommitCounter
+        self.localBranchLister = localBranchLister
+        self.storedMergeTargetLoader = storedMergeTargetLoader
+        self.storedMergeTargetSaver = storedMergeTargetSaver
         // Pre-load synchronously so first mount renders without a ProgressView
         // flash. Local volumes only — even the stat can stall on a network mount;
         // remote specs take async load(). 64 KB cap so a pathological spec can't stall construction.
@@ -252,6 +271,17 @@ final class IssueDetailModel {
         },
         evidenceCommitCounter: @escaping @Sendable (URL, String, String) async -> Int? = {
             try? await GitRevListRunner().countCommits(repoURL: $0, from: $1, to: $2)
+        },
+        localBranchLister: @escaping @Sendable (URL) async -> [String] = {
+            (try? await GitBranchLister().branches(repoURL: $0)) ?? []
+        },
+        storedMergeTargetLoader: @escaping @Sendable (URL) -> String? = {
+            guard let bundle = try? BundleResolver.resolve(from: $0).bundle else { return nil }
+            return MergeTargetStore.load(bundle: bundle)
+        },
+        storedMergeTargetSaver: @escaping @Sendable (URL, String) -> Void = {
+            guard let bundle = try? BundleResolver.resolve(from: $0).bundle else { return }
+            try? MergeTargetStore.save($1, bundle: bundle)
         }
     ) {
         self.kind = .creating(initialStatus: creatingInitialStatus)
@@ -267,6 +297,9 @@ final class IssueDetailModel {
         self.clock = clock
         self.discoverer = discoverer
         self.evidenceCommitCounter = evidenceCommitCounter
+        self.localBranchLister = localBranchLister
+        self.storedMergeTargetLoader = storedMergeTargetLoader
+        self.storedMergeTargetSaver = storedMergeTargetSaver
         self.statusDraft = creatingInitialStatus
         // In creating mode the form must render immediately — there is
         // nothing on disk to load. Mark loaded so the view skips the
@@ -350,7 +383,7 @@ final class IssueDetailModel {
         return issue.mergeSubject ?? issue.title
     }
 
-    func mergeToMain(mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool) async -> Bool {
+    func mergeToTarget(mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool) async -> Bool {
         isMerging = true
         defer { isMerging = false }
         guard let context = await prepareMerge(mode: mode, commitSubject: commitSubject) else {
@@ -364,11 +397,11 @@ final class IssueDetailModel {
         let specURL: URL
         let issue: Issue
         let subject: String?
-        let defaultBranch: String
+        let targetBranch: String
     }
 
-    // Shared preamble of mergeToMain and rebaseAndMergeToMain: validation,
-    // error reset, live-run blocker check, and defaultBranch load run exactly
+    // Shared preamble of mergeToTarget and rebaseAndMergeToTarget: validation,
+    // error reset, live-run blocker check, and target resolution run exactly
     // once per attempt — the rebase path must not re-run them for its merge.
     private func prepareMerge(mode: GitMergeMode, commitSubject: String?) async -> MergeContext? {
         guard
@@ -391,16 +424,39 @@ final class IssueDetailModel {
             return nil
         }
 
-        let loader = configLoader
-        let defaultBranch =
-            await Task.detached { loader(projectURL)?.gitDefaultBranch }.value ?? "main"
+        let targetBranch = await resolveMergeTarget(
+            projectURL: projectURL, issueBranch: currentIssue.branch)
         return MergeContext(
             projectURL: projectURL,
             specURL: specURL,
             issue: currentIssue,
             subject: subject,
-            defaultBranch: defaultBranch
+            targetBranch: targetBranch
         )
+    }
+
+    func loadMergeTargets() async {
+        guard let projectURL, let currentIssue = issue else { return }
+        let candidates = await localBranchLister(projectURL).filter { $0 != currentIssue.branch }
+        mergeTargets = candidates
+        if let selected = selectedMergeTarget, candidates.contains(selected) { return }
+        selectedMergeTarget = await resolveMergeTarget(
+            projectURL: projectURL, issueBranch: currentIssue.branch)
+    }
+
+    // A stored target that was deleted (or names the source) falls back to
+    // the repo default instead of failing the merge.
+    private func resolveMergeTarget(projectURL: URL, issueBranch: String) async -> String {
+        if let selected = selectedMergeTarget { return selected }
+        let branches = await localBranchLister(projectURL)
+        let candidates = branches.filter { $0 != issueBranch }
+        let storedLoader = storedMergeTargetLoader
+        let loader = configLoader
+        let (stored, fallback) = await Task.detached {
+            (storedLoader(projectURL), loader(projectURL)?.gitDefaultBranch ?? "main")
+        }.value
+        if let stored, candidates.contains(stored) { return stored }
+        return fallback
     }
 
     private func executeMerge(
@@ -416,7 +472,7 @@ final class IssueDetailModel {
         do {
             outcome = try await runner.mergeIssueBranch(
                 repoURL: context.projectURL,
-                defaultBranch: context.defaultBranch,
+                targetBranch: context.targetBranch,
                 issueBranch: issueBranch,
                 mode: mode,
                 commitSubject: context.subject,
@@ -432,6 +488,11 @@ final class IssueDetailModel {
             lastMergeError = .mergeFailed(mode: mode, stderr: error.localizedDescription)
             return false
         }
+
+        let saver = storedMergeTargetSaver
+        let mergedProjectURL = context.projectURL
+        let mergedTarget = context.targetBranch
+        await Task.detached { saver(mergedProjectURL, mergedTarget) }.value
 
         // Merge has landed on disk. From here on, any failure is critical —
         // we cannot roll back the merge, so the user has to fix spec.md
@@ -484,7 +545,7 @@ final class IssueDetailModel {
         return nil
     }
 
-    func rebaseAndMergeToMain(
+    func rebaseAndMergeToTarget(
         mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
     ) async -> Bool {
         isMerging = true
@@ -497,7 +558,7 @@ final class IssueDetailModel {
         do {
             try await runner.rebaseIssueBranch(
                 repoURL: context.projectURL,
-                defaultBranch: context.defaultBranch,
+                targetBranch: context.targetBranch,
                 issueBranch: context.issue.branch)
         } catch let error as GitMergeError {
             lastMergeError = error

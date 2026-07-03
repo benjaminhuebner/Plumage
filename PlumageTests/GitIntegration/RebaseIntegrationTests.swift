@@ -32,15 +32,15 @@ struct RebaseIntegrationTests {
         let model = await makeModel(repo: repo)
         await model.load()
 
-        let firstTry = await model.mergeToMain(
+        let firstTry = await model.mergeToTarget(
             mode: .squash, commitSubject: "Recovered change", deleteBranch: true)
         #expect(firstTry == false)
         let firstError = await model.lastMergeError
         #expect(
             firstError
-                == .notFastForward(defaultBranch: repo.mainBranch, issueBranch: repo.issueBranch))
+                == .notFastForward(targetBranch: repo.mainBranch, issueBranch: repo.issueBranch))
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .squash, commitSubject: "Recovered change", deleteBranch: true)
 
         #expect(success == true)
@@ -73,7 +73,7 @@ struct RebaseIntegrationTests {
         let model = await makeModel(repo: repo)
         await model.load()
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .squash, commitSubject: "Recovered change", deleteBranch: true)
 
         #expect(success == true)
@@ -100,7 +100,7 @@ struct RebaseIntegrationTests {
         let model = await makeModel(repo: repo)
         await model.load()
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .squash, commitSubject: "Recovered change", deleteBranch: true)
 
         #expect(success == false)
@@ -138,7 +138,7 @@ struct RebaseIntegrationTests {
         let model = await makeModel(repo: repo)
         await model.load()
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .squash, commitSubject: "Recovered change", deleteBranch: true)
 
         #expect(success == false)

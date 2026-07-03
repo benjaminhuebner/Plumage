@@ -13,7 +13,7 @@ nonisolated enum GitMergeError: Error, LocalizedError, Sendable, Equatable {
     case statusCheckFailed(stderr: String)
     case workingTreeDirty(files: [String])
     case branchNotFound(name: String)
-    case notFastForward(defaultBranch: String, issueBranch: String)
+    case notFastForward(targetBranch: String, issueBranch: String)
     case checkoutFailed(stderr: String)
     case mergeFailed(mode: GitMergeMode, stderr: String)
     case rebaseFailed(stderr: String)
@@ -44,9 +44,9 @@ nonisolated enum GitMergeError: Error, LocalizedError, Sendable, Equatable {
             return
                 "Branch `\(name)` not found locally. "
                 + "If it only exists on the remote: `git fetch && git checkout \(name)` in the terminal."
-        case .notFastForward(let defaultBranch, let issueBranch):
+        case .notFastForward(let targetBranch, let issueBranch):
             return
-                "Cannot fast-forward: `\(defaultBranch)` has commits since `\(issueBranch)` was branched off. "
+                "Cannot fast-forward: `\(targetBranch)` has commits since `\(issueBranch)` was branched off. "
                 + "Use Rebase & Merge, or rebase manually."
         case .checkoutFailed(let stderr):
             return "git checkout failed: \(stderr)"
@@ -87,7 +87,7 @@ nonisolated struct GitMergeOutcome: Sendable, Equatable {
 nonisolated protocol GitMergeRunning: Sendable {
     func mergeIssueBranch(
         repoURL: URL,
-        defaultBranch: String,
+        targetBranch: String,
         issueBranch: String,
         mode: GitMergeMode,
         commitSubject: String?,
@@ -96,7 +96,7 @@ nonisolated protocol GitMergeRunning: Sendable {
 
     func rebaseIssueBranch(
         repoURL: URL,
-        defaultBranch: String,
+        targetBranch: String,
         issueBranch: String
     ) async throws
 }
@@ -117,7 +117,7 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
 
     func mergeIssueBranch(
         repoURL: URL,
-        defaultBranch: String,
+        targetBranch: String,
         issueBranch: String,
         mode: GitMergeMode,
         commitSubject: String?,
@@ -128,19 +128,19 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         }
         // Both names reach git as positional args — reject option-shaped
         // values (frontmatter `branch:` is agent-written, config is on disk).
-        guard GitBranchName.isSafe(defaultBranch) else {
-            throw GitMergeError.branchNotFound(name: defaultBranch)
+        guard GitBranchName.isSafe(targetBranch) else {
+            throw GitMergeError.branchNotFound(name: targetBranch)
         }
         guard GitBranchName.isSafe(issueBranch) else {
             throw GitMergeError.branchNotFound(name: issueBranch)
         }
         try await runPreChecks(
             binary: binary, repoURL: repoURL,
-            defaultBranch: defaultBranch, issueBranch: issueBranch)
+            targetBranch: targetBranch, issueBranch: issueBranch)
         // Remember where the user was: a failed merge must not strand them
-        // on the default branch when they started somewhere else.
+        // on the target branch when they started somewhere else.
         let originalBranch = await currentBranch(binary: binary, repoURL: repoURL)
-        try await checkout(binary: binary, repoURL: repoURL, branch: defaultBranch)
+        try await checkout(binary: binary, repoURL: repoURL, branch: targetBranch)
         do {
             switch mode {
             case .fastForward:
@@ -154,7 +154,7 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         } catch {
             await rollBack(
                 binary: binary, repoURL: repoURL,
-                originalBranch: originalBranch, defaultBranch: defaultBranch)
+                originalBranch: originalBranch, targetBranch: targetBranch)
             throw error
         }
         let outcome: GitMergeOutcome
@@ -178,23 +178,23 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         }
         await restoreOriginalBranch(
             binary: binary, repoURL: repoURL, originalBranch: originalBranch,
-            defaultBranch: defaultBranch, deletedBranch: deletedBranch)
+            targetBranch: targetBranch, deletedBranch: deletedBranch)
         return outcome
     }
 
-    // A successful merge leaves HEAD on the default branch — put the user back
+    // A successful merge leaves HEAD on the target branch — put the user back
     // where they started, unless that branch was just deleted.
     private func restoreOriginalBranch(
         binary: URL, repoURL: URL, originalBranch: String?,
-        defaultBranch: String, deletedBranch: String?
+        targetBranch: String, deletedBranch: String?
     ) async {
-        guard let originalBranch, originalBranch != defaultBranch,
+        guard let originalBranch, originalBranch != targetBranch,
             originalBranch != deletedBranch
         else { return }
         let restore = try? await callGit(
             binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
         if restore?.exitCode != 0 {
-            Self.logger.error("merge: could not restore original branch, staying on default branch")
+            Self.logger.error("merge: could not restore original branch, staying on target branch")
         }
     }
 
@@ -266,7 +266,7 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
     private func runPreChecks(
         binary: URL,
         repoURL: URL,
-        defaultBranch: String,
+        targetBranch: String,
         issueBranch: String
     ) async throws {
         // 1. status --porcelain must be empty. A failing status would also
@@ -288,18 +288,18 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
             throw GitMergeError.branchNotFound(name: issueBranch)
         }
 
-        // 3. Fast-forward must be possible: defaultBranch must be an ancestor of
+        // 3. Fast-forward must be possible: targetBranch must be an ancestor of
         //    issueBranch. --is-ancestor: 0 = yes, 1 = no, anything else (128: bad ref)
         //    is a different failure — reporting it as "not fast-forward" sent users rebasing for a typo.
         let ffProbe = try await callGit(
             binary: binary, repoURL: repoURL,
-            args: ["merge-base", "--is-ancestor", defaultBranch, issueBranch])
+            args: ["merge-base", "--is-ancestor", targetBranch, issueBranch])
         if ffProbe.exitCode == 1 {
             throw GitMergeError.notFastForward(
-                defaultBranch: defaultBranch, issueBranch: issueBranch)
+                targetBranch: targetBranch, issueBranch: issueBranch)
         }
         if ffProbe.exitCode != 0 {
-            throw GitMergeError.branchNotFound(name: defaultBranch)
+            throw GitMergeError.branchNotFound(name: targetBranch)
         }
     }
 
@@ -307,19 +307,19 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
     // without `reset --merge`, checkout would carry a staged squash along.
     // Restore failures only log: the merge error the caller sees outranks them.
     private func rollBack(
-        binary: URL, repoURL: URL, originalBranch: String?, defaultBranch: String
+        binary: URL, repoURL: URL, originalBranch: String?, targetBranch: String
     ) async {
         let reset = try? await callGit(
             binary: binary, repoURL: repoURL, args: ["reset", "--merge"])
         guard let reset, reset.exitCode == 0 else {
-            Self.logger.error("rollback: reset --merge failed, staying on default branch")
+            Self.logger.error("rollback: reset --merge failed, staying on target branch")
             return
         }
-        guard let originalBranch, originalBranch != defaultBranch else { return }
+        guard let originalBranch, originalBranch != targetBranch else { return }
         let checkout = try? await callGit(
             binary: binary, repoURL: repoURL, args: ["checkout", originalBranch])
         guard let checkout, checkout.exitCode == 0 else {
-            Self.logger.error("rollback: could not restore original branch, staying on default branch")
+            Self.logger.error("rollback: could not restore original branch, staying on target branch")
             return
         }
     }
@@ -389,7 +389,7 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
     ) async -> String? {
         // After a squash, git considers the branch unmerged, so -d would always
         // fail. -D is safe here: the ancestor pre-check plus the just-created
-        // squash commit guarantee the branch tree is contained in the default branch.
+        // squash commit guarantee the branch tree is contained in the target branch.
         let flag = mode == .squash ? "-D" : "-d"
         do {
             let result = try await callGit(
@@ -416,14 +416,14 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
 
     func rebaseIssueBranch(
         repoURL: URL,
-        defaultBranch: String,
+        targetBranch: String,
         issueBranch: String
     ) async throws {
         guard let binary = resolveBinary() else {
             throw GitMergeError.gitNotFound
         }
-        guard GitBranchName.isSafe(defaultBranch) else {
-            throw GitMergeError.branchNotFound(name: defaultBranch)
+        guard GitBranchName.isSafe(targetBranch) else {
+            throw GitMergeError.branchNotFound(name: targetBranch)
         }
         guard GitBranchName.isSafe(issueBranch) else {
             throw GitMergeError.branchNotFound(name: issueBranch)
@@ -448,7 +448,7 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         let originalBranch = await currentBranch(binary: binary, repoURL: repoURL)
         let rebase = try await callGit(
             binary: binary, repoURL: repoURL,
-            args: ["rebase", defaultBranch, issueBranch])
+            args: ["rebase", targetBranch, issueBranch])
         if rebase.exitCode != 0 {
             let stderr = stderrString(rebase)
             if Self.worktreeBlockPatterns.contains(where: stderr.contains) {

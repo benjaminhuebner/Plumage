@@ -591,20 +591,20 @@ struct IssueDetailModelTests {
         #expect(model.prContent == "## Summary\nDone.")
     }
 
-    // MARK: - mergeToMain
+    // MARK: - mergeToTarget
 
-    @Test("mergeToMain happy path flips status to done and clears isMerging")
-    func mergeToMainHappyPath() async throws {
+    @Test("mergeToTarget happy path flips status to done and clears isMerging")
+    func mergeToTargetHappyPath() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let model = env.makeModel(
             mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
             configLoader: { _ in Self.configWith(defaultBranch: "main") }
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         #expect(model.isMerging == false)
@@ -616,11 +616,11 @@ struct IssueDetailModelTests {
         #expect(model.issue?.status == .done)
     }
 
-    @Test("mergeToMain writes the top order for the done column")
-    func mergeToMainWritesTopOrder() async throws {
+    @Test("mergeToTarget writes the top order for the done column")
+    func mergeToTargetWritesTopOrder() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let model = env.makeModel(
             mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
             configLoader: { _ in Self.configWith(defaultBranch: "main") },
@@ -630,7 +630,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         let onDisk = try String(contentsOf: env.specURL, encoding: .utf8)
@@ -638,8 +638,8 @@ struct IssueDetailModelTests {
         #expect(onDisk.contains("order: 4"))
     }
 
-    @Test("mergeToMain working-tree-dirty leaves spec untouched and surfaces lastMergeError")
-    func mergeToMainWorkingTreeDirty() async throws {
+    @Test("mergeToTarget working-tree-dirty leaves spec untouched and surfaces lastMergeError")
+    func mergeToTargetWorkingTreeDirty() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
         mock.stdoutForArgs[Self.statusArgs(tmpDir: env.tmpDir)] = " M Plumage/Foo.swift\n"
@@ -649,7 +649,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
         #expect(model.lastMergeError == .workingTreeDirty(files: ["Plumage/Foo.swift"]))
@@ -657,8 +657,8 @@ struct IssueDetailModelTests {
         #expect(onDisk.contains("status: waiting-for-review"))
     }
 
-    @Test("mergeToMain not-fast-forward sets lastMergeError to .notFastForward")
-    func mergeToMainNotFastForward() async throws {
+    @Test("mergeToTarget not-fast-forward sets lastMergeError to .notFastForward")
+    func mergeToTargetNotFastForward() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
         mock.stdoutForArgs[Self.revParseArgs(tmpDir: env.tmpDir, branch: "issue/00001-x")] = "abc\n"
@@ -669,18 +669,18 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
-        #expect(model.lastMergeError == .notFastForward(defaultBranch: "main", issueBranch: "issue/00001-x"))
+        #expect(model.lastMergeError == .notFastForward(targetBranch: "main", issueBranch: "issue/00001-x"))
         #expect(model.issue?.status == .waitingForReview)
     }
 
-    @Test("mergeToMain non-fatal branch-delete-failure still flips status and returns true")
-    func mergeToMainBranchDeleteFails() async throws {
+    @Test("mergeToTarget non-fatal branch-delete-failure still flips status and returns true")
+    func mergeToTargetBranchDeleteFails() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let deleteArgs = Self.deleteArgs(tmpDir: env.tmpDir, branch: "issue/00001-x")
         mock.exitCodeForArgs[deleteArgs] = 1
         mock.stderrForArgs[deleteArgs] = "error: branch 'issue/00001-x' not fully merged\n"
@@ -690,7 +690,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == true)
         #expect(model.lastMergeError == nil)
@@ -698,18 +698,18 @@ struct IssueDetailModelTests {
         #expect(model.issue?.status == .done)
     }
 
-    @Test("mergeToMain reads defaultBranch via configLoader")
-    func mergeToMainReadsConfig() async throws {
+    @Test("mergeToTarget reads targetBranch via configLoader")
+    func mergeToTargetReadsConfig() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "trunk", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "trunk", issueBranch: "issue/00001-x")
         let model = env.makeModel(
             mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
             configLoader: { _ in Self.configWith(defaultBranch: "trunk") }
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         #expect(
@@ -717,8 +717,123 @@ struct IssueDetailModelTests {
         #expect(mock.recordedCalls.contains(Self.checkoutArgs(tmpDir: env.tmpDir, branch: "trunk")))
     }
 
-    @Test("mergeToMain noop when projectURL is nil")
-    func mergeToMainNoopWithoutProjectURL() async throws {
+    @Test("mergeToTarget uses the stored merge target while it still exists")
+    func mergeUsesStoredTarget() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(
+            mock, tmpDir: env.tmpDir, targetBranch: "release/1.0", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") },
+            localBranchLister: { _ in ["main", "release/1.0", "issue/00001-x"] },
+            storedMergeTargetLoader: { _ in "release/1.0" }
+        )
+        await model.load()
+
+        let success = await model.mergeToTarget(
+            mode: .fastForward, commitSubject: nil, deleteBranch: false)
+
+        #expect(success == true)
+        #expect(
+            mock.recordedCalls.contains(Self.checkoutArgs(tmpDir: env.tmpDir, branch: "release/1.0")))
+        #expect(
+            mock.recordedCalls.contains(
+                Self.mergeBaseArgs(tmpDir: env.tmpDir, base: "release/1.0", branch: "issue/00001-x")))
+    }
+
+    @Test("mergeToTarget falls back to the config default when the stored target is gone")
+    func mergeFallsBackWhenStoredTargetGone() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(
+            mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") },
+            localBranchLister: { _ in ["main", "issue/00001-x"] },
+            storedMergeTargetLoader: { _ in "release/deleted" }
+        )
+        await model.load()
+
+        let success = await model.mergeToTarget(
+            mode: .fastForward, commitSubject: nil, deleteBranch: false)
+
+        #expect(success == true)
+        #expect(mock.recordedCalls.contains(Self.checkoutArgs(tmpDir: env.tmpDir, branch: "main")))
+    }
+
+    @Test("mergeToTarget never targets the issue branch itself even when stored")
+    func mergeExcludesSourceAsTarget() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(
+            mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") },
+            localBranchLister: { _ in ["main", "issue/00001-x"] },
+            storedMergeTargetLoader: { _ in "issue/00001-x" }
+        )
+        await model.load()
+
+        let success = await model.mergeToTarget(
+            mode: .fastForward, commitSubject: nil, deleteBranch: false)
+
+        #expect(success == true)
+        #expect(mock.recordedCalls.contains(Self.checkoutArgs(tmpDir: env.tmpDir, branch: "main")))
+    }
+
+    @Test("an explicitly selected merge target overrides store and default")
+    func mergeUsesSelectedTarget() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(
+            mock, tmpDir: env.tmpDir, targetBranch: "develop", issueBranch: "issue/00001-x")
+        let model = env.makeModel(
+            mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") },
+            localBranchLister: { _ in ["main", "develop", "issue/00001-x"] },
+            storedMergeTargetLoader: { _ in "main" }
+        )
+        await model.load()
+        model.selectedMergeTarget = "develop"
+
+        let success = await model.mergeToTarget(
+            mode: .fastForward, commitSubject: nil, deleteBranch: false)
+
+        #expect(success == true)
+        #expect(
+            mock.recordedCalls.contains(Self.checkoutArgs(tmpDir: env.tmpDir, branch: "develop")))
+    }
+
+    @Test("a successful merge persists the chosen target")
+    func mergePersistsTarget() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let mock = MockGitProcessRunner()
+        Self.primeMockForCleanRepo(
+            mock, tmpDir: env.tmpDir, targetBranch: "develop", issueBranch: "issue/00001-x")
+
+        try await confirmation { saved in
+            let model = env.makeModel(
+                mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
+                configLoader: { _ in Self.configWith(defaultBranch: "main") },
+                storedMergeTargetSaver: { _, target in
+                    #expect(target == "develop")
+                    saved()
+                }
+            )
+            await model.load()
+            model.selectedMergeTarget = "develop"
+
+            let success = await model.mergeToTarget(
+                mode: .fastForward, commitSubject: nil, deleteBranch: false)
+            try #require(success)
+        }
+    }
+
+    @Test("mergeToTarget noop when projectURL is nil")
+    func mergeToTargetNoopWithoutProjectURL() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
         let model = IssueDetailModel(
@@ -731,23 +846,23 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: false)
         #expect(success == false)
         #expect(mock.recordedCalls.isEmpty)
     }
 
-    @Test("mergeToMain squash passes mode and subject through to the runner")
-    func mergeToMainSquashPassesSubject() async throws {
+    @Test("mergeToTarget squash passes mode and subject through to the runner")
+    func mergeToTargetSquashPassesSubject() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let model = env.makeModel(
             mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
             configLoader: { _ in Self.configWith(defaultBranch: "main") }
         )
         await model.load()
 
-        let success = await model.mergeToMain(
+        let success = await model.mergeToTarget(
             mode: .squash, commitSubject: "Add squash mode to issue merge", deleteBranch: false)
 
         #expect(success == true)
@@ -760,18 +875,18 @@ struct IssueDetailModelTests {
         #expect(model.issue?.status == .done)
     }
 
-    @Test("mergeToMain squash trims the subject before passing it on")
-    func mergeToMainSquashTrimsSubject() async throws {
+    @Test("mergeToTarget squash trims the subject before passing it on")
+    func mergeToTargetSquashTrimsSubject() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let model = env.makeModel(
             mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
             configLoader: { _ in Self.configWith(defaultBranch: "main") }
         )
         await model.load()
 
-        let success = await model.mergeToMain(
+        let success = await model.mergeToTarget(
             mode: .squash, commitSubject: "  Tidy subject  ", deleteBranch: false)
 
         #expect(success == true)
@@ -780,8 +895,8 @@ struct IssueDetailModelTests {
                 Self.commitArgs(tmpDir: env.tmpDir, subject: "Tidy subject")))
     }
 
-    @Test("mergeToMain squash with empty subject never spawns git")
-    func mergeToMainSquashEmptySubject() async throws {
+    @Test("mergeToTarget squash with empty subject never spawns git")
+    func mergeToTargetSquashEmptySubject() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
         let model = env.makeModel(
@@ -790,9 +905,9 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let emptyResult = await model.mergeToMain(mode: .squash, commitSubject: "", deleteBranch: true)
-        let whitespaceResult = await model.mergeToMain(mode: .squash, commitSubject: "  \n", deleteBranch: true)
-        let nilResult = await model.mergeToMain(mode: .squash, commitSubject: nil, deleteBranch: true)
+        let emptyResult = await model.mergeToTarget(mode: .squash, commitSubject: "", deleteBranch: true)
+        let whitespaceResult = await model.mergeToTarget(mode: .squash, commitSubject: "  \n", deleteBranch: true)
+        let nilResult = await model.mergeToTarget(mode: .squash, commitSubject: nil, deleteBranch: true)
 
         #expect(emptyResult == false)
         #expect(whitespaceResult == false)
@@ -835,8 +950,8 @@ struct IssueDetailModelTests {
         #expect(model.mergeSubjectPrefill == "Sample")
     }
 
-    @Test("mergeToMain refuses while a live implement run owns the checkout")
-    func mergeToMainRefusesDuringLiveImplementRun() async throws {
+    @Test("mergeToTarget refuses while a live implement run owns the checkout")
+    func mergeToTargetRefusesDuringLiveImplementRun() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
         let model = env.makeModel(
@@ -848,7 +963,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
         #expect(model.lastMergeError == .implementRunActive(issue: "00098-other-issue"))
@@ -864,7 +979,7 @@ struct IssueDetailModelTests {
 
         func mergeIssueBranch(
             repoURL: URL,
-            defaultBranch: String,
+            targetBranch: String,
             issueBranch: String,
             mode: GitMergeMode,
             commitSubject: String?,
@@ -875,7 +990,7 @@ struct IssueDetailModelTests {
 
         func rebaseIssueBranch(
             repoURL: URL,
-            defaultBranch: String,
+            targetBranch: String,
             issueBranch: String
         ) async throws {}
     }
@@ -894,15 +1009,15 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(
+        let success = await model.mergeToTarget(
             mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success)
         #expect(model.lastMergeNotice?.contains("worktree and branch were kept") == true)
     }
 
-    @Test("mergeToMain refuses while the merged issue runs in a worktree")
-    func mergeToMainRefusesWhenIssueRunsInWorktree() async throws {
+    @Test("mergeToTarget refuses while the merged issue runs in a worktree")
+    func mergeToTargetRefusesWhenIssueRunsInWorktree() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
         let model = env.makeModel(
@@ -914,7 +1029,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(
+        let success = await model.mergeToTarget(
             mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
@@ -927,8 +1042,8 @@ struct IssueDetailModelTests {
         #expect(onDisk.contains("status: waiting-for-review"))
     }
 
-    @Test("mergeToMain refuses while the merged issue is queued")
-    func mergeToMainRefusesWhenIssueIsQueued() async throws {
+    @Test("mergeToTarget refuses while the merged issue is queued")
+    func mergeToTargetRefusesWhenIssueIsQueued() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
         let model = env.makeModel(
@@ -938,7 +1053,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(
+        let success = await model.mergeToTarget(
             mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
@@ -948,11 +1063,11 @@ struct IssueDetailModelTests {
         #expect(mock.recordedCalls.isEmpty)
     }
 
-    @Test("mergeToMain proceeds when no live implement run is found")
-    func mergeToMainProceedsWithoutLiveRun() async throws {
+    @Test("mergeToTarget proceeds when no live implement run is found")
+    func mergeToTargetProceedsWithoutLiveRun() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let model = env.makeModel(
             mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
             liveRunChecker: { _ in nil },
@@ -960,7 +1075,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         #expect(model.lastMergeError == nil)
@@ -987,20 +1102,20 @@ struct IssueDetailModelTests {
         #expect(model.blockingImplementRun == nil)
     }
 
-    // MARK: - rebaseAndMergeToMain
+    // MARK: - rebaseAndMergeToTarget
 
-    @Test("rebaseAndMergeToMain rebases first, then merges, and flips status to done")
+    @Test("rebaseAndMergeToTarget rebases first, then merges, and flips status to done")
     func rebaseAndMergeHappyPath() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let model = env.makeModel(
             mergeRunner: GitMergeRunner(runner: mock, resolveBinary: { Self.fakeBinary }),
             configLoader: { _ in Self.configWith(defaultBranch: "main") }
         )
         await model.load()
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
@@ -1020,7 +1135,7 @@ struct IssueDetailModelTests {
     func rebaseFailureStopsBeforeMerge() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         let rebaseArgs = Self.rebaseArgs(tmpDir: env.tmpDir, base: "main", branch: "issue/00001-x")
         mock.exitCodeForArgs[rebaseArgs] = 1
         mock.stderrForArgs[rebaseArgs] = "CONFLICT (content): Merge conflict in Foo.swift\n"
@@ -1030,7 +1145,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
@@ -1048,7 +1163,7 @@ struct IssueDetailModelTests {
     func rebaseAndMergeDirtyWorktreeBlocks() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
-        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, defaultBranch: "main", issueBranch: "issue/00001-x")
+        Self.primeMockForCleanRepo(mock, tmpDir: env.tmpDir, targetBranch: "main", issueBranch: "issue/00001-x")
         mock.stdoutForArgs[Self.worktreeListArgs(tmpDir: env.tmpDir)] =
             "worktree /tmp/wt-00001-x\nHEAD abc123\nbranch refs/heads/issue/00001-x\n"
         mock.stdoutForArgs[Self.worktreeStatusArgs(path: "/tmp/wt-00001-x")] = " M content.txt\n"
@@ -1058,7 +1173,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
@@ -1070,7 +1185,7 @@ struct IssueDetailModelTests {
         #expect(onDisk.contains("status: waiting-for-review"))
     }
 
-    @Test("rebaseAndMergeToMain refuses while a live implement run owns the checkout")
+    @Test("rebaseAndMergeToTarget refuses while a live implement run owns the checkout")
     func rebaseAndMergeRefusesDuringLiveRun() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
         let mock = MockGitProcessRunner()
@@ -1083,7 +1198,7 @@ struct IssueDetailModelTests {
         )
         await model.load()
 
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: .fastForward, commitSubject: nil, deleteBranch: true)
 
         #expect(success == false)
@@ -1091,21 +1206,21 @@ struct IssueDetailModelTests {
         #expect(mock.recordedCalls.isEmpty)
     }
 
-    // MARK: - mergeToMain helpers
+    // MARK: - mergeToTarget helpers
 
     nonisolated static let fakeBinary = URL(filePath: "/usr/bin/git")
 
     nonisolated private static func primeMockForCleanRepo(
         _ mock: MockGitProcessRunner,
         tmpDir: URL,
-        defaultBranch: String,
+        targetBranch: String,
         issueBranch: String
     ) {
         // status: empty stdout, exit 0 (default).
         mock.stdoutForArgs[revParseArgs(tmpDir: tmpDir, branch: issueBranch)] = "abc\n"
         // merge-base: exit 0 (default).
         // checkout / merge / branch -d: all default exit 0, no stdout/stderr.
-        _ = defaultBranch
+        _ = targetBranch
     }
 
     nonisolated static func statusArgs(tmpDir: URL) -> [String] {
@@ -1218,7 +1333,10 @@ private final class TestEnvironment {
             nil
         },
         configLoader: @escaping @Sendable (URL) -> ProjectConfig?,
-        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = { _ in [] }
+        discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = { _ in [] },
+        localBranchLister: @escaping @Sendable (URL) async -> [String] = { _ in [] },
+        storedMergeTargetLoader: @escaping @Sendable (URL) -> String? = { _ in nil },
+        storedMergeTargetSaver: @escaping @Sendable (URL, String) -> Void = { _, _ in }
     ) -> IssueDetailModel {
         IssueDetailModel(
             specURL: specURL,
@@ -1229,7 +1347,10 @@ private final class TestEnvironment {
             mergedIssueRunLocator: mergedIssueRunLocator,
             configLoader: configLoader,
             clock: { self.now },
-            discoverer: discoverer
+            discoverer: discoverer,
+            localBranchLister: localBranchLister,
+            storedMergeTargetLoader: storedMergeTargetLoader,
+            storedMergeTargetSaver: storedMergeTargetSaver
         )
     }
 

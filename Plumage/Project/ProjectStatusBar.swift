@@ -5,6 +5,7 @@ struct ProjectStatusBar: View {
     let usageModel: ClaudeUsageModel?
     let statusModel: ClaudeStatusModel?
     let repoState: RepoState
+    let gitModel: ProjectGitModel?
     var banner: String?
     var queueEntries: [QueueEntryDisplay]
     var onCancelQueued: (String) -> Void
@@ -16,6 +17,7 @@ struct ProjectStatusBar: View {
         usageModel: ClaudeUsageModel? = nil,
         statusModel: ClaudeStatusModel? = nil,
         repoState: RepoState = .notARepo,
+        gitModel: ProjectGitModel? = nil,
         banner: String? = nil,
         queueEntries: [QueueEntryDisplay] = [],
         onCancelQueued: @escaping (String) -> Void = { _ in },
@@ -26,6 +28,7 @@ struct ProjectStatusBar: View {
         self.usageModel = usageModel
         self.statusModel = statusModel
         self.repoState = repoState
+        self.gitModel = gitModel
         self.banner = banner
         self.queueEntries = queueEntries
         self.onCancelQueued = onCancelQueued
@@ -37,7 +40,7 @@ struct ProjectStatusBar: View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 8) {
-                ProjectBranchIndicator(state: repoState)
+                ProjectBranchIndicator(state: repoState, gitModel: gitModel)
                     .fixedSize()
                     .layoutPriority(0)
                 if let statusModel {

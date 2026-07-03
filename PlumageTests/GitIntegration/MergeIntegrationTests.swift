@@ -28,14 +28,14 @@ struct MergeIntegrationTests {
         await model.load()
         let kanban = await ProjectKanbanModel()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: true)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: true)
         // Mirror the IssueDetailView wiring — on success, fire the kanban
         // signal so the auto-dismiss observer would trigger in real use.
         if success, let folderName = await model.folderName {
             await kanban.signalMergeCompleted(folderName: folderName)
         }
 
-        // 1. mergeToMain reported success.
+        // 1. mergeToTarget reported success.
         #expect(success == true)
         let mergeError = await model.lastMergeError
         let mergeCritical = await model.lastMergeCriticalError
@@ -85,7 +85,7 @@ struct MergeIntegrationTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(
+        let success = await model.mergeToTarget(
             mode: .squash, commitSubject: "Add squash mode to issue merge", deleteBranch: true)
 
         #expect(success == true)
@@ -120,7 +120,7 @@ struct MergeIntegrationTests {
         )
         await model.load()
 
-        let success = await model.mergeToMain(mode: .fastForward, commitSubject: nil, deleteBranch: false)
+        let success = await model.mergeToTarget(mode: .fastForward, commitSubject: nil, deleteBranch: false)
 
         #expect(success == true)
         let modelStatus = await model.issue?.status

@@ -78,7 +78,7 @@ nonisolated final class TmpGitRepo: Sendable {
             try Self.specContent(branch: issueBranch).write(
                 to: specURL, atomically: true, encoding: .utf8)
             // gitignore .claude/ so `git status --porcelain` stays empty
-            // (Plumage's mergeToMain pre-check requires a clean tree).
+            // (Plumage's mergeToTarget pre-check requires a clean tree).
             // wt/ hosts test worktrees inside tmpDir so deinit cleans them up.
             let gitignore = tmpDir.appendingPathComponent(".gitignore")
             try ".claude/\nwt/\n".write(to: gitignore, atomically: true, encoding: .utf8)

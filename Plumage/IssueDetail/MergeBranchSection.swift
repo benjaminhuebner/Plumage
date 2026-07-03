@@ -7,6 +7,9 @@ struct MergeBranchSection: View {
     let blockingRunIssue: String?
     let errorMessage: String?
     let nonFatalNotice: String?
+    let targetBranch: String
+    let targetCandidates: [String]
+    let onTargetChange: @MainActor (String) -> Void
     let onDismissError: () -> Void
     let onDismissNotice: () -> Void
     let onMerge: (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void
@@ -23,6 +26,9 @@ struct MergeBranchSection: View {
         blockingRunIssue: String? = nil,
         errorMessage: String?,
         nonFatalNotice: String?,
+        targetBranch: String = "main",
+        targetCandidates: [String] = [],
+        onTargetChange: @escaping @MainActor (String) -> Void = { _ in },
         onDismissError: @escaping () -> Void,
         onDismissNotice: @escaping () -> Void,
         onMerge: @escaping (_ mode: GitMergeMode, _ commitSubject: String?, _ deleteBranch: Bool) -> Void,
@@ -34,6 +40,9 @@ struct MergeBranchSection: View {
         self.blockingRunIssue = blockingRunIssue
         self.errorMessage = errorMessage
         self.nonFatalNotice = nonFatalNotice
+        self.targetBranch = targetBranch
+        self.targetCandidates = targetCandidates
+        self.onTargetChange = onTargetChange
         self.onDismissError = onDismissError
         self.onDismissNotice = onDismissNotice
         self.onMerge = onMerge
@@ -98,13 +107,37 @@ struct MergeBranchSection: View {
                         Text("Merging…")
                     } else {
                         Image(systemName: "arrow.triangle.merge")
-                        Text("Merge to main")
+                        Text("Merge")
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .disabled(mergeDisabled)
-                .accessibilityLabel("Merge \(branch) to main")
+                .accessibilityLabel("Merge \(branch) to \(targetBranch)")
+                Image(systemName: "arrow.right")
+                    .foregroundStyle(.secondary)
+                    .imageScale(.small)
+                    .accessibilityHidden(true)
+                Menu {
+                    ForEach(pickerCandidates, id: \.self) { candidate in
+                        Button {
+                            onTargetChange(candidate)
+                        } label: {
+                            if candidate == targetBranch {
+                                Label(candidate, systemImage: "checkmark")
+                            } else {
+                                Text(candidate)
+                            }
+                        }
+                    }
+                } label: {
+                    Text(targetBranch)
+                }
+                .fixedSize()
+                .disabled(isMerging)
+                .accessibilityLabel("Merge target")
+                .accessibilityValue(targetBranch)
+                .accessibilityIdentifier("merge-target-picker")
                 Picker("Merge mode", selection: $mergeMode) {
                     Text("Squash").tag(GitMergeMode.squash)
                     Text("Fast-forward").tag(GitMergeMode.fastForward)
@@ -129,7 +162,7 @@ struct MergeBranchSection: View {
                     .buttonStyle(.bordered)
                     .controlSize(.regular)
                     .disabled(mergeDisabled)
-                    .accessibilityLabel("Rebase \(branch) and merge to main")
+                    .accessibilityLabel("Rebase \(branch) and merge to \(targetBranch)")
                 }
                 Spacer(minLength: 0)
             }
@@ -147,11 +180,17 @@ struct MergeBranchSection: View {
         }
     }
 
+    // The current target always renders, even when the candidate list hasn't
+    // loaded yet — a menu picker with a selection outside its options is blank.
+    private var pickerCandidates: [String] {
+        targetCandidates.contains(targetBranch) ? targetCandidates : [targetBranch] + targetCandidates
+    }
+
     private var rebaseRecoveryHint: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "arrow.triangle.branch")
                 .foregroundStyle(.secondary)
-            Text("`main` has commits this branch lacks — use Rebase & Merge.")
+            Text("`\(targetBranch)` has commits this branch lacks — use Rebase & Merge.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

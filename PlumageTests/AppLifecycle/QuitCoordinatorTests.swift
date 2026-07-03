@@ -34,7 +34,10 @@ struct QuitCoordinatorTests {
         // the watchdog even on a loaded machine.
         await coordinator.runAll(timeout: .milliseconds(500))
 
-        #expect(ContinuousClock.now - start < .seconds(3))
+        // Generous bound: with the full suite saturating the cooperative pool
+        // the watchdog gets scheduled seconds late; the claim is only "returns
+        // despite a wedged handler", not a latency guarantee.
+        #expect(ContinuousClock.now - start < .seconds(10))
         #expect(fastRan.value)
     }
 

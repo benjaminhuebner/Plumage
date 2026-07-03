@@ -15,7 +15,7 @@ struct GitMergeRunnerPreCheckTests {
 
         await #expect(throws: GitMergeError.gitNotFound) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -33,7 +33,7 @@ struct GitMergeRunnerPreCheckTests {
             throws: GitMergeError.statusCheckFailed(stderr: "fatal: not a git repository")
         ) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -48,7 +48,7 @@ struct GitMergeRunnerPreCheckTests {
 
         await #expect(throws: GitMergeError.workingTreeDirty(files: ["Plumage/Foo.swift", "Bar.txt"])) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -65,7 +65,7 @@ struct GitMergeRunnerPreCheckTests {
 
         await #expect(throws: GitMergeError.branchNotFound(name: "issue/missing")) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/missing", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -81,10 +81,10 @@ struct GitMergeRunnerPreCheckTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         await #expect(
-            throws: GitMergeError.notFastForward(defaultBranch: "main", issueBranch: "issue/x")
+            throws: GitMergeError.notFastForward(targetBranch: "main", issueBranch: "issue/x")
         ) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -93,6 +93,24 @@ struct GitMergeRunnerPreCheckTests {
             $0.contains("checkout") || $0.contains("merge")
         }
         #expect(mutatingCalls.isEmpty)
+    }
+
+    @Test("merge into a non-default target checks out and prechecks against it")
+    func mergeIntoNonDefaultTarget() async throws {
+        let mock = MockGitProcessRunner()
+        mock.stdoutForArgs[Self.revParseArgs(repoURL: repoURL, branch: "issue/x")] = "abc\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        _ = try await runner.mergeIssueBranch(
+            repoURL: repoURL, targetBranch: "release/1.0",
+            issueBranch: "issue/x", mode: .fastForward,
+            commitSubject: nil, deleteBranch: false)
+
+        #expect(
+            mock.recordedCalls.contains(
+                Self.mergeBaseArgs(repoURL: repoURL, base: "release/1.0", branch: "issue/x")))
+        #expect(mock.recordedCalls.contains(Self.checkoutArgs(repoURL: repoURL, branch: "release/1.0")))
+        #expect(mock.recordedCalls.contains(["-C", repoURL.path, "merge", "--ff-only", "issue/x"]))
     }
 
     // MARK: - Arg helpers
@@ -166,7 +184,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         let outcome = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .fastForward,
             commitSubject: nil, deleteBranch: false)
 
@@ -189,7 +207,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         let outcome = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .fastForward,
             commitSubject: nil, deleteBranch: true)
 
@@ -208,7 +226,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         let outcome = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .fastForward,
             commitSubject: nil, deleteBranch: false)
 
@@ -226,7 +244,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         _ = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .squash,
             commitSubject: "Subj", deleteBranch: true)
 
@@ -246,7 +264,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         let outcome = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .fastForward,
             commitSubject: nil, deleteBranch: true)
 
@@ -268,7 +286,7 @@ struct GitMergeRunnerMergeTests {
             throws: GitMergeError.checkoutFailed(stderr: "error: pathspec 'main' did not match")
         ) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -286,7 +304,7 @@ struct GitMergeRunnerMergeTests {
             throws: GitMergeError.mergeFailed(mode: .fastForward, stderr: "fatal: not possible to fast-forward")
         ) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -304,7 +322,7 @@ struct GitMergeRunnerMergeTests {
 
         await #expect(throws: GitMergeError.self) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -325,7 +343,7 @@ struct GitMergeRunnerMergeTests {
 
         await #expect(throws: GitMergeError.self) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .squash,
                 commitSubject: "Subj", deleteBranch: false)
         }
@@ -349,7 +367,7 @@ struct GitMergeRunnerMergeTests {
 
         await #expect(throws: GitMergeError.self) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -368,7 +386,7 @@ struct GitMergeRunnerMergeTests {
 
         await #expect(throws: GitMergeError.branchNotFound(name: "main")) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -381,7 +399,7 @@ struct GitMergeRunnerMergeTests {
 
         await #expect(throws: GitMergeError.branchNotFound(name: "--output=/tmp/x")) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "--output=/tmp/x",
+                repoURL: repoURL, targetBranch: "--output=/tmp/x",
                 issueBranch: "issue/x", mode: .fastForward,
                 commitSubject: nil, deleteBranch: false)
         }
@@ -394,7 +412,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         let outcome = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .squash,
             commitSubject: "Add squash mode to issue merge", deleteBranch: false)
 
@@ -419,7 +437,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         _ = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .squash,
             commitSubject: subject, deleteBranch: false)
 
@@ -441,7 +459,7 @@ struct GitMergeRunnerMergeTests {
                 mode: .squash, stderr: "nothing to commit, working tree clean")
         ) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .squash,
                 commitSubject: "No-op change", deleteBranch: false)
         }
@@ -460,7 +478,7 @@ struct GitMergeRunnerMergeTests {
                 mode: .squash, stderr: "fatal: refusing to merge unrelated histories")
         ) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .squash,
                 commitSubject: "Some change", deleteBranch: false)
         }
@@ -475,7 +493,7 @@ struct GitMergeRunnerMergeTests {
             throws: GitMergeError.mergeFailed(mode: .squash, stderr: "empty commit subject")
         ) {
             _ = try await runner.mergeIssueBranch(
-                repoURL: repoURL, defaultBranch: "main",
+                repoURL: repoURL, targetBranch: "main",
                 issueBranch: "issue/x", mode: .squash,
                 commitSubject: "   ", deleteBranch: false)
         }
@@ -492,7 +510,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         let outcome = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .squash,
             commitSubject: "Add squash mode", deleteBranch: true)
 
@@ -511,7 +529,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         _ = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .fastForward,
             commitSubject: nil, deleteBranch: true)
 
@@ -532,7 +550,7 @@ struct GitMergeRunnerMergeTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         let outcome = try await runner.mergeIssueBranch(
-            repoURL: repoURL, defaultBranch: "main",
+            repoURL: repoURL, targetBranch: "main",
             issueBranch: "issue/x", mode: .fastForward,
             commitSubject: nil, deleteBranch: true)
 
@@ -567,7 +585,7 @@ struct GitMergeRunnerRebaseTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         try await runner.rebaseIssueBranch(
-            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+            repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
 
         #expect(
             mock.recordedCalls == [
@@ -586,7 +604,7 @@ struct GitMergeRunnerRebaseTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         try await runner.rebaseIssueBranch(
-            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+            repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
 
         #expect(
             mock.recordedCalls.last
@@ -604,7 +622,7 @@ struct GitMergeRunnerRebaseTests {
             throws: GitMergeError.statusCheckFailed(stderr: "fatal: not a git repository")
         ) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
         #expect(mock.recordedCalls.count == 1)
     }
@@ -617,7 +635,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.workingTreeDirty(files: ["Plumage/Foo.swift"])) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
         #expect(mock.recordedCalls.count == 1)
     }
@@ -630,7 +648,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.branchNotFound(name: "issue/x")) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
     }
 
@@ -647,7 +665,7 @@ struct GitMergeRunnerRebaseTests {
                 stderr: "CONFLICT (content): Merge conflict in Foo.swift")
         ) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
         let tail = Array(mock.recordedCalls.suffix(2))
         #expect(
@@ -672,7 +690,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.branchCheckedOutElsewhere(branch: "issue/x")) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
         #expect(!mock.recordedCalls.contains(Args.rebaseAbortArgs(repoURL: repoURL)))
     }
@@ -687,7 +705,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.rebaseFailed(stderr: "could not apply abc123")) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
     }
 
@@ -698,7 +716,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.gitNotFound) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
         #expect(mock.recordedCalls.isEmpty)
     }
@@ -710,7 +728,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.branchNotFound(name: "--upload-pack=evil")) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "--upload-pack=evil")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "--upload-pack=evil")
         }
         #expect(mock.recordedCalls.isEmpty)
     }
@@ -725,7 +743,7 @@ struct GitMergeRunnerRebaseTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         try await runner.rebaseIssueBranch(
-            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+            repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
 
         let calls = mock.recordedCalls
         let removeIndex = try #require(
@@ -746,7 +764,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.worktreeDirty(path: worktreePath)) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
         let mutating = mock.recordedCalls.filter {
             $0.contains("rebase") || $0.contains("remove") || $0.contains("checkout")
@@ -765,7 +783,7 @@ struct GitMergeRunnerRebaseTests {
 
         await #expect(throws: GitMergeError.branchCheckedOutElsewhere(branch: "issue/x")) {
             try await runner.rebaseIssueBranch(
-                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+                repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
         }
         #expect(
             !mock.recordedCalls.contains(
@@ -781,7 +799,7 @@ struct GitMergeRunnerRebaseTests {
         let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
 
         try await runner.rebaseIssueBranch(
-            repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+            repoURL: repoURL, targetBranch: "main", issueBranch: "issue/x")
 
         let worktreeMutations = mock.recordedCalls.filter { $0.contains("remove") }
         #expect(worktreeMutations.isEmpty)
@@ -796,7 +814,7 @@ struct GitMergeErrorMessageTests {
     @Test("notFastForward points at the Rebase & Merge button")
     func notFastForwardMentionsButton() {
         let message = GitMergeError.notFastForward(
-            defaultBranch: "main", issueBranch: "issue/x"
+            targetBranch: "main", issueBranch: "issue/x"
         ).displayMessage
         #expect(message.contains("main"))
         #expect(message.contains("issue/x"))

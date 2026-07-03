@@ -35,7 +35,7 @@ struct MergeWorktreeCleanupTests {
 
         let outcome = try await GitMergeRunner().mergeIssueBranch(
             repoURL: repo.tmpDir,
-            defaultBranch: repo.mainBranch,
+            targetBranch: repo.mainBranch,
             issueBranch: repo.issueBranch,
             mode: .squash,
             commitSubject: "Squash the issue",
@@ -65,7 +65,7 @@ struct MergeWorktreeCleanupTests {
 
         let outcome = try await GitMergeRunner().mergeIssueBranch(
             repoURL: repo.tmpDir,
-            defaultBranch: repo.mainBranch,
+            targetBranch: repo.mainBranch,
             issueBranch: repo.issueBranch,
             mode: .squash,
             commitSubject: "Squash the issue",

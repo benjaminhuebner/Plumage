@@ -441,6 +441,9 @@ struct IssueDetailView: View {
                 blockingRunIssue: model.blockingImplementRun?.issue,
                 errorMessage: mergeBannerMessage,
                 nonFatalNotice: model.lastMergeNotice,
+                targetBranch: model.selectedMergeTarget ?? "main",
+                targetCandidates: model.mergeTargets,
+                onTargetChange: { model.selectedMergeTarget = $0 },
                 onDismissError: {
                     model.clearMergeError()
                     model.clearMergeCriticalError()
@@ -461,6 +464,7 @@ struct IssueDetailView: View {
         .padding(.bottom, 24)
         .task {
             await model.refreshMergeBlocker()
+            await model.loadMergeTargets()
         }
         .onChange(of: runStatus.revision) {
             // The runs watcher replaces the former 3s poll: the button
@@ -741,7 +745,7 @@ struct IssueDetailView: View {
     private func performMerge(
         mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
     ) async {
-        let success = await model.mergeToMain(
+        let success = await model.mergeToTarget(
             mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
         guard success, let folderName = model.folderName else { return }
         kanban.signalMergeCompleted(folderName: folderName)
@@ -760,7 +764,7 @@ struct IssueDetailView: View {
     private func performRebaseAndMerge(
         mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
     ) async {
-        let success = await model.rebaseAndMergeToMain(
+        let success = await model.rebaseAndMergeToTarget(
             mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
         guard success, let folderName = model.folderName else { return }
         kanban.signalMergeCompleted(folderName: folderName)
