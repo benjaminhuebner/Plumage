@@ -49,6 +49,7 @@ struct ProjectWindow: View {
     // frame". State-cached + onChange keeps the published identity stable.
     @State private var createIssueAction: EditorAction?
     @State private var workflowLauncher = WorkflowLauncher()
+    @State private var runStatus = RunStatusModel()
     // SidebarFileWatcher signals on FSEvents for the project root; the
     // consumer task below reloads `navigator.rootNodes` so external mutations
     // (a `claude` subprocess creating a file under .claude/, the user dropping
@@ -116,6 +117,7 @@ struct ProjectWindow: View {
     var body: some View {
         baseStack
             .environment(kanban)
+            .environment(runStatus)
             .environment(navigator)
             .environment(pinnedFiles)
             .environment(\.openCreateIssue) { status in
@@ -143,6 +145,7 @@ struct ProjectWindow: View {
             .task(id: handle.url) {
                 MainThreadHangSampler.shared.startIfEnabled()
                 RunCompletionNotifier.shared.watchProjectRuns(root: handle.url)
+                runStatus.start(projectURL: handle.url)
                 if !hasMigratedLegacyPaneMode {
                     if legacyTerminalPaneMode == "terminal" {
                         isTerminalInspectorOpen = true
@@ -300,6 +303,7 @@ struct ProjectWindow: View {
                 persistedDestinationID = destination?.id ?? ""
             }
             .onDisappear {
+                runStatus.stop()
                 RunCompletionNotifier.shared.unwatchProjectRuns(root: handle.url)
                 QuitCoordinator.shared.unregister(quitHandlerID)
                 session.stop()
@@ -495,6 +499,7 @@ struct ProjectWindow: View {
                 }
                 .environment(\.dismissToOrigin, backToOriginAction)
                 .environment(\.runWorkflow, runWorkflow(_:folderName:issueType:))
+                .environment(\.jumpToRunTerminal, jumpToRunTerminal(_:))
                 .environment(\.workflowCommandIsEmpty) { action, type in
                     WorkflowCommandResolver.filtersToEmpty(
                         action: action,
@@ -542,7 +547,11 @@ struct ProjectWindow: View {
                     banner: navigator.dropRejectMessage
                         ?? kanban.lastDropError.map { "Drop failed: \($0)" }
                         ?? kanban.lastRemovalError.map { "Remove failed: \($0)" }
-                        ?? kanban.boardError
+                        ?? kanban.boardError,
+                    queueEntries: QueueDisplayBuilder.entries(from: runStatus.queuedRuns) {
+                        terminalTabs.findWorkflowTab(action: .implement, slug: $0) != nil
+                    },
+                    onCancelQueued: cancelQueuedRun(_:)
                 )
             }
             // Derived isPresented binding is the standard confirmationDialog
@@ -728,6 +737,30 @@ struct ProjectWindow: View {
             openInspector: { isTerminalInspectorOpen = true },
             showBanner: { navigator.showBanner($0) }
         )
+    }
+
+    private func cancelQueuedRun(_ slug: String) {
+        guard let tab = terminalTabs.findWorkflowTab(action: .implement, slug: slug) else {
+            return
+        }
+        // Closing the tab kills the waiting session; deleting the queue file
+        // alone would not stick — wait-for-turn re-enqueues on its next poll.
+        terminalTabs.closeTab(id: tab.id)
+        runStatus.scheduleRefresh()
+        // No FSEvent marks the pid death; re-scan once the SIGTERM landed.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(800))
+            runStatus.scheduleRefresh()
+        }
+    }
+
+    private func jumpToRunTerminal(_ folderName: String) {
+        guard let tab = terminalTabs.findWorkflowTab(action: .implement, slug: folderName) else {
+            navigator.showBanner("This run has no terminal tab in this window.")
+            return
+        }
+        isTerminalInspectorOpen = true
+        terminalTabs.selectedTabID = tab.id
     }
 
     // Replaces an existing watcher when the window swaps to a different

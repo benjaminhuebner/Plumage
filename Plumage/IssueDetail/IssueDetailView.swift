@@ -41,8 +41,10 @@ struct IssueDetailView: View {
     @Environment(\.openSpec) private var openSpec
     @Environment(\.dismissToOrigin) private var dismissToOrigin
     @Environment(\.runWorkflow) private var runWorkflow
+    @Environment(\.jumpToRunTerminal) private var jumpToRunTerminal
     @Environment(\.onIssueCreated) private var onIssueCreated
     @Environment(ProjectKanbanModel.self) private var kanban
+    @Environment(RunStatusModel.self) private var runStatus
 
     init(projectURL: URL, folderName: String) {
         self.projectURL = projectURL
@@ -303,6 +305,25 @@ struct IssueDetailView: View {
             )
             .padding(.horizontal, 16)
             .padding(.vertical, 5)
+            if let folderName = model.folderName,
+                let run = runStatus.liveRuns[folderName]
+            {
+                RunStatusStrip(state: run.state, isWorktree: run.isWorktree) {
+                    jumpToRunTerminal(folderName)
+                }
+            } else if let folderName = model.folderName,
+                RunStatusModel.resumeAvailable(
+                    status: currentStatus,
+                    hasLiveRun: false,
+                    isQueued: runStatus.queuedRuns.contains { $0.issue == folderName }
+                )
+            {
+                ResumeRunStrip(
+                    lastPhase: runStatus.runSnapshots.first { $0.slug == folderName }?.state.phase
+                ) {
+                    triggerWorkflow(.implement, folderName: folderName)
+                }
+            }
             if !model.isCreating {
                 BodyTabPicker(selectedTab: model.bodyTabBinding, badgeCounts: tabBadgeCounts)
                     .padding(.horizontal, 12)
@@ -334,6 +355,10 @@ struct IssueDetailView: View {
                     if currentStatus == .waitingForReview, let issue = model.issue {
                         reviewSections(issue: issue)
                     }
+                    if !model.runHistory.records.isEmpty {
+                        Divider()
+                        RunHistorySection(page: model.runHistory)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
@@ -344,6 +369,14 @@ struct IssueDetailView: View {
                 if model.selectedBodyTab == .pullRequest {
                     await model.loadPR()
                     await model.loadEvidence()
+                    await model.loadRunHistory(roots: historyRoots)
+                }
+            }
+            .onChange(of: runStatus.revision) {
+                // A finished or swept run lands in history without a tab
+                // switch; the watcher revision is the reload signal.
+                if model.selectedBodyTab == .pullRequest {
+                    Task { await model.loadRunHistory(roots: historyRoots) }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -355,6 +388,10 @@ struct IssueDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         }
+    }
+
+    private var historyRoots: [URL] {
+        runStatus.scannedRoots.isEmpty ? [projectURL] : runStatus.scannedRoots
     }
 
     @ViewBuilder
@@ -404,13 +441,12 @@ struct IssueDetailView: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .task {
-            // Poll while the merge section is visible: the
-            // run-state file isn't covered by any watcher, and the
-            // button must re-enable when the run finishes.
-            while !Task.isCancelled {
-                await model.refreshMergeBlocker()
-                try? await Task.sleep(for: .seconds(3))
-            }
+            await model.refreshMergeBlocker()
+        }
+        .onChange(of: runStatus.revision) {
+            // The runs watcher replaces the former 3s poll: the button
+            // re-enables on the FSEvent when the run-state leaves runs/.
+            Task { await model.refreshMergeBlocker() }
         }
     }
 
@@ -750,5 +786,6 @@ struct IssueDetailView: View {
         )
     }
     .environment(ProjectKanbanModel())
+    .environment(RunStatusModel())
     .frame(width: 900, height: 700)
 }

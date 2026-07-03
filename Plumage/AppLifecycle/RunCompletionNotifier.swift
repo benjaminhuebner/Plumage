@@ -25,6 +25,8 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
         var liveSlugs: Set<String>
     }
     private var watches: [String: RunWatch] = [:]
+    // Keyed by primary checkout root; keeps the runs/ FSEvent stream single-owner.
+    private var runsObservers: [String: [UUID: @MainActor () -> Void]] = [:]
 
     init(
         isFrontmost: @escaping @MainActor () -> Bool = { NSApp.isActive },
@@ -105,6 +107,22 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
         watches[key] = nil
     }
 
+    func addRunsObserver(root: URL, id: UUID, onChange: @escaping @MainActor () -> Void) {
+        runsObservers[root.standardizedFileURL.path, default: [:]][id] = onChange
+    }
+
+    func removeRunsObserver(root: URL, id: UUID) {
+        runsObservers[root.standardizedFileURL.path]?[id] = nil
+    }
+
+    func watchedRoots(forRoot root: URL) -> [URL] {
+        watches[root.standardizedFileURL.path]?.worktreeRoots ?? [root]
+    }
+
+    private func notifyRunsObservers(key: String) {
+        runsObservers[key]?.values.forEach { $0() }
+    }
+
     private static func makeSource(
         forRunsIn bundle: URL, root: URL, owner: RunCompletionNotifier
     )
@@ -125,7 +143,9 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
         var added: [FSEventSource] = []
         for worktree in roots where worktree.standardizedFileURL.path != primaryKey {
             guard let bundle = try? BundleResolver.findBundle(in: worktree) else { continue }
-            added.append(Self.makeSource(forRunsIn: bundle, root: worktree, owner: self))
+            // Worktree events must carry the PRIMARY root — checkFinished keys its
+            // watch lookup on it; a worktree-keyed callback would drop the event.
+            added.append(Self.makeSource(forRunsIn: bundle, root: root, owner: self))
         }
         guard watches[key] != nil else {
             added.forEach { $0.stop() }
@@ -134,6 +154,7 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
         watches[key]?.sources.append(contentsOf: added)
         watches[key]?.worktreeRoots = roots
         watches[key]?.liveSlugs = Self.currentLiveSlugs(roots: roots)
+        notifyRunsObservers(key: key)
     }
 
     nonisolated static func finishedSlugs(was: Set<String>, now: Set<String>) -> Set<String> {
@@ -149,8 +170,10 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
         Set(ImplementRunScanner.liveImplementRuns(acrossWorktreeRoots: roots).map { $0.run.issue })
     }
 
-    private func checkFinished(root: URL) {
+    func checkFinished(root: URL) {
         let key = root.standardizedFileURL.path
+        // Before the watch guard: observers care about every runs/ change.
+        notifyRunsObservers(key: key)
         guard let watch = watches[key] else { return }
         let now = Self.currentLiveSlugs(roots: watch.worktreeRoots)
         let finished = Self.finishedSlugs(was: watch.liveSlugs, now: now)

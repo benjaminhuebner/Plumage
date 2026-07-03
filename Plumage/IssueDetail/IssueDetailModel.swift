@@ -69,6 +69,7 @@ final class IssueDetailModel {
     private(set) var prBlocks: [PRMarkdownParser.Block] = []
     private(set) var evidence: EvidenceState = .missing
     private(set) var evidenceIsStale: Bool = false
+    private(set) var runHistory: RunHistoryReader.Page = .empty
     private(set) var doneWhenCriteria: [DoneWhenCriterion] = []
     var selectedBodyTab: BodyTab = .spec
     private(set) var conflict: ConflictState?
@@ -812,6 +813,16 @@ final class IssueDetailModel {
             }.value
         prContent = result.content
         prBlocks = result.blocks
+    }
+
+    func loadRunHistory(roots: [URL]) async {
+        guard let folder = folderName else {
+            runHistory = .empty
+            return
+        }
+        runHistory = await Task.detached(priority: .utility) {
+            RunHistoryReader.page(forSlug: folder, acrossRoots: roots)
+        }.value
     }
 
     func loadEvidence() async {

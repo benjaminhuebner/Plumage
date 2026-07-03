@@ -6,19 +6,25 @@ struct ProjectStatusBar: View {
     let statusModel: ClaudeStatusModel?
     let repoState: RepoState
     var banner: String?
+    var queueEntries: [QueueEntryDisplay]
+    var onCancelQueued: (String) -> Void
 
     init(
         indicatorState: StatusIndicatorModel.IndicatorState,
         usageModel: ClaudeUsageModel? = nil,
         statusModel: ClaudeStatusModel? = nil,
         repoState: RepoState = .notARepo,
-        banner: String? = nil
+        banner: String? = nil,
+        queueEntries: [QueueEntryDisplay] = [],
+        onCancelQueued: @escaping (String) -> Void = { _ in }
     ) {
         self.indicatorState = indicatorState
         self.usageModel = usageModel
         self.statusModel = statusModel
         self.repoState = repoState
         self.banner = banner
+        self.queueEntries = queueEntries
+        self.onCancelQueued = onCancelQueued
     }
 
     var body: some View {
@@ -53,6 +59,11 @@ struct ProjectStatusBar: View {
                         .layoutPriority(0)
                 }
                 Spacer(minLength: 0)
+                if !queueEntries.isEmpty {
+                    QueueStatusButton(entries: queueEntries, onCancel: onCancelQueued)
+                        .fixedSize()
+                        .layoutPriority(0)
+                }
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 22)

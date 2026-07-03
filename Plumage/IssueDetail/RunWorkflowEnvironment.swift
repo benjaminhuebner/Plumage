@@ -7,4 +7,6 @@ extension EnvironmentValues {
     // True when the action's command template filters to nothing for the type
     // (`#if` blocks). Default false keeps previews/tests enabled.
     @Entry var workflowCommandIsEmpty: (WorkflowAction, IssueType) -> Bool = { _, _ in false }
+    // Jump-only: selects an existing workflow tab, never launches a run.
+    @Entry var jumpToRunTerminal: (String) -> Void = { _ in }
 }

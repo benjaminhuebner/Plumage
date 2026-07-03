@@ -16,6 +16,13 @@ nonisolated struct WorktreeImplementRun: Equatable, Sendable {
     let run: LiveImplementRun
 }
 
+nonisolated struct RunStateSnapshot: Equatable, Sendable {
+    let checkoutRoot: URL
+    let slug: String
+    let state: RunState
+    let isAgentAlive: Bool
+}
+
 nonisolated enum ImplementRunScanner {
     private static let logger = Logger(subsystem: "com.plumage", category: "ImplementRunScanner")
 
@@ -69,6 +76,37 @@ nonisolated enum ImplementRunScanner {
         roots.compactMap { root in
             liveImplementRun(in: root).map { WorktreeImplementRun(checkoutRoot: root, run: $0) }
         }
+    }
+
+    // Dead runs stay included — sweep and resume need them.
+    static func runStates(in projectRoot: URL) -> [RunStateSnapshot] {
+        guard let bundle = try? BundleResolver.findBundle(in: projectRoot) else { return [] }
+        let runsDir = bundle.appendingPathComponent("runs", isDirectory: true)
+        let entries =
+            (try? FileManager.default.contentsOfDirectory(
+                at: runsDir,
+                includingPropertiesForKeys: nil,
+                options: [.skipsSubdirectoryDescendants]
+            )) ?? []
+
+        var snapshots: [RunStateSnapshot] = []
+        for file in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        where file.pathExtension == "json" {
+            guard let state = try? RunStateReader.read(at: file), state.kind == "implement"
+            else { continue }
+            let slug = state.issue ?? file.deletingPathExtension().lastPathComponent
+            let alive =
+                state.agentPid.flatMap { pid_t(exactly: $0) }
+                .map { $0 > 0 && kill($0, 0) == 0 } ?? false
+            snapshots.append(
+                RunStateSnapshot(
+                    checkoutRoot: projectRoot, slug: slug, state: state, isAgentAlive: alive))
+        }
+        return snapshots
+    }
+
+    static func runStates(acrossWorktreeRoots roots: [URL]) -> [RunStateSnapshot] {
+        roots.flatMap { runStates(in: $0) }
     }
 
     static func runStateExists(for slug: String, in projectRoot: URL) -> Bool {

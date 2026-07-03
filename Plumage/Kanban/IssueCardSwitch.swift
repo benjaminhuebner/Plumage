@@ -7,6 +7,7 @@ struct IssueCardSwitch: View {
     var isDragSource: Bool = false
 
     @Environment(ProjectKanbanModel.self) private var kanban
+    @Environment(RunStatusModel.self) private var runStatus
     // Drag controller is intentionally NOT read here. The card's "am I the
     // drag source?" answer arrives as the `isDragSource` prop from the
     // parent DraggableColumnBody, and the drag gesture itself lives in
@@ -65,7 +66,8 @@ struct IssueCardSwitch: View {
 
         IssueCardView(
             issue: value, padding: padding,
-            isHighlighted: kanban.highlightedIssueID == value.folderName
+            isHighlighted: kanban.highlightedIssueID == value.folderName,
+            liveRun: runStatus.liveRuns[value.folderName]?.state
         )
         .opacity(cardOpacity)
         .frame(maxHeight: isDragSource ? 0 : nil)
@@ -249,4 +251,5 @@ private struct CardInteraction: ViewModifier {
     }
     .environment(ProjectKanbanModel())
     .environment(KanbanDragController())
+    .environment(RunStatusModel())
 }

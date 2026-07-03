@@ -103,9 +103,14 @@ final class WorkflowLauncher {
         // own claude subprocess with the right --permission-mode; a repeat click
         // on the same action+issue selects the existing tab without a second inject.
         if let existing = tabs.findWorkflowTab(action: action, slug: folderName) {
-            openInspector()
-            tabs.selectedTabID = existing.id
-            return
+            guard case .exited = existing.session.state else {
+                openInspector()
+                tabs.selectedTabID = existing.id
+                return
+            }
+            // A dead tab can't carry a new run — selecting it would strand
+            // the user on an exit banner; close it and launch fresh.
+            tabs.closeTab(id: existing.id)
         }
 
         // Resolve the template before tab creation: a template whose `#if`

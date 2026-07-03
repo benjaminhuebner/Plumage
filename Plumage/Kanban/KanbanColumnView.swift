@@ -199,4 +199,5 @@ private struct DraggableColumnBody: View {
     .frame(height: 480)
     .environment(ProjectKanbanModel())
     .environment(KanbanDragController())
+    .environment(RunStatusModel())
 }

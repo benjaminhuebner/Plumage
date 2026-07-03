@@ -202,4 +202,5 @@ private func kanbanPreviewIssues() -> [DiscoveredIssue] {
         projectURL: URL(filePath: "/tmp/sample")
     )
     .frame(width: 1100, height: 600)
+    .environment(RunStatusModel())
 }

@@ -6,6 +6,7 @@ struct IssueCardView: View {
     // Resolved by the wrapper so only the 1-2 cards whose highlight actually
     // flips re-render, instead of every card subscribing to highlightedIssueID.
     let isHighlighted: Bool
+    var liveRun: RunState?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -16,6 +17,13 @@ struct IssueCardView: View {
         }
         if !issue.labels.isEmpty {
             parts.append("labels: " + issue.labels.joined(separator: ", "))
+        }
+        if let liveRun {
+            var run = "implement run active"
+            if let label = liveRun.taskProgressLabel {
+                run += ", \(label)"
+            }
+            parts.append(run)
         }
         parts.append(issue.status.label)
         return parts.joined(separator: ", ")
@@ -61,6 +69,9 @@ struct IssueCardView: View {
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
                 Spacer()
+                if let liveRun {
+                    RunProgressBadge(state: liveRun)
+                }
                 Text(issue.status.label)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
@@ -81,6 +92,25 @@ struct IssueCardView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityHint("Opens issue detail")
+    }
+}
+
+private struct RunProgressBadge: View {
+    let state: RunState
+
+    var body: some View {
+        HStack(spacing: 4) {
+            RunActivityDot(
+                color: state.phaseKind.color,
+                isActive: state.phaseKind == .running
+            )
+            if let label = state.taskProgressLabel {
+                Text(label)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -167,7 +197,19 @@ nonisolated enum CardLabelFit {
                 goal: "Bring Kanban columns to life with type-tinted pills and a goal subtitle."
             ),
             padding: 5,
-            isHighlighted: false
+            isHighlighted: false,
+            liveRun: RunState(
+                kind: "implement",
+                runId: nil,
+                issue: "00005-kanban",
+                startedAt: .distantPast,
+                agentPid: 1,
+                phase: "running task 3",
+                lastProgressAt: .distantPast,
+                branch: "issue/00005-kanban",
+                lastCompletedTask: 2,
+                totalTasks: 7
+            )
         )
         IssueCardView(
             issue: Issue(
