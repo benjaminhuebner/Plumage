@@ -80,11 +80,7 @@ final class ProjectKanbanModel {
     }
 
     var availableFilterLabels: [String] {
-        var all = Set<String>()
-        for case .valid(let issue) in issues {
-            all.formUnion(issue.labels)
-        }
-        return all.sorted()
+        issues.unionedLabels().sorted()
     }
 
     func clearFilter() {
@@ -123,8 +119,9 @@ final class ProjectKanbanModel {
         clock: any Clock<Duration> = ContinuousClock(),
         highlightDuration: Duration = .seconds(1),
         mutator: @escaping Mutator = { url, status, order, now in
-            try FrontmatterMutator.mutate(
-                specURL: url, newStatus: status, newOrder: order, now: now)
+            var mutation = FrontmatterMutation(order: order)
+            if let status { mutation.status = .set(status) }
+            try FrontmatterMutator.mutate(specURL: url, mutation: mutation, now: now)
         },
         archiver: @escaping Archiver = { folderURL, archiveRoot in
             try IssueArchiver.archive(folderURL: folderURL, archiveRoot: archiveRoot)
@@ -279,10 +276,6 @@ final class ProjectKanbanModel {
             guard !Task.isCancelled else { return }
             self?.highlightedIssueID = nil
         }
-    }
-
-    func clearRemovalError() {
-        lastRemovalError = nil
     }
 
     // Cross-model signal fired by IssueDetailView after a successful merge; detail
@@ -588,12 +581,7 @@ final class ProjectKanbanModel {
         case .set(let value):
             patchedOrder = value
         }
-        let patched = Issue(
-            id: item.id, folderName: item.folderName, title: item.title,
-            type: item.type, status: patchedStatus, created: item.created,
-            updated: item.updated, branch: item.branch, labels: item.labels,
-            order: patchedOrder, goal: item.goal
-        )
+        let patched = item.with(status: patchedStatus, order: patchedOrder, updated: item.updated)
         var snapshot = incoming
         snapshot[idx] = .valid(patched)
         return (snapshot, false)
@@ -709,14 +697,7 @@ final class ProjectKanbanModel {
         case .keep: updatedOrder = issue.order
         case .set(let value): updatedOrder = value
         }
-        return .valid(
-            Issue(
-                id: issue.id, folderName: issue.folderName, title: issue.title,
-                type: issue.type, status: newStatus, created: issue.created,
-                updated: Date(), branch: issue.branch, labels: issue.labels,
-                order: updatedOrder, goal: issue.goal
-            )
-        )
+        return .valid(issue.with(status: newStatus, order: updatedOrder, updated: Date()))
     }
 
     nonisolated private static func replace(

@@ -47,4 +47,27 @@ nonisolated struct Issue: Hashable, Sendable {
         self.order = order
         self.goal = goal
     }
+
+    // Copy for status/order patches that must keep every other field —
+    // rebuilding via the initializer silently dropped blockedBy, mergeSubject,
+    // and evidenceStamp (a var outside the initializer) at the drop sites.
+    func with(status: IssueStatus, order: Double?, updated: Date) -> Issue {
+        var copy = Issue(
+            id: id,
+            folderName: folderName,
+            title: title,
+            type: type,
+            status: status,
+            created: created,
+            updated: updated,
+            branch: branch,
+            labels: labels,
+            blockedBy: blockedBy,
+            mergeSubject: mergeSubject,
+            order: order,
+            goal: goal
+        )
+        copy.evidenceStamp = evidenceStamp
+        return copy
+    }
 }

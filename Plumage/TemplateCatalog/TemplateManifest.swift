@@ -1,5 +1,3 @@
-import Foundation
-
 // The persisted catalog *overlay*. Absent on a fresh install (the store then uses
 // the bundled default). Lives under Application Support, never the Claude config
 // directory (CCI boundary stays intact).

@@ -25,13 +25,14 @@ struct CommentableDiffLineRow: View {
             .equatable()
             .overlay {
                 if isHovering, model.canComment {
-                    Color.accentColor.opacity(0.08)
+                    DiffRowAccent.hover
                         .allowsHitTesting(false)
                 }
             }
             .overlay(alignment: .topTrailing) {
                 if isHovering, model.canComment {
-                    addCommentButton
+                    DiffAddCommentButton(anchor: anchor, line: line, model: model)
+                        .padding(.trailing, style.horizontalPadding)
                 }
             }
             .onHover { isHovering = $0 }
@@ -46,22 +47,6 @@ struct CommentableDiffLineRow: View {
 
     private var rowFindings: [ReviewFinding] {
         model.findings(at: anchor).filter { $0.id != model.draft?.editingID }
-    }
-
-    private var addCommentButton: some View {
-        Button {
-            model.beginDraft(at: anchor, lineText: line.content)
-        } label: {
-            Image(systemName: "plus.bubble.fill")
-                .font(.system(size: 15))
-                .foregroundStyle(.white, .blue)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, style.horizontalPadding)
-        .help("Add review comment")
-        .accessibilityLabel("Add review comment on line \(anchor.line)")
     }
 }
 

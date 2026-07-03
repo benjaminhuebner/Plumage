@@ -29,13 +29,6 @@ nonisolated struct SettingsComposer {
     ]
 
     func settingsJSON(
-        for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(),
-        userWirings: [HookWiring] = []
-    ) throws -> Data {
-        try settingsJSON(forTemplate: kind.rawValue, toggles: toggles, userWirings: userWirings)
-    }
-
-    func settingsJSON(
         forTemplate templateID: String, toggles: ScaffoldToggles = ScaffoldToggles(),
         userWirings: [HookWiring] = []
     ) throws -> Data {
@@ -151,29 +144,7 @@ nonisolated struct SettingsComposer {
         return try encoder.encode(HooksOnly(hooks: Settings.Hooks(groupsByEvent: groupsByEvent)))
     }
 
-    func write(
-        for kind: ProjectKind, toggles: ScaffoldToggles = ScaffoldToggles(),
-        userWirings: [HookWiring] = [], toClaudeDir claudeDir: URL
-    ) throws {
-        try write(
-            forTemplate: kind.rawValue, toggles: toggles, userWirings: userWirings,
-            toClaudeDir: claudeDir)
-    }
-
-    func write(
-        forTemplate templateID: String, toggles: ScaffoldToggles = ScaffoldToggles(),
-        userWirings: [HookWiring] = [], toClaudeDir claudeDir: URL
-    ) throws {
-        try settingsJSON(forTemplate: templateID, toggles: toggles, userWirings: userWirings).write(
-            to: claudeDir.appending(path: "settings.json"))
-        try localSettingsJSON().write(to: claudeDir.appending(path: "settings.local.json"))
-    }
-
-    func permissions(for kind: ProjectKind) -> [String] {
-        permissions(forTemplate: kind.rawValue)
-    }
-
-    func permissions(forTemplate templateID: String) -> [String] {
+    private func permissions(forTemplate templateID: String) -> [String] {
         var allow = Self.commonPermissions
         let gate = catalog.effectiveGateCommands(forTemplate: templateID)
         if let build = gate.build {

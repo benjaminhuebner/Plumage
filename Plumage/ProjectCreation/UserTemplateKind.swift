@@ -30,9 +30,6 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
         }
     }
 
-    // A skill or a plain folder is a directory; the rest are single files.
-    var isFolder: Bool { self == .skill || self == .folder }
-
     // True when the item is created relative to the selected tree folder (no fixed
     // category directory) — the typeless `.file` / `.folder` kinds.
     var usesTargetDirectory: Bool { self == .file || self == .folder }
@@ -60,16 +57,6 @@ nonisolated enum UserTemplateKind: String, CaseIterable, Identifiable, Sendable 
             return name
         case .doc, .agent:
             return name.hasSuffix(".md") ? name : name + ".md"
-        }
-    }
-
-    // The override relative path for a freshly authored item with a sanitized name.
-    func relativePath(forSanitized name: String) -> String {
-        switch self {
-        case .skill:
-            return "skills/\(name)/SKILL.md"
-        default:
-            return "\(directory)/\(fileName(forSanitized: name))"
         }
     }
 

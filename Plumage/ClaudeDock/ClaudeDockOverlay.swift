@@ -4,6 +4,7 @@ struct ClaudeDockOverlay: View {
     let session: ClaudeSession
     let indicatorState: StatusIndicatorModel.IndicatorState
     var onRecheck: (() -> Void)?
+    var showsButton = true
     @Binding var isOpen: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -25,7 +26,7 @@ struct ClaudeDockOverlay: View {
                         .accessibilityHidden(true)
                 }
                 .transition(panelTransition)
-            } else {
+            } else if showsButton {
                 ClaudeDockButton(
                     isWorking: session.awaitingResponse,
                     action: toggle

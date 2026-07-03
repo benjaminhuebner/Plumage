@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 // One save/open-panel implementation shared by the window toolbar and the
 // sidebar context menus, so the two entry points can't drift.

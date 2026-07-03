@@ -2,41 +2,11 @@ import Foundation
 import Yams
 
 nonisolated enum SpecParser {
-    // Skips the Issue allocation and `extractGoal` walk that
-    // `parse(content:folderName:)` does — for validation-only callers.
+    // folderName only lands on the parsed Issue, never in an error, so
+    // parse's failure surface doubles as the validation result.
     static func validate(content: String) -> FrontmatterError? {
-        guard let yaml = extractFrontmatter(from: content) else {
-            return .missingFrontmatter
-        }
-        if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return .missingRequiredField(name: "id")
-        }
-
-        let raw: RawFrontmatter
-        do {
-            // A fresh decoder per call: YAMLDecoder init is allocation-only and
-            // decode builds its own Parser, so there is no shared mutable state
-            // to reason about across concurrent discovery tasks.
-            raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
-        } catch let yamlError as YamlError {
-            return mapYamlError(yamlError)
-        } catch let decoding as DecodingError {
-            return mapDecodingError(decoding)
-        } catch {
-            return .invalidYAML(line: nil, column: nil, message: error.localizedDescription)
-        }
-
-        if IssueType(rawValue: raw.type) == nil {
-            return .invalidEnumValue(field: "type", value: raw.type)
-        }
-        if IssueStatus(rawValue: raw.status) == nil {
-            return .invalidEnumValue(field: "status", value: raw.status)
-        }
-        if parseDate(raw.created) == nil {
-            return .invalidDate(field: "created", value: raw.created)
-        }
-        if parseDate(raw.updated) == nil {
-            return .invalidDate(field: "updated", value: raw.updated)
+        if case .failure(let error) = parse(content: content, folderName: "") {
+            return error
         }
         return nil
     }
@@ -51,6 +21,9 @@ nonisolated enum SpecParser {
 
         let raw: RawFrontmatter
         do {
+            // A fresh decoder per call: YAMLDecoder init is allocation-only and
+            // decode builds its own Parser, so there is no shared mutable state
+            // to reason about across concurrent discovery tasks.
             raw = try YAMLDecoder().decode(RawFrontmatter.self, from: yaml)
         } catch let yamlError as YamlError {
             return .failure(mapYamlError(yamlError))
@@ -90,6 +63,33 @@ nonisolated enum SpecParser {
                 goal: extractGoal(from: content)
             )
         )
+    }
+
+    static func extractBody(from content: String) -> String {
+        // Split on the second `---` line: frontmatter is dropped, everything after
+        // is the body (including embedded `---` lines). CRLF is normalized first so
+        // raw file content from any platform is safe.
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+        var seen = 0
+        var bodyStart = 0
+        for (index, line) in lines.enumerated() {
+            if line.trimmingCharacters(in: .whitespaces) == "---" {
+                seen += 1
+                if seen == 2 {
+                    bodyStart = index + 1
+                    break
+                }
+            }
+        }
+        if seen < 2 { return "" }
+        // Drop a single leading newline so users don't see a stray blank
+        // line at the top of the body editor.
+        if bodyStart < lines.count, lines[bodyStart].isEmpty {
+            bodyStart += 1
+        }
+        guard bodyStart <= lines.count else { return "" }
+        return lines[bodyStart..<lines.count].joined(separator: "\n")
     }
 
     static func extractGoal(from content: String) -> String? {

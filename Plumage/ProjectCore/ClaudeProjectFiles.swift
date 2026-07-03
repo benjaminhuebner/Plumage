@@ -1,27 +1,9 @@
 import Foundation
 
 nonisolated enum ClaudeProjectFiles {
-    static let claudeMDRelativePath = ".claude/CLAUDE.md"
-    static let claudeLocalMDRelativePath = ".claude/CLAUDE.local.md"
-    static let mcpJSONRelativePath = ".mcp.json"
-
     // Mirrors IssueArchiver.maxArchiveSuffix — same rationale (deterministic
     // failure on adversarial FS state, unreachable under normal use).
     static let maxNameSuffix = 1000
-
-    // MARK: - Known root file URLs
-
-    static func claudeMDURL(projectURL: URL) -> URL {
-        projectURL.appendingPathComponent(claudeMDRelativePath)
-    }
-
-    static func claudeLocalMDURL(projectURL: URL) -> URL {
-        projectURL.appendingPathComponent(claudeLocalMDRelativePath)
-    }
-
-    static func mcpJSONURL(projectURL: URL) -> URL {
-        projectURL.appendingPathComponent(mcpJSONRelativePath)
-    }
 
     // MARK: - Generic at-path create (used by the unified file tree)
 

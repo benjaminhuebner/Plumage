@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
-import os
 
 // NSOutlineView tracks items by object identity — value-type nodes would
 // collapse expansion and selection on every rebuild.
@@ -30,19 +29,19 @@ final class FinderFileTreeCoordinator: NSObject {
 
     nonisolated static let internalDragType = NSPasteboard.PasteboardType(
         UTType.plumageFileTreeDrag.identifier)
-    nonisolated private static let logger = Logger(
-        subsystem: "com.plumage", category: "FinderFileTree")
 
     private(set) var rootItems: [FinderFileTreeItem] = []
     private var itemsByPath: [String: FinderFileTreeItem] = [:]
     private var currentNodes: [FileNode] = []
-    private(set) var expandedPaths: Set<String> = []
+    // internal (not private): the delegate/data-source extensions live in
+    // their own files since the split.
+    var expandedPaths: Set<String> = []
     // Suppresses the expansion-change callback while expansion is being
     // *applied* from SwiftUI state — only user-initiated toggles report back.
-    private var isApplyingExpansion = false
-    private var isApplyingSelection = false
+    var isApplyingExpansion = false
+    var isApplyingSelection = false
     private var lastRevealID: UUID?
-    private var lastSelectedPath: String?
+    var lastSelectedPath: String?
     private weak var dropHighlightTarget: FinderFileTreeItem?
     private var frameObserver: NSObjectProtocol?
     private var lastReportedHeight: CGFloat = -1
@@ -325,6 +324,68 @@ final class FinderFileTreeCoordinator: NSObject {
         return dropTargetItem(forProposed: item)
     }
 
+    func dropTargetItem(forProposed item: Any?) -> FinderFileTreeItem? {
+        guard let item = item as? FinderFileTreeItem else { return nil }
+        if item.node.isDirectory { return item }
+        return outlineView?.parent(forItem: item) as? FinderFileTreeItem
+    }
+
+    // MARK: - Drop highlight roles
+
+    func updateDropHighlight(target: FinderFileTreeItem?) {
+        guard target !== dropHighlightTarget else { return }
+        let previous = dropHighlightTarget
+        dropHighlightTarget = target
+        guard let outlineView else { return }
+        // Fires per drag event — touch only the rows of the old and new
+        // target regions instead of every visible row.
+        var affected = affectedRows(of: previous)
+        affected.formUnion(affectedRows(of: target))
+        for row in affected {
+            guard
+                let rowView = outlineView.rowView(atRow: row, makeIfNecessary: false)
+                    as? FinderFileTreeRowView
+            else { continue }
+            rowView.dropRole = dropRole(forRow: row)
+        }
+    }
+
+    private func affectedRows(of target: FinderFileTreeItem?) -> IndexSet {
+        guard let outlineView, let target else { return IndexSet() }
+        let targetRow = outlineView.row(forItem: target)
+        guard targetRow >= 0 else { return IndexSet() }
+        return IndexSet(integersIn: memberRowRange(of: targetRow, in: outlineView))
+    }
+
+    func dropRole(forRow row: Int) -> FinderFileTreeDropRole {
+        guard let outlineView, let target = dropHighlightTarget else { return .none }
+        let targetRow = outlineView.row(forItem: target)
+        guard targetRow >= 0 else { return .none }
+        let members = memberRowRange(of: targetRow, in: outlineView)
+        if row == targetRow {
+            return .target(extendsBelow: members.upperBound > targetRow)
+        }
+        if row > targetRow && row <= members.upperBound {
+            return .member(isLast: row == members.upperBound)
+        }
+        return .none
+    }
+
+    // The target row plus every following row at a deeper indent level —
+    // i.e. the target folder's visible subtree.
+    private func memberRowRange(
+        of targetRow: Int, in outlineView: NSOutlineView
+    ) -> ClosedRange<Int> {
+        let targetLevel = outlineView.level(forRow: targetRow)
+        var last = targetRow
+        var next = targetRow + 1
+        while next < outlineView.numberOfRows, outlineView.level(forRow: next) > targetLevel {
+            last = next
+            next += 1
+        }
+        return targetRow...last
+    }
+
     // MARK: - Keyboard and mouse
 
     func requestRenameForSelection() -> Bool {
@@ -422,400 +483,5 @@ final class FinderFileTreeCoordinator: NSObject {
             return nil
         }
         return search(nodes, trail: [])
-    }
-}
-
-extension FinderFileTreeCoordinator: NSOutlineViewDataSource {
-    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        guard let item = item as? FinderFileTreeItem else { return rootItems.count }
-        return item.children.count
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        guard let item = item as? FinderFileTreeItem else { return rootItems[index] }
-        return item.children[index]
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        (item as? FinderFileTreeItem)?.node.isDirectory ?? false
-    }
-
-    func outlineView(
-        _ outlineView: NSOutlineView, pasteboardWriterForItem item: Any
-    ) -> (any NSPasteboardWriting)? {
-        guard let item = item as? FinderFileTreeItem else { return nil }
-        if let canDrag, !canDrag(item.node) { return nil }
-        guard let data = try? JSONEncoder().encode(FileTreeDragPayload(url: item.node.url))
-        else {
-            Self.logger.warning(
-                "drag payload encode failed for \(item.node.relativePath, privacy: .public)")
-            return nil
-        }
-        let pasteboardItem = NSPasteboardItem()
-        // Only the custom type — not .fileURL. The .fileURL-only import catcher must stay
-        // blind to in-tree drags so they reach the outline; dropPayload reads the custom
-        // type first and external drag-out is off, so .fileURL was redundant.
-        pasteboardItem.setData(data, forType: Self.internalDragType)
-        return pasteboardItem
-    }
-
-    func outlineView(
-        _ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
-        proposedItem item: Any?, proposedChildIndex index: Int
-    ) -> NSDragOperation {
-        guard let validateDrop, let payload = Self.dropPayload(from: info.draggingPasteboard)
-        else { return [] }
-        let target = dropTargetItem(forProposed: item)
-        // Always drop ON the resolved folder row — native highlight lands
-        // exactly there instead of an insertion line between rows.
-        outlineView.setDropItem(target, dropChildIndex: NSOutlineViewDropOnItemIndex)
-        autoscrollThroughAncestors(info)
-        if case .internalMove(let sources) = payload {
-            let targetURL = target?.node.url
-            for source in sources where Self.isAncestorOrSelf(source, of: targetURL) {
-                updateDropHighlight(target: nil)
-                return []
-            }
-        }
-        guard validateDrop(payload, target?.node) else {
-            updateDropHighlight(target: nil)
-            return []
-        }
-        updateDropHighlight(target: target)
-        switch payload {
-        case .internalMove: return .move
-        case .finderCopy: return .copy
-        }
-    }
-
-    func outlineView(
-        _ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
-        item: Any?, childIndex index: Int
-    ) -> Bool {
-        updateDropHighlight(target: nil)
-        guard let onDrop, let payload = Self.dropPayload(from: info.draggingPasteboard)
-        else { return false }
-        let target = item as? FinderFileTreeItem
-        return onDrop(payload, target?.node)
-    }
-
-    private func dropTargetItem(forProposed item: Any?) -> FinderFileTreeItem? {
-        guard let item = item as? FinderFileTreeItem else { return nil }
-        if item.node.isDirectory { return item }
-        return outlineView?.parent(forItem: item) as? FinderFileTreeItem
-    }
-
-    // Embedded mode: the inner scroll view has no overflow, so AppKit's own
-    // drag autoscroll never fires — drive the outer scroll surface instead.
-    private func autoscrollThroughAncestors(_ info: any NSDraggingInfo) {
-        guard let outlineView,
-            let inner = outlineView.enclosingScrollView,
-            let outerScroll = inner.enclosingScrollView,
-            let outerDocument = outerScroll.documentView
-        else { return }
-        let point = outerDocument.convert(info.draggingLocation, from: nil)
-        let visible = outerScroll.documentVisibleRect
-        let margin: CGFloat = 24
-        let probeY: CGFloat
-        if point.y < visible.minY + margin {
-            probeY = point.y - margin
-        } else if point.y > visible.maxY - margin {
-            probeY = point.y + margin
-        } else {
-            return
-        }
-        outerDocument.scrollToVisible(NSRect(x: visible.midX, y: probeY, width: 1, height: 1))
-    }
-
-    // MARK: - Drop highlight roles
-
-    func updateDropHighlight(target: FinderFileTreeItem?) {
-        guard target !== dropHighlightTarget else { return }
-        let previous = dropHighlightTarget
-        dropHighlightTarget = target
-        guard let outlineView else { return }
-        // Fires per drag event — touch only the rows of the old and new
-        // target regions instead of every visible row.
-        var affected = affectedRows(of: previous)
-        affected.formUnion(affectedRows(of: target))
-        for row in affected {
-            guard
-                let rowView = outlineView.rowView(atRow: row, makeIfNecessary: false)
-                    as? FinderFileTreeRowView
-            else { continue }
-            rowView.dropRole = dropRole(forRow: row)
-        }
-    }
-
-    private func affectedRows(of target: FinderFileTreeItem?) -> IndexSet {
-        guard let outlineView, let target else { return IndexSet() }
-        let targetRow = outlineView.row(forItem: target)
-        guard targetRow >= 0 else { return IndexSet() }
-        let targetLevel = outlineView.level(forRow: targetRow)
-        var last = targetRow
-        var next = targetRow + 1
-        while next < outlineView.numberOfRows, outlineView.level(forRow: next) > targetLevel {
-            last = next
-            next += 1
-        }
-        return IndexSet(integersIn: targetRow...last)
-    }
-
-    private func dropRole(forRow row: Int) -> FinderFileTreeDropRole {
-        guard let outlineView, let target = dropHighlightTarget else { return .none }
-        let targetRow = outlineView.row(forItem: target)
-        guard targetRow >= 0 else { return .none }
-        let targetLevel = outlineView.level(forRow: targetRow)
-        var lastMemberRow = targetRow
-        var next = targetRow + 1
-        while next < outlineView.numberOfRows, outlineView.level(forRow: next) > targetLevel {
-            lastMemberRow = next
-            next += 1
-        }
-        if row == targetRow {
-            return .target(extendsBelow: lastMemberRow > targetRow)
-        }
-        if row > targetRow && row <= lastMemberRow {
-            return .member(isLast: row == lastMemberRow)
-        }
-        return .none
-    }
-
-    nonisolated static func dropPayload(from pasteboard: NSPasteboard) -> FileTreeDropPayload? {
-        var internalSources: [URL] = []
-        var finderURLs: [URL] = []
-        for item in pasteboard.pasteboardItems ?? [] {
-            if let data = item.data(forType: internalDragType) {
-                if let payload = try? JSONDecoder().decode(FileTreeDragPayload.self, from: data) {
-                    internalSources.append(payload.url)
-                    continue
-                }
-                logger.warning("internal drag payload failed to decode — treating as Finder drop")
-            }
-            if let urlString = item.string(forType: .fileURL),
-                let url = URL(string: urlString)
-            {
-                finderURLs.append(url.standardizedFileURL)
-            }
-        }
-        if !internalSources.isEmpty { return .internalMove(topmostSources(internalSources)) }
-        if !finderURLs.isEmpty { return .finderCopy(finderURLs) }
-        return nil
-    }
-
-    // A selection holding a folder and its own descendant moves only the
-    // folder — moving both would race the descendant against its parent.
-    nonisolated static func topmostSources(_ urls: [URL]) -> [URL] {
-        urls.filter { url in
-            !urls.contains { other in
-                other.standardizedFileURL.path != url.standardizedFileURL.path
-                    && isAncestorOrSelf(other, of: url)
-            }
-        }
-    }
-
-    // nil target = tree root, which can never sit inside a dragged item.
-    nonisolated static func isAncestorOrSelf(_ source: URL, of target: URL?) -> Bool {
-        guard let target else { return false }
-        let sourcePath = source.standardizedFileURL.path
-        let targetPath = target.standardizedFileURL.path
-        return targetPath == sourcePath || targetPath.hasPrefix(sourcePath + "/")
-    }
-}
-
-extension FinderFileTreeCoordinator: NSOutlineViewDelegate {
-    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-        let identifier = NSUserInterfaceItemIdentifier("FinderFileTreeRow")
-        let rowView: FinderFileTreeRowView
-        if let recycled = outlineView.makeView(withIdentifier: identifier, owner: nil)
-            as? FinderFileTreeRowView
-        {
-            rowView = recycled
-        } else {
-            rowView = FinderFileTreeRowView()
-            rowView.identifier = identifier
-        }
-        // A row scrolled into view mid-drag must pick up its role.
-        rowView.dropRole = dropRole(forRow: outlineView.row(forItem: item))
-        return rowView
-    }
-
-    func outlineView(
-        _ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any
-    ) -> NSView? {
-        guard let item = item as? FinderFileTreeItem, let rowContent else { return nil }
-        let identifier = NSUserInterfaceItemIdentifier("FinderFileTreeCell")
-        let cell =
-            outlineView.makeView(withIdentifier: identifier, owner: nil)
-            as? FinderFileTreeCellView ?? FinderFileTreeCellView(identifier: identifier)
-        cell.show(rowContent(item.node))
-        cell.setAccessibilityLabel(item.node.name)
-        return cell
-    }
-
-    func outlineView(
-        _ outlineView: NSOutlineView, typeSelectStringFor tableColumn: NSTableColumn?, item: Any
-    ) -> String? {
-        (item as? FinderFileTreeItem)?.node.name
-    }
-
-    func outlineViewSelectionDidChange(_ notification: Notification) {
-        guard !isApplyingSelection,
-            let outlineView = notification.object as? NSOutlineView
-        else { return }
-        let row = outlineView.selectedRow
-        let node = row >= 0 ? (outlineView.item(atRow: row) as? FinderFileTreeItem)?.node : nil
-        // Deselects keep the previous anchor: the collapse path needs to know
-        // what WAS selected after the outline has already cleared it.
-        if let node { lastSelectedPath = node.relativePath }
-        // Keyboard navigation auto-scrolls only the inner clip — follow
-        // through the outer scroll surface too.
-        scrollRowVisibleThroughAncestors(row)
-        onSelect?(node)
-    }
-
-    func outlineViewItemDidExpand(_ notification: Notification) {
-        defer { reportContentHeight() }
-        guard !isApplyingExpansion,
-            let item = notification.userInfo?["NSObject"] as? FinderFileTreeItem
-        else { return }
-        expandedPaths.insert(item.node.relativePath)
-        onExpansionChange?(expandedPaths)
-    }
-
-    func outlineViewItemDidCollapse(_ notification: Notification) {
-        defer { reportContentHeight() }
-        guard !isApplyingExpansion,
-            let item = notification.userInfo?["NSObject"] as? FinderFileTreeItem
-        else { return }
-        expandedPaths.remove(item.node.relativePath)
-        onExpansionChange?(expandedPaths)
-        reanchorSelection(afterCollapsing: item)
-    }
-
-    // Finder behavior: collapsing a folder that hides the selection selects
-    // the folder itself — without this the outline just drops the selection
-    // and adopters blank their detail pane.
-    private func reanchorSelection(afterCollapsing item: FinderFileTreeItem) {
-        guard let outlineView, outlineView.selectedRowIndexes.isEmpty,
-            let last = lastSelectedPath, Self.subtree(of: item, contains: last)
-        else { return }
-        let row = outlineView.row(forItem: item)
-        guard row >= 0 else { return }
-        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-    }
-
-    private static func subtree(of item: FinderFileTreeItem, contains path: String) -> Bool {
-        for child in item.children {
-            if child.node.relativePath == path { return true }
-            if subtree(of: child, contains: path) { return true }
-        }
-        return false
-    }
-}
-
-enum FinderFileTreeDropRole: Equatable {
-    case none
-    case target(extendsBelow: Bool)
-    case member(isLast: Bool)
-}
-
-// The stock drop-on feedback is a hairline ring that reads as a glitch —
-// replace it with the Xcode-navigator look: a full accent fill on the target
-// folder row plus a light wash over its visible children, one rounded region.
-final class FinderFileTreeRowView: NSTableRowView {
-    var dropRole: FinderFileTreeDropRole = .none {
-        didSet {
-            guard oldValue != dropRole else { return }
-            needsDisplay = true
-            // The accent fill is a dark surface in any appearance — flip the
-            // hosted SwiftUI row to dark so its text reads white on it.
-            let isTarget = if case .target = dropRole { true } else { false }
-            for subview in subviews {
-                subview.appearance = isTarget ? NSAppearance(named: .darkAqua) : nil
-            }
-        }
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        dropRole = .none
-    }
-
-    // Drawing is driven entirely by `dropRole` (the coordinator knows the
-    // whole target region); the stock per-row feedback must stay silent.
-    override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {}
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        super.drawBackground(in: dirtyRect)
-        let inset = bounds.insetBy(dx: 6, dy: 0)
-        switch dropRole {
-        case .none:
-            return
-        case .target(let extendsBelow):
-            let rect =
-                extendsBelow
-                ? NSRect(x: inset.minX, y: 0, width: inset.width, height: bounds.height)
-                : inset.insetBy(dx: 0, dy: 1)
-            NSColor.controlAccentColor.setFill()
-            Self.roundedPath(
-                rect, topRadius: 6, bottomRadius: extendsBelow ? 0 : 6
-            ).fill()
-        case .member(let isLast):
-            let rect = NSRect(
-                x: inset.minX, y: 0, width: inset.width,
-                height: isLast ? bounds.height - 1 : bounds.height)
-            NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-            Self.roundedPath(rect, topRadius: 0, bottomRadius: isLast ? 6 : 0).fill()
-        }
-    }
-
-    // NSBezierPath has no per-corner radii — the target region needs square
-    // edges where it meets the member rows below it.
-    private static func roundedPath(
-        _ rect: NSRect, topRadius: CGFloat, bottomRadius: CGFloat
-    ) -> NSBezierPath {
-        let path = NSBezierPath()
-        // Flipped view: minY = top edge on screen.
-        let topLeft = NSPoint(x: rect.minX, y: rect.minY)
-        let topRight = NSPoint(x: rect.maxX, y: rect.minY)
-        let bottomRight = NSPoint(x: rect.maxX, y: rect.maxY)
-        let bottomLeft = NSPoint(x: rect.minX, y: rect.maxY)
-        path.move(to: NSPoint(x: rect.minX, y: rect.minY + topRadius))
-        path.appendArc(from: topLeft, to: topRight, radius: topRadius)
-        path.appendArc(from: topRight, to: bottomRight, radius: topRadius)
-        path.appendArc(from: bottomRight, to: bottomLeft, radius: bottomRadius)
-        path.appendArc(from: bottomLeft, to: topLeft, radius: bottomRadius)
-        path.close()
-        return path
-    }
-}
-
-// One hosting view per cell, reused via `rootView` swap — rebuilding the
-// SwiftUI hierarchy on every reuse causes scroll jank.
-final class FinderFileTreeCellView: NSTableCellView {
-    private let hosting: NSHostingView<AnyView>
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        hosting = NSHostingView(rootView: AnyView(EmptyView()))
-        super.init(frame: .zero)
-        self.identifier = identifier
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    func show(_ view: AnyView) {
-        hosting.rootView = view
     }
 }

@@ -124,7 +124,7 @@ struct PerformDropTests {
         model._setIssuesForTesting([.valid(makeIssue(id: 1, folder: "00001-a", status: .approved))])
         let projectURL = URL(filePath: "/tmp/probe")
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.inProgress),
             projectURL: projectURL
         )
@@ -148,7 +148,7 @@ struct PerformDropTests {
         })
         model._setIssuesForTesting([.valid(makeIssue(id: 1, folder: "00001-a", status: .approved))])
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.todo),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -163,7 +163,7 @@ struct PerformDropTests {
         })
         model._setIssuesForTesting([])
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "ghost", currentStatus: .approved),
+            IssueDragPayload(folderName: "ghost"),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -179,7 +179,7 @@ struct PerformDropTests {
         let model = ProjectKanbanModel(mutator: { _, _, _, _ in throw DummyError() })
         model._setIssuesForTesting([.valid(makeIssue(id: 1, folder: "00001-a", status: .approved))])
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
         )

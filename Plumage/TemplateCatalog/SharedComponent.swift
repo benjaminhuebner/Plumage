@@ -1,5 +1,3 @@
-import Foundation
-
 // `config` lands at the project root (`.swift-format`), not under `.claude/` like the
 // others. `skill` stays decodable for legacy manifests but is no longer written —
 // a component's skills are scope-owned loose folders under `components/<id>/skills/`.
@@ -25,6 +23,17 @@ nonisolated enum SharedComponentKind: String, Codable, Hashable, Sendable, CaseI
 nonisolated struct ComponentFile: Codable, Hashable, Sendable {
     let kind: SharedComponentKind
     let name: String
+
+    // The override-store path this file's bytes resolve to. `hookFileName` maps a
+    // hook's base name to its real on-disk filename (extension included).
+    func storePath(hookFileName: (String) -> String) -> String {
+        switch kind {
+        case .layer: ScaffoldOverrides.layerRelativePath(name)
+        case .hook: "hooks/\(hookFileName(name))"
+        case .skill: "skills/\(name)/SKILL.md"
+        case .config: "configs/\(name)"
+        }
+    }
 }
 
 // The middle tier: a reusable building block included in a selectable subset of

@@ -57,15 +57,13 @@ struct ChatMessageView: View {
         ChatMessageView(
             message: .init(
                 id: UUID(), role: .system,
-                text: "Session ready (id: abc-123)",
-                timestamp: .now
+                text: "Session ready (id: abc-123)"
             )
         )
         ChatMessageView(
             message: .init(
                 id: UUID(), role: .user,
-                text: "What does this project do?",
-                timestamp: .now
+                text: "What does this project do?"
             )
         )
         ChatMessageView(
@@ -74,15 +72,13 @@ struct ChatMessageView: View {
                 text:
                     "Plumage is a native macOS GUI for Claude Code workflows — "
                     + "Kanban issues, embedded agent session, integrated editor, "
-                    + "local PR view.",
-                timestamp: .now
+                    + "local PR view."
             )
         )
         ChatMessageView(
             message: .init(
                 id: UUID(), role: .assistant,
-                text: "🔧 Tool: Bash",
-                timestamp: .now
+                text: "🔧 Tool: Bash"
             )
         )
     }

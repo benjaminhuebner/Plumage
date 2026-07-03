@@ -14,8 +14,6 @@ nonisolated struct Simulator: Sendable, Equatable, Hashable, Identifiable {
         case booted = "Booted"
         case other
     }
-
-    var isBooted: Bool { state == .booted }
 }
 
 nonisolated struct Runtime: Sendable, Equatable, Hashable, Comparable {

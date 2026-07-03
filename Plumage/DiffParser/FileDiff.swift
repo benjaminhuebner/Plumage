@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated public struct FileDiff: Sendable, Equatable, Hashable {
     public let path: String
     public let status: FileStatus

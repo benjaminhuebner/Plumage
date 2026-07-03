@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum EvidenceParseError: Error, Sendable, Equatable {
     case unreadable(message: String)
     case invalidJSON(message: String)

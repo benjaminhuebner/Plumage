@@ -485,18 +485,27 @@ struct IssueDetailView: View {
     // MARK: - Mode-aware data sources
 
     private var currentStatus: IssueStatus {
-        if model.isCreating { return model.statusDraft }
-        return model.issue?.status ?? model.statusDraft
+        if model.isCreating {
+            model.statusDraft
+        } else {
+            model.issue?.status ?? model.statusDraft
+        }
     }
 
     private var currentType: IssueType {
-        if model.isCreating { return model.typeDraft }
-        return model.issue?.type ?? model.typeDraft
+        if model.isCreating {
+            model.typeDraft
+        } else {
+            model.issue?.type ?? model.typeDraft
+        }
     }
 
     private var currentLabels: [String] {
-        if model.isCreating { return model.labelsDraft }
-        return model.issue?.labels ?? []
+        if model.isCreating {
+            model.labelsDraft
+        } else {
+            model.issue?.labels ?? []
+        }
     }
 
     private var tabBadgeCounts: [BodyTab: Int] {
@@ -517,12 +526,17 @@ struct IssueDetailView: View {
     }
 
     private func seedExistingLabels() {
-        cachedExistingLabels = Self.existingLabels(in: kanban.issues, excluding: currentLabels)
+        cachedExistingLabels = kanban.issues.unionedLabels()
+            .subtracting(currentLabels)
+            .sorted()
     }
 
     private var currentBlockedBy: [String] {
-        if model.isCreating { return model.blockedByDraft }
-        return model.issue?.blockedBy ?? []
+        if model.isCreating {
+            model.blockedByDraft
+        } else {
+            model.issue?.blockedBy ?? []
+        }
     }
 
     private var resolvedBlockers: [ResolvedBlocker] {
@@ -546,16 +560,6 @@ struct IssueDetailView: View {
                 )
             }
             .sorted { $0.id < $1.id }
-    }
-
-    private static func existingLabels(
-        in issues: [DiscoveredIssue], excluding current: [String]
-    ) -> [String] {
-        var all = Set<String>()
-        for case .valid(let issue) in issues {
-            all.formUnion(issue.labels)
-        }
-        return all.subtracting(current).sorted()
     }
 
     private var metaDates: IssueMetaRow.Dates? {
@@ -584,8 +588,11 @@ struct IssueDetailView: View {
     }
 
     private var detailFieldsDisabled: Bool {
-        if model.isCreating { return false }
-        return model.frontmatterError != nil
+        if model.isCreating {
+            false
+        } else {
+            model.frontmatterError != nil
+        }
     }
 
     // MARK: - Mode-aware callbacks
@@ -728,9 +735,7 @@ struct IssueDetailView: View {
     }
 
     private var mergeBannerMessage: String? {
-        if let critical = model.lastMergeCriticalError { return critical }
-        if let error = model.lastMergeError { return error.localizedDescription }
-        return nil
+        model.lastMergeCriticalError ?? model.lastMergeError?.localizedDescription
     }
 
     private func performMerge(

@@ -1,5 +1,3 @@
-import Foundation
-
 // Which template-manager tier owns a loose (untyped) file. Each tier roots its loose
 // files under a distinct store prefix, so a file authored in one tier no longer leaks
 // into every template. Base keeps the historical flat root (`""`); a Template
@@ -18,6 +16,15 @@ nonisolated enum ManagerScope: Hashable, Sendable {
         case .template(let id): return "templates/\(id)"
         case .component(let id): return "components/\(id)"
         }
+    }
+
+    // The path of `storePath` relative to this scope's storage root: "" for the root
+    // itself, nil for a path outside the scope's subtree.
+    func scopeRelativePath(of storePath: String) -> String? {
+        if storageRoot.isEmpty { return storePath }
+        if storePath == storageRoot { return "" }
+        guard storePath.hasPrefix(storageRoot + "/") else { return nil }
+        return String(storePath.dropFirst(storageRoot.count + 1))
     }
 
     // The scope a left-column selection owns its loose files in.

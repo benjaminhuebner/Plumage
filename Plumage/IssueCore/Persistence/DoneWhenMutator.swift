@@ -22,12 +22,11 @@ nonisolated enum DoneWhenMutator {
         let target = checkboxes[criterionIndex]
         if target.isChecked == isChecked { return content }
 
-        let lineSeparator = content.contains("\r\n") ? "\r\n" : "\n"
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        var lines = normalized.components(separatedBy: "\n")
+        let normalized = SpecText.normalizedLines(content: content)
+        var lines = normalized.lines
         var characters = Array(lines[target.lineIndex])
         characters[3] = isChecked ? "x" : " "
         lines[target.lineIndex] = String(characters)
-        return lines.joined(separator: lineSeparator)
+        return lines.joined(separator: normalized.separator)
     }
 }

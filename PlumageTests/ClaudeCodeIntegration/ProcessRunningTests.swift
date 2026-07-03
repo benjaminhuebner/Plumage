@@ -36,14 +36,6 @@ struct SemanticVersionParseTests {
         #expect(SemanticVersion.parse("1.2") == nil)
     }
 
-    @Test("comparable orders by major, minor, patch")
-    func comparable() {
-        let lower = SemanticVersion(major: 1, minor: 2, patch: 3)
-        let higher = SemanticVersion(major: 1, minor: 3, patch: 0)
-        #expect(lower < higher)
-        #expect(SemanticVersion(major: 2, minor: 0, patch: 0) > higher)
-    }
-
     @Test("description matches dot form")
     func description() {
         let version = SemanticVersion(major: 1, minor: 0, patch: 5)
@@ -133,39 +125,5 @@ struct StatusIndicatorModelTests {
         )
         await model.detect(using: mock)
         #expect(model.state == .failed(.nonZeroExit(code: 127, stderr: "not found")))
-    }
-}
-
-@Suite("MockProcessRunner.spawnSession")
-struct MockProcessRunnerSpawnTests {
-    @Test("captures args via callback")
-    func capturesArgs() async throws {
-        let mock = MockProcessRunner(
-            spawnOutcome: .success(
-                SpawnResult(exitCode: 0, stdout: Data("hello".utf8), stderr: Data())
-            )
-        )
-        let captured = CapturedArgs()
-        mock.onSpawnSessionCalled = { args in captured.set(args) }
-        let result = try await mock.spawnSession(args: ["--help", "--json"])
-        #expect(result.exitCode == 0)
-        #expect(String(decoding: result.stdout, as: UTF8.self) == "hello")
-        #expect(captured.value == ["--help", "--json"])
-    }
-}
-
-// @unchecked Sendable: `stored` is only touched under `lock`.
-private final class CapturedArgs: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [String] = []
-    func set(_ value: [String]) {
-        lock.lock()
-        defer { lock.unlock() }
-        stored = value
-    }
-    var value: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return stored
     }
 }

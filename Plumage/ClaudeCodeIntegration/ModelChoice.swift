@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum ModelChoice: Hashable, Sendable, Codable {
     case `default`
     case fable

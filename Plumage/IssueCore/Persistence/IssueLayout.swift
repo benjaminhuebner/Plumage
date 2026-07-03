@@ -1,6 +1,10 @@
 import Foundation
 
 nonisolated enum IssueLayout {
+    // For string-relative path comparisons (routes, run slugs); keep in
+    // lockstep with `issuesDirectory`.
+    static let issuesRelativePrefix = ".claude/issues/"
+
     static func issuesDirectory(in projectURL: URL) -> URL {
         projectURL.appendingPathComponent(".claude/issues", isDirectory: true)
     }

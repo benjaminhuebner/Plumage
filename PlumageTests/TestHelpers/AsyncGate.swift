@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 
 // Lock manipulation lives in sync helpers because holding NSCondition

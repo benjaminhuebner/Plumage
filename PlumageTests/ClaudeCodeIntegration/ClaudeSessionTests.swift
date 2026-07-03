@@ -169,6 +169,27 @@ struct ClaudeSessionTests {
         #expect(session.awaitingResponse)
         session.handleEvent(.result(isError: false, text: "done"))
         #expect(!session.awaitingResponse)
+        // A non-error result stays silent — no system message noise per turn.
+        #expect(session.messages.count == 1)
+    }
+
+    @Test("error result surfaces its text as a system message")
+    func errorResultSurfacesText() async {
+        let session = startedSession()
+        await session.send("hi")
+        session.handleEvent(.result(isError: true, text: "credit balance too low"))
+        #expect(!session.awaitingResponse)
+        #expect(session.messages.last?.role == .system)
+        #expect(session.messages.last?.text == "credit balance too low")
+    }
+
+    @Test("error result without text falls back to a generic system message")
+    func errorResultWithoutTextFallsBack() {
+        let session = startedSession()
+        session.handleEvent(.result(isError: true, text: nil))
+        let last = session.messages.last
+        #expect(last?.role == .system)
+        #expect(last?.text.isEmpty == false)
     }
 
     @Test("handleExit(0) from .running yields .exited(0, .userClosed)")

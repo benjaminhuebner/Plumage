@@ -45,7 +45,10 @@ struct XcodeRunSessionMacTests {
         )
         let collected = LineCollector()
         let outcome = await session.run(inputs: inputs, onLine: { collected.append($0) })
-        #expect(outcome.isLaunched)
+        if case .launched = outcome {
+        } else {
+            Issue.record("expected .launched, got \(outcome)")
+        }
         #expect(launcher.openedURLs.map(\.path) == ["/tmp/Build/Demo.app"])
         #expect(collected.lines == ["compiling"])
     }

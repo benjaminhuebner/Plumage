@@ -47,7 +47,7 @@ private struct MigrateProjectFlowView: View {
                 stepContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let error = model.errorMessage {
-                    errorBanner(error)
+                    ErrorBanner(message: error)
                 }
             }
 
@@ -56,8 +56,7 @@ private struct MigrateProjectFlowView: View {
             footer
         }
         // A re-present swaps this view's identity; cancel any in-flight migration
-        // so it can't write back into the model being torn down. Welcome-reopen
-        // lives on the window root (see there), not here.
+        // so it can't write back into the model being torn down.
         .onDisappear {
             migrateTask?.cancel()
         }
@@ -91,7 +90,7 @@ private struct MigrateProjectFlowView: View {
             TemplateGridView(
                 catalog: model.catalog,
                 selectedTemplateID: $model.selectedTemplateID,
-                resolveImage: { model.imageURL(forRelative: $0) })
+                resolveImage: { model.overrides.existingURL(forRelative: $0) })
         case .options: MigrateOptionsView(model: model)
         }
     }
@@ -168,23 +167,6 @@ private struct MigrateProjectFlowView: View {
         }
     }
 
-    private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text(message)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .font(.callout)
-        .foregroundStyle(.red)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.1))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Error: \(message)")
-    }
-
     private var stepHeadline: String {
         if model.report != nil { return "Migration Complete" }
         switch model.currentStep {
@@ -215,7 +197,6 @@ private struct MigrateProjectFlowView: View {
 
     private func openMigrated() {
         guard let project = model.migratedProject else { return }
-        model.didOpenProject = true
         OpenProjectCommand.openConfirmed(
             url: project.root,
             recentProjects: recentProjects,

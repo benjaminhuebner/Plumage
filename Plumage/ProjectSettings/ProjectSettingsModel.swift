@@ -488,7 +488,7 @@ final class ProjectSettingsModel {
     // a no-op the UI shouldn't offer.
     var canRename: Bool {
         guard canEdit, renameStatus != .renaming else { return false }
-        return ProjectRenamer.isValidName(projectName) && trimmedProjectName != currentName
+        return BundleNameRules.isValid(projectName) && trimmedProjectName != currentName
     }
 
     func dismissRenameError() {

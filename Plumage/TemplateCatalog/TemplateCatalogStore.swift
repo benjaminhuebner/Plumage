@@ -61,13 +61,12 @@ nonisolated struct TemplateCatalogStore: Sendable {
 
     // Moves a present-but-undecodable manifest to a timestamped sidecar. No-op when the
     // manifest is absent or decodes fine, so normal saves are untouched.
-    @discardableResult
-    func setAsideCorruptManifest(at url: URL) throws -> URL? {
+    private func setAsideCorruptManifest(at url: URL) throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path),
             let data = try? Data(contentsOf: url),
             (try? JSONDecoder().decode(TemplateManifest.self, from: data)) == nil
-        else { return nil }
+        else { return }
         let base = url.deletingPathExtension().lastPathComponent
         let ext = url.pathExtension.isEmpty ? "json" : url.pathExtension
         let sidecar = url.deletingLastPathComponent()
@@ -75,7 +74,6 @@ nonisolated struct TemplateCatalogStore: Sendable {
         try fm.moveItem(at: url, to: sidecar)
         Self.logger.warning(
             "Set aside unreadable manifest to \(sidecar.lastPathComponent, privacy: .public)")
-        return sidecar
     }
 
     private static func corruptStamp() -> String {

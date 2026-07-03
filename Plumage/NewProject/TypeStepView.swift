@@ -7,6 +7,6 @@ struct TypeStepView: View {
         TemplateGridView(
             catalog: model.catalog,
             selectedTemplateID: $model.selectedTemplateID,
-            resolveImage: { model.imageURL(forRelative: $0) })
+            resolveImage: { model.overrides.existingURL(forRelative: $0) })
     }
 }

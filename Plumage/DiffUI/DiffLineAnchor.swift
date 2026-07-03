@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated struct DiffLineAnchor: Hashable, Sendable {
     let file: String
     let side: ReviewFinding.Side

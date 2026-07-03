@@ -1,5 +1,3 @@
-import Foundation
-
 // The predefined catalog, derived once from `ProjectKind` so the data model is a
 // faithful re-representation of today's profiles. The shared components and their
 // memberships are chosen so the effective resolver reproduces every kind's
@@ -7,7 +5,7 @@ import Foundation
 nonisolated extension TemplateCatalog {
     static let bundledDefault: TemplateCatalog = makeBundledDefault()
 
-    static func makeBundledDefault() -> TemplateCatalog {
+    private static func makeBundledDefault() -> TemplateCatalog {
         let base = BaseTemplate(
             id: "base",
             name: "Base",

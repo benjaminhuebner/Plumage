@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 
 nonisolated enum SidebarDragPayload {
     case template(TemplateDescriptor)

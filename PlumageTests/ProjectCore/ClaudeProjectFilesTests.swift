@@ -5,32 +5,6 @@ import Testing
 
 @Suite("ClaudeProjectFiles")
 struct ClaudeProjectFilesTests {
-    @Test("claudeMDURL points at .claude/CLAUDE.md under project root")
-    func claudeMDURLPoints() throws {
-        let fixture = try ClaudeFilesFixture()
-        let url = ClaudeProjectFiles.claudeMDURL(projectURL: fixture.root)
-        #expect(url.path.hasSuffix(".claude/CLAUDE.md"))
-        #expect(url.deletingLastPathComponent().lastPathComponent == ".claude")
-    }
-
-    @Test("claudeLocalMDURL points at .claude/CLAUDE.local.md")
-    func claudeLocalMDURLPoints() throws {
-        let fixture = try ClaudeFilesFixture()
-        let url = ClaudeProjectFiles.claudeLocalMDURL(projectURL: fixture.root)
-        #expect(url.path.hasSuffix(".claude/CLAUDE.local.md"))
-        #expect(url.deletingLastPathComponent().lastPathComponent == ".claude")
-    }
-
-    @Test("mcpJSONURL points at project-root .mcp.json (not under .claude/)")
-    func mcpJSONURLPoints() throws {
-        let fixture = try ClaudeFilesFixture()
-        let url = ClaudeProjectFiles.mcpJSONURL(projectURL: fixture.root)
-        #expect(url.lastPathComponent == ".mcp.json")
-        #expect(
-            url.deletingLastPathComponent().standardizedFileURL.path
-                == fixture.root.standardizedFileURL.path)
-    }
-
     @Test("createFileAt writes an empty file with the typed name")
     func createFileAtWritesFile() throws {
         let fixture = try ClaudeFilesFixture()

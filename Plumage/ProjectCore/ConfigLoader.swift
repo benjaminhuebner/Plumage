@@ -1,12 +1,29 @@
 import Foundation
 
 nonisolated enum ConfigLoader {
-    enum LoadError: Error, Equatable, Sendable {
+    enum LoadError: LocalizedError, Equatable, Sendable {
         case noConfigFile(folder: URL)
         case noBundle(folder: URL)
         case multipleBundles(found: [URL])
         case schemaTooNew(version: Int, supportedUpTo: Int)
         case invalidJSON(message: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .noConfigFile(let bundle):
+                return "Plumage bundle at \(bundle.path) has no config.json."
+            case .noBundle(let folder):
+                return "No .plumage bundle found at \(folder.path)."
+            case .multipleBundles(let urls):
+                let names = urls.map { $0.lastPathComponent }.joined(separator: ", ")
+                return "Multiple Plumage bundles found: \(names). Expected exactly one."
+            case .schemaTooNew(let version, let supportedUpTo):
+                return "This project needs a newer Plumage "
+                    + "(config schemaVersion \(version), this build supports up to \(supportedUpTo))."
+            case .invalidJSON(let message):
+                return "This Plumage config is invalid: \(message)"
+            }
+        }
     }
 
     static let configFileName = "config.json"

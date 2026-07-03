@@ -15,7 +15,7 @@ import SwiftUI
 final class TemplatesSettingsModel {
     private(set) var catalog: TemplateCatalog = .bundledDefault
     private let store: TemplateCatalogStore
-    private let overrides: ScaffoldOverrides
+    let overrides: ScaffoldOverrides
 
     init(
         store: TemplateCatalogStore = TemplateCatalogStore(),
@@ -57,12 +57,5 @@ final class TemplatesSettingsModel {
         updated.setTemplateEnabled(id: templateID, enabled)
         catalog = updated
         try? store.save(updated)
-    }
-
-    // Resolves a `TemplateImage.file` relative path to its on-disk URL (override
-    // store), or nil when absent — the row falls back to a placeholder symbol.
-    func imageURL(forRelative relativePath: String) -> URL? {
-        let url = overrides.url(forRelative: relativePath)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 }

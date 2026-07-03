@@ -1,5 +1,3 @@
-import Foundation
-
 // A deleted predefined item offered in the Restore menu.
 struct RestorableItem: Identifiable, Hashable {
     let kind: TombstoneKind

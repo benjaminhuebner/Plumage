@@ -10,6 +10,7 @@ nonisolated enum GitMergeError: Error, LocalizedError, Sendable, Equatable {
     case gitNotFound
     case implementRunActive(issue: String)
     case mergedIssueRunActive(issue: String, location: String)
+    case statusCheckFailed(stderr: String)
     case workingTreeDirty(files: [String])
     case branchNotFound(name: String)
     case notFastForward(defaultBranch: String, issueBranch: String)
@@ -33,6 +34,8 @@ nonisolated enum GitMergeError: Error, LocalizedError, Sendable, Equatable {
             return
                 "The implement run for `\(issue)` is \(location). "
                 + "Wait for it to finish (or stop it) before merging this issue."
+        case .statusCheckFailed(let stderr):
+            return "git status failed: \(stderr)"
         case .workingTreeDirty(let files):
             let head = files.prefix(5).joined(separator: ", ")
             let suffix = files.count > 5 ? " …and \(files.count - 5) more" : ""
@@ -201,38 +204,61 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         case kept(String)
     }
 
-    private func removeWorktreeOwning(
-        branch: String, binary: URL, repoURL: URL
-    ) async -> WorktreeCleanup {
+    // Shared list → parse → find-owner step for both worktree cleanup paths.
+    private func worktreeOwning(branch: String, binary: URL, repoURL: URL) async -> GitWorktree? {
         guard
             let list = try? await callGit(
                 binary: binary, repoURL: repoURL, args: ["worktree", "list", "--porcelain"]),
             list.exitCode == 0
-        else { return .none }
+        else { return nil }
         let worktrees = GitWorktreeLister.parse(
             porcelain: String(decoding: list.stdout, as: UTF8.self))
-        guard let owner = worktrees.first(where: { $0.branch == branch }) else { return .none }
+        return worktrees.first { $0.branch == branch }
+    }
 
-        let path = owner.path.path
+    private enum WorktreeRemovalAttempt {
+        case statusUnknown
+        case dirty
+        case removeFailed
+        case removed
+    }
+
+    // Removes the worktree only when its status check proves a clean tree;
+    // the two call sites map the outcomes differently (notice vs. throw).
+    private func removeWorktreeIfClean(
+        at ownerPath: URL, binary: URL, repoURL: URL
+    ) async -> WorktreeRemovalAttempt {
         guard
             let status = try? await callGit(
-                binary: binary, repoURL: owner.path, args: ["status", "--porcelain"]),
+                binary: binary, repoURL: ownerPath, args: ["status", "--porcelain"]),
             status.exitCode == 0
-        else {
-            return .kept("couldn't check the worktree at \(path) — worktree and branch were kept")
-        }
-        if !status.stdout.isEmpty {
-            return .kept(
-                "the worktree at \(path) has uncommitted changes — worktree and branch were kept")
-        }
+        else { return .statusUnknown }
+        if !status.stdout.isEmpty { return .dirty }
         guard
             let remove = try? await callGit(
-                binary: binary, repoURL: repoURL, args: ["worktree", "remove", path]),
+                binary: binary, repoURL: repoURL, args: ["worktree", "remove", ownerPath.path]),
             remove.exitCode == 0
-        else {
-            return .kept("removing the worktree at \(path) failed — worktree and branch were kept")
-        }
+        else { return .removeFailed }
         return .removed
+    }
+
+    private func removeWorktreeOwning(
+        branch: String, binary: URL, repoURL: URL
+    ) async -> WorktreeCleanup {
+        guard let owner = await worktreeOwning(branch: branch, binary: binary, repoURL: repoURL)
+        else { return .none }
+        let path = owner.path.path
+        switch await removeWorktreeIfClean(at: owner.path, binary: binary, repoURL: repoURL) {
+        case .statusUnknown:
+            return .kept("couldn't check the worktree at \(path) — worktree and branch were kept")
+        case .dirty:
+            return .kept(
+                "the worktree at \(path) has uncommitted changes — worktree and branch were kept")
+        case .removeFailed:
+            return .kept("removing the worktree at \(path) failed — worktree and branch were kept")
+        case .removed:
+            return .removed
+        }
     }
 
     // MARK: - Pre-checks
@@ -243,9 +269,13 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         defaultBranch: String,
         issueBranch: String
     ) async throws {
-        // 1. status --porcelain must be empty.
+        // 1. status --porcelain must be empty. A failing status would also
+        //    print nothing — don't let that masquerade as a clean tree.
         let status = try await callGit(
             binary: binary, repoURL: repoURL, args: ["status", "--porcelain"])
+        guard status.exitCode == 0 else {
+            throw GitMergeError.statusCheckFailed(stderr: stderrString(status))
+        }
         if !status.stdout.isEmpty {
             throw GitMergeError.workingTreeDirty(files: parsePorcelain(status.stdout))
         }
@@ -402,6 +432,9 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         // because the merge's fast-forward check failed.
         let status = try await callGit(
             binary: binary, repoURL: repoURL, args: ["status", "--porcelain"])
+        guard status.exitCode == 0 else {
+            throw GitMergeError.statusCheckFailed(stderr: stderrString(status))
+        }
         if !status.stdout.isEmpty {
             throw GitMergeError.workingTreeDirty(files: parsePorcelain(status.stdout))
         }
@@ -444,38 +477,22 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
     }
 
     private func releaseWorktreeOwning(branch: String, binary: URL, repoURL: URL) async throws {
-        guard
-            let list = try? await callGit(
-                binary: binary, repoURL: repoURL, args: ["worktree", "list", "--porcelain"]),
-            list.exitCode == 0
+        guard let owner = await worktreeOwning(branch: branch, binary: binary, repoURL: repoURL)
         else { return }
-        let worktrees = GitWorktreeLister.parse(
-            porcelain: String(decoding: list.stdout, as: UTF8.self))
-        guard let owner = worktrees.first(where: { $0.branch == branch }) else { return }
         // The branch being checked out in the worktree we rebase in is fine —
         // git rebases in place there. Only a *different* worktree blocks.
         let ownerPath = owner.path.resolvingSymlinksInPath().path
         if ownerPath == repoURL.resolvingSymlinksInPath().path { return }
 
-        let path = owner.path.path
-        guard
-            let status = try? await callGit(
-                binary: binary, repoURL: owner.path, args: ["status", "--porcelain"]),
-            status.exitCode == 0
-        else {
-            throw GitMergeError.branchCheckedOutElsewhere(branch: branch)
-        }
-        if !status.stdout.isEmpty {
-            throw GitMergeError.worktreeDirty(path: path)
-        }
-        guard
-            let remove = try? await callGit(
-                binary: binary, repoURL: repoURL, args: ["worktree", "remove", path]),
-            remove.exitCode == 0
-        else {
+        switch await removeWorktreeIfClean(at: owner.path, binary: binary, repoURL: repoURL) {
+        case .statusUnknown, .removeFailed:
             // Remove can fail despite a clean tree (locked, submodule) —
             // degrade to the generic error: worse, never wrong.
             throw GitMergeError.branchCheckedOutElsewhere(branch: branch)
+        case .dirty:
+            throw GitMergeError.worktreeDirty(path: owner.path.path)
+        case .removed:
+            return
         }
     }
 

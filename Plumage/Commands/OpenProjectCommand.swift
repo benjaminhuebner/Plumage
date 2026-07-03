@@ -132,36 +132,18 @@ enum OpenProjectCommand {
         onMigrate: ((URL) -> Void)? = nil
     ) {
         let alert = NSAlert()
-        switch error {
-        case .noBundle(let folder):
-            alert.messageText = "Not a Plumage project"
-            alert.informativeText = "No .plumage bundle found at \(folder.path)."
-            if let migrateFolder, let onMigrate {
-                alert.informativeText += "\n\nMigrate this folder to make it a Plumage project?"
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "Migrate This Folder…")
-                alert.addButton(withTitle: "Cancel")
-                if alert.runModal() == .alertFirstButtonReturn {
-                    onMigrate(migrateFolder)
-                }
-                return
-            }
-        case .noConfigFile(let bundle):
-            alert.messageText = "Plumage bundle is missing config.json"
-            alert.informativeText = "Bundle at \(bundle.path) has no config.json."
-        case .multipleBundles(let urls):
-            alert.messageText = "Multiple Plumage bundles found"
-            let names = urls.map { $0.lastPathComponent }.joined(separator: ", ")
-            alert.informativeText = "Found: \(names). Plumage expects exactly one."
-        case .schemaTooNew(let version, let supportedUpTo):
-            alert.messageText = "This project needs a newer Plumage"
-            alert.informativeText =
-                "Config schemaVersion is \(version); this build supports up to \(supportedUpTo)."
-        case .invalidJSON(let message):
-            alert.messageText = "This Plumage config is invalid"
-            alert.informativeText = message
-        }
+        alert.messageText = "Couldn't open this project"
+        alert.informativeText = error.localizedDescription
         alert.alertStyle = .warning
+        if case .noBundle = error, let migrateFolder, let onMigrate {
+            alert.informativeText += "\n\nMigrate this folder to make it a Plumage project?"
+            alert.addButton(withTitle: "Migrate This Folder…")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                onMigrate(migrateFolder)
+            }
+            return
+        }
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

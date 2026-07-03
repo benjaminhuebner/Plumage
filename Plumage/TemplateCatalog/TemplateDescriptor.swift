@@ -1,5 +1,3 @@
-import Foundation
-
 // The third tier: a concrete template. Owns its template-specific content (its
 // own `CLAUDE.md` layer(s) and per-kind scaffold settings) plus metadata. The
 // shared components it belongs to are expressed on `SharedComponent.memberTemplateIDs`,

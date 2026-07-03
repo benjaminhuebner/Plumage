@@ -1,6 +1,4 @@
-import Darwin
 import Foundation
-import os
 
 // Streaming counterpart to GitProcessRunning. The batched runner buffers all
 // stdout/stderr until the process exits — fine for `git diff` / `git status`,
@@ -32,12 +30,10 @@ nonisolated protocol GitProcessStreaming: Sendable {
     ) async throws -> (AsyncStream<GitStreamLine>, () async -> GitStreamOutcome)
 }
 
-// Production implementation. Mirrors ProductionGitProcessRunner's cancellation
-// pattern (SIGTERM → 2s grace → SIGKILL) but reads from the pipes
-// line-by-line via FileHandle.bytes.lines instead of waiting for EOF.
+// Production implementation. Shares ProductionGitProcessRunner's cancellation
+// (SIGTERM → grace → SIGKILL) but reads from the pipes line-by-line via
+// FileHandle.bytes.lines instead of waiting for EOF.
 nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
-    static let cancellationGraceSeconds: TimeInterval = 2.0
-
     func stream(
         binaryURL: URL,
         args: [String],
@@ -104,7 +100,7 @@ nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
         // child process so the readers above see EOF and the stream closes.
         lineCont.onTermination = { @Sendable termination in
             if case .cancelled = termination {
-                Self.cancelProcess(process)
+                ProductionGitProcessRunner.cancelProcess(process)
             }
         }
 
@@ -118,17 +114,6 @@ nonisolated struct ProductionGitProcessStreamer: GitProcessStreaming {
 
         return (lineStream, outcome)
     }
-
-    static func cancelProcess(_ process: Process) {
-        if process.isRunning { process.terminate() }
-        let pid = process.processIdentifier
-        Task.detached { [process] in
-            try? await Task.sleep(for: .seconds(Self.cancellationGraceSeconds))
-            if pid > 0, process.isRunning {
-                _ = Darwin.kill(pid, SIGKILL)
-            }
-        }
-    }
 }
 
 // Closes the merged line stream once both pipe readers have finished.
@@ -140,70 +125,3 @@ private actor PipeDoneCounter {
         if done == 2 { streamer.finish() }
     }
 }
-
-#if DEBUG
-// In-memory mock that replays a scripted sequence of lines and a chosen exit
-// code. Lines are emitted in order; the outcome resolves with `exitCode`
-// after the stream finishes. Used by GitPushRunner/GitPullRunner tests to
-// drive auth-prompt-detection and set-upstream-retry scenarios.
-nonisolated final class MockGitProcessStreamer: GitProcessStreaming, @unchecked Sendable {
-    private struct Script: Sendable {
-        let lines: [GitStreamLine]
-        let exitCode: Int32
-    }
-
-    private struct State: Sendable {
-        var scripts: [[String]: [Script]] = [:]
-        var error: GitProcessRunnerError?
-        var calls: [[String]] = []
-    }
-
-    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
-
-    var error: GitProcessRunnerError? {
-        get { lock.withLock { $0.error } }
-        set { lock.withLock { $0.error = newValue } }
-    }
-
-    var calls: [[String]] {
-        lock.withLock { $0.calls }
-    }
-
-    // Queue a script for `args`. Each call to stream() consumes the first
-    // queued script for the matching args; this lets a test pre-program
-    // "first push fails with no-upstream, retry succeeds" by queuing two.
-    func enqueue(args: [String], lines: [GitStreamLine], exitCode: Int32) {
-        lock.withLock { state in
-            var existing = state.scripts[args] ?? []
-            existing.append(Script(lines: lines, exitCode: exitCode))
-            state.scripts[args] = existing
-        }
-    }
-
-    func stream(
-        binaryURL: URL,
-        args: [String],
-        cwd: URL?
-    ) async throws -> (AsyncStream<GitStreamLine>, () async -> GitStreamOutcome) {
-        let pulled: (script: Script?, error: GitProcessRunnerError?) = lock.withLock { state in
-            state.calls.append(args)
-            if let err = state.error { return (nil, err) }
-            var queue = state.scripts[args] ?? []
-            let head = queue.isEmpty ? nil : queue.removeFirst()
-            state.scripts[args] = queue
-            return (head, nil)
-        }
-        if let err = pulled.error { throw err }
-        let script = pulled.script ?? Script(lines: [], exitCode: 0)
-
-        let (stream, cont) = AsyncStream<GitStreamLine>.makeStream()
-        for line in script.lines { cont.yield(line) }
-        cont.finish()
-
-        let outcome: @Sendable () async -> GitStreamOutcome = {
-            GitStreamOutcome(exitCode: script.exitCode)
-        }
-        return (stream, outcome)
-    }
-}
-#endif

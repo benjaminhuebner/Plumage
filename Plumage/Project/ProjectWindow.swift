@@ -31,6 +31,7 @@ struct ProjectWindow: View {
     @State private var xcodeRunController: XcodeRunController
     @State private var showBuildLog = false
     @SceneStorage("claudeDock.open") private var isDockOpen = false
+    @AppStorage(ChatButtonPlacement.storageKey) private var chatButtonPlacement: ChatButtonPlacement = .floating
     @SceneStorage("inspector.terminal.open") private var isTerminalInspectorOpen = false
     // Previously the dock panel hosted a Chat/Terminal mode switcher whose
     // selection persisted under "terminalPaneMode". This branch moved the
@@ -66,9 +67,7 @@ struct ProjectWindow: View {
 
     init(handle: ProjectHandle) {
         self.handle = handle
-        let binary =
-            (try? ProductionProcessRunner.locateBinary())
-            ?? URL(filePath: "/dev/null")
+        let binary = Self.resolveClaudeBinary()
         let stateDirectory = Self.resolveStateDirectory(for: handle.url)
         self._session = State(
             initialValue: ClaudeSession(
@@ -98,6 +97,18 @@ struct ProjectWindow: View {
         let runModel = XcodeRunModel()
         self._xcodeRun = State(initialValue: runModel)
         self._xcodeRunController = State(initialValue: XcodeRunController(model: runModel))
+    }
+
+    // /dev/null keeps the sessions constructible; they fail visibly at attach.
+    private static func resolveClaudeBinary() -> URL {
+        do {
+            return try ProductionProcessRunner.locateBinary()
+        } catch {
+            Self.log.error(
+                "claude binary not found, falling back to /dev/null: \(String(describing: error), privacy: .public)"
+            )
+            return URL(filePath: "/dev/null")
+        }
     }
 
     // CCI never resolves bundles itself — the caller resolves here, at the open
@@ -209,9 +220,7 @@ struct ProjectWindow: View {
                     || terminalTabs.mainSession.effortChoice != terminalsEffort
                 {
                     terminalTabs.stopAll()
-                    let newBinary =
-                        (try? ProductionProcessRunner.locateBinary())
-                        ?? URL(filePath: "/dev/null")
+                    let newBinary = Self.resolveClaudeBinary()
                     let newInitial = TerminalClaudeSession(
                         cwd: handle.url, binaryURL: newBinary,
                         stateDirectory: stateDirectory,
@@ -397,6 +406,7 @@ struct ProjectWindow: View {
                         onRecheck: {
                             Task { await indicator.detect(using: processRunner) }
                         },
+                        showsButton: chatButtonPlacement == .floating,
                         isOpen: $isDockOpen
                     )
                 }
@@ -436,7 +446,7 @@ struct ProjectWindow: View {
                 Button {
                     isTerminalInspectorOpen.toggle()
                 } label: {
-                    Image(systemName: "sidebar.right")
+                    Image(systemName: "apple.terminal")
                         .foregroundStyle(
                             isTerminalInspectorOpen ? Color.accentColor : Color.primary
                         )
@@ -552,7 +562,10 @@ struct ProjectWindow: View {
                     queueEntries: QueueDisplayBuilder.entries(from: runStatus.queuedRuns) {
                         terminalTabs.findWorkflowTab(action: .implement, slug: $0) != nil
                     },
-                    onCancelQueued: cancelQueuedRun(_:)
+                    onCancelQueued: cancelQueuedRun(_:),
+                    chatIsWorking: session.awaitingResponse,
+                    onToggleChat: chatButtonPlacement == .statusBar
+                        ? { isDockOpen.toggle() } : nil
                 )
             }
             // Derived isPresented binding is the standard confirmationDialog
@@ -632,7 +645,7 @@ struct ProjectWindow: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Couldn't open this project.")
                     .font(.headline)
-                Text(Self.message(for: error))
+                Text(error.localizedDescription)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     Button("Try Again") {
@@ -650,8 +663,7 @@ struct ProjectWindow: View {
     }
 
     private var displayTitle: String {
-        if case .loaded(let config) = model.state { return config.name }
-        return handle.url.lastPathComponent
+        if case .loaded(let config) = model.state { config.name } else { handle.url.lastPathComponent }
     }
 
     private var removalDialogTitle: String {
@@ -682,7 +694,7 @@ struct ProjectWindow: View {
     // dialog offering a stale slug — close the dialog instead.
     private func cancelStalePendingImplement(_ rewrites: [RouteRewrite]) {
         guard let pending = workflowLauncher.pendingImplement else { return }
-        let issuePath = ".claude/issues/" + pending.slug
+        let issuePath = IssueLayout.issuesRelativePrefix + pending.slug
         for rewrite in rewrites {
             switch rewrite {
             case .moved(let old, _), .removed(let old):
@@ -723,8 +735,7 @@ struct ProjectWindow: View {
     }
 
     private var isLoaded: Bool {
-        if case .loaded = model.state { return true }
-        return false
+        if case .loaded = model.state { true } else { false }
     }
 
     private func runWorkflow(_ action: WorkflowAction, folderName: String, issueType: IssueType) {
@@ -781,8 +792,7 @@ struct ProjectWindow: View {
     }
 
     private func currentConfig() -> ProjectConfig? {
-        if case .loaded(let config) = model.state { return config }
-        return nil
+        if case .loaded(let config) = model.state { config } else { nil }
     }
 
     private static let log = Logger(subsystem: "com.plumage", category: "runWorkflow")
@@ -824,23 +834,6 @@ struct ProjectWindow: View {
             }
         } else {
             if createIssueAction != nil { createIssueAction = nil }
-        }
-    }
-
-    static func message(for error: ConfigLoader.LoadError) -> String {
-        switch error {
-        case .noBundle(let folder):
-            return "No Plumage bundle at \(folder.path)."
-        case .noConfigFile(let bundle):
-            return "Plumage bundle at \(bundle.path) has no config.json."
-        case .multipleBundles(let urls):
-            let names = urls.map { $0.lastPathComponent }.joined(separator: ", ")
-            return "Multiple Plumage bundles found: \(names). Expected exactly one."
-        case .schemaTooNew(let version, let supportedUpTo):
-            return
-                "This project needs a newer Plumage (config schemaVersion \(version), this build supports up to \(supportedUpTo))."
-        case .invalidJSON(let message):
-            return "This Plumage config is invalid: \(message)"
         }
     }
 }

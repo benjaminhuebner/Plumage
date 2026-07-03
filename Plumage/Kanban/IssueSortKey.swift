@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated extension IssueColumn {
     var canonicalDropStatus: IssueStatus {
         switch self {

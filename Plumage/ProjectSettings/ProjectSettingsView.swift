@@ -47,7 +47,13 @@ struct ProjectSettingsView: View {
         }
         .overlay(alignment: .bottom) {
             if case .failed(let message) = model.saveStatus {
-                saveErrorBanner(message: message)
+                ErrorBanner(
+                    message: message,
+                    title: "Save failed",
+                    onRetry: { Task { await model.saveNow() } },
+                    onDismiss: { model.dismissSaveError() }
+                )
+                .padding(16)
             }
         }
     }
@@ -141,7 +147,11 @@ struct ProjectSettingsView: View {
                 Spacer(minLength: 0)
             }
             if case .failed(let message) = model.renameStatus {
-                renameErrorBanner(message: message)
+                ErrorBanner(
+                    message: message,
+                    title: "Rename failed",
+                    onDismiss: { model.dismissRenameError() }
+                )
             }
         }
         .confirmationDialog(
@@ -156,31 +166,6 @@ struct ProjectSettingsView: View {
                 "Renames the bundle on disk to “\(model.trimmedProjectName).plumage” and updates the window title. A running chat session keeps going."
             )
         }
-    }
-
-    @ViewBuilder
-    private func renameErrorBanner(message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Rename failed")
-                    .font(.subheadline).bold()
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button {
-                model.dismissRenameError()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss")
-        }
-        .padding(12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -357,34 +342,6 @@ struct ProjectSettingsView: View {
                 .foregroundStyle(.secondary)
                 .font(.callout)
         }
-    }
-
-    @ViewBuilder
-    private func saveErrorBanner(message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Save failed")
-                    .font(.subheadline).bold()
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Retry") { Task { await model.saveNow() } }
-                .controlSize(.small)
-            Button {
-                model.dismissSaveError()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss")
-        }
-        .padding(12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
-        .padding(16)
     }
 
     private func insertPlaceholder(_ placeholder: WorkflowPlaceholder, into binding: Binding<String>) {

@@ -1,5 +1,3 @@
-import Foundation
-
 extension IssueStatus {
     var label: String {
         switch self {

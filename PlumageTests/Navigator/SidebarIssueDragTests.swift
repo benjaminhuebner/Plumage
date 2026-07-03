@@ -13,7 +13,7 @@ struct SidebarIssueDragTests {
         model._setIssuesForTesting([.valid(issue)])
 
         model.applyOptimisticDrop(
-            IssueDragPayload(folderName: "00007-x", currentStatus: .draft),
+            IssueDragPayload(folderName: "00007-x"),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -36,7 +36,7 @@ struct SidebarIssueDragTests {
         model._setIssuesForTesting([.valid(first), .valid(second), .valid(third)])
 
         model.applyOptimisticDrop(
-            IssueDragPayload(folderName: "00003-c", currentStatus: .draft),
+            IssueDragPayload(folderName: "00003-c"),
             to: .aboveCard(folderName: "00002-b", column: .todo),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -61,7 +61,7 @@ struct SidebarIssueDragTests {
         model._setIssuesForTesting([.valid(issue)])
 
         model.applyOptimisticDrop(
-            IssueDragPayload(folderName: "00007-x", currentStatus: .draft),
+            IssueDragPayload(folderName: "00007-x"),
             to: .column(.todo),
             projectURL: URL(filePath: "/tmp/probe")
         )

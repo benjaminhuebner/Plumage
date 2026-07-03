@@ -49,7 +49,7 @@ struct SimulatorCatalogTests {
     func bootedStatePreserved() throws {
         let data = try loadFixture("simctl-devices.json")
         let sims = try SimulatorCatalog.parseDevices(data: data)
-        let booted = try #require(sims.first { $0.isBooted })
+        let booted = try #require(sims.first { $0.state == .booted })
         #expect(booted.name == "iPad Pro 13")
     }
 

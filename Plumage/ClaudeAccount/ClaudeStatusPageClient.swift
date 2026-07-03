@@ -10,6 +10,32 @@ nonisolated protocol HTTPFetching: Sendable {
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse)
 }
 
+nonisolated extension HTTPFetching {
+    // Shared plumbing for the ClaudeAccount pollers: cancellation (either
+    // CancellationError or URLError.cancelled) surfaces as CancellationError,
+    // other failures map through `transportError`, non-2xx through `statusError`.
+    func successData(
+        for request: URLRequest,
+        transportError: (any Error) -> any Error,
+        statusError: (Int) -> any Error
+    ) async throws -> Data {
+        let (data, response): (Data, HTTPURLResponse)
+        do {
+            (data, response) = try await self.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw transportError(error)
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            throw statusError(response.statusCode)
+        }
+        return data
+    }
+}
+
 nonisolated struct ProductionHTTPFetcher: HTTPFetching {
     let session: URLSession
 
@@ -60,21 +86,14 @@ nonisolated struct ClaudeStatusPageClient: Sendable {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response): (Data, HTTPURLResponse)
-        do {
-            (data, response) = try await fetcher.data(for: request)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as URLError where error.code == .cancelled {
-            throw CancellationError()
-        } catch let error as ClaudeStatusPageError {
-            throw error
-        } catch {
-            throw ClaudeStatusPageError.transport(error.localizedDescription)
-        }
-        guard (200..<300).contains(response.statusCode) else {
-            throw ClaudeStatusPageError.serverError(response.statusCode)
-        }
+        let data = try await fetcher.successData(
+            for: request,
+            transportError: { error in
+                // ProductionHTTPFetcher's own errors are already in domain shape.
+                (error as? ClaudeStatusPageError)
+                    ?? ClaudeStatusPageError.transport(error.localizedDescription)
+            },
+            statusError: { ClaudeStatusPageError.serverError($0) })
         do {
             return try ClaudeStatusPageResponse.decode(data: data)
         } catch {

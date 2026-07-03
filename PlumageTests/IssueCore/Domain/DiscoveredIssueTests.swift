@@ -68,36 +68,6 @@ struct DiscoveredIssueTests {
         #expect(valid != invalid)
     }
 
-    @Test("sortKey for valid uses issue id and folder name")
-    func sortKeyValid() {
-        let issue = DiscoveredIssue.valid(sampleIssue(id: 7, folderName: "00007-bravo"))
-        let key = issue.sortKey
-        #expect(key.0 == 7)
-        #expect(key.1 == "00007-bravo")
-    }
-
-    @Test("sortKey for invalid with extractable id uses that id")
-    func sortKeyInvalidExtractableId() {
-        let invalid = DiscoveredIssue.invalid(
-            folder: URL(filePath: "/x/00042-broken"),
-            error: .missingFrontmatter
-        )
-        let key = invalid.sortKey
-        #expect(key.0 == 42)
-        #expect(key.1 == "00042-broken")
-    }
-
-    @Test("sortKey for invalid without extractable id falls back to Int.max")
-    func sortKeyInvalidFallback() {
-        let invalid = DiscoveredIssue.invalid(
-            folder: URL(filePath: "/x/no-id-prefix"),
-            error: .missingFrontmatter
-        )
-        let key = invalid.sortKey
-        #expect(key.0 == .max)
-        #expect(key.1 == "no-id-prefix")
-    }
-
     private func sampleIssue(
         id: Int,
         folderName: String,

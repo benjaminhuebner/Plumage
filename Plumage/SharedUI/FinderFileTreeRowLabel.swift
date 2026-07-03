@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 // The one visual language both trees share: real workspace icon + name.

@@ -12,7 +12,7 @@ struct GitWorkingDiffRunnerTests {
     func gitNotFoundShortCircuits() async {
         let mock = MockGitProcessRunner()
         let runner = GitWorkingDiffRunner(runner: mock, resolveBinary: { nil })
-        await #expect(throws: GitWorkingDiffError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             _ = try await runner.diffWorking(repoURL: self.repoURL, path: "foo.swift")
         }
         #expect(mock.recordedCalls.isEmpty)
@@ -50,7 +50,7 @@ struct GitWorkingDiffRunnerTests {
         mock.stderrForArgs[args] = "fatal: bad path\n"
         let runner = GitWorkingDiffRunner(runner: mock, resolveBinary: { self.binaryURL })
 
-        await #expect(throws: GitWorkingDiffError.self) {
+        await #expect(throws: GitCommandError.self) {
             _ = try await runner.diffWorking(repoURL: self.repoURL, path: "nope")
         }
     }

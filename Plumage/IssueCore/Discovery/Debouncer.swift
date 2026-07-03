@@ -1,5 +1,3 @@
-import Foundation
-
 actor Debouncer<C: Clock> where C.Duration == Duration {
     private let window: Duration
     private let clock: C

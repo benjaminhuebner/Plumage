@@ -218,9 +218,14 @@ private struct CommitDiffFileSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(file.path)
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text(file.path)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                if let modeChange = file.modeChange {
+                    DiffModeChangeLabel(modeChange: modeChange)
+                }
+            }
             ForEach(Array(file.hunks.enumerated()), id: \.offset) { _, hunk in
                 CommitDiffHunk(hunk: hunk)
             }
@@ -233,7 +238,7 @@ private struct CommitDiffHunk: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(hunkHeader)
+            Text(hunk.headerLine)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 4)
@@ -243,9 +248,5 @@ private struct CommitDiffHunk: View {
         .padding(8)
         .background(.background.secondary)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private var hunkHeader: String {
-        "@@ -\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@"
     }
 }

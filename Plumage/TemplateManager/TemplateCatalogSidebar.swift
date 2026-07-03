@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 // Left column: the three tiers in order — Base, then a Shared Components group,

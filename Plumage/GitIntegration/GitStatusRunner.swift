@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 // Per-file status from `git status --porcelain=v1 -z`. Two single-character
 // codes: stagedStatus reflects the index (HEAD → index), unstagedStatus the
@@ -16,7 +15,6 @@ nonisolated struct GitFileStatus: Sendable, Equatable, Hashable, Identifiable {
 
     var isUntracked: Bool { stagedStatus == "?" && unstagedStatus == "?" }
     var isStaged: Bool { !isUntracked && stagedStatus != " " }
-    var isUnstaged: Bool { !isUntracked && unstagedStatus != " " }
 
     // Single-letter badge for UI rendering — picks staged status first, falls
     // back to unstaged, treats untracked as "?". Mirrors what git prints in
@@ -29,19 +27,10 @@ nonisolated struct GitFileStatus: Sendable, Equatable, Hashable, Identifiable {
 }
 
 nonisolated enum GitStatusError: Error, Sendable, Equatable {
-    case gitNotFound
-    case nonZeroExit(code: Int32, stderr: String)
-    case spawnFailed(String)
     case malformedOutput(String)
 
     var displayMessage: String {
         switch self {
-        case .gitNotFound:
-            return "`git` not found — are the Command Line Tools installed?"
-        case .nonZeroExit(_, let stderr):
-            return "git status failed: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
-        case .spawnFailed(let description):
-            return "Failed to launch git: \(description)"
         case .malformedOutput(let detail):
             return "git status output malformed: \(detail)"
         }
@@ -52,7 +41,7 @@ nonisolated protocol GitStatusRunning: Sendable {
     func run(repoURL: URL) async throws -> [GitFileStatus]
 }
 
-nonisolated struct GitStatusRunner: GitStatusRunning {
+nonisolated struct GitStatusRunner: GitStatusRunning, GitCommandRunning {
     let runner: any GitProcessRunning
     let resolveBinary: @Sendable () -> URL?
 
@@ -65,22 +54,11 @@ nonisolated struct GitStatusRunner: GitStatusRunning {
     }
 
     func run(repoURL: URL) async throws -> [GitFileStatus] {
-        guard let binary = resolveBinary() else { throw GitStatusError.gitNotFound }
-
-        let result: GitSpawnResult
-        do {
-            result = try await runner.run(
-                binaryURL: binary,
-                args: ["-C", repoURL.path, "status", "--porcelain=v1", "-z"],
-                cwd: nil
-            )
-        } catch let error as GitProcessRunnerError {
-            throw Self.map(error)
-        }
-        if result.exitCode != 0 {
-            let stderr = String(decoding: result.stderr, as: UTF8.self)
-            throw GitStatusError.nonZeroExit(code: result.exitCode, stderr: stderr)
-        }
+        let result = try await invokeGit(
+            repoURL: repoURL,
+            args: ["status", "--porcelain=v1", "-z"],
+            command: "git status"
+        )
         return try Self.parse(result.stdout)
     }
 
@@ -154,49 +132,4 @@ nonisolated struct GitStatusRunner: GitStatusRunning {
         }
         return results
     }
-
-    static func map(_ error: GitProcessRunnerError) -> GitStatusError {
-        switch error {
-        case .gitNotFound: return .gitNotFound
-        case .spawnFailed(let description): return .spawnFailed(description)
-        case .nonZeroExit(let code, let stderr): return .nonZeroExit(code: code, stderr: stderr)
-        }
-    }
 }
-
-#if DEBUG
-// Test-only stub for higher-level features (GitCommitModel, ProjectStatusBar).
-// @unchecked Sendable: all mutable state lives inside the
-// OSAllocatedUnfairLock<State>; every access goes through withLock.
-nonisolated final class MockGitStatusRunner: GitStatusRunning, @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
-    private struct State: Sendable {
-        var outputs: [URL: [GitFileStatus]] = [:]
-        var error: GitStatusError?
-        var calls: [URL] = []
-    }
-
-    var outputs: [URL: [GitFileStatus]] {
-        get { lock.withLock { $0.outputs } }
-        set { lock.withLock { $0.outputs = newValue } }
-    }
-
-    var error: GitStatusError? {
-        get { lock.withLock { $0.error } }
-        set { lock.withLock { $0.error = newValue } }
-    }
-
-    var calls: [URL] {
-        lock.withLock { $0.calls }
-    }
-
-    func run(repoURL: URL) async throws -> [GitFileStatus] {
-        let result: (error: GitStatusError?, output: [GitFileStatus]) = lock.withLock { state in
-            state.calls.append(repoURL)
-            return (state.error, state.outputs[repoURL] ?? [])
-        }
-        if let error = result.error { throw error }
-        return result.output
-    }
-}
-#endif

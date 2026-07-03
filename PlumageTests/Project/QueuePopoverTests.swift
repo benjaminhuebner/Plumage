@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 
 @testable import Plumage
@@ -7,9 +6,9 @@ struct QueuePopoverTests {
     @Test("entries keep FIFO order with 1-based positions")
     func fifoPositions() {
         let queue = [
-            QueuedImplementRun(issue: "00020-first", agentPid: 100),
-            QueuedImplementRun(issue: "00021-second", agentPid: 101),
-            QueuedImplementRun(issue: "00022-third", agentPid: 102),
+            QueuedImplementRun(issue: "00020-first"),
+            QueuedImplementRun(issue: "00021-second"),
+            QueuedImplementRun(issue: "00022-third"),
         ]
 
         let entries = QueueDisplayBuilder.entries(from: queue) { _ in false }
@@ -21,8 +20,8 @@ struct QueuePopoverTests {
     @Test("ownership classification marks only tab-owned slugs cancelable")
     func ownershipClassification() {
         let queue = [
-            QueuedImplementRun(issue: "00020-plumage-owned", agentPid: 100),
-            QueuedImplementRun(issue: "00021-external", agentPid: 101),
+            QueuedImplementRun(issue: "00020-plumage-owned"),
+            QueuedImplementRun(issue: "00021-external"),
         ]
         let owned: Set<String> = ["00020-plumage-owned"]
 

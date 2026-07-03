@@ -17,6 +17,9 @@ struct SpecTabView: View {
             language: language
         )
         .environment(\.codeEditorLayoutConfiguration, layout)
-        .frame(minHeight: 240)
+        // Fill the available height instead of sizing to content: the editor's
+        // own scroll view absorbs document growth, so a keystroke that adds a
+        // line no longer re-solves the whole detail view's layout (a typing stutter).
+        .frame(minHeight: 240, maxHeight: .infinity)
     }
 }

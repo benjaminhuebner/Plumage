@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ClaudeDockPanel: View {
     static let preferredWidth: CGFloat = 420
-    static let preferredHeight: CGFloat = 560
+    private static let preferredHeight: CGFloat = 560
     static let cornerRadius: CGFloat = 28
 
     let session: ClaudeSession
@@ -162,7 +162,6 @@ private struct DockPanelHeader: View {
 }
 
 #Preview("Loading") {
-    @Previewable @State var open = true
     let session = ClaudeSession(
         cwd: URL(filePath: "/tmp"),
         binaryURL: URL(filePath: "/usr/bin/true"),
@@ -172,7 +171,7 @@ private struct DockPanelHeader: View {
     return ClaudeDockPanel(
         session: session,
         indicatorState: .loading,
-        isOpen: $open
+        isOpen: .constant(true)
     )
     .padding(40)
 }

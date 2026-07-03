@@ -18,14 +18,6 @@ nonisolated enum ProjectRenamer {
         case configWriteFailed(message: String)
     }
 
-    // Same rule as MigrateProjectModel.isValidName: a bundle folder name must be
-    // a single, non-empty path component. Kept here so a rename can validate
-    // without reaching into the migrate UI module.
-    static func isValidName(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && !trimmed.contains("/") && trimmed != "." && trimmed != ".."
-    }
-
     // Transactional, fail-safe: validate → resolve current bundle → move folder
     // → write config.name. A config-write failure after a successful move rolls
     // the move back so disk is never left half-renamed. Returns the new bundle
@@ -35,7 +27,7 @@ nonisolated enum ProjectRenamer {
     @discardableResult
     static func rename(projectRoot: URL, newName: String) throws -> URL {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isValidName(trimmed) else { throw RenameError.invalidName }
+        guard BundleNameRules.isValid(trimmed) else { throw RenameError.invalidName }
 
         let fm = FileManager.default
         let oldBundle: URL

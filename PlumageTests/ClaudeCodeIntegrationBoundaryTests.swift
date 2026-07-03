@@ -1,8 +1,6 @@
 import Foundation
 import Testing
 
-@testable import Plumage
-
 @Suite("ClaudeCodeIntegration boundary")
 struct ClaudeCodeIntegrationBoundaryTests {
     @Test("no forbidden patterns outside ClaudeCodeIntegration/")

@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 // Shared output event for both push and pull. The view consumes this stream
 // directly — each line is appended to the live output view, the outcome
@@ -25,14 +24,11 @@ nonisolated enum GitSyncOperation: Sendable, Equatable {
 
 nonisolated enum GitSyncError: Error, Sendable, Equatable {
     case gitNotFound
-    case spawnFailed(String)
 
     var displayMessage: String {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"
-        case .spawnFailed(let description):
-            return "Failed to launch git: \(description)"
         }
     }
 }
@@ -60,13 +56,8 @@ nonisolated enum AuthPromptDetector {
 }
 
 nonisolated enum NoUpstreamDetector {
-    // Stderr fragments that indicate "git push" failed solely because the
-    // current branch has no upstream tracking. Matched on stderr only.
-    static let patterns: [String] = [
-        "has no upstream branch",
-        "set-upstream",
-    ]
-
+    // Detects "git push" failing solely because the current branch has no
+    // upstream tracking. Matched on stderr only.
     static func looksLikeMissingUpstream(_ lines: [String]) -> Bool {
         let joined = lines.joined(separator: "\n")
         // Both fragments must appear together. `set-upstream` alone could

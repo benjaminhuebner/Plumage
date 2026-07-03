@@ -5,11 +5,11 @@ import os
 // else the bundled original — per-file (not per-directory) so an override is never
 // all-or-nothing. The store lives under Application Support, never the Claude config
 // directory, so the ClaudeCodeIntegration boundary stays intact.
-nonisolated enum ScaffoldOverridesError: Error, Equatable {
+nonisolated enum ScaffoldOverridesError: LocalizedError, Equatable {
     case noOverrideStore
     case escapesStore(String)
 
-    var localizedDescription: String {
+    var errorDescription: String? {
         switch self {
         case .noOverrideStore:
             return "No override store is available."
@@ -73,6 +73,12 @@ nonisolated struct ScaffoldOverrides: Sendable {
             return override
         }
         return bundledRoot.appending(path: relativePath)
+    }
+
+    // `url(forRelative:)` when the resolved file actually exists on disk, else nil.
+    func existingURL(forRelative relativePath: String) -> URL? {
+        let resolved = url(forRelative: relativePath)
+        return FileManager.default.fileExists(atPath: resolved.path) ? resolved : nil
     }
 
     func data(atRelative relativePath: String) throws -> Data {
@@ -215,10 +221,6 @@ nonisolated struct ScaffoldOverrides: Sendable {
                 "tombstones.json unreadable: \(String(describing: error), privacy: .public)")
             return []
         }
-    }
-
-    func isSuppressed(relativePath: String) -> Bool {
-        suppressedRelativePaths().contains(relativePath)
     }
 
     func suppress(relativePath: String) throws {

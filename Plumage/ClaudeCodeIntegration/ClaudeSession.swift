@@ -21,9 +21,9 @@ final class ClaudeSession {
 
         var displayName: String {
             switch self {
-            case .userClosed: return "userClosed"
-            case .crashed: return "crashed"
-            case .killed: return "killed"
+            case .userClosed: "userClosed"
+            case .crashed: "crashed"
+            case .killed: "killed"
             }
         }
     }
@@ -32,7 +32,6 @@ final class ClaudeSession {
         let id: UUID
         let role: Role
         let text: String
-        let timestamp: Date
 
         enum Role: Sendable, Equatable {
             case user
@@ -46,7 +45,7 @@ final class ClaudeSession {
     let modelChoice: ModelChoice
     let effortChoice: EffortLevel
     private let autoSpawn: Bool
-    private let sessionLogRoot: URL
+    let sessionLogRoot: URL
     // var, not let: a project rename moves the bundle folder, so the
     // bundle-derived chat-id store path changes. repointSessionStore updates it
     // for future writes without disturbing the running subprocess.
@@ -64,7 +63,7 @@ final class ClaudeSession {
     private var process: Process?
     private var stdinHandle: FileHandle?
     private var readTask: Task<Void, Never>?
-    private var subcommandTask: Task<Void, Never>?
+    var subcommandTask: Task<Void, Never>?
 
     // sessionLogRoot is injectable so tests avoid the real home. The chat-id store
     // under stateDirectory's `sessions/` persists the conversation UUID across
@@ -100,12 +99,12 @@ final class ClaudeSession {
             .appendingPathComponent("chat-id")
         self.sessionIDStoreURL = storeURL
 
-        if let persisted = Self.loadPersistedID(from: storeURL) {
+        if let persisted = ClaudeSessionStorage.loadPersistedID(from: storeURL) {
             self.conversationID = persisted
         } else {
             let fresh = UUID().uuidString.lowercased()
             self.conversationID = fresh
-            Self.persistID(fresh, to: storeURL)
+            ClaudeSessionStorage.persistID(fresh, to: storeURL)
         }
     }
 
@@ -176,10 +175,7 @@ final class ClaudeSession {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        if Self.looksLikeLocalCommand(trimmed) {
-            handleLocalSlashCommand(trimmed)
-            return
-        }
+        if handleIfLocalCommand(trimmed) { return }
 
         await sendUserMessage(trimmed)
     }
@@ -187,7 +183,7 @@ final class ClaudeSession {
     private func sendUserMessage(_ trimmed: String) async {
         guard case .running = state else { return }
         messages.append(
-            ChatMessage(id: UUID(), role: .user, text: trimmed, timestamp: .now)
+            ChatMessage(id: UUID(), role: .user, text: trimmed)
         )
         awaitingResponse = true
 
@@ -201,139 +197,7 @@ final class ClaudeSession {
         }
     }
 
-    // A Plumage slash command is a single leading-slash token with no interior
-    // slashes ("/clear"). A Finder-dropped absolute path also starts with "/" but
-    // carries interior slashes — route those to claude as a normal message.
-    private nonisolated static func looksLikeLocalCommand(_ trimmed: String) -> Bool {
-        guard trimmed.hasPrefix("/") else { return false }
-        let firstToken =
-            trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? trimmed
-        return !firstToken.dropFirst().contains("/")
-    }
-
-    func handleLocalSlashCommand(_ text: String) {
-        let command = text.split(separator: " ", maxSplits: 1).first.map(String.init) ?? text
-        switch command.lowercased() {
-        case "/clear", "/restart":
-            clearAndRestart()
-        case "/exit", "/quit":
-            stop()
-        case "/status":
-            appendSystemMessage(statusReport())
-        case "/mcp":
-            appendSystemMessage("Listing MCP servers…")
-            // Tracked so stop()/clearAndRestart() can cancel the child via
-            // dispatchSubcommand's withTaskCancellationHandler; cancelling the
-            // prior subcommand prevents two slash commands racing for the slot.
-            subcommandTask?.cancel()
-            subcommandTask = Task { [weak self] in
-                await self?.dispatchSubcommand(["mcp", "list"], label: "MCP servers")
-            }
-        case "/doctor":
-            appendSystemMessage("Running claude doctor…")
-            subcommandTask?.cancel()
-            subcommandTask = Task { [weak self] in
-                await self?.dispatchSubcommand(["doctor"], label: "claude doctor")
-            }
-        case "/help":
-            appendSystemMessage(
-                """
-                Plumage commands:
-                  /clear     Clear chat and restart the claude session
-                  /restart   Same as /clear
-                  /exit      End the claude session
-                  /status    Show current session info
-                  /mcp       List configured MCP servers
-                  /doctor    Run claude doctor health check
-                  /help      Show this message
-
-                Other claude slash commands (e.g. /resume, /login, /model) only \
-                work in the interactive REPL — switch to Terminal mode for those.
-                """
-            )
-        default:
-            appendSystemMessage(
-                """
-                Unknown command: \(command). Plumage knows /clear, /restart, \
-                /exit, /status, /mcp, /doctor, /help. For claude's own REPL \
-                commands switch to Terminal mode.
-                """
-            )
-        }
-    }
-
-    private func statusReport() -> String {
-        let stateString: String
-        switch state {
-        case .idle: stateString = "idle"
-        case .starting: stateString = "starting"
-        case .running(let sid):
-            stateString = "running" + (sid.map { " (claude session: \($0))" } ?? "")
-        case .exited(let code, let reason): stateString = "ended (exit \(code), \(reason))"
-        }
-        return """
-            Conversation ID: \(conversationID)
-            State: \(stateString)
-            Messages: \(messages.count)
-            Working directory: \(cwd.path)
-            """
-    }
-
-    private func dispatchSubcommand(_ args: [String], label: String) async {
-        let binary = binaryURL
-        let workingDirectory = cwd
-        let process = Process()
-        process.executableURL = binary
-        process.arguments = args
-        process.currentDirectoryURL = workingDirectory
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        process.standardInput = FileHandle.nullDevice
-
-        // Await exit via terminationHandler, not waitUntilExit() — the latter
-        // deadlocks on the Swift cooperative pool. Reuses ProcessRunning's
-        // ClaudeProcessTermination.
-        let termination = ClaudeProcessTermination()
-        process.terminationHandler = { finished in
-            termination.complete(finished.terminationStatus)
-        }
-
-        do {
-            try process.run()
-        } catch {
-            process.terminationHandler = nil
-            appendSystemMessage("\(label):\nError: \(error.localizedDescription)")
-            return
-        }
-
-        // If the surrounding session is torn down (handOff/stop/clearAndRestart
-        // cancels this Task), send SIGTERM right away so the exit-await resolves
-        // instead of pinning a cooperative thread. Matches ProductionProcessRunner.
-        let output: String = await withTaskCancellationHandler {
-            // Drain the pipe in parallel with the exit-await: a subcommand emitting
-            // more than the ~64 KB pipe buffer would block on write() and never exit
-            // if we read post-exit. Off the cooperative pool — readToEnd() blocks.
-            async let data = Task.detached { () -> Data in
-                (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-            }.value
-            _ = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
-                termination.attach(continuation)
-            }
-            let text =
-                String(data: await data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return text.isEmpty ? "(no output)" : text
-        } onCancel: {
-            if process.isRunning {
-                process.terminate()
-            }
-        }
-        if Task.isCancelled { return }
-        appendSystemMessage("\(label):\n\(output)")
-    }
-
-    private func clearAndRestart() {
+    func clearAndRestart() {
         // Tear down the current process without going through handleExit's
         // state transition — we want to land in .starting → .running directly.
         process?.terminationHandler = nil
@@ -350,7 +214,7 @@ final class ClaudeSession {
         // next project-open's --resume targets the new conversation, not the
         // stale pre-clear one.
         conversationID = UUID().uuidString.lowercased()
-        Self.persistID(conversationID, to: sessionIDStoreURL)
+        ClaudeSessionStorage.persistID(conversationID, to: sessionIDStoreURL)
         messages = []
         awaitingResponse = false
         state = .starting(cwd: cwd)
@@ -366,7 +230,7 @@ final class ClaudeSession {
         stdinHandle = nil
         // Without cancelling readTask the AsyncStream's onTermination never fires,
         // so readabilityHandler keeps stdoutHandle + LineBuffer alive even though
-        // the subprocess is gone. handleExit/handOff/clearAndRestart do this too.
+        // the subprocess is gone. handleExit/clearAndRestart do this too.
         readTask?.cancel()
         readTask = nil
         subcommandTask?.cancel()
@@ -402,38 +266,14 @@ final class ClaudeSession {
             + effortChoice.settingsCLIArgs
     }
 
-    // --session-id when the session file doesn't exist yet, --resume otherwise.
-    // claude's --session-id is strictly "create new" (rejects with "Session ID …
-    // already in use" if the .jsonl exists), so we can't pass it on every spawn.
     func resumeOrInitArgs() -> [String] {
-        guard sessionLogExists() else {
-            return ["--session-id", conversationID]
-        }
-        return ["--resume", conversationID]
+        ClaudeSessionStorage.resumeOrInitArgs(
+            conversationID: conversationID, logRoot: sessionLogRoot, cwd: cwd)
     }
 
-    private func sessionLogExists() -> Bool {
-        FileManager.default.fileExists(atPath: sessionLogURL().path)
-    }
-
-    private func sessionLogURL() -> URL {
-        // `/` → `-` mirrors claude CLI's session-log encoding so Plumage finds the
-        // same .jsonl claude writes. Paths with `-` could collide post-encoding, but
-        // matching claude is the contract — keep in sync if its scheme changes.
-        let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
-        return
-            sessionLogRoot
-            .appendingPathComponent(encoded)
-            .appendingPathComponent("\(conversationID).jsonl")
-    }
-
-    // Rehydration replaces `messages` from claude's saved session log (including
-    // terminal-mode turns Plumage never saw on stdout). Skipped once populated —
-    // the in-memory list is live after first hydration; /clear forces a re-read.
-    nonisolated static let defaultRehydrationCap = 200
-    // Internal so tests can drive rehydrate against an injected sessionLogRoot
-    // without a real subprocess. Disk I/O and the decode pass run detached —
-    // a slow filesystem or a hundreds-of-KB log must not block the main thread.
+    // Replaces `messages` from claude's saved session log (incl. terminal-mode
+    // turns); skipped once populated — /clear forces a re-read. Internal for
+    // tests; disk I/O + decode run detached so they never block the main thread.
     func rehydrateMessagesFromSessionLog() async {
         guard messages.isEmpty else { return }
         let file = sessionLogURL()
@@ -446,66 +286,6 @@ final class ClaudeSession {
         // clobber a non-empty list with a rehydration of the prior session.
         guard messages.isEmpty, !hydrated.isEmpty else { return }
         messages = hydrated
-    }
-
-    // Explicit list, not a generic "<" heuristic — a real user message may
-    // start with markup and must survive rehydration.
-    nonisolated private static let machineWrapperPrefixes = [
-        "<command-", "<local-command-",
-        "<bash-input>", "<bash-stdout>", "<bash-stderr>",
-        "<system-reminder>",
-    ]
-
-    nonisolated private static func parseSessionLog(at file: URL, cap: Int) -> [ChatMessage] {
-        guard let data = try? Data(contentsOf: file),
-            let raw = String(data: data, encoding: .utf8)
-        else { return [] }
-
-        var hydrated: [ChatMessage] = []
-        for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let lineData = line.data(using: .utf8),
-                let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
-            else { continue }
-            // claude logs many side-streams (hooks, snapshots, sidechain).
-            if json["isSidechain"] as? Bool == true { continue }
-            if json["attachment"] != nil { continue }
-            guard let type = json["type"] as? String,
-                let message = json["message"] as? [String: Any]
-            else { continue }
-            let role: ChatMessage.Role
-            switch type {
-            case "user": role = .user
-            case "assistant": role = .assistant
-            default: continue
-            }
-            guard let text = Self.extractText(from: message["content"]),
-                !text.isEmpty
-            else { continue }
-            // Drop only the known wrapper payloads — a user message that
-            // merely starts with markup must survive rehydration.
-            if Self.machineWrapperPrefixes.contains(where: text.hasPrefix) { continue }
-            hydrated.append(
-                ChatMessage(id: UUID(), role: role, text: text, timestamp: .now)
-            )
-        }
-        // Bound the in-memory list — sessions can grow into thousands of
-        // turns and we only need the recent tail to keep the conversation
-        // legible in chat mode.
-        return Array(hydrated.suffix(cap))
-    }
-
-    private nonisolated static func extractText(from content: Any?) -> String? {
-        if let str = content as? String { return str }
-        if let array = content as? [[String: Any]] {
-            let texts = array.compactMap { item -> String? in
-                guard let type = item["type"] as? String, type == "text",
-                    let text = item["text"] as? String
-                else { return nil }
-                return text
-            }
-            return texts.joined(separator: "\n")
-        }
-        return nil
     }
 
     func handleEvent(_ event: ClaudeStreamEvent) {
@@ -523,9 +303,16 @@ final class ClaudeSession {
             for content in contents {
                 appendAssistant(content)
             }
-        case .result:
+        case .result(let isError, let text):
             guard case .running = state else { return }
             awaitingResponse = false
+            // An error result would otherwise vanish silently — the turn just
+            // ends with no assistant output and no hint why.
+            if isError {
+                let detail = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                appendSystemMessage(
+                    detail.isEmpty ? "claude reported an error for this turn." : detail)
+            }
         }
     }
 
@@ -627,43 +414,9 @@ final class ClaudeSession {
         }
     }
 
-    // @unchecked Sendable: NSLock serializes every access to `partial` (mutated from
-    // readabilityHandler's queue and onTermination). Splits raw bytes on 0x0A before
-    // decoding — whole-chunk decode drops data when UTF-8 spans a chunk boundary.
-    nonisolated final class LineBuffer: @unchecked Sendable {
-        private let lock = NSLock()
-        private var partial = Data()
-
-        func append(_ data: Data) -> [String] {
-            lock.lock()
-            defer { lock.unlock() }
-            partial.append(data)
-            var lines: [String] = []
-            // Most stdout chunks carry zero or one newline; preallocate
-            // for the common case so a streaming burst doesn't trip the
-            // array's growth doubling on every chunk.
-            lines.reserveCapacity(4)
-            while let nl = partial.firstIndex(of: 0x0A) {
-                lines.append(
-                    String(decoding: partial[partial.startIndex..<nl], as: UTF8.self))
-                partial.removeSubrange(partial.startIndex...nl)
-            }
-            return lines
-        }
-
-        func flush() -> String? {
-            lock.lock()
-            defer { lock.unlock() }
-            guard !partial.isEmpty else { return nil }
-            let remaining = String(decoding: partial, as: UTF8.self)
-            partial = Data()
-            return remaining
-        }
-    }
-
-    private func appendSystemMessage(_ text: String) {
+    func appendSystemMessage(_ text: String) {
         appendMessage(
-            ChatMessage(id: UUID(), role: .system, text: text, timestamp: .now)
+            ChatMessage(id: UUID(), role: .system, text: text)
         )
     }
 
@@ -671,15 +424,14 @@ final class ClaudeSession {
         switch content {
         case .text(let text):
             appendMessage(
-                ChatMessage(id: UUID(), role: .assistant, text: text, timestamp: .now)
+                ChatMessage(id: UUID(), role: .assistant, text: text)
             )
         case .toolUse(let name):
             appendMessage(
                 ChatMessage(
                     id: UUID(),
                     role: .assistant,
-                    text: "🔧 Tool: \(name)",
-                    timestamp: .now
+                    text: "🔧 Tool: \(name)"
                 )
             )
         case .other:
@@ -706,27 +458,11 @@ final class ClaudeSession {
         switch reason {
         case .uncaughtSignal:
             switch code {
-            case SIGTERM, SIGKILL, SIGINT, SIGHUP: return .killed
-            default: return .crashed
+            case SIGTERM, SIGKILL, SIGINT, SIGHUP: .killed
+            default: .crashed
             }
         default:
-            return code == 0 ? .userClosed : .crashed
+            code == 0 ? .userClosed : .crashed
         }
-    }
-
-    private nonisolated static func loadPersistedID(from url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url),
-            let raw = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty
-        else { return nil }
-        return raw
-    }
-
-    private nonisolated static func persistID(_ id: String, to url: URL) {
-        let parent = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: parent, withIntermediateDirectories: true)
-        try? id.write(to: url, atomically: true, encoding: .utf8)
     }
 }

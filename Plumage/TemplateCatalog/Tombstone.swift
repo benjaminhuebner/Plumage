@@ -1,5 +1,3 @@
-import Foundation
-
 // Records a predefined catalog item the user deleted. The bundled default still
 // holds the item's definition on disk; the tombstone subtracts it from the
 // resolved catalog at merge time, so a "delete predefined" stays reversible

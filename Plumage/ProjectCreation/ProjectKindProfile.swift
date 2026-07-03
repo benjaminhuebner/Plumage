@@ -1,5 +1,3 @@
-import Foundation
-
 // Everything type-dependent about a project kind, bundled in one static record.
 // `ProjectKind.profile` is the single source of truth; composers and the
 // scaffolder read from it rather than switching on `ProjectKind` themselves.

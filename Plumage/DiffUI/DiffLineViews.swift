@@ -49,17 +49,9 @@ struct DiffHunkLinesView: View, Equatable {
         self.commenting = commenting
     }
 
-    // Equality skips findings content: changes invalidate rows via @Observable tracking.
     static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.hunk == rhs.hunk, lhs.style == rhs.style else { return false }
-        switch (lhs.commenting, rhs.commenting) {
-        case (nil, nil):
-            return true
-        case (let left?, let right?):
-            return left.file == right.file && left.model === right.model
-        default:
-            return false
-        }
+        lhs.hunk == rhs.hunk && lhs.style == rhs.style
+            && DiffCommenting.isSame(lhs.commenting, rhs.commenting)
     }
 
     var body: some View {
@@ -80,6 +72,9 @@ struct DiffHunkLinesView: View, Equatable {
                         numberColumnDigits: digits
                     )
                     .id(anchors[index])
+                    if hunk.lines[index].hasNoTrailingNewline {
+                        DiffNoNewlineMarker(style: style)
+                    }
                 }
             } else {
                 ForEach(hunk.lines.indices, id: \.self) { index in
@@ -89,6 +84,9 @@ struct DiffHunkLinesView: View, Equatable {
                         numberColumnDigits: digits
                     )
                     .equatable()
+                    if hunk.lines[index].hasNoTrailingNewline {
+                        DiffNoNewlineMarker(style: style)
+                    }
                 }
             }
         }
@@ -118,9 +116,9 @@ struct DiffLineRow: View, Equatable {
                     .font(style.font)
                     .foregroundStyle(.tertiary)
             }
-            Text(symbol)
+            Text(line.kind.diffSymbol)
                 .font(style.font)
-                .foregroundStyle(symbolColor)
+                .foregroundStyle(line.kind.diffSymbolColor)
                 .frame(width: 14, alignment: .leading)
             tokenizedText
                 .font(style.font)
@@ -128,7 +126,7 @@ struct DiffLineRow: View, Equatable {
         }
         .padding(.horizontal, style.horizontalPadding)
         .padding(.vertical, 1)
-        .background(rowTint)
+        .background(line.kind.diffRowTint)
     }
 
     // Monospaced space-padding keeps both number columns aligned without
@@ -142,30 +140,6 @@ struct DiffLineRow: View, Equatable {
 
     private func pad(_ value: String, to width: Int) -> String {
         String(repeating: " ", count: max(width - value.count, 0)) + value
-    }
-
-    private var symbol: String {
-        switch line.kind {
-        case .added: return "+"
-        case .removed: return "−"
-        case .context: return " "
-        }
-    }
-
-    private var symbolColor: Color {
-        switch line.kind {
-        case .added: return .green
-        case .removed: return .red
-        case .context: return .secondary
-        }
-    }
-
-    private var rowTint: Color {
-        switch line.kind {
-        case .added: return Color.green.opacity(0.10)
-        case .removed: return Color.red.opacity(0.10)
-        case .context: return Color.clear
-        }
     }
 
     private var tokenizedText: Text {

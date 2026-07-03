@@ -1,5 +1,3 @@
-import Foundation
-
 extension FrontmatterError {
     var summary: String {
         switch self {

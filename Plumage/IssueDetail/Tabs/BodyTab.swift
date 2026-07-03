@@ -1,5 +1,3 @@
-import Foundation
-
 enum BodyTab: String, CaseIterable, Identifiable, Sendable {
     case prompt
     case spec

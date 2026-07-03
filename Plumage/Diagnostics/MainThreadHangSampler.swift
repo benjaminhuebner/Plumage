@@ -83,16 +83,10 @@ nonisolated final class MainThreadHangSampler: @unchecked Sendable {
         }
     }
 
-    func stop() {
-        timerQueue.async { [self] in cancelTimerOnQueue() }
-    }
-
     private func cancelTimerOnQueue() {
         timer?.cancel()
         timer = nil
     }
-
-    var stats: HangStats { lock.withLock { $0 } }
 
     private func probe() {
         controlTick += 1

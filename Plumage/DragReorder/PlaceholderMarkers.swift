@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated func placeholderIndex(for position: RowDropPosition?, rowIDs: [String]) -> Int? {
     guard let position else { return nil }
     switch position {

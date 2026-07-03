@@ -50,6 +50,7 @@ final class TerminalClaudeSession {
     // SwiftTermBridge.makeNSView so window-close terminates the child without relying
     // on SwiftUI's teardown timing. The real Process lives in SwiftTerm, not here.
     private var stopHandler: (() -> Void)?
+    private var stopHandlerToken: UUID?
     // Fired from markExited(code:) only on a clean (code 0) agent-initiated exit —
     // never on stop() (user close flips to .exited first, short-circuiting markExited)
     // nor on crash/killed. Drives the plan/review completion banner.
@@ -94,12 +95,12 @@ final class TerminalClaudeSession {
             .appendingPathComponent(".claude/projects")
         self.excludedSessionIDs = excludedSessionIDs
 
-        if let persisted = Self.loadPersistedID(from: self.sessionIDStoreURL) {
+        if let persisted = ClaudeSessionStorage.loadPersistedID(from: self.sessionIDStoreURL) {
             self.conversationID = persisted
         } else {
             let fresh = UUID().uuidString.lowercased()
             self.conversationID = fresh
-            Self.persistID(fresh, to: self.sessionIDStoreURL)
+            ClaudeSessionStorage.persistID(fresh, to: self.sessionIDStoreURL)
         }
     }
 
@@ -253,8 +254,15 @@ final class TerminalClaudeSession {
         return injectBodyDelayFloor + .milliseconds(maxBytes / 8)
     }
 
-    func registerStopHandler(_ handler: @escaping () -> Void) {
+    // Returns a token identifying this registration: on a restartEpoch remount
+    // the OLD view's dismantle runs after the NEW view registered, so an
+    // unconditional clear would wipe the fresh handler (token-gated instead).
+    @discardableResult
+    func registerStopHandler(_ handler: @escaping () -> Void) -> UUID {
+        let token = UUID()
         stopHandler = handler
+        stopHandlerToken = token
+        return token
     }
 
     func setExcludedSessionIDs(_ provider: @escaping @MainActor () -> Set<String>) {
@@ -268,15 +276,15 @@ final class TerminalClaudeSession {
         excludedSessionIDs()
     }
 
-    func clearStopHandler() {
+    func clearStopHandler(token: UUID) {
+        guard token == stopHandlerToken else { return }
         stopHandler = nil
+        stopHandlerToken = nil
     }
 
     func resumeOrInitArgs() -> [String] {
-        guard sessionLogExists() else {
-            return ["--session-id", conversationID]
-        }
-        return ["--resume", conversationID]
+        ClaudeSessionStorage.resumeOrInitArgs(
+            conversationID: conversationID, logRoot: sessionLogRoot, cwd: cwd)
     }
 
     // /bin/sh -c "cd '<cwd>' && exec '<claude>' --settings '<json>' [--session-id|--resume '<uuid>'] [--permission-mode <mode>] [--model <alias>]"
@@ -338,18 +346,8 @@ final class TerminalClaudeSession {
         !value.contains("\0") && !value.contains("\n") && !value.contains("\r")
     }
 
-    private func sessionLogExists() -> Bool {
-        FileManager.default.fileExists(atPath: sessionLogURL().path)
-    }
-
-    private func sessionLogURL() -> URL {
-        sessionLogDirectory()
-            .appendingPathComponent("\(conversationID).jsonl")
-    }
-
     private func sessionLogDirectory() -> URL {
-        let encoded = cwd.path.replacingOccurrences(of: "/", with: "-")
-        return sessionLogRoot.appendingPathComponent(encoded)
+        ClaudeSessionStorage.sessionLogDirectory(root: sessionLogRoot, cwd: cwd)
     }
 
     private func startLogWatcher() {
@@ -393,7 +391,7 @@ final class TerminalClaudeSession {
         )
         guard let bestID else { return }
         conversationID = bestID
-        Self.persistID(bestID, to: sessionIDStoreURL)
+        ClaudeSessionStorage.persistID(bestID, to: sessionIDStoreURL)
     }
 
     // FSEvents hot-path variant: the scan (N stat calls) runs detached so
@@ -413,7 +411,7 @@ final class TerminalClaudeSession {
         // torn down the session while the scan ran.
         guard let bestID, bestID != conversationID, self.launchInstant != nil else { return }
         conversationID = bestID
-        Self.persistID(bestID, to: sessionIDStoreURL)
+        ClaudeSessionStorage.persistID(bestID, to: sessionIDStoreURL)
     }
 
     private nonisolated static func scanAdoptableSession(
@@ -443,24 +441,6 @@ final class TerminalClaudeSession {
             bestID = id
         }
         return bestID
-    }
-
-    private nonisolated static func loadPersistedID(from url: URL?) -> String? {
-        guard let url,
-            let data = try? Data(contentsOf: url),
-            let raw = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty
-        else { return nil }
-        return raw
-    }
-
-    private nonisolated static func persistID(_ id: String, to url: URL?) {
-        guard let url else { return }
-        let parent = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: parent, withIntermediateDirectories: true)
-        try? id.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private nonisolated static func classify(_ code: Int32) -> ClaudeSession.ExitReason {

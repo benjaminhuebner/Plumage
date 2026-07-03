@@ -1,5 +1,3 @@
-import Foundation
-
 // Visual marker for a template/category in the Template Manager. Predefined
 // entries use SF Symbols; custom entries may instead reference an imported image
 // file by a path relative to the override namespace (`template-images/<id>.<ext>`),

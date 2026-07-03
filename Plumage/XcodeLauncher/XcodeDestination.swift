@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum XcodeDestination: Sendable, Equatable, Hashable, Identifiable {
     case myMac
     case simulator(udid: String, name: String, runtimeDisplayName: String)

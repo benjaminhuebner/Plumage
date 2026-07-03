@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum PermissionMode: String, CaseIterable, Codable, Sendable {
     case plan
     case acceptEdits

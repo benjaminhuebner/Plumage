@@ -12,7 +12,7 @@ struct GitStageRunnerTests {
     func gitNotFoundShortCircuits() async {
         let mock = MockGitProcessRunner()
         let runner = GitStageRunner(runner: mock, resolveBinary: { nil })
-        await #expect(throws: GitStageError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             try await runner.stage(repoURL: self.repoURL, paths: ["a"])
         }
     }
@@ -55,7 +55,7 @@ struct GitStageRunnerTests {
         mock.exitCodeForArgs[args] = 128
         mock.stderrForArgs[args] = "fatal: pathspec not matched\n"
         let runner = GitStageRunner(runner: mock, resolveBinary: { self.binaryURL })
-        await #expect(throws: GitStageError.self) {
+        await #expect(throws: GitCommandError.self) {
             try await runner.stage(repoURL: self.repoURL, paths: ["x"])
         }
     }

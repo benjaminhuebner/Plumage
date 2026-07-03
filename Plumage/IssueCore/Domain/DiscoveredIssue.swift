@@ -14,14 +14,14 @@ nonisolated enum DiscoveredIssue: Identifiable, Equatable, Sendable {
             folder.lastPathComponent
         }
     }
+}
 
-    var sortKey: (Int, String) {
-        switch self {
-        case .valid(let issue):
-            return (issue.id, issue.folderName.lowercased())
-        case .invalid(let folder, _):
-            let parts = IssueDiscovery.extractID(fromFolderName: folder.lastPathComponent)
-            return (parts.id ?? .max, folder.lastPathComponent.lowercased())
+nonisolated extension Sequence where Element == DiscoveredIssue {
+    func unionedLabels() -> Set<String> {
+        var all = Set<String>()
+        for case .valid(let issue) in self {
+            all.formUnion(issue.labels)
         }
+        return all
     }
 }

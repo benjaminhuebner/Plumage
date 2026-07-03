@@ -1,5 +1,3 @@
-import Foundation
-
 // Shared by resolver (run-start filtering) and settings editor (badge
 // rendering) so both sides agree on what counts as a directive line.
 nonisolated enum WorkflowCommandDirective: Equatable, Sendable {

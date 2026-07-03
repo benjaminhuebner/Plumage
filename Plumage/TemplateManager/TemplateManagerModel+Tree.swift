@@ -9,7 +9,7 @@ import Foundation
 extension TemplateManagerModel {
     // One file destined for the scaffolded project: where it lands (`output`, drives
     // tree placement) and where its bytes live in the override store (`relative`).
-    struct LeafSpec {
+    private struct LeafSpec {
         let output: String
         let relative: String
         let name: String
@@ -33,13 +33,12 @@ extension TemplateManagerModel {
             leaves.append((".claude/settings.json", node))
         }
         // User-created (possibly empty) folders show at their output positions — read
-        // inside the scope subtree and mapped back to the project layout.
+        // inside the scope subtree and mapped back to the project layout. Every tier
+        // owns and shows its own loose surfaces.
         let root = scope.storageRoot
-        let directories =
-            showsLooseSurfaces(item)
-            ? overrides.overrideDirectoryPaths(inRoot: root).compactMap {
-                Self.outputPath(forStorageDir: root.isEmpty ? $0 : "\(root)/\($0)", scope: scope)
-            } : []
+        let directories = overrides.overrideDirectoryPaths(inRoot: root).compactMap {
+            Self.outputPath(forStorageDir: root.isEmpty ? $0 : "\(root)/\($0)", scope: scope)
+        }
         return Self.assembleTree(
             leaves: leaves, directories: directories, bundledRoot: overrides.bundledRoot)
     }
@@ -53,11 +52,6 @@ extension TemplateManagerModel {
         case .template, .sharedComponent: return false
         }
     }
-
-    // Every tier owns and shows its own loose files (docs/skills/agents/arbitrary) and
-    // user-created folders — that ownership is what stops a file leaking into all
-    // templates.
-    private func showsLooseSurfaces(_ item: TemplateCatalogItem) -> Bool { true }
 
     private func leafSpecs(for item: TemplateCatalogItem) -> [LeafSpec] {
         switch item {
@@ -148,18 +142,11 @@ extension TemplateManagerModel {
     // a sibling tier's subtree). The scope root is stripped first so a tier's loose dir
     // lands at the same `.claude/...` position regardless of which tier owns it.
     static func outputPath(forStorageDir storage: String, scope: ManagerScope = .base) -> String? {
-        let root = scope.storageRoot
-        let stripped: String
-        if root.isEmpty {
-            stripped = storage
-        } else if storage == root {
-            return nil  // the scope root itself is not a project folder
-        } else if storage.hasPrefix(root + "/") {
-            stripped = String(storage.dropFirst(root.count + 1))
-        } else {
-            return nil  // belongs to a different scope
+        // Nil for the scope root itself (not a project folder) and for a store dir
+        // belonging to a different scope.
+        guard let stripped = scope.scopeRelativePath(of: storage), !stripped.isEmpty else {
+            return nil
         }
-        guard !stripped.isEmpty else { return nil }
         let first = stripped.split(separator: "/").first.map(String.init) ?? stripped
         // `templates`/`components` guard Base's scan from dumping sibling-tier subtrees.
         if ["templates", "components", "template-images", "configs"].contains(first) { return nil }
@@ -318,15 +305,16 @@ extension TemplateManagerModel {
             case .layer:
                 specs.append(
                     LeafSpec(
-                        output: ".claude/CLAUDE.md", relative: ScaffoldOverrides.layerRelativePath(name),
+                        output: ".claude/CLAUDE.md",
+                        relative: file.storePath(hookFileName: overrides.hookFileName(forBase:)),
                         name: "CLAUDE.md"))
             case .hook:
-                let fileName = hookFileName(forBase: name)
+                let relative = file.storePath(hookFileName: overrides.hookFileName(forBase:))
+                let fileName = (relative as NSString).lastPathComponent
                 specs.append(
-                    LeafSpec(
-                        output: ".claude/hooks/\(fileName)", relative: "hooks/\(fileName)",
-                        name: fileName))
+                    LeafSpec(output: ".claude/hooks/\(fileName)", relative: relative, name: fileName))
             case .skill:
+                // A skill is a folder of files, so it can't collapse to the single-path mapping.
                 let subs = overrides.unionFileNamesRecursive(inRelativeDir: "skills/\(name)")
                 let entries = subs.isEmpty ? ["SKILL.md"] : subs
                 for sub in entries {
@@ -339,7 +327,10 @@ extension TemplateManagerModel {
                 // Component-owned tooling configs land at the project root (e.g.
                 // swift-format → .swift-format), not under .claude/.
                 specs.append(
-                    LeafSpec(output: ".\(name)", relative: "configs/\(name)", name: ".\(name)"))
+                    LeafSpec(
+                        output: ".\(name)",
+                        relative: file.storePath(hookFileName: overrides.hookFileName(forBase:)),
+                        name: ".\(name)"))
             }
         }
         let composition = specs.filter { !suppressed.contains($0.relative) }
@@ -356,7 +347,7 @@ extension TemplateManagerModel {
     // (with its override-store `relativePath`) at its output position. Within a level,
     // files sort before folders, each alphabetically — so root configs sit above the
     // `.claude/` subtree (D2).
-    static func assembleTree(
+    private static func assembleTree(
         leaves: [(output: String, node: FileNode)], directories: [String] = [], bundledRoot: URL
     ) -> [FileNode] {
         final class Builder {

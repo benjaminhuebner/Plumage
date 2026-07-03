@@ -42,9 +42,12 @@ actor ClaudeUsageClient {
 
     func fetchUsage() async throws -> ClaudeUsageResponse {
         let token: OAuthToken
-        if let cachedToken {
+        if let cachedToken, !Self.isExpired(cachedToken) {
             token = cachedToken
         } else {
+            // An expired cached token would guarantee a 401 and a one-poll
+            // .notLoggedIn flicker per rotation — treat it as a cache miss so
+            // the CLI's refreshed token is read instead.
             token = try await readToken()
         }
 
@@ -57,6 +60,11 @@ actor ClaudeUsageClient {
             cachedToken = nil
             throw ClaudeUsageError.notLoggedIn
         }
+    }
+
+    private nonisolated static func isExpired(_ token: OAuthToken) -> Bool {
+        guard let expiresAt = token.expiresAt else { return false }
+        return expiresAt <= .now
     }
 
     private func readToken() async throws -> OAuthToken {
@@ -78,27 +86,18 @@ actor ClaudeUsageClient {
         request.setValue("Bearer \(token.value)", forHTTPHeaderField: "Authorization")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
-        let (data, response): (Data, HTTPURLResponse)
+        let data = try await fetcher.successData(
+            for: request,
+            transportError: { ClaudeUsageError.transport($0.localizedDescription) },
+            statusError: { code in
+                code == 401 || code == 403
+                    ? ClaudeUsageError.notLoggedIn
+                    : ClaudeUsageError.serverError(code)
+            })
         do {
-            (data, response) = try await fetcher.data(for: request)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as URLError where error.code == .cancelled {
-            throw CancellationError()
+            return try ClaudeUsageResponse.decode(data: data)
         } catch {
-            throw ClaudeUsageError.transport(error.localizedDescription)
-        }
-        switch response.statusCode {
-        case 200..<300:
-            do {
-                return try ClaudeUsageResponse.decode(data: data)
-            } catch {
-                throw ClaudeUsageError.unparseable(error.localizedDescription)
-            }
-        case 401, 403:
-            throw ClaudeUsageError.notLoggedIn
-        default:
-            throw ClaudeUsageError.serverError(response.statusCode)
+            throw ClaudeUsageError.unparseable(error.localizedDescription)
         }
     }
 }

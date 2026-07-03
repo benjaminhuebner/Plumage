@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum ProjectKind: String, CaseIterable, Codable, Hashable, Sendable {
     case appleMultiplatform
     case macOS

@@ -1,5 +1,3 @@
-import Foundation
-
 // The first tier: assets unconditionally part of every template (the base
 // `CLAUDE.md` skeleton and the workflow hooks). The remaining global assets
 // (Plumage skills, issue template) are scaffolded straight from the

@@ -34,11 +34,6 @@ final class MockXcodeProcessRunner: XcodeProcessRunning, @unchecked Sendable {
     private var _streamOutcome: StreamOutcome = .success(lines: [], exitCode: 0)
     private var _invocations: [Invocation] = []
 
-    var runOutcomes: [URL: RunOutcome] {
-        get { lock.withLock { _runOutcomes } }
-        set { lock.withLock { _runOutcomes = newValue } }
-    }
-
     var defaultRunOutcome: RunOutcome {
         get { lock.withLock { _defaultRunOutcome } }
         set { lock.withLock { _defaultRunOutcome = newValue } }
@@ -55,10 +50,6 @@ final class MockXcodeProcessRunner: XcodeProcessRunning, @unchecked Sendable {
 
     func setRunOutcome(_ outcome: RunOutcome, forBinary binaryURL: URL) {
         lock.withLock { _runOutcomes[binaryURL] = outcome }
-    }
-
-    func clearInvocations() {
-        lock.withLock { _invocations.removeAll() }
     }
 
     func run(binaryURL: URL, args: [String], cwd: URL?) async throws -> XcodeSpawnResult {

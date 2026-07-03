@@ -27,17 +27,9 @@ nonisolated enum TemplateContentDropResolver {
     static func targetStoreDir(for node: FileNode, scope: ManagerScope = .base) -> String? {
         let store = storePath(for: node, scope: scope)
         let dir = node.isDirectory ? store : (store as NSString).deletingLastPathComponent
-        let root = scope.storageRoot
-        let scopeRelative: String
-        if root.isEmpty {
-            scopeRelative = dir
-        } else if dir == root {
-            scopeRelative = ""
-        } else if dir.hasPrefix(root + "/") {
-            scopeRelative = String(dir.dropFirst(root.count + 1))
-        } else {
-            scopeRelative = dir
-        }
+        // A dir outside the scope subtree keeps its raw head, matching the historical
+        // Base-rooted namespace check.
+        let scopeRelative = scope.scopeRelativePath(of: dir) ?? dir
         let head = scopeRelative.split(separator: "/").first.map(String.init) ?? scopeRelative
         if nonTargetStoreRoots.contains(head) { return nil }
         return dir

@@ -1,5 +1,3 @@
-import Foundation
-
 // The effective-content resolver: combines the three tiers into the concrete
 // scaffold inputs for one template. By construction these reproduce the matching
 // `ProjectKindProfile` field for every predefined kind (pinned by tests), so

@@ -1,5 +1,3 @@
-import Foundation
-
 struct WaitTimeoutError: Error {}
 
 // Polls `condition` until it returns true or `timeout` elapses, sleeping with

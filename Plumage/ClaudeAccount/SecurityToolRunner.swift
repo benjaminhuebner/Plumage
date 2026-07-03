@@ -5,7 +5,6 @@ import os
 nonisolated struct SecurityToolResult: Sendable, Equatable {
     let exitCode: Int32
     let stdout: Data
-    let stderr: Data
 }
 
 nonisolated enum SecurityToolError: Error, Sendable, Equatable {
@@ -67,6 +66,8 @@ nonisolated struct ProductionSecurityToolRunner: SecurityToolRunning {
             async let stdoutData = Task.detached {
                 (try? stdoutHandle.readToEnd()) ?? Data()
             }.value
+            // stderr is drained but not surfaced — an unread pipe that fills
+            // its buffer would block the child on write() and deadlock the run.
             async let stderrData = Task.detached {
                 (try? stderrHandle.readToEnd()) ?? Data()
             }.value
@@ -88,9 +89,9 @@ nonisolated struct ProductionSecurityToolRunner: SecurityToolRunning {
                 _ = await (stdoutData, stderrData)
                 throw SecurityToolError.timedOut
             }
-            let (out, err) = await (stdoutData, stderrData)
+            let (out, _) = await (stdoutData, stderrData)
             if Task.isCancelled { throw CancellationError() }
-            return SecurityToolResult(exitCode: code, stdout: out, stderr: err)
+            return SecurityToolResult(exitCode: code, stdout: out)
         } onCancel: {
             Self.killProcess(process)
         }
@@ -200,7 +201,7 @@ nonisolated final class MockSecurityToolRunner: SecurityToolRunning, @unchecked 
                 return (stdout, code, state.error)
             }
         if let err = result.error { throw err }
-        return SecurityToolResult(exitCode: result.code, stdout: result.stdout, stderr: Data())
+        return SecurityToolResult(exitCode: result.code, stdout: result.stdout)
     }
 }
 #endif

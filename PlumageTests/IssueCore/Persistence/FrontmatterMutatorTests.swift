@@ -13,8 +13,7 @@ struct FrontmatterMutatorTests {
         let input = baseSpec(status: "approved")
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: .inProgress,
-            newOrder: .keep,
+            mutation: FrontmatterMutation(status: .set(.inProgress)),
             now: now
         )
         #expect(output.contains("status: in-progress"))
@@ -28,8 +27,7 @@ struct FrontmatterMutatorTests {
         let input = baseSpec(status: "approved")
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: nil,
-            newOrder: .set(5.5),
+            mutation: FrontmatterMutation(order: .set(5.5)),
             now: now
         )
         let lines = output.components(separatedBy: "\n")
@@ -44,8 +42,7 @@ struct FrontmatterMutatorTests {
         let input = baseSpec(status: "approved", order: "12")
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: .done,
-            newOrder: .set(7.0),
+            mutation: FrontmatterMutation(status: .set(.done), order: .set(7.0)),
             now: now
         )
         #expect(output.contains("status: done"))
@@ -58,8 +55,7 @@ struct FrontmatterMutatorTests {
         let input = baseSpec(status: "approved")
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: nil,
-            newOrder: .set(1234.5678),
+            mutation: FrontmatterMutation(order: .set(1234.5678)),
             now: now
         )
         #expect(output.contains("order: 1234.5678"))
@@ -75,8 +71,7 @@ struct FrontmatterMutatorTests {
         let input = baseSpec(status: "approved", order: "3.5")
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: nil,
-            newOrder: .set(nil),
+            mutation: FrontmatterMutation(order: .set(nil)),
             now: now
         )
         #expect(!output.contains("order:"))
@@ -109,8 +104,7 @@ struct FrontmatterMutatorTests {
             """
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: .inProgress,
-            newOrder: .keep,
+            mutation: FrontmatterMutation(status: .set(.inProgress)),
             now: now
         )
         let bodyMarker = try #require(output.range(of: "\n---\n"))
@@ -128,8 +122,7 @@ struct FrontmatterMutatorTests {
         let input = baseSpec(status: "approved")
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: .done,
-            newOrder: .keep,
+            mutation: FrontmatterMutation(status: .set(.done)),
             now: now
         )
         #expect(output.contains("updated: \(nowISO)"))
@@ -142,8 +135,7 @@ struct FrontmatterMutatorTests {
         #expect(throws: MutatorError.noFrontmatter) {
             try FrontmatterMutator.transform(
                 content: input,
-                newStatus: .approved,
-                newOrder: .keep,
+                mutation: FrontmatterMutation(status: .set(.approved)),
                 now: now
             )
         }
@@ -159,8 +151,7 @@ struct FrontmatterMutatorTests {
         #expect(throws: MutatorError.noFrontmatter) {
             try FrontmatterMutator.transform(
                 content: input,
-                newStatus: .done,
-                newOrder: .keep,
+                mutation: FrontmatterMutation(status: .set(.done)),
                 now: now
             )
         }
@@ -189,8 +180,7 @@ struct FrontmatterMutatorTests {
             """
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: .done,
-            newOrder: .keep,
+            mutation: FrontmatterMutation(status: .set(.done)),
             now: now
         )
         #expect(output.contains("status: done"))
@@ -214,8 +204,7 @@ struct FrontmatterMutatorTests {
 
         try FrontmatterMutator.mutate(
             specURL: specURL,
-            newStatus: .inProgress,
-            newOrder: .set(2.5),
+            mutation: FrontmatterMutation(status: .set(.inProgress), order: .set(2.5)),
             now: now
         )
 
@@ -225,13 +214,12 @@ struct FrontmatterMutatorTests {
         #expect(written.contains("updated: \(nowISO)"))
     }
 
-    @Test("nil newStatus leaves status untouched")
+    @Test("order-only mutation leaves status untouched")
     func nilStatusLeavesUnchanged() throws {
         let input = baseSpec(status: "blocked")
         let output = try FrontmatterMutator.transform(
             content: input,
-            newStatus: nil,
-            newOrder: .set(1.0),
+            mutation: FrontmatterMutation(order: .set(1.0)),
             now: now
         )
         #expect(output.contains("status: blocked"))
@@ -470,19 +458,6 @@ struct FrontmatterMutatorTests {
         #expect(output.contains("status: done"))
         #expect(output.contains("Done now."))
         #expect(output.contains("updated: \(nowISO)"))
-    }
-
-    @Test("legacy mutate(specURL:newStatus:newOrder:) wrapper still works")
-    func legacyWrapper() throws {
-        let input = baseSpec(status: "approved")
-        let output = try FrontmatterMutator.transform(
-            content: input,
-            newStatus: .done,
-            newOrder: .set(2.0),
-            now: now
-        )
-        #expect(output.contains("status: done"))
-        #expect(output.contains("order: 2"))
     }
 
     private func baseSpec(status: String, order: String? = nil, blockedBy: String? = nil) -> String {

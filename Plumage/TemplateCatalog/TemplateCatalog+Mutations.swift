@@ -20,10 +20,6 @@ nonisolated extension TemplateCatalog {
         TemplateCatalog.bundledDefault.template(id: id) != nil
     }
 
-    func isPredefinedSharedComponent(_ id: String) -> Bool {
-        TemplateCatalog.bundledDefault.sharedComponent(id: id) != nil
-    }
-
     // MARK: - Category CRUD
 
     // Adds a category with a collision-free id and display name, appended last.
@@ -162,16 +158,6 @@ nonisolated extension TemplateCatalog {
         }
     }
 
-    // Appends a typed file to a component's `files` (membership), so a file authored or
-    // dropped while a component is selected becomes part of that component. A no-op for
-    // a duplicate (same kind + name) or an unknown component.
-    mutating func addFile(toComponentID componentID: String, kind: SharedComponentKind, fileName: String) {
-        guard let index = sharedComponents.firstIndex(where: { $0.id == componentID }),
-            !sharedComponents[index].files.contains(where: { $0.kind == kind && $0.name == fileName })
-        else { return }
-        sharedComponents[index].files.append(ComponentFile(kind: kind, name: fileName))
-    }
-
     // Removes a typed file from a component's `files`. Used by the loose-file scope
     // migration to drop a legacy `.skill` membership once its folder has moved to the
     // component's own subtree. A no-op for an unknown component or file.
@@ -294,7 +280,7 @@ nonisolated extension TemplateCatalog {
 
 nonisolated extension TemplateCatalog {
     // Suffix-walks `base` until it misses `taken` ("name", "name-2", "name-3"…).
-    func uniqueValue(_ base: String, taken: Set<String>, separator: String = "-") -> String {
+    private func uniqueValue(_ base: String, taken: Set<String>, separator: String = "-") -> String {
         guard taken.contains(base) else { return base }
         var suffix = 2
         while taken.contains("\(base)\(separator)\(suffix)") { suffix += 1 }
@@ -302,7 +288,7 @@ nonisolated extension TemplateCatalog {
     }
 
     // Lowercased, hyphen-joined, alphanumeric slug; `fallback` when nothing remains.
-    func slug(_ text: String, fallback: String) -> String {
+    private func slug(_ text: String, fallback: String) -> String {
         let lowered = text.lowercased()
         var pieces: [String] = []
         var current = ""
@@ -321,7 +307,7 @@ nonisolated extension TemplateCatalog {
 
     // Applies the `orderedIDs` permutation and renumbers `order` 0…n. Items whose
     // id is absent from `orderedIDs` are appended in their existing order.
-    func renumber<Item>(
+    private func renumber<Item>(
         _ items: inout [Item], orderedIDs: [String], id: (Item) -> String,
         rebuild: (Item, Int) -> Item
     ) {

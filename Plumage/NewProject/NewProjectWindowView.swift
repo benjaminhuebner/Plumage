@@ -18,7 +18,7 @@ struct NewProjectWindowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let errorMessage = model.errorMessage {
-                errorBanner(errorMessage)
+                ErrorBanner(message: errorMessage)
             }
 
             Divider()
@@ -109,23 +109,6 @@ struct NewProjectWindowView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text(message)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .font(.callout)
-        .foregroundStyle(.red)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.1))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Error: \(message)")
     }
 
     private var stepHeadline: String {

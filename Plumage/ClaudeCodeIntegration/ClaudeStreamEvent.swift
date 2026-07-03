@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum ClaudeStreamEvent: Sendable, Equatable, Decodable {
     case systemInit(sessionID: String)
     case systemOther(subtype: String)

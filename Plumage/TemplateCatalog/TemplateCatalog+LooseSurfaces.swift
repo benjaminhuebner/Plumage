@@ -1,5 +1,3 @@
-import Foundation
-
 // Loose-file scope roots for a template — deliberately separate from the composition
 // resolvers (`effectiveLayers`/`effectiveHooks`). A scaffolded project composes its
 // loose files from Base ∪ that template's member components ∪ the chosen Template, in

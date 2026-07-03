@@ -47,7 +47,10 @@ struct XcodeRunSessionSimulatorTests {
             simulatorUDID: "AAAA-UDID"
         )
         let outcome = await session.run(inputs: inputs) { _ in }
-        #expect(outcome.isLaunched)
+        if case .launched = outcome {
+        } else {
+            Issue.record("expected .launched, got \(outcome)")
+        }
 
         // Build → showBuildSettings → boot → install → launch.
         // xcodebuild gets `build` (stream), `-showBuildSettings` (run).
@@ -110,7 +113,10 @@ struct XcodeRunSessionSimulatorTests {
             simulatorUDID: "AAAA-UDID"
         )
         let outcome = await session.run(inputs: inputs) { _ in }
-        #expect(outcome.isLaunched)
+        if case .launched = outcome {
+        } else {
+            Issue.record("expected .launched, got \(outcome)")
+        }
     }
 
     @Test("missing simulator UDID → launchFailed")

@@ -1,9 +1,13 @@
 import Foundation
+import os
 
 // Without this, an older saved layer edit silently loses its Build-and-Test section:
 // those layers use the spaced `%% BUILD AND TEST %%`, which the now exact-match
 // `PlaceholderMerge` no longer maps to `<<<BUILD_AND_TEST>>>`. Only this pass can do the keyword rename.
 nonisolated enum TemplateLayerFormatMigration {
+    private static let logger = Logger(
+        subsystem: "com.plumage", category: "TemplateLayerFormatMigration")
+
     // Only `BUILD AND TEST` ever contained whitespace, so it is the sole rename.
     static let keywordRenames = ["BUILD AND TEST": "BUILD_AND_TEST"]
 
@@ -33,8 +37,14 @@ nonisolated enum TemplateLayerFormatMigration {
             guard let original = try? String(contentsOf: file, encoding: .utf8) else { continue }
             let rewritten = closeOpenBlocks(in: original)
             guard rewritten != original else { continue }
-            guard (try? rewritten.write(to: file, atomically: true, encoding: .utf8)) != nil
-            else { continue }
+            do {
+                try rewritten.write(to: file, atomically: true, encoding: .utf8)
+            } catch {
+                Self.logger.error(
+                    "couldn't rewrite layer \(layer, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                continue
+            }
             migrated.append(layer)
         }
         return migrated.sorted()

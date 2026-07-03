@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum IssueType: String, CaseIterable, Codable, Sendable {
     case feature
     case chore

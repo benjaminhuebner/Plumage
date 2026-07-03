@@ -295,7 +295,7 @@ struct TemplateContentMoveTests {
 
         #expect(find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]) == nil)
         #expect(find(ctx.model.contentTree, [".claude", "docs", "block-git-commit.sh"]) != nil)
-        #expect(ctx.model.overrides.isSuppressed(relativePath: "hooks/block-git-commit.sh"))
+        #expect(ctx.model.overrides.suppressedRelativePaths().contains("hooks/block-git-commit.sh"))
         #expect(
             FileManager.default.fileExists(
                 atPath: ctx.override.appending(path: "docs/block-git-commit.sh").path))
@@ -311,11 +311,11 @@ struct TemplateContentMoveTests {
             find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]))
         let docs = try #require(find(ctx.model.contentTree, [".claude", "docs"]))
         ctx.model.moveNodes([bundled], into: docs)
-        #expect(ctx.model.overrides.isSuppressed(relativePath: "hooks/block-git-commit.sh"))
+        #expect(ctx.model.overrides.suppressedRelativePaths().contains("hooks/block-git-commit.sh"))
 
         ctx.model.restoreAllDefaults()
 
-        #expect(!ctx.model.overrides.isSuppressed(relativePath: "hooks/block-git-commit.sh"))
+        #expect(!ctx.model.overrides.suppressedRelativePaths().contains("hooks/block-git-commit.sh"))
         #expect(find(ctx.model.contentTree, [".claude", "hooks", "block-git-commit.sh"]) != nil)
     }
 }

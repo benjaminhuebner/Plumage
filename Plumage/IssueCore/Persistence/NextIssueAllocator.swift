@@ -205,9 +205,7 @@ nonisolated struct NextIssueAllocator: Sendable {
     }
 
     static func paddedID(_ id: Int, padding: Int) -> String {
-        let digits = String(id)
-        let width = max(padding, digits.count)
-        return String(repeating: "0", count: width - digits.count) + digits
+        IssueIDFormatter.padded(id, width: padding)
     }
 
     static func isValidSlug(_ input: String) -> Bool {

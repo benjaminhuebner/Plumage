@@ -43,28 +43,31 @@ struct IssueDetailTopBar: View {
         .font(.caption)
     }
 
-    @ViewBuilder
+    // No ProgressView: mounting/unmounting its AppKit spinner per save relayouts
+    // the whole window. The hidden placeholder pins the slot so the flip between
+    // states never resizes the bar.
     private var autoSaveBadge: some View {
-        switch autoSaveStatus {
-        case .saving:
-            HStack(spacing: 4) {
-                ProgressView().controlSize(.small)
-                Text("Saving…")
+        ZStack(alignment: .trailing) {
+            Label("Saving…", systemImage: "checkmark.circle.fill")
+                .hidden()
+            switch autoSaveStatus {
+            case .saving:
+                Label("Saving…", systemImage: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(.secondary)
+            case .saved:
+                Label("Saved", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .error(let message):
+                HStack(spacing: 4) {
+                    Label("Save failed", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .help(message)
+                    Button("Retry", action: onRetry)
+                        .controlSize(.small)
+                }
+            case .idle:
+                Color.clear.frame(width: 1, height: 1)
             }
-            .foregroundStyle(.secondary)
-        case .saved:
-            Label("Saved", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-        case .error(let message):
-            HStack(spacing: 4) {
-                Label("Save failed", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .help(message)
-                Button("Retry", action: onRetry)
-                    .controlSize(.small)
-            }
-        case .idle:
-            EmptyView()
         }
     }
 }

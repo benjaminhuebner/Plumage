@@ -5,11 +5,6 @@ nonisolated enum XcodeRunOutcome: Sendable, Equatable {
     case buildFailed(exitCode: Int32)
     case launchFailed(message: String)
     case cancelled
-
-    var isLaunched: Bool {
-        if case .launched = self { return true }
-        return false
-    }
 }
 
 nonisolated struct XcodeRunInputs: Sendable, Equatable {

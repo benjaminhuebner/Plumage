@@ -29,7 +29,7 @@ struct TemplatesSettingsTab: View {
                                     Text(template.name)
                                 } icon: {
                                     TemplateImageView(image: template.image) {
-                                        model.imageURL(forRelative: $0)
+                                        model.overrides.existingURL(forRelative: $0)
                                     }
                                     .frame(width: 16, height: 16)
                                 }

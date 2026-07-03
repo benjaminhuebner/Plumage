@@ -98,6 +98,20 @@ struct DiffParserTests {
         #expect(file.status == .renamed(from: "Sources/Old.swift"))
     }
 
+    @Test("rename with C-quoted paths strips the quotes like the +++ handler")
+    func quotedRenamePaths() throws {
+        let diff = """
+            diff --git "a/Sources/Old Name.swift" "b/Sources/New Name.swift"
+            similarity index 100%
+            rename from "Sources/Old Name.swift"
+            rename to "Sources/New Name.swift"
+            """
+        let files = DiffParser.parse(unifiedDiff: diff)
+        try #require(files.count == 1)
+        #expect(files[0].path == "Sources/New Name.swift")
+        #expect(files[0].status == .renamed(from: "Sources/Old Name.swift"))
+    }
+
     @Test("copy: status .copied(from:) keeps destination path")
     func fileCopy() throws {
         let diff = try loadFixture("file-copy.diff")

@@ -11,17 +11,9 @@ struct SideBySideHunkView: View, Equatable {
         self.commenting = commenting
     }
 
-    // Equality skips findings content: changes invalidate rows via @Observable tracking.
     static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.hunk == rhs.hunk, lhs.style == rhs.style else { return false }
-        switch (lhs.commenting, rhs.commenting) {
-        case (nil, nil):
-            return true
-        case (let left?, let right?):
-            return left.file == right.file && left.model === right.model
-        default:
-            return false
-        }
+        lhs.hunk == rhs.hunk && lhs.style == rhs.style
+            && DiffCommenting.isSame(lhs.commenting, rhs.commenting)
     }
 
     var body: some View {
@@ -172,35 +164,19 @@ private struct SideBySidePane: View {
         {
             HStack {
                 Spacer()
-                addCommentButton(anchor: anchor, line: cell.line, model: model)
-                    .padding(.trailing, style.horizontalPadding)
+                DiffAddCommentButton(
+                    anchor: anchor, line: cell.line, model: model,
+                    iconSize: 13, frameSize: CGSize(width: 22, height: 20)
+                )
+                .padding(.trailing, style.horizontalPadding)
             }
             .frame(height: rowHeight)
             .background(
-                Color.accentColor.opacity(0.08)
+                DiffRowAccent.hover
                     .allowsHitTesting(false)
             )
             .offset(y: CGFloat(index - range.lowerBound) * rowHeight)
         }
-    }
-
-    private func addCommentButton(
-        anchor: DiffLineAnchor,
-        line: Line,
-        model: ReviewFindingsModel
-    ) -> some View {
-        Button {
-            model.beginDraft(at: anchor, lineText: line.content)
-        } label: {
-            Image(systemName: "plus.bubble.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(.white, .blue)
-                .frame(width: 22, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Add review comment")
-        .accessibilityLabel("Add review comment on line \(anchor.line)")
     }
 
     private func cell(at index: Int) -> SideBySideCell? {
@@ -214,12 +190,8 @@ private struct SideBySidePane: View {
     }
 
     private func tint(at index: Int) -> Color {
-        switch cell(at: index)?.line.kind {
-        case .added: return Color.green.opacity(0.10)
-        case .removed: return Color.red.opacity(0.10)
-        case .context: return Color.clear
-        case nil: return Color.primary.opacity(0.04)
-        }
+        // nil = filler cell opposite an unpaired line — washed, not clear.
+        cell(at: index)?.line.kind.diffRowTint ?? Color.primary.opacity(0.04)
     }
 }
 
@@ -265,14 +237,22 @@ private struct SideBySideCellView: View {
                     .font(style.font)
                     .foregroundStyle(.tertiary)
             }
-            Text(symbol)
+            Text(cell?.line.kind.diffSymbol ?? " ")
                 .font(style.font)
-                .foregroundStyle(symbolColor)
+                .foregroundStyle(cell?.line.kind.diffSymbolColor ?? .secondary)
                 .frame(width: 14, alignment: .leading)
             if let cell {
                 DiffLineText.styledText(for: cell.line)
                     .font(style.font)
                     .lineLimit(1)
+                // Fixed-height panes can't take a marker row without
+                // desyncing the two sides — render it inline instead.
+                if cell.line.hasNoTrailingNewline {
+                    Text(#"\ No newline at end of file"#)
+                        .font(style.font)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.horizontal, style.horizontalPadding)
@@ -282,21 +262,5 @@ private struct SideBySideCellView: View {
     private var numberText: String {
         let value = cell.map { String($0.number) } ?? ""
         return String(repeating: " ", count: max(digits - value.count, 0)) + value
-    }
-
-    private var symbol: String {
-        switch cell?.line.kind {
-        case .added: return "+"
-        case .removed: return "−"
-        case .context, nil: return " "
-        }
-    }
-
-    private var symbolColor: Color {
-        switch cell?.line.kind {
-        case .added: return .green
-        case .removed: return .red
-        case .context, nil: return .secondary
-        }
     }
 }

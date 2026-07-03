@@ -55,7 +55,7 @@ nonisolated extension NavigatorRoute {
     )
         -> NavigatorRoute?
     {
-        let issuesPrefix = ".claude/issues/"
+        let issuesPrefix = IssueLayout.issuesRelativePrefix
         let issuePath = issuesPrefix + folderName
         for rewrite in rewrites {
             switch rewrite {

@@ -13,7 +13,7 @@ struct OptimisticDropTests {
         model._setIssuesForTesting([.valid(initial)])
 
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -39,7 +39,7 @@ struct OptimisticDropTests {
         model._setIssuesForTesting([.valid(initial)])
 
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.inProgress),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -55,6 +55,36 @@ struct OptimisticDropTests {
         #expect(after.order == 10)
     }
 
+    @Test("optimistic update preserves blockedBy, mergeSubject, and evidenceStamp")
+    func optimisticUpdatePreservesCarriedFields() async throws {
+        let model = ProjectKanbanModel(mutator: { _, _, _, _ in })
+        var initial = Plumage.Issue(
+            id: 1, folderName: "00001-a", title: "t",
+            type: .feature, status: .approved,
+            created: .distantPast, updated: .distantPast,
+            branch: "issue/00001-a", labels: ["ui"],
+            blockedBy: ["00002-b"], mergeSubject: "Keep me", order: 10
+        )
+        initial.evidenceStamp = "stamp-1"
+        model._setIssuesForTesting([.valid(initial)])
+
+        await model.performDropOptimistic(
+            IssueDragPayload(folderName: "00001-a"),
+            to: .column(.inProgress),
+            projectURL: URL(filePath: "/tmp/probe")
+        )
+
+        let match = try #require(model.issues.first(where: { $0.id == "00001-a" }))
+        guard case .valid(let updated) = match else {
+            Issue.record("expected .valid, got \(match)")
+            return
+        }
+        #expect(updated.status == .inProgress)
+        #expect(updated.blockedBy == ["00002-b"])
+        #expect(updated.mergeSubject == "Keep me")
+        #expect(updated.evidenceStamp == "stamp-1")
+    }
+
     @Test("no-op drop neither updates locally nor sets pending")
     func noopLeavesStateUntouched() async {
         let captured = LockedBox<Int>(value: 0)
@@ -65,7 +95,7 @@ struct OptimisticDropTests {
         model._setIssuesForTesting([.valid(initial)])
 
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.todo),
             projectURL: URL(filePath: "/tmp/probe")
         )
@@ -83,7 +113,7 @@ struct OptimisticDropTests {
         let model = ProjectKanbanModel(mutator: { _, _, _, _ in throw DummyError() })
         let issueA = Self.makeIssue(id: 1, folder: "00001-a", status: .approved)
         model._setIssuesForTesting([.valid(issueA)])
-        let payload = IssueDragPayload(folderName: "00001-a", currentStatus: .approved)
+        let payload = IssueDragPayload(folderName: "00001-a")
         let projectURL = URL(filePath: "/tmp/probe")
 
         model.applyOptimisticDrop(payload, to: .column(.inProgress), projectURL: projectURL)
@@ -164,6 +194,35 @@ struct ReconcileTests {
         }
         #expect(patched.status == .inProgress)
         #expect(patched.order == 20)
+    }
+
+    @Test("patching a pending drop preserves blockedBy, mergeSubject, and evidenceStamp")
+    func patchPreservesCarriedFields() throws {
+        var issue = Plumage.Issue(
+            id: 1, folderName: "00001-a", title: "t",
+            type: .feature, status: .approved,
+            created: .distantPast, updated: .distantPast,
+            branch: "issue/00001-a", labels: ["ui"],
+            blockedBy: ["00002-b"], mergeSubject: "Keep me", order: 10
+        )
+        issue.evidenceStamp = "stamp-1"
+        let result = ProjectKanbanModel.reconcile(
+            incoming: [.valid(issue)],
+            pending: ProjectKanbanModel.PendingDrop(
+                folderName: "00001-a",
+                expectedStatus: .inProgress,
+                expectedOrder: .set(20)
+            )
+        )
+        let first = try #require(result.snapshot.first)
+        guard case .valid(let patched) = first else {
+            Issue.record("expected patched .valid, got \(first)")
+            return
+        }
+        #expect(patched.status == .inProgress)
+        #expect(patched.blockedBy == ["00002-b"])
+        #expect(patched.mergeSubject == "Keep me")
+        #expect(patched.evidenceStamp == "stamp-1")
     }
 
     @Test("%g-rounded order from older builds still clears pending")

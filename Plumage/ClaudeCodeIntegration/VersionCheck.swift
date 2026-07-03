@@ -12,7 +12,7 @@ nonisolated struct SpawnResult: Sendable, Equatable {
     let stderr: Data
 }
 
-nonisolated struct SemanticVersion: Sendable, Equatable, Comparable, CustomStringConvertible {
+nonisolated struct SemanticVersion: Sendable, Equatable, CustomStringConvertible {
     let major: Int
     let minor: Int
     let patch: Int
@@ -34,12 +34,6 @@ nonisolated struct SemanticVersion: Sendable, Equatable, Comparable, CustomStrin
             let patch = Int(patchSub)
         else { return nil }
         return SemanticVersion(major: major, minor: minor, patch: patch)
-    }
-
-    static func < (lhs: Self, rhs: Self) -> Bool {
-        if lhs.major != rhs.major { return lhs.major < rhs.major }
-        if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
-        return lhs.patch < rhs.patch
     }
 }
 

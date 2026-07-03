@@ -39,25 +39,6 @@ nonisolated struct ProjectScaffolder {
         self.catalog = catalog
     }
 
-    // The hooks enabled for a template, as (base name, store path) pairs: built-ins
-    // (a content override wins by stem, carrying its extension) plus the template's
-    // scope-owned user hooks. The toggle key stays the base name.
-    private func enabledHookFiles(forTemplate templateID: String) -> [(base: String, relativePath: String)] {
-        let effective = catalog.effectiveHooks(forTemplate: templateID)
-        var pathByBase: [String: String] = [:]
-        for base in effective { pathByBase[base] = "hooks/\(base).sh" }
-        for file in overrides.overrideFileNames(inRelativeDir: "hooks") {
-            let base = (file as NSString).deletingPathExtension
-            if pathByBase[base] != nil { pathByBase[base] = "hooks/\(file)" }
-        }
-        let effectiveSet = Set(effective)
-        let userHooks = catalog.effectiveUserHooks(forTemplate: templateID, overrides: overrides)
-            .filter { !effectiveSet.contains($0.base) }
-        for hook in userHooks { pathByBase[hook.base] = hook.relativePath }
-        return toggles.enabledNames(in: .hooks, from: effective + userHooks.map(\.base))
-            .map { ($0, pathByBase[$0] ?? "hooks/\($0).sh") }
-    }
-
     private var fileManager: FileManager { .default }
 
     func create(spec: NewProjectSpec) async throws -> CreatedProject {
@@ -196,7 +177,9 @@ nonisolated struct ProjectScaffolder {
     private func writeHooks(spec: NewProjectSpec, claude: URL) throws {
         let hooksDir = claude.appending(path: "hooks", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for hook in enabledHookFiles(forTemplate: spec.templateID) {
+        for hook in ScaffoldHookSelection.enabledHookFiles(
+            forTemplate: spec.templateID, catalog: catalog, overrides: overrides, toggles: toggles)
+        {
             let fileName = (hook.relativePath as NSString).lastPathComponent
             try copy(
                 from: overrides.url(forRelative: hook.relativePath),
@@ -239,27 +222,9 @@ nonisolated struct ProjectScaffolder {
     private func initGitIfRequested(spec: NewProjectSpec, root: URL) async throws {
         guard let git = spec.git else { return }
         try await gitInitRunner.initRepo(at: root, defaultBranch: "main")
-
-        var excludes: [String] = []
-        if git.plumageInGit {
-            excludes += GitExcludeWriter.plumageEphemeralPaths
-        } else {
-            excludes += ["\(spec.name).plumage/"]
-            try excludeBundleFromSwiftLint(name: spec.name, root: root)
-        }
-        if !git.claudeInGit { excludes += [".claude/", ".mcp.json"] }
-        if !excludes.isEmpty {
-            try GitExcludeWriter().append(paths: excludes, repoURL: root)
-        }
-    }
-
-    // No-op when the template wrote no .swiftlint.yml (non-Swift); the entry
-    // mirrors the bundle's .git/info/exclude line so neither tool scans it.
-    private func excludeBundleFromSwiftLint(name: String, root: URL) throws {
-        let configURL = root.appending(path: ".swiftlint.yml")
-        guard let yaml = try? String(contentsOf: configURL, encoding: .utf8) else { return }
-        let updated = SwiftLintConfigEditor.addingExclude("\(name).plumage/", to: yaml)
-        try updated.write(to: configURL, atomically: true, encoding: .utf8)
+        try ProjectGitHygiene.applyExcludes(
+            name: spec.name, plumageInGit: git.plumageInGit, claudeInGit: git.claudeInGit,
+            root: root)
     }
 
     // MARK: - helpers

@@ -188,7 +188,7 @@ final class RunCompletionNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     static func issueTitle(root: URL, slug: String) async -> String? {
         await Task.detached { () -> String? in
-            let specURL = root.appendingPathComponent(".claude/issues/\(slug)/spec.md")
+            let specURL = IssueLayout.specURL(in: root, folderName: slug)
             guard let content = try? String(contentsOf: specURL, encoding: .utf8) else { return nil }
             return (try? SpecParser.parse(content: content, folderName: slug).get())?.title
         }.value

@@ -1,11 +1,11 @@
 import Foundation
 
-nonisolated enum GitInitError: Error, Sendable, Equatable {
+nonisolated enum GitInitError: LocalizedError, Sendable, Equatable {
     case gitNotFound
     case spawnFailed(String)
     case nonZeroExit(code: Int32, stderr: String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"

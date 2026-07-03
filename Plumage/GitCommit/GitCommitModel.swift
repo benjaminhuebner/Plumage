@@ -144,6 +144,9 @@ final class GitCommitModel {
             }
             loadState = .loaded
             reloadDiff()
+        } catch let error as GitCommandError {
+            if Task.isCancelled { return }
+            loadState = .error(error.displayMessage)
         } catch let error as GitStatusError {
             if Task.isCancelled { return }
             loadState = .error(error.displayMessage)
@@ -163,14 +166,13 @@ final class GitCommitModel {
         let generation = diffGeneration
         let runner = diffRunner
         let repo = repoURL
-        let staged = stagedPaths.contains(path)
+        let staged = files.first { $0.path == path }?.isStaged ?? false
         diffTask = Task { [weak self] in
             do {
                 let raw: String
-                // Pick the side the user is staging from: if the file is in
-                // the stagedPaths set show the staged diff (what they're
-                // about to commit), otherwise show the working-tree diff
-                // (what they haven't staged yet).
+                // Side comes from the file's actual index state: staged changes
+                // live in `--cached`, everything else in the working tree. The
+                // checkbox can't decide this — checking a file doesn't stage it.
                 if staged {
                     raw = try await runner.diffStaged(repoURL: repo, path: path)
                 } else {
@@ -223,6 +225,8 @@ final class GitCommitModel {
             }
             try await commitRunner.commit(repoURL: repoURL, message: messageForCommit)
             commitState = .done
+        } catch let error as GitCommandError {
+            commitState = .error(error.displayMessage)
         } catch let error as GitStageError {
             commitState = .error(error.displayMessage)
         } catch let error as GitCommitError {

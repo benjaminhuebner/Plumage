@@ -19,7 +19,6 @@ final class IssueDetailModel {
 
     enum SaveError: Error, Equatable {
         case unresolvedConflict
-        case missingProjectURL
         case emptyTitle
     }
 
@@ -77,7 +76,6 @@ final class IssueDetailModel {
     private(set) var frontmatterError: FrontmatterError?
     private(set) var lastWrittenContent: String?
     private(set) var lastSeenIssue: DiscoveredIssue?
-    private(set) var allocationError: String?
     private(set) var isMerging: Bool = false
     private(set) var isRequestingChanges: Bool = false
     private(set) var lastRequestChangesError: String?
@@ -96,8 +94,10 @@ final class IssueDetailModel {
     // failed but the merge itself landed.
     private(set) var lastMergeNotice: String?
 
-    private var pendingFormWrite: Task<Void, Error>?
-    private var pendingBodySave: Task<Void, Error>?
+    // Single tail-chain for every spec.md write (form commits, body saves,
+    // done-when toggles): each writer awaits the prior one, so two
+    // read-transform-write passes can never interleave and lose a mutation.
+    private var pendingSpecWrite: Task<Void, Error>?
     private var pendingPromptSave: Task<Void, Error>?
     private var observeTask: Task<Void, Never>?
 
@@ -110,10 +110,8 @@ final class IssueDetailModel {
     // that would land on a popped view stop firing. The inner synchronous mutator
     // has no cancellation point — an in-progress disk write still completes (autosave semantics).
     func cancelPendingWork() {
-        pendingFormWrite?.cancel()
-        pendingFormWrite = nil
-        pendingBodySave?.cancel()
-        pendingBodySave = nil
+        pendingSpecWrite?.cancel()
+        pendingSpecWrite = nil
         pendingPromptSave?.cancel()
         pendingPromptSave = nil
         pendingAutoSave?.cancel()
@@ -138,13 +136,11 @@ final class IssueDetailModel {
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
 
     var isCreating: Bool {
-        if case .creating = kind { return true }
-        return false
+        if case .creating = kind { true } else { false }
     }
 
     var canSaveInCreatingMode: Bool {
-        guard isCreating else { return false }
-        return !titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isCreating && !titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     init(
@@ -228,8 +224,7 @@ final class IssueDetailModel {
     // Primary cleanup remains the view's .onDisappear → cancelPendingWork.
     // isolated deinit (Swift 6.2) so we can touch the @MainActor state.
     isolated deinit {
-        pendingFormWrite?.cancel()
-        pendingBodySave?.cancel()
+        pendingSpecWrite?.cancel()
         pendingPromptSave?.cancel()
         pendingAutoSave?.cancel()
         observeTask?.cancel()
@@ -279,54 +274,75 @@ final class IssueDetailModel {
         self.loadState = .loaded
     }
 
-    func noteSeenIssue(_ issue: DiscoveredIssue?) {
+    private func noteSeenIssue(_ issue: DiscoveredIssue?) {
         lastSeenIssue = issue
     }
 
     func load() async {
         guard let url = specURL else { return }
-        let raw: String
+        let folder = folderName ?? ""
+        let parsed: ParsedSpec
         do {
-            raw = try await Task.detached(priority: .userInitiated) {
-                try String(contentsOf: url, encoding: .utf8)
+            parsed = try await Task.detached(priority: .userInitiated) {
+                let raw = try String(contentsOf: url, encoding: .utf8)
+                return Self.parseSpec(rawContent: raw, folderName: folder)
             }.value
         } catch {
             loadState = .failed(error.localizedDescription)
             return
         }
-        applyLoaded(content: raw)
+        apply(parsed, keepBodyDraft: false)
+    }
+
+    nonisolated struct ParsedSpec: Sendable {
+        let content: String
+        let body: String
+        let criteria: [DoneWhenCriterion]
+        let result: Result<Issue, FrontmatterError>
+    }
+
+    // Normalizes CRLF for parser predictability; SpecWriter still writes
+    // back the raw normalized content, so first save flips line endings
+    // exactly once on Windows-tooled inputs.
+    private nonisolated static func parseSpec(rawContent: String, folderName: String) -> ParsedSpec {
+        let content = rawContent.replacingOccurrences(of: "\r\n", with: "\n")
+        return ParsedSpec(
+            content: content,
+            body: SpecParser.extractBody(from: content),
+            criteria: DoneWhenParser.criteria(in: content),
+            result: SpecParser.parse(content: content, folderName: folderName)
+        )
     }
 
     private func applyLoaded(content raw: String) {
-        // Normalize CRLF for parser predictability; SpecWriter still writes
-        // back the raw normalized content, so first save flips line endings
-        // exactly once on Windows-tooled inputs.
-        let content = raw.replacingOccurrences(of: "\r\n", with: "\n")
-        loadedSpecContent = content
-        loadedBodyContent = Self.extractBody(from: content)
-        bodyDraft = loadedBodyContent
-        doneWhenCriteria = DoneWhenParser.criteria(in: content)
-        // applyLoaded only runs after load()/save() in loaded mode; folderName
-        // is always non-nil here. Use the kind's folderName so the parsed
-        // Issue carries the right identifier.
-        let resolvedFolderName = folderName ?? ""
-        switch SpecParser.parse(content: content, folderName: resolvedFolderName) {
-        case .success(let parsed):
-            issue = parsed
+        apply(Self.parseSpec(rawContent: raw, folderName: folderName ?? ""), keepBodyDraft: false)
+    }
+
+    // Every assignment is change-guarded: @Observable invalidates readers on
+    // every set even when the value is identical, and this runs after each
+    // 500 ms auto-save — unguarded sets made the spec editor stutter while typing.
+    private func apply(_ parsed: ParsedSpec, keepBodyDraft: Bool) {
+        if loadedSpecContent != parsed.content { loadedSpecContent = parsed.content }
+        if loadedBodyContent != parsed.body { loadedBodyContent = parsed.body }
+        if !keepBodyDraft, bodyDraft != parsed.body { bodyDraft = parsed.body }
+        if doneWhenCriteria != parsed.criteria { doneWhenCriteria = parsed.criteria }
+        switch parsed.result {
+        case .success(let parsedIssue):
+            if issue != parsedIssue { issue = parsedIssue }
             // Mirror parsed values into drafts so the view can read the same
             // sources of truth in both modes (creating uses drafts directly,
             // loaded uses drafts that are kept in sync with disk).
-            titleDraft = parsed.title
-            typeDraft = parsed.type
-            statusDraft = parsed.status
-            labelsDraft = parsed.labels
-            blockedByDraft = parsed.blockedBy
-            frontmatterError = nil
+            if titleDraft != parsedIssue.title { titleDraft = parsedIssue.title }
+            if typeDraft != parsedIssue.type { typeDraft = parsedIssue.type }
+            if statusDraft != parsedIssue.status { statusDraft = parsedIssue.status }
+            if labelsDraft != parsedIssue.labels { labelsDraft = parsedIssue.labels }
+            if blockedByDraft != parsedIssue.blockedBy { blockedByDraft = parsedIssue.blockedBy }
+            if frontmatterError != nil { frontmatterError = nil }
         case .failure(let error):
-            issue = nil
-            frontmatterError = error
+            if issue != nil { issue = nil }
+            if frontmatterError != error { frontmatterError = error }
         }
-        loadState = .loaded
+        if loadState != .loaded { loadState = .loaded }
     }
 
     var mergeSubjectPrefill: String {
@@ -335,45 +351,75 @@ final class IssueDetailModel {
     }
 
     func mergeToMain(mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool) async -> Bool {
+        isMerging = true
+        defer { isMerging = false }
+        guard let context = await prepareMerge(mode: mode, commitSubject: commitSubject) else {
+            return false
+        }
+        return await executeMerge(context, mode: mode, deleteBranch: deleteBranch)
+    }
+
+    private struct MergeContext {
+        let projectURL: URL
+        let specURL: URL
+        let issue: Issue
+        let subject: String?
+        let defaultBranch: String
+    }
+
+    // Shared preamble of mergeToMain and rebaseAndMergeToMain: validation,
+    // error reset, live-run blocker check, and defaultBranch load run exactly
+    // once per attempt — the rebase path must not re-run them for its merge.
+    private func prepareMerge(mode: GitMergeMode, commitSubject: String?) async -> MergeContext? {
         guard
             let projectURL,
             let specURL,
             let currentIssue = issue
-        else { return false }
+        else { return nil }
 
         let subject = commitSubject?.trimmingCharacters(in: .whitespacesAndNewlines)
         if mode == .squash, subject?.isEmpty != false {
-            return false
+            return nil
         }
 
         lastMergeError = nil
         lastMergeCriticalError = nil
         lastMergeNotice = nil
-        isMerging = true
-        defer { isMerging = false }
 
         if let blocked = await blockingLiveRun(projectURL: projectURL) {
             lastMergeError = blocked
-            return false
+            return nil
         }
-
-        let runner = mergeRunner
-        let issueBranch = currentIssue.branch
-        let mutatorFn = mutator
-        let now = clock()
 
         let loader = configLoader
         let defaultBranch =
             await Task.detached { loader(projectURL)?.gitDefaultBranch }.value ?? "main"
+        return MergeContext(
+            projectURL: projectURL,
+            specURL: specURL,
+            issue: currentIssue,
+            subject: subject,
+            defaultBranch: defaultBranch
+        )
+    }
+
+    private func executeMerge(
+        _ context: MergeContext, mode: GitMergeMode, deleteBranch: Bool
+    ) async -> Bool {
+        let runner = mergeRunner
+        let issueBranch = context.issue.branch
+        let mutatorFn = mutator
+        let now = clock()
+        let specURL = context.specURL
 
         let outcome: GitMergeOutcome
         do {
             outcome = try await runner.mergeIssueBranch(
-                repoURL: projectURL,
-                defaultBranch: defaultBranch,
+                repoURL: context.projectURL,
+                defaultBranch: context.defaultBranch,
                 issueBranch: issueBranch,
                 mode: mode,
-                commitSubject: subject,
+                commitSubject: context.subject,
                 deleteBranch: deleteBranch
             )
         } catch let error as GitMergeError {
@@ -390,7 +436,7 @@ final class IssueDetailModel {
         // Merge has landed on disk. From here on, any failure is critical —
         // we cannot roll back the merge, so the user has to fix spec.md
         // manually via the banner instruction.
-        let doneOrder = await topEntryOrder(movingTo: .done, for: currentIssue)
+        let doneOrder = await topEntryOrder(movingTo: .done, for: context.issue)
         do {
             try await Task.detached(priority: .userInitiated) {
                 try mutatorFn.mutate(
@@ -441,37 +487,18 @@ final class IssueDetailModel {
     func rebaseAndMergeToMain(
         mode: GitMergeMode, commitSubject: String?, deleteBranch: Bool
     ) async -> Bool {
-        guard
-            let projectURL,
-            specURL != nil,
-            let currentIssue = issue
-        else { return false }
-
-        let subject = commitSubject?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if mode == .squash, subject?.isEmpty != false {
-            return false
-        }
-
-        lastMergeError = nil
-        lastMergeCriticalError = nil
-        lastMergeNotice = nil
         isMerging = true
         defer { isMerging = false }
-
-        if let blocked = await blockingLiveRun(projectURL: projectURL) {
-            lastMergeError = blocked
+        guard let context = await prepareMerge(mode: mode, commitSubject: commitSubject) else {
             return false
         }
 
         let runner = mergeRunner
-        let loader = configLoader
-        let defaultBranch =
-            await Task.detached { loader(projectURL)?.gitDefaultBranch }.value ?? "main"
         do {
             try await runner.rebaseIssueBranch(
-                repoURL: projectURL,
-                defaultBranch: defaultBranch,
-                issueBranch: currentIssue.branch)
+                repoURL: context.projectURL,
+                defaultBranch: context.defaultBranch,
+                issueBranch: context.issue.branch)
         } catch let error as GitMergeError {
             lastMergeError = error
             return false
@@ -479,7 +506,7 @@ final class IssueDetailModel {
             lastMergeError = .rebaseFailed(stderr: error.localizedDescription)
             return false
         }
-        return await mergeToMain(mode: mode, commitSubject: commitSubject, deleteBranch: deleteBranch)
+        return await executeMerge(context, mode: mode, deleteBranch: deleteBranch)
     }
 
     func refreshMergeBlocker() async {
@@ -571,10 +598,11 @@ final class IssueDetailModel {
     }
 
     func createIssueFromDraft() async throws {
-        guard case .creating = kind else { return }
+        // The creating-init always builds an allocator, so the unwrap can
+        // only bail in loaded mode — same silent no-op as the kind guard.
+        guard case .creating = kind, let allocator else { return }
         let trimmedTitle = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { throw SaveError.emptyTitle }
-        guard let allocator else { throw SaveError.missingProjectURL }
 
         let slug = NextIssueAllocator.slugify(trimmedTitle)
         let title = trimmedTitle
@@ -586,23 +614,18 @@ final class IssueDetailModel {
         let mutator = self.mutator
         let now = clock()
 
-        let allocatedURL: URL
-        do {
-            allocatedURL = try await Task.detached(priority: .userInitiated) {
-                try allocator.allocate(
-                    slug: slug, title: title, type: type, labels: labels, prompt: prompt, now: now
-                )
-            }.value
-        } catch {
-            allocationError = "\(error)"
-            throw error
-        }
+        let allocatedURL = try await Task.detached(priority: .userInitiated) {
+            try allocator.allocate(
+                slug: slug, title: title, type: type, labels: labels, prompt: prompt, now: now
+            )
+        }.value
 
         // Status defaults to .draft in the template — skip the mutator round-
         // trip when nothing beyond the template needs writing.
         var postMutation = FrontmatterMutation()
         if status != .draft { postMutation.status = .set(status) }
         if !blockedBy.isEmpty { postMutation.blockedBy = .set(blockedBy) }
+        var postMutationError: Error?
         if postMutation.status != .keep || postMutation.blockedBy != .keep {
             do {
                 try await Task.detached(priority: .userInitiated) {
@@ -612,15 +635,12 @@ final class IssueDetailModel {
                         now: now
                     )
                 }.value
-                allocationError = nil
             } catch {
-                // Allocation already produced the folder on disk; surface the
-                // error to the user, but still transition to .loaded so they
-                // see the allocated issue and can retry the status save.
-                allocationError = "\(error)"
+                // Allocation already produced the folder on disk; still
+                // transition to .loaded so the user sees the allocated issue
+                // and can retry, then rethrow into the view's save alert.
+                postMutationError = error
             }
-        } else {
-            allocationError = nil
         }
 
         specURL = allocatedURL
@@ -631,14 +651,15 @@ final class IssueDetailModel {
         promptDraft = prompt
         loadedPromptContent = prompt
         await load()
+        if let postMutationError { throw postMutationError }
     }
 
     private func runFormWrite(_ mutation: FrontmatterMutation) async throws {
-        // Single-tail-chain: every form write awaits the prior pending one before
-        // reading disk + writing back. Without this, two pickers committing in the
-        // same turn would each read the same baseline and the second would clobber the first.
+        // Awaiting the prior spec write matters here: two pickers committing in
+        // the same turn would otherwise read the same baseline and the second
+        // would clobber the first.
         guard let url = specURL else { return }
-        let prior = pendingFormWrite
+        let prior = pendingSpecWrite
         let mutator = self.mutator
         let now = clock()
         let task = Task<Void, Error> {
@@ -647,36 +668,39 @@ final class IssueDetailModel {
                 try mutator.mutate(specURL: url, mutation: mutation, now: now)
             }.value
         }
-        pendingFormWrite = task
+        pendingSpecWrite = task
         // Identity-checked reset: a newer write may have replaced the slot
         // while we awaited. Leaving the finished task in place permanently
         // disabled the external-change auto-reload (it gates on nil).
         defer {
-            if pendingFormWrite == task { pendingFormWrite = nil }
+            if pendingSpecWrite == task { pendingSpecWrite = nil }
         }
         try await task.value
         await reloadFromDiskAfterOwnWrite()
     }
 
     private func readNormalized(_ url: URL) async -> String? {
-        let raw = await Task.detached(priority: .utility) {
-            try? String(contentsOf: url, encoding: .utf8)
+        await Task.detached(priority: .utility) {
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            return raw.replacingOccurrences(of: "\r\n", with: "\n")
         }.value
-        return raw?.replacingOccurrences(of: "\r\n", with: "\n")
+    }
+
+    private func parseFromDisk(_ url: URL) async -> ParsedSpec? {
+        let folder = folderName ?? ""
+        return await Task.detached(priority: .userInitiated) {
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            return Self.parseSpec(rawContent: raw, folderName: folder)
+        }.value
     }
 
     private func reloadFromDiskAfterOwnWrite() async {
         guard let url = specURL else { return }
-        guard let normalized = await readNormalized(url) else { return }
-        lastWrittenContent = normalized
+        guard let parsed = await parseFromDisk(url) else { return }
+        lastWrittenContent = parsed.content
         // Body could change if the user typed inside a form-write window;
-        // preserve the in-flight bodyDraft so we don't drop unsaved keystrokes.
-        let preservedBodyDraft = bodyDraft
-        let preservedDirty = isBodyDirty
-        applyLoaded(content: normalized)
-        if preservedDirty {
-            bodyDraft = preservedBodyDraft
-        }
+        // keep the in-flight bodyDraft so we don't drop unsaved keystrokes.
+        apply(parsed, keepBodyDraft: isBodyDirty)
     }
 
     func saveBody() async throws {
@@ -687,7 +711,7 @@ final class IssueDetailModel {
             throw SaveError.unresolvedConflict
         }
         guard let url = specURL else { return }
-        let prior = pendingBodySave
+        let prior = pendingSpecWrite
         let bodyToSave = bodyDraft
         let mutator = self.mutator
         let now = clock()
@@ -705,24 +729,27 @@ final class IssueDetailModel {
                 )
             }.value
         }
-        pendingBodySave = task
+        pendingSpecWrite = task
+        defer {
+            if pendingSpecWrite == task { pendingSpecWrite = nil }
+        }
         try await task.value
 
-        if let normalized = await readNormalized(url) {
-            lastWrittenContent = normalized
-            // Auto-save fires mid-edit; applyLoaded would snap bodyDraft back to
-            // the written content and drop keystrokes typed during the write.
-            let preservedBodyDraft = bodyDraft
-            applyLoaded(content: normalized)
-            if preservedBodyDraft != bodyDraft { bodyDraft = preservedBodyDraft }
+        if let parsed = await parseFromDisk(url) {
+            lastWrittenContent = parsed.content
+            // Auto-save fires mid-edit; applying the written body would drop
+            // keystrokes typed during the write, so the draft stays untouched.
+            apply(parsed, keepBodyDraft: true)
         }
     }
 
     func scheduleAutoSave() {
         guard !isCreating else { return }
         pendingAutoSave?.cancel()
-        // Clear a stale "Saved" badge while the user is mid-edit.
-        autoSaveStatus = .idle
+        // Clear a stale "Saved" badge while the user is mid-edit. Change-guarded:
+        // this runs per keystroke and an unguarded set invalidates the badge's
+        // whole reader subtree every time.
+        if autoSaveStatus != .idle { autoSaveStatus = .idle }
         pendingAutoSave = Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.autoSaveDebounce)
             guard !Task.isCancelled else { return }
@@ -769,9 +796,9 @@ final class IssueDetailModel {
 
     nonisolated static func defaultTab(for status: IssueStatus) -> BodyTab {
         switch status {
-        case .draft: return .prompt
-        case .approved, .inProgress, .done, .blocked: return .spec
-        case .waitingForReview: return .pullRequest
+        case .draft: .prompt
+        case .approved, .inProgress, .done, .blocked: .spec
+        case .waitingForReview: .pullRequest
         }
     }
 
@@ -874,16 +901,16 @@ final class IssueDetailModel {
     func toggleDoneWhenCriterion(at index: Int, to isChecked: Bool) async {
         if case .externalChange = conflict { return }
         guard let url = specURL else { return }
-        let prior = pendingFormWrite
+        let prior = pendingSpecWrite
         let task = Task<Void, Error> {
             _ = try? await prior?.value
             try await Task.detached(priority: .userInitiated) {
                 try DoneWhenMutator.mutate(specURL: url, criterionIndex: index, isChecked: isChecked)
             }.value
         }
-        pendingFormWrite = task
+        pendingSpecWrite = task
         defer {
-            if pendingFormWrite == task { pendingFormWrite = nil }
+            if pendingSpecWrite == task { pendingSpecWrite = nil }
         }
         do {
             try await task.value
@@ -957,12 +984,18 @@ final class IssueDetailModel {
             conflict = .fileDeleted
             return
         }
-        let normalized = diskContent.replacingOccurrences(of: "\r\n", with: "\n")
-        if !isBodyDirty && pendingFormWrite == nil {
-            applyLoaded(content: normalized)
+        let folder = folderName ?? ""
+        let parsed = await Task.detached(priority: .userInitiated) {
+            Self.parseSpec(rawContent: diskContent, folderName: folder)
+        }.value
+        // Dirtiness is checked after the parse hop on purpose: a keystroke
+        // landing during the parse must flip this into the conflict branch,
+        // not get overwritten by apply().
+        if !isBodyDirty && pendingSpecWrite == nil {
+            apply(parsed, keepBodyDraft: false)
             conflict = nil
-        } else if normalized != loadedSpecContent {
-            conflict = .externalChange(diskContent: normalized)
+        } else if parsed.content != loadedSpecContent {
+            conflict = .externalChange(diskContent: parsed.content)
         }
     }
 
@@ -981,12 +1014,10 @@ final class IssueDetailModel {
         return issue?.title ?? folderName ?? ""
     }
 
-    func dirtyFolderName(bodyDirtyOverride: Bool? = nil, promptDirtyOverride: Bool? = nil) -> String? {
+    func dirtyFolderName() -> String? {
         // Creating mode never has a folder yet; never report dirty.
         guard !isCreating else { return nil }
-        let bodyDirty = bodyDirtyOverride ?? isBodyDirty
-        let promptDirty = promptDirtyOverride ?? isPromptDirty
-        guard bodyDirty || promptDirty else { return nil }
+        guard isBodyDirty || isPromptDirty else { return nil }
         return folderName
     }
 
@@ -995,33 +1026,6 @@ final class IssueDetailModel {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(folder, forType: .string)
-    }
-
-    nonisolated static func extractBody(from content: String) -> String {
-        // Split on the second `---` line: frontmatter is dropped, everything after
-        // is the body (including embedded `---` lines). CRLF is normalized first so
-        // raw file content from any platform is safe.
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
-        var seen = 0
-        var bodyStart = 0
-        for (index, line) in lines.enumerated() {
-            if line.trimmingCharacters(in: .whitespaces) == "---" {
-                seen += 1
-                if seen == 2 {
-                    bodyStart = index + 1
-                    break
-                }
-            }
-        }
-        if seen < 2 { return "" }
-        // Drop a single leading newline so users don't see a stray blank
-        // line at the top of the body editor.
-        if bodyStart < lines.count, lines[bodyStart].isEmpty {
-            bodyStart += 1
-        }
-        guard bodyStart <= lines.count else { return "" }
-        return lines[bodyStart..<lines.count].joined(separator: "\n")
     }
 }
 

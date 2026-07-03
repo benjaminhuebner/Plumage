@@ -7,7 +7,6 @@ final class NavigatorModel {
     // Unified file tree state. Built off-Main from `FileTreeBuilder.build(...)`
     // on every reload.
     private(set) var rootNodes: [FileNode] = []
-    private(set) var loadError: String?
 
     // Relative paths of every effectively-empty foundation context file in the
     // current tree, recomputed on each reload. A *stored* observed property (not

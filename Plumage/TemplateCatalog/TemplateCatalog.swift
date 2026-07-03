@@ -1,5 +1,3 @@
-import Foundation
-
 // The resolved catalog: all three tiers in memory, ready to query and resolve.
 // The store builds it by merging the persisted overlay manifest onto the bundled
 // default (additions/overrides upserted by id, tombstoned predefined items

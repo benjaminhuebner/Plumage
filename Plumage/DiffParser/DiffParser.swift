@@ -162,23 +162,23 @@ nonisolated public enum DiffParser {
             return
         }
         if line.hasPrefix("rename from ") {
-            let from = String(line.dropFirst("rename from ".count))
+            let from = unquote(String(line.dropFirst("rename from ".count)))
             state.currentFile?.status = .renamed(from: from)
             return
         }
         if line.hasPrefix("rename to ") {
-            let dest = String(line.dropFirst("rename to ".count))
+            let dest = unquote(String(line.dropFirst("rename to ".count)))
             state.currentFile?.path = dest
             state.currentFile?.tokeniser = LanguageDetector.tokeniser(forPath: dest)
             return
         }
         if line.hasPrefix("copy from ") {
-            let from = String(line.dropFirst("copy from ".count))
+            let from = unquote(String(line.dropFirst("copy from ".count)))
             state.currentFile?.status = .copied(from: from)
             return
         }
         if line.hasPrefix("copy to ") {
-            let dest = String(line.dropFirst("copy to ".count))
+            let dest = unquote(String(line.dropFirst("copy to ".count)))
             state.currentFile?.path = dest
             state.currentFile?.tokeniser = LanguageDetector.tokeniser(forPath: dest)
             return
@@ -233,14 +233,21 @@ nonisolated public enum DiffParser {
         case .deleted, .renamed, .copied:
             return
         case .added, .modified, .submodule, .binary:
-            var path = raw
-            if path.hasPrefix("\"") { path.removeFirst() }
-            if path.hasSuffix("\"") { path.removeLast() }
+            var path = unquote(raw)
             if path.hasPrefix("b/") { path.removeFirst(2) }
             if path.isEmpty || path == state.currentFile?.path { return }
             state.currentFile?.path = path
             state.currentFile?.tokeniser = LanguageDetector.tokeniser(forPath: path)
         }
+    }
+
+    // git C-quotes paths with special characters; strip the outer quotes so
+    // every header shape (`+++`, rename/copy from/to) yields the same path.
+    private static func unquote(_ raw: String) -> String {
+        var path = raw
+        if path.hasPrefix("\"") { path.removeFirst() }
+        if path.hasSuffix("\"") { path.removeLast() }
+        return path
     }
 
     private static func handleIndexLine(_ line: String, state: inout ParseState) {

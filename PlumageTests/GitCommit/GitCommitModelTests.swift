@@ -105,7 +105,7 @@ struct GitCommitModelTests {
                 unstagedStatus: " ", originalPath: nil)
         ]
         let commit = MockGitCommitter()
-        commit.error = .nonZeroExit(code: 1, stderr: "fatal: boom")
+        commit.error = .nonZeroExit(command: "git commit", code: 1, stderr: "fatal: boom")
         let model = GitCommitModel(
             repoURL: repoURL,
             statusRunner: status,
@@ -150,10 +150,48 @@ struct GitCommitModelTests {
         #expect(model.stagedPaths.isEmpty)
     }
 
+    @Test("diff preview follows the index state, not the checkbox")
+    func diffPreviewUsesIndexState() async throws {
+        let status = MockGitStatusRunner()
+        status.outputs[repoURL] = [
+            GitFileStatus(
+                path: "b.swift", stagedStatus: " ",
+                unstagedStatus: "M", originalPath: nil)
+        ]
+        let diff = MockGitWorkingDiffRunner()
+        diff.workingOutputs["b.swift"] = """
+            diff --git a/b.swift b/b.swift
+            index 1111111..2222222 100644
+            --- a/b.swift
+            +++ b/b.swift
+            @@ -1,1 +1,1 @@
+            -old
+            +new
+            """
+        let model = GitCommitModel(
+            repoURL: repoURL,
+            statusRunner: status,
+            diffRunner: diff,
+            stageRunner: MockGitStager(),
+            commitRunner: MockGitCommitter()
+        )
+        await model.refreshFiles()
+
+        // Checking an unstaged file must NOT flip the preview to `--cached`
+        // (which would be empty) — the index still holds nothing for it.
+        model.stagedPaths = ["b.swift"]
+        model.selectFile("b.swift")
+
+        try await waitUntil(timeout: .seconds(2)) {
+            await MainActor.run { !model.diffPreview.isEmpty }
+        }
+        #expect(model.diffPreview.first?.path == "b.swift")
+    }
+
     @Test("status error surfaces in loadState")
     func statusErrorState() async throws {
         let status = MockGitStatusRunner()
-        status.error = .nonZeroExit(code: 128, stderr: "fatal: nope")
+        status.error = .nonZeroExit(command: "git status", code: 128, stderr: "fatal: nope")
         let model = GitCommitModel(
             repoURL: repoURL,
             statusRunner: status,
@@ -193,7 +231,7 @@ private final class MockGitStager: GitStaging, @unchecked Sendable {
     private let lock = NSLock()
     private(set) var staged: [[String]] = []
     private(set) var unstaged: [[String]] = []
-    var error: GitStageError?
+    var error: GitCommandError?
 
     func stage(repoURL: URL, paths: [String]) async throws {
         lock.withLock { staged.append(paths) }
@@ -211,7 +249,7 @@ private final class MockGitCommitter: GitCommitting, @unchecked Sendable {
 
     private let lock = NSLock()
     private(set) var commits: [Call] = []
-    var error: GitCommitError?
+    var error: GitCommandError?
 
     func commit(repoURL: URL, message: String) async throws {
         lock.withLock { commits.append(Call(message: message)) }

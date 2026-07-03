@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 import Observation
 
 nonisolated enum DragStatus: Sendable, Equatable {

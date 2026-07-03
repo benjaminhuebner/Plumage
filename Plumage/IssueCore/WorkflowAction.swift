@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
     case plan
     case implement

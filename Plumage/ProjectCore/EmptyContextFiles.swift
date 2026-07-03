@@ -1,5 +1,3 @@
-import Foundation
-
 // Pure, disk-free detection of the foundation context files that warn when
 // blank: a project's `CLAUDE.md` (root or under `.claude/`) and `PROJECT.md`.
 // The relative-path set is explicit so a stray `CLAUDE.md`/`PROJECT.md`

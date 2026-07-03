@@ -25,7 +25,7 @@ struct GitCommitRunnerTests {
     func gitNotFoundShortCircuits() async {
         let mock = MockGitProcessRunner()
         let runner = GitCommitRunner(runner: mock, resolveBinary: { nil })
-        await #expect(throws: GitCommitError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             try await runner.commit(repoURL: self.repoURL, message: "real message")
         }
     }
@@ -54,8 +54,8 @@ struct GitCommitRunnerTests {
         do {
             try await runner.commit(repoURL: repoURL, message: "msg")
             Issue.record("expected commit to throw")
-        } catch let GitCommitError.nothingToCommit(stderr) {
-            #expect(stderr.isEmpty || stderr.contains("nothing"))
+        } catch GitCommitError.nothingToCommit {
+            // expected
         } catch {
             Issue.record("expected nothingToCommit, got \(error)")
         }
@@ -72,7 +72,8 @@ struct GitCommitRunnerTests {
         do {
             try await runner.commit(repoURL: repoURL, message: "msg")
             Issue.record("expected commit to throw")
-        } catch let GitCommitError.nonZeroExit(code, stderr) {
+        } catch let GitCommandError.nonZeroExit(command, code, stderr) {
+            #expect(command == "git commit")
             #expect(code == 1)
             #expect(stderr.contains("pathspec"))
         } catch {

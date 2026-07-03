@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum TemplateArchiveManifestError: Error, Equatable {
     case newerSchema(found: Int, supported: Int)
 }

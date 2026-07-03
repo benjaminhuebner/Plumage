@@ -22,6 +22,24 @@ struct GitMergeRunnerPreCheckTests {
         #expect(mock.recordedCalls.isEmpty)
     }
 
+    @Test("failing status command throws instead of reading as a clean tree")
+    func statusFailureThrows() async throws {
+        let mock = MockGitProcessRunner()
+        mock.exitCodeForArgs[Self.statusArgs(repoURL: repoURL)] = 128
+        mock.stderrForArgs[Self.statusArgs(repoURL: repoURL)] = "fatal: not a git repository\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(
+            throws: GitMergeError.statusCheckFailed(stderr: "fatal: not a git repository")
+        ) {
+            _ = try await runner.mergeIssueBranch(
+                repoURL: repoURL, defaultBranch: "main",
+                issueBranch: "issue/x", mode: .fastForward,
+                commitSubject: nil, deleteBranch: false)
+        }
+        #expect(mock.recordedCalls.count == 1)
+    }
+
     @Test("working tree dirty surfaces parsed file list and short-circuits")
     func workingTreeDirty() async throws {
         let mock = MockGitProcessRunner()
@@ -573,6 +591,22 @@ struct GitMergeRunnerRebaseTests {
         #expect(
             mock.recordedCalls.last
                 == Args.rebaseArgs(repoURL: repoURL, base: "main", branch: "issue/x"))
+    }
+
+    @Test("failing status command throws instead of reading as a clean tree")
+    func statusFailureThrows() async throws {
+        let mock = cleanMock()
+        mock.exitCodeForArgs[Args.statusArgs(repoURL: repoURL)] = 128
+        mock.stderrForArgs[Args.statusArgs(repoURL: repoURL)] = "fatal: not a git repository\n"
+        let runner = GitMergeRunner(runner: mock, resolveBinary: { binaryURL })
+
+        await #expect(
+            throws: GitMergeError.statusCheckFailed(stderr: "fatal: not a git repository")
+        ) {
+            try await runner.rebaseIssueBranch(
+                repoURL: repoURL, defaultBranch: "main", issueBranch: "issue/x")
+        }
+        #expect(mock.recordedCalls.count == 1)
     }
 
     @Test("dirty working tree short-circuits before any mutation")

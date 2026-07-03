@@ -4,7 +4,6 @@ import os
 
 nonisolated protocol ProcessRunning: Sendable {
     func detectVersion() async throws -> VersionCheck
-    func spawnSession(args: [String]) async throws -> SpawnResult
 }
 
 nonisolated struct ProductionProcessRunner: ProcessRunning {
@@ -26,11 +25,6 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
             binaryURL: binary,
             inSupportedRange: SupportedClaudeVersion.inSupportedRange(version)
         )
-    }
-
-    func spawnSession(args: [String]) async throws -> SpawnResult {
-        let binary = try Self.locateBinary()
-        return try await Self.spawnAt(binaryURL: binary, args: args)
     }
 
     // MARK: - Binary discovery
@@ -119,18 +113,27 @@ nonisolated struct ProductionProcessRunner: ProcessRunning {
             }
             return SpawnResult(exitCode: code, stdout: out, stderr: err)
         } onCancel: {
-            // SIGTERM via Foundation, escalating to SIGKILL after grace period.
-            if process.isRunning {
-                process.terminate()
-            }
-            let pid = process.processIdentifier
-            Task.detached { [process] in
-                try? await Task.sleep(for: .seconds(Self.cancellationGraceSeconds))
-                // Re-check isRunning to avoid SIGKILL on a recycled PID once
-                // waitUntilExit has reaped the child after the SIGTERM landed.
-                if pid > 0, process.isRunning {
-                    _ = Darwin.kill(pid, SIGKILL)
-                }
+            ProcessKillEscalation.terminateThenKill(
+                process, graceSeconds: Self.cancellationGraceSeconds)
+        }
+    }
+}
+
+// SIGTERM via Foundation, escalating to SIGKILL after the grace period.
+// Shared by the claude spawn paths; SecurityToolRunner keeps its own copy
+// (per-domain subprocess plumbing stays duplicated deliberately).
+nonisolated enum ProcessKillEscalation {
+    static func terminateThenKill(_ process: Process, graceSeconds: TimeInterval) {
+        if process.isRunning {
+            process.terminate()
+        }
+        let pid = process.processIdentifier
+        Task.detached { [process] in
+            try? await Task.sleep(for: .seconds(graceSeconds))
+            // Re-check isRunning to avoid SIGKILL on a recycled PID once
+            // Foundation has reaped the child after the SIGTERM landed.
+            if pid > 0, process.isRunning {
+                _ = Darwin.kill(pid, SIGKILL)
             }
         }
     }

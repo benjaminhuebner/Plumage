@@ -158,6 +158,7 @@ final class TemplateManagerModel {
     // every left-column selection change (an event boundary, never from `body`).
     func refreshContent() {
         guard let selection else {
+            contentTree = []
             contentFiles = []
             membership = nil
             selectedFile = nil
@@ -252,9 +253,7 @@ final class TemplateManagerModel {
     // The override-store path of any tree node: a file leaf already carries it; a folder
     // carries its *output* path, so it is mapped back through the active scope.
     func nodeStorePath(_ node: FileNode) -> String {
-        node.isDirectory
-            ? Self.storageDir(forOutputFolder: node.relativePath, scope: activeScope)
-            : node.relativePath
+        TemplateContentDropResolver.storePath(for: node, scope: activeScope)
     }
 
     // A skill surfaces as individual file leaves and `selectCreatedFile` lands on the
@@ -262,14 +261,7 @@ final class TemplateManagerModel {
     // whole `<scope>/skills/<name>/` folder, else it orphans the manifest's siblings.
     func enclosingSkillDir(forStorePath storePath: String) -> String? {
         let root = activeScope.storageRoot
-        let relative: String
-        if root.isEmpty {
-            relative = storePath
-        } else if storePath.hasPrefix(root + "/") {
-            relative = String(storePath.dropFirst(root.count + 1))
-        } else {
-            return nil
-        }
+        guard let relative = activeScope.scopeRelativePath(of: storePath) else { return nil }
         let parts = relative.split(separator: "/").map(String.init)
         guard parts.count >= 2, parts[0] == "skills" else { return nil }
         let skillRelative = "skills/\(parts[1])"
@@ -316,10 +308,17 @@ final class TemplateManagerModel {
         }
         guard let relativePath = pendingResetPath else { return }
         pendingResetPath = nil
-        try? overrides.removeOverride(forRelative: relativePath)
-        // A per-file reset also lifts a tombstone on the same path, so resetting a file
-        // that was moved away brings its bundled original back at this location.
-        try? overrides.unsuppress(relativePath: relativePath)
+        do {
+            try overrides.removeOverride(forRelative: relativePath)
+            // A per-file reset also lifts a tombstone on the same path, so resetting a file
+            // that was moved away brings its bundled original back at this location.
+            try overrides.unsuppress(relativePath: relativePath)
+        } catch {
+            // The override may still be in place — keep the ● marker and the mounted
+            // editor instead of faking a successful reset.
+            showStructuralError("Couldn't reset to default: \(error.localizedDescription)")
+            return
+        }
         overriddenPaths.remove(relativePath)
         isEditorDirty = false
         editorReloadToken += 1
@@ -388,11 +387,18 @@ final class TemplateManagerModel {
     func delete(_ file: FileNode) {
         guard isUserAuthored(file) else { return }
         let target = deleteTarget(for: file)
+        // Trash first: dropping the wiring for a file that is still on disk would
+        // leave a live hook silently unwired.
+        do {
+            _ = try ClaudeProjectFiles.trashFile(at: target)
+        } catch {
+            showStructuralError("Couldn't delete \(file.name): \(error.localizedDescription)")
+            return
+        }
         if let base = UserTemplateKind.hookBaseName(forRelativePath: file.relativePath) {
             hookWirings.remove(named: base)
             saveHookWirings()
         }
-        _ = try? ClaudeProjectFiles.trashFile(at: target)
         overriddenPaths.remove(file.relativePath)
         if selectedFile == file {
             selectedFile = nil
@@ -467,15 +473,9 @@ final class TemplateManagerModel {
         followHookWiring(from: rename.storePath, to: newStorePath)
         overriddenPaths.remove(rename.storePath)
         refreshContent()
-        if rename.isDirectory {
-            selectedFile = Self.outputPath(forStorageDir: newStorePath, scope: activeScope)
-                .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
-        } else {
-            selectedFile = contentFiles.first { $0.relativePath == newStorePath }
-        }
-        beginEditing(selectedFile)
-        if let selectedFile {
-            contentReveal = FileTreeRevealRequest(path: selectedFile.relativePath)
+        if selectNode(atStorePath: newStorePath, isDirectory: rename.isDirectory) == nil {
+            selectedFile = nil
+            beginEditing(nil)
         }
     }
 
@@ -554,12 +554,22 @@ final class TemplateManagerModel {
     private var dropBannerTask: Task<Void, Never>?
 
     private func showDropBanner(_ message: String) {
-        dropBannerTask?.cancel()
-        dropBanner = message
-        dropBannerTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+        showTransientBanner(message, for: .seconds(3), message: \.dropBanner, task: \.dropBannerTask)
+    }
+
+    // Shared transient-banner mechanics: cancel the prior auto-clear, show the
+    // message, clear it after `duration` unless a newer banner superseded it.
+    private func showTransientBanner(
+        _ text: String, for duration: Duration,
+        message messagePath: ReferenceWritableKeyPath<TemplateManagerModel, String?>,
+        task taskPath: ReferenceWritableKeyPath<TemplateManagerModel, Task<Void, Never>?>
+    ) {
+        self[keyPath: taskPath]?.cancel()
+        self[keyPath: messagePath] = text
+        self[keyPath: taskPath] = Task { [weak self] in
+            try? await Task.sleep(for: duration)
             guard !Task.isCancelled else { return }
-            self?.dropBanner = nil
+            self?[keyPath: messagePath] = nil
         }
     }
 
@@ -663,18 +673,27 @@ final class TemplateManagerModel {
 
     private func selectImported(_ first: (storage: String, isDirectory: Bool)?) {
         guard let first else { return }
-        let node: FileNode?
-        if first.isDirectory {
-            node = Self.outputPath(forStorageDir: first.storage, scope: activeScope)
-                .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
-        } else {
-            node = contentFiles.first { $0.relativePath == first.storage }
-        }
+        selectNode(atStorePath: first.storage, isDirectory: first.isDirectory)
+    }
+
+    // Resolve a store path back to its tree node (a folder through its output path),
+    // select it, seed the editor and reveal the row. Returns nil — leaving the current
+    // selection untouched — when the node is not in the refreshed tree.
+    @discardableResult
+    private func selectNode(atStorePath storePath: String, isDirectory: Bool) -> FileNode? {
+        let node: FileNode? =
+            if isDirectory {
+                Self.outputPath(forStorageDir: storePath, scope: activeScope)
+                    .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
+            } else {
+                contentFiles.first { $0.relativePath == storePath }
+            }
         if let node {
             selectedFile = node
             beginEditing(node)
             contentReveal = FileTreeRevealRequest(path: node.relativePath)
         }
+        return node
     }
 
     func isReadOnlyContentNode(_ node: FileNode) -> Bool {
@@ -872,14 +891,14 @@ final class TemplateManagerModel {
         // falls back to its sensible home — typed kinds to their canonical dir within
         // the scope, typeless to the scope root; a hook always lands in the tier's `hooks/` (+ wiring).
         let scope = activeScope
-        let baseDir: String
-        if kind != .hook, let selected = selectedFile, selected.isDirectory {
-            baseDir = addTargetStorageDir()
-        } else if kind.usesTargetDirectory {
-            baseDir = scope.storageRoot
-        } else {
-            baseDir = scope.storageRoot.isEmpty ? kind.directory : "\(scope.storageRoot)/\(kind.directory)"
-        }
+        let baseDir: String =
+            if kind != .hook, let selected = selectedFile, selected.isDirectory {
+                addTargetStorageDir()
+            } else if kind.usesTargetDirectory {
+                scope.storageRoot
+            } else {
+                scope.storageRoot.isEmpty ? kind.directory : "\(scope.storageRoot)/\(kind.directory)"
+            }
         let parent =
             baseDir.isEmpty
             ? overrideRoot : overrideRoot.appending(path: baseDir, directoryHint: .isDirectory)
@@ -894,12 +913,10 @@ final class TemplateManagerModel {
             case .folder:
                 let dir = try ClaudeProjectFiles.createFolderAt(parent: parent, name: name)
                 refreshContent()
-                let node = Self.outputPath(forStorageDir: storagePath(dir.lastPathComponent), scope: scope)
-                    .flatMap { Self.findNode(in: contentTree, relativePath: $0) }
-                selectedFile = node
-                beginEditing(node)
-                if let node {
-                    contentReveal = FileTreeRevealRequest(path: node.relativePath)
+                let node = selectNode(atStorePath: storagePath(dir.lastPathComponent), isDirectory: true)
+                if node == nil {
+                    selectedFile = nil
+                    beginEditing(nil)
                 }
                 return node
             default:
@@ -920,14 +937,9 @@ final class TemplateManagerModel {
 
     private func selectCreatedFile(storagePath: String, kind: UserTemplateKind) -> FileNode? {
         refreshContent()
-        let node = contentFiles.first { $0.relativePath == storagePath }
-        if let node {
-            selectedFile = node
-            beginEditing(node)
-            contentReveal = FileTreeRevealRequest(path: node.relativePath)
-            // Adding a hook raises the wiring sheet so it does not scaffold inert.
-            if kind == .hook { pendingHookWiring = node }
-        }
+        let node = selectNode(atStorePath: storagePath, isDirectory: false)
+        // Adding a hook raises the wiring sheet so it does not scaffold inert.
+        if kind == .hook, let node { pendingHookWiring = node }
         return node
     }
 
@@ -941,24 +953,6 @@ final class TemplateManagerModel {
     }
 
     // MARK: - Content derivation
-
-    // The override relative path a shared component's file resolves to, by kind.
-    func relativePath(for kind: SharedComponentKind, file: String) -> String {
-        switch kind {
-        case .layer: ScaffoldOverrides.layerRelativePath(file)
-        case .hook: "hooks/\(hookFileName(forBase: file))"
-        case .skill: "skills/\(file)/SKILL.md"
-        case .config: "configs/\(file)"
-        }
-    }
-
-    // On-disk filename for a hook member stored by base name: the override file whose
-    // base matches (carrying `.py`/`.rb`), else the default `<base>.sh` — a Python member
-    // works by its real path, built-ins stay `.sh`. Not `private` — `+Tree` resolves through it.
-    func hookFileName(forBase base: String) -> String {
-        overrides.overrideFileNames(inRelativeDir: "hooks")
-            .first { ($0 as NSString).deletingPathExtension == base } ?? "\(base).sh"
-    }
 
     // A referenced file missing on disk is omitted from the tree (the code view
     // then shows a placeholder rather than crashing — see the edge cases).
@@ -1200,8 +1194,7 @@ extension TemplateManagerModel {
     // The component being edited, when a shared component is selected — drives the
     // membership checklist in the middle column.
     var editingComponentID: String? {
-        if case .sharedComponent(let id) = selection { return id }
-        return nil
+        if case .sharedComponent(let id) = selection { id } else { nil }
     }
 
     func isMember(componentID: String, templateID: String) -> Bool {
@@ -1278,28 +1271,31 @@ extension TemplateManagerModel {
         pendingComponentDeletion = nil
         var updated = catalog
         updated.deleteSharedComponent(id: component.id)
-        for file in component.files {
-            let relativePath = relativePath(for: file.kind, file: file.name)
-            if !overrides.hasBundledOriginal(forRelative: relativePath),
-                let url = overrides.overrideURL(forRelative: relativePath)
-            {
-                _ = try? ClaudeProjectFiles.trashFile(at: url)
+        if selection == .sharedComponent(component.id) { selection = .base }
+        // Persist first: a failed save rolls the catalog back, so the component's
+        // files must not be trashed until the deletion is actually on disk.
+        if persist(updated) {
+            for file in component.files {
+                let relativePath = file.storePath(hookFileName: overrides.hookFileName(forBase:))
+                if !overrides.hasBundledOriginal(forRelative: relativePath),
+                    let url = overrides.overrideURL(forRelative: relativePath)
+                {
+                    _ = try? ClaudeProjectFiles.trashFile(at: url)
+                }
             }
         }
-        if selection == .sharedComponent(component.id) { selection = .base }
-        persist(updated)
         refreshContent()
     }
 
     private func writeComponentStarter(for component: SharedComponent) throws {
         guard let file = component.files.first else { return }
-        let relativePath = relativePath(for: file.kind, file: file.name)
+        let relativePath = file.storePath(hookFileName: overrides.hookFileName(forBase:))
         let content: String
         switch file.kind {
         case .layer: content = "# \(component.name)\n"
         case .hook:
             content =
-                UserTemplateKind.hookShebang(forFileName: hookFileName(forBase: file.name))
+                UserTemplateKind.hookShebang(forFileName: overrides.hookFileName(forBase: file.name))
                 + "# \(component.name)\n"
         case .skill: content = "# \(component.name)\n"
         case .config: content = "{}\n"
@@ -1327,11 +1323,12 @@ extension TemplateManagerModel {
     private func performDeleteTemplate(_ template: TemplateDescriptor) {
         var updated = catalog
         updated.deleteTemplate(id: template.id)
-        if !catalog.isPredefinedTemplate(template.id) {
+        if selection == .template(template.id) { selection = .base }
+        // Persist first: a failed save rolls the catalog back, so a custom template's
+        // files must not be trashed until the deletion is actually on disk.
+        if persist(updated), !catalog.isPredefinedTemplate(template.id) {
             trashTemplateOverrides(template)
         }
-        if selection == .template(template.id) { selection = .base }
-        persist(updated)
         refreshContent()
     }
 
@@ -1492,12 +1489,7 @@ extension TemplateManagerModel {
     }
 
     func showStructuralError(_ message: String) {
-        structuralErrorTask?.cancel()
-        structuralError = message
-        structuralErrorTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled else { return }
-            self?.structuralError = nil
-        }
+        showTransientBanner(
+            message, for: .seconds(4), message: \.structuralError, task: \.structuralErrorTask)
     }
 }

@@ -14,6 +14,4 @@ enum RepoAssets {
             .deletingLastPathComponent()  // repo root
             .appending(path: "NewProjectAssets", directoryHint: .isDirectory)
     }
-
-    static var templatesDir: URL { root.appending(path: "templates", directoryHint: .isDirectory) }
 }

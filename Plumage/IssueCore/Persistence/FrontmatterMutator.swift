@@ -41,12 +41,7 @@ nonisolated enum FrontmatterMutator {
         mutation: FrontmatterMutation,
         now: Date
     ) throws -> String {
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        // Preserve the original line-ending convention: if any \r\n existed,
-        // emit \r\n on output so we don't silently flip line endings.
-        let lineSeparator = content.contains("\r\n") ? "\r\n" : "\n"
-
-        let lines = normalized.components(separatedBy: "\n")
+        let (lines, lineSeparator) = SpecText.normalizedLines(content: content)
         guard let frontStart = firstDelimiterIndex(in: lines),
             let frontEnd = secondDelimiterIndex(in: lines, after: frontStart)
         else {
@@ -183,33 +178,6 @@ nonisolated enum FrontmatterMutator {
             let frontmatterSection = rebuilt.joined(separator: lineSeparator)
             return frontmatterSection + lineSeparator + lineSeparator + newBody
         }
-    }
-
-    // Drop-path back-compat wrapper. ProjectKanbanModel's Mutator typealias
-    // pins this exact signature; keep it green so callers compile
-    // unchanged. Internally routes through the new mutation entry point.
-    static func mutate(
-        specURL: URL,
-        newStatus: IssueStatus?,
-        newOrder: SetValue<Double?>,
-        now: Date
-    ) throws {
-        var mutation = FrontmatterMutation()
-        if let newStatus { mutation.status = .set(newStatus) }
-        mutation.order = newOrder
-        try mutate(specURL: specURL, mutation: mutation, now: now)
-    }
-
-    static func transform(
-        content: String,
-        newStatus: IssueStatus?,
-        newOrder: SetValue<Double?>,
-        now: Date
-    ) throws -> String {
-        var mutation = FrontmatterMutation()
-        if let newStatus { mutation.status = .set(newStatus) }
-        mutation.order = newOrder
-        return try transform(content: content, mutation: mutation, now: now)
     }
 
     private static func firstDelimiterIndex(in lines: [String]) -> Int? {

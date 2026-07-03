@@ -44,7 +44,6 @@ final class XcodeRunModel {
     private(set) var runState: RunState = .idle
     private(set) var logBuffer: [BuildLogLine] = []
     @ObservationIgnored private var nextLogLineID = 0
-    private(set) var multipleProjectsFound: Bool = false
     private(set) var toolchainAvailable: Bool = true
     private(set) var schemeCompatibility: [String: SchemeCompatibility] = [:]
 
@@ -85,7 +84,6 @@ final class XcodeRunModel {
         let projects = await Task.detached(priority: .userInitiated) {
             XcodeProjectDiscovery.findAll(in: projectURL)
         }.value
-        multipleProjectsFound = projects.count > 1
         guard let firstProject = projects.first else {
             projectRef = nil
             schemes = []

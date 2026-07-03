@@ -15,24 +15,35 @@ nonisolated enum SpecTaskAppender {
 
     static func transform(content: String, taskTexts: [String]) throws -> String {
         guard !taskTexts.isEmpty else { throw SpecTaskAppenderError.noTasksToAppend }
+        let normalized = SpecText.normalizedLines(content: content)
+        var lines = normalized.lines
+        let section = scanTasksSection(in: lines)
+        // Retry-safe: when the append landed but the follow-up status commit
+        // failed, the caller retries the whole request — task lines already in
+        // the section must not duplicate.
+        let existing = section?.existingLines ?? []
         let taskLines = taskTexts.map { "- [ ] " + flattened($0) }
-        let lineSeparator = content.contains("\r\n") ? "\r\n" : "\n"
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        var lines = normalized.components(separatedBy: "\n")
-        if let insertionIndex = taskInsertionIndex(in: lines) {
-            lines.insert(contentsOf: taskLines, at: insertionIndex)
+            .filter { !existing.contains($0) }
+        guard !taskLines.isEmpty else { return content }
+        if let section {
+            lines.insert(contentsOf: taskLines, at: section.insertionIndex)
         } else {
             appendNewSection(taskLines, to: &lines)
         }
-        return lines.joined(separator: lineSeparator)
+        return lines.joined(separator: normalized.separator)
     }
 
-    private static func taskInsertionIndex(in lines: [String]) -> Int? {
+    private static func scanTasksSection(
+        in lines: [String]
+    ) -> (insertionIndex: Int, existingLines: Set<String>)? {
         var fenceChar: Character?
         var headerIndex: Int?
         var lastContentIndex: Int?
+        // Fenced lines advance the insertion point but never count as
+        // existing tasks — a checkbox inside a code block is an example.
+        var existingLines: Set<String> = []
         for (index, line) in lines.enumerated() {
-            if let marker = fenceMarker(line) {
+            if let marker = SpecText.fenceMarker(line) {
                 if fenceChar == nil {
                     fenceChar = marker
                 } else if fenceChar == marker {
@@ -52,11 +63,14 @@ nonisolated enum SpecTaskAppender {
                 }
             } else {
                 if line.hasPrefix("## ") { break }
-                if !line.allSatisfy(\.isWhitespace) { lastContentIndex = index }
+                if !line.allSatisfy(\.isWhitespace) {
+                    lastContentIndex = index
+                    existingLines.insert(line)
+                }
             }
         }
         guard let lastContentIndex else { return nil }
-        return lastContentIndex + 1
+        return (lastContentIndex + 1, existingLines)
     }
 
     private static func appendNewSection(_ taskLines: [String], to lines: inout [String]) {
@@ -74,12 +88,6 @@ nonisolated enum SpecTaskAppender {
     private static func isTasksHeader(_ line: String) -> Bool {
         guard line.hasPrefix("## Tasks") else { return false }
         return line.dropFirst("## Tasks".count).allSatisfy(\.isWhitespace)
-    }
-
-    private static func fenceMarker(_ line: String) -> Character? {
-        if line.hasPrefix("```") { return "`" }
-        if line.hasPrefix("~~~") { return "~" }
-        return nil
     }
 
     private static func flattened(_ text: String) -> String {

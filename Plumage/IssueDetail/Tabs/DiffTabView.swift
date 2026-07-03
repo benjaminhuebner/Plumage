@@ -1,4 +1,3 @@
-import LanguageSupport
 import SwiftUI
 
 struct DiffTabView: View {
@@ -203,7 +202,7 @@ private struct HunkView: View {
     @ViewBuilder
     private var hunkHeader: some View {
         HStack(spacing: 6) {
-            Text("@@ -\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@")
+            Text(hunk.headerLine)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
             if !hunk.headerContext.isEmpty {

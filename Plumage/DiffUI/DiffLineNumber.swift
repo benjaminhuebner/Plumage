@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated struct DiffLineNumber: Equatable, Sendable {
     let old: Int?
     let new: Int?

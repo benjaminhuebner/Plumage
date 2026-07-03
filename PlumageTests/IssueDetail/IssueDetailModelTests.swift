@@ -112,6 +112,22 @@ struct IssueDetailModelTests {
         #expect(written.contains("type: spike"))
     }
 
+    @Test("body save and form write serialize on the shared spec-write chain")
+    func bodyAndFormWritesSerialize() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
+        let model = env.makeModel()
+        await model.load()
+        model.bodyDraft = "New body."
+        async let bodySave: Void = model.saveBody()
+        async let statusWrite: Void = model.commitStatus(.inProgress)
+        _ = try await (bodySave, statusWrite)
+        // Both read-transform-write passes must land; two independent chains
+        // could interleave and drop whichever wrote first.
+        let written = try String(contentsOf: env.specURL, encoding: .utf8)
+        #expect(written.contains("New body."))
+        #expect(written.contains("status: in-progress"))
+    }
+
     @Test("isBodyDirty flips when body is edited")
     func dirtyBodyDetected() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "approved", body: "Hello."))
@@ -153,7 +169,7 @@ struct IssueDetailModelTests {
         let model = env.makeModel()
         await model.load()
         try await model.commitStatus(.inProgress)
-        // The finished write must not occupy pendingFormWrite — that
+        // The finished write must not occupy pendingSpecWrite — that
         // permanently disabled the silent reload below.
         let updated = Self.baseSpec(status: "blocked", body: "Hello.")
         await model.handleExternalChange(diskContent: updated)
@@ -199,7 +215,7 @@ struct IssueDetailModelTests {
 
             text
             """
-        #expect(IssueDetailModel.extractBody(from: content) == "# Body\n\ntext")
+        #expect(SpecParser.extractBody(from: content) == "# Body\n\ntext")
     }
 
     @Test("observeExternalChange skips disk read when issue snapshot unchanged")
@@ -451,7 +467,6 @@ struct IssueDetailModelTests {
             #expect(Bool(false), "expected .loaded kind after save")
         }
         #expect(model.specURL == env.specURL)
-        #expect(model.allocationError == nil)
         #expect(model.promptDraft == "Some body content")
         #expect(model.loadedPromptContent == "Some body content")
     }
@@ -476,6 +491,34 @@ struct IssueDetailModelTests {
         } else {
             #expect(Bool(false), "kind should remain .creating after failed save")
         }
+    }
+
+    @Test("createIssueFromDraft rethrows a post-allocation mutation failure after loading the issue")
+    func createIssuePostMutationFailureThrows() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "draft", body: "Loaded body."))
+        let recorder = AllocatorMutatorRecorder(allocatedSpecURL: env.specURL)
+        let model = IssueDetailModel(
+            creatingInitialStatus: .inProgress,
+            projectURL: env.tmpDir,
+            allocator: recorder,
+            mutator: ThrowingMutator(),
+            clock: { self.now }
+        )
+        model.titleDraft = "My New Issue"
+
+        // The rethrow feeds the view's save alert — silently swallowing the
+        // failure dropped the chosen status without the user ever knowing.
+        await #expect(throws: ThrowingMutator.Failure.self) {
+            try await model.createIssueFromDraft()
+        }
+        // The folder exists on disk, so the model must still transition to
+        // .loaded — retrying creation would collide on the slug.
+        if case .loaded(let folderName) = model.kind {
+            #expect(folderName == env.specURL.deletingLastPathComponent().lastPathComponent)
+        } else {
+            #expect(Bool(false), "expected .loaded kind after post-allocation failure")
+        }
+        #expect(model.specURL == env.specURL)
     }
 
     @Test("createIssueFromDraft skips mutator when status is template-default draft")

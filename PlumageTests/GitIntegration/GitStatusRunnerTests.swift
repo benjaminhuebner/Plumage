@@ -20,7 +20,6 @@ struct GitStatusRunnerParseTests {
         #expect(result[0].stagedStatus == " ")
         #expect(result[0].unstagedStatus == "M")
         #expect(result[0].isStaged == false)
-        #expect(result[0].isUnstaged == true)
         #expect(result[0].isUntracked == false)
         #expect(result[0].badge == "M")
     }
@@ -33,7 +32,7 @@ struct GitStatusRunnerParseTests {
         #expect(result[0].stagedStatus == "M")
         #expect(result[0].unstagedStatus == "M")
         #expect(result[0].badge == "M")
-        #expect(result[0].isStaged && result[0].isUnstaged)
+        #expect(result[0].isStaged)
         #expect(result[1].stagedStatus == "A")
         #expect(result[1].unstagedStatus == " ")
         #expect(result[1].badge == "A")
@@ -101,7 +100,7 @@ struct GitStatusRunnerMockTests {
     func gitNotFoundShortCircuits() async {
         let mock = MockGitProcessRunner()
         let runner = GitStatusRunner(runner: mock, resolveBinary: { nil })
-        await #expect(throws: GitStatusError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             _ = try await runner.run(repoURL: self.repoURL)
         }
         #expect(mock.recordedCalls.isEmpty)
@@ -115,7 +114,7 @@ struct GitStatusRunnerMockTests {
         mock.stderrForArgs[args] = "fatal: not a git repository\n"
         let runner = GitStatusRunner(runner: mock, resolveBinary: { self.binaryURL })
 
-        await #expect(throws: GitStatusError.self) {
+        await #expect(throws: GitCommandError.self) {
             _ = try await runner.run(repoURL: self.repoURL)
         }
     }

@@ -8,6 +8,8 @@ struct ProjectStatusBar: View {
     var banner: String?
     var queueEntries: [QueueEntryDisplay]
     var onCancelQueued: (String) -> Void
+    var chatIsWorking: Bool
+    var onToggleChat: (() -> Void)?
 
     init(
         indicatorState: StatusIndicatorModel.IndicatorState,
@@ -16,7 +18,9 @@ struct ProjectStatusBar: View {
         repoState: RepoState = .notARepo,
         banner: String? = nil,
         queueEntries: [QueueEntryDisplay] = [],
-        onCancelQueued: @escaping (String) -> Void = { _ in }
+        onCancelQueued: @escaping (String) -> Void = { _ in },
+        chatIsWorking: Bool = false,
+        onToggleChat: (() -> Void)? = nil
     ) {
         self.indicatorState = indicatorState
         self.usageModel = usageModel
@@ -25,6 +29,8 @@ struct ProjectStatusBar: View {
         self.banner = banner
         self.queueEntries = queueEntries
         self.onCancelQueued = onCancelQueued
+        self.chatIsWorking = chatIsWorking
+        self.onToggleChat = onToggleChat
     }
 
     var body: some View {
@@ -64,8 +70,16 @@ struct ProjectStatusBar: View {
                         .fixedSize()
                         .layoutPriority(0)
                 }
+                if let onToggleChat {
+                    StatusBarChatButton(isWorking: chatIsWorking, action: onToggleChat)
+                        .fixedSize()
+                        .layoutPriority(0)
+                }
             }
-            .padding(.horizontal, 12)
+            .padding(.leading, 12)
+            // The window's corner curve cuts into the bar's trailing end;
+            // extra padding keeps controls out of the curve.
+            .padding(.trailing, 20)
             .frame(maxWidth: .infinity, minHeight: 22)
             // Solid fill, not .bar: bar material is navigation-layer chrome;
             // this strip sits on the content layer below the detail pane.

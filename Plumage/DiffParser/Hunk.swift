@@ -1,4 +1,3 @@
-import Foundation
 // LanguageSupport 0.15.4 (CodeEditorView) hasn't adopted Swift 6 strict
 // concurrency — its `LanguageConfiguration.Token` enum isn't Sendable. The
 // enum's payload is itself a value-type (`Flavour`), so wrapping it in our
@@ -28,6 +27,10 @@ nonisolated public struct Hunk: Sendable, Equatable, Hashable {
         self.newCount = newCount
         self.headerContext = headerContext
         self.lines = lines
+    }
+
+    public var headerLine: String {
+        "@@ -\(oldStart),\(oldCount) +\(newStart),\(newCount) @@"
     }
 }
 

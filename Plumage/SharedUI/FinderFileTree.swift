@@ -4,7 +4,6 @@ import SwiftUI
 enum FinderFileTreeStyle {
     // Fully transparent: the sidebar's Liquid Glass must show through.
     case sidebar
-    case inset
 }
 
 nonisolated enum FileTreeDropPayload: Equatable, Sendable {
@@ -79,9 +78,6 @@ struct FinderFileTree<RowContent: View>: NSViewRepresentable {
         switch style {
         case .sidebar:
             outline.style = .sourceList
-            outline.backgroundColor = .clear
-        case .inset:
-            outline.style = .inset
             outline.backgroundColor = .clear
         }
 
@@ -197,31 +193,24 @@ final class FinderFileTreeOutlineView: NSOutlineView {
 }
 
 #Preview("Sidebar style") {
-    @Previewable @State var expanded: Set<String> = [".claude"]
-    FinderFileTree(
-        nodes: FinderFileTreePreviewData.nodes,
-        style: .sidebar,
-        expandedPaths: $expanded,
-        onSelect: { _ in },
-        rowContent: { node in
-            Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
-        }
-    )
-    .frame(width: 260, height: 360)
+    FinderFileTreePreviewHost()
 }
 
-#Preview("Inset style") {
-    @Previewable @State var expanded: Set<String> = []
-    FinderFileTree(
-        nodes: FinderFileTreePreviewData.nodes,
-        style: .inset,
-        expandedPaths: $expanded,
-        onSelect: { _ in },
-        rowContent: { node in
-            Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
-        }
-    )
-    .frame(width: 320, height: 360)
+private struct FinderFileTreePreviewHost: View {
+    @State private var expanded: Set<String> = [".claude"]
+
+    var body: some View {
+        FinderFileTree(
+            nodes: FinderFileTreePreviewData.nodes,
+            style: .sidebar,
+            expandedPaths: $expanded,
+            onSelect: { _ in },
+            rowContent: { node in
+                Label(node.name, systemImage: node.isDirectory ? "folder" : "doc.text")
+            }
+        )
+        .frame(width: 260, height: 360)
+    }
 }
 
 enum FinderFileTreePreviewData {

@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated struct EvidenceStalenessReference: Sendable, Equatable {
     let head: String
     let allowedCommitsAfter: Int

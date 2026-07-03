@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 
 nonisolated enum VerticalScrollEdge: Sendable, Equatable {
     case up

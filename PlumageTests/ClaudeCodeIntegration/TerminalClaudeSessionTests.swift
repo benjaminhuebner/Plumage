@@ -365,7 +365,7 @@ struct TerminalClaudeSessionTests {
         #expect(fired == 1)
     }
 
-    @Test("clearStopHandler prevents stop() from firing")
+    @Test("clearStopHandler with the matching token prevents stop() from firing")
     func clearStopHandler() throws {
         let env = try TempEnv.make()
         defer { env.cleanup() }
@@ -373,10 +373,29 @@ struct TerminalClaudeSessionTests {
         session.attach()
         session.markStarted()
         var fired = 0
-        session.registerStopHandler { fired += 1 }
-        session.clearStopHandler()
+        let token = session.registerStopHandler { fired += 1 }
+        session.clearStopHandler(token: token)
         session.stop()
         #expect(fired == 0)
+    }
+
+    @Test("clearStopHandler with a stale token keeps the newer registration")
+    func clearStopHandlerStaleToken() throws {
+        let env = try TempEnv.make()
+        defer { env.cleanup() }
+        let session = env.makeSession()
+        session.attach()
+        session.markStarted()
+        var oldFired = 0
+        var newFired = 0
+        // Remount race: the OLD view's dismantle clears after the NEW view
+        // already re-registered — its stale token must be a no-op.
+        let staleToken = session.registerStopHandler { oldFired += 1 }
+        session.registerStopHandler { newFired += 1 }
+        session.clearStopHandler(token: staleToken)
+        session.stop()
+        #expect(oldFired == 0)
+        #expect(newFired == 1)
     }
 
     @Test("stop() from .idle does not fire stopHandler")

@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 
 @testable import Plumage
@@ -158,5 +157,67 @@ struct SpecTaskAppenderTests {
         #expect(throws: SpecTaskAppenderError.noTasksToAppend) {
             _ = try SpecTaskAppender.transform(content: "## Tasks\n", taskTexts: [])
         }
+    }
+
+    @Test("a task line already present verbatim is not appended again")
+    func duplicateTaskSkipped() throws {
+        let content = """
+            ## Tasks
+
+            - [ ] Review fix: a.swift:3 — rename
+
+            ## Done when
+            """
+        let result = try SpecTaskAppender.transform(
+            content: content, taskTexts: ["Review fix: a.swift:3 — rename"])
+        #expect(result == content)
+    }
+
+    @Test("mixed retry appends only the tasks not already in the section")
+    func mixedRetryAppendsOnlyNewTasks() throws {
+        let content = """
+            ## Tasks
+
+            - [ ] Review fix: a.swift:3 — rename
+
+            ## Done when
+            """
+        let result = try SpecTaskAppender.transform(
+            content: content,
+            taskTexts: ["Review fix: a.swift:3 — rename", "Review fix: b.swift:9 — guard"])
+        #expect(
+            result == """
+                ## Tasks
+
+                - [ ] Review fix: a.swift:3 — rename
+                - [ ] Review fix: b.swift:9 — guard
+
+                ## Done when
+                """)
+    }
+
+    @Test("an identical line inside a fence does not count as an existing task")
+    func fencedDuplicateStillAppends() throws {
+        let content = """
+            ## Tasks
+
+            ```
+            - [ ] Fix it
+            ```
+
+            ## Done when
+            """
+        let result = try SpecTaskAppender.transform(content: content, taskTexts: ["Fix it"])
+        #expect(
+            result == """
+                ## Tasks
+
+                ```
+                - [ ] Fix it
+                ```
+                - [ ] Fix it
+
+                ## Done when
+                """)
     }
 }

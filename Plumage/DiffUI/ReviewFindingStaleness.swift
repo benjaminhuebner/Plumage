@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum ReviewFindingStaleness {
     static func isStale(_ finding: ReviewFinding, in files: [FileDiff]) -> Bool {
         guard let file = files.first(where: { $0.path == finding.file }) else { return true }

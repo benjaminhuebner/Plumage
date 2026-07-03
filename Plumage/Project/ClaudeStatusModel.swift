@@ -18,21 +18,6 @@ final class ClaudeStatusModel {
         return .unknown
     }
 
-    var description: String? {
-        if case .loaded(let response) = state { return response.description }
-        return nil
-    }
-
-    var incidents: [ClaudeStatusPageResponse.Incident] {
-        if case .loaded(let response) = state { return response.incidents }
-        return []
-    }
-
-    var component: ClaudeStatusPageResponse.Component? {
-        if case .loaded(let response) = state { return response.component }
-        return nil
-    }
-
     // Never returns normally — loops until the caller's Task is cancelled
     // (parent .task(id:) re-fire or window close); Task.sleep is that point.
     func startPolling(using client: ClaudeStatusPageClient, interval: Duration = .seconds(60)) async {

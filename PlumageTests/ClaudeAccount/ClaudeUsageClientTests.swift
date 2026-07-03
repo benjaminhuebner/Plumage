@@ -114,6 +114,26 @@ struct ClaudeUsageClientTests {
         #expect(stub.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer sk-new")
     }
 
+    @Test("an expired cached token is a cache miss — re-read instead of a guaranteed 401")
+    func expiredCachedTokenReReadsKeychain() async throws {
+        let stub = StubHTTPFetcher()
+        let expired = OAuthToken(value: "sk-expired", expiresAt: Date(timeIntervalSinceNow: -60))
+        let keychain = MockKeychainReader(outcome: .token(expired))
+        stub.setOutcome(
+            .response(status: 200, body: Self.usageJSON), for: ClaudeUsageClient.usageEndpoint)
+        let client = ClaudeUsageClient(fetcher: stub, keychain: keychain)
+        _ = try await client.fetchUsage()  // caches sk-expired (1 read)
+        #expect(keychain.readCount == 1)
+
+        // The CLI has rotated the token by the next poll; the expired cache
+        // entry must not be sent again.
+        keychain.outcome = .token(OAuthToken(value: "sk-rotated", expiresAt: nil))
+        _ = try await client.fetchUsage()
+        #expect(keychain.readCount == 2)
+        #expect(
+            stub.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer sk-rotated")
+    }
+
     private static let usageJSON: Data = Data(
         #"""
         {

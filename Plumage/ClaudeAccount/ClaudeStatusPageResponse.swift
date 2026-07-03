@@ -14,8 +14,6 @@ nonisolated enum ClaudeStatusIndicator: String, Sendable, Equatable, Codable {
         }
         return mapped
     }
-
-    var isOperational: Bool { self == .none }
 }
 
 nonisolated struct ClaudeStatusPageResponse: Sendable, Equatable, Decodable {

@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum WorkflowEffortSetting: Hashable, Sendable, Codable {
     case uniform(EffortLevel)
     case perType([IssueType: EffortLevel])

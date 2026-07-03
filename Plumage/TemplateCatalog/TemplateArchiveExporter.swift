@@ -158,16 +158,11 @@ nonisolated struct TemplateArchiveExporter: Sendable {
         var paths = Set<String>()
         for file in component.files {
             switch file.kind {
-            case .layer:
-                let layerPath = ScaffoldOverrides.layerRelativePath(file.name)
-                if overrides.hasOverride(forRelative: layerPath) { paths.insert(layerPath) }
-            case .hook:
-                let hookPath = "hooks/\(hookFileName(forBase: file.name))"
-                if overrides.hasOverride(forRelative: hookPath) { paths.insert(hookPath) }
-            case .config:
-                let configPath = "configs/\(file.name)"
-                if overrides.hasOverride(forRelative: configPath) { paths.insert(configPath) }
+            case .layer, .hook, .config:
+                let path = file.storePath(hookFileName: overrides.hookFileName(forBase:))
+                if overrides.hasOverride(forRelative: path) { paths.insert(path) }
             case .skill:
+                // A skill is a whole folder — every file under it travels, not just SKILL.md.
                 paths.formUnion(subtreePaths(under: "skills/\(file.name)"))
             }
         }
@@ -193,11 +188,6 @@ nonisolated struct TemplateArchiveExporter: Sendable {
         Set(
             overrides.overrideFileNamesRecursive(inRelativeDir: relativeDir)
                 .map { "\(relativeDir)/\($0)" })
-    }
-
-    private func hookFileName(forBase base: String) -> String {
-        let overrideFiles = overrides.overrideFileNames(inRelativeDir: "hooks")
-        return overrideFiles.first { ($0 as NSString).deletingPathExtension == base } ?? "\(base).sh"
     }
 
     // A wiring travels with the archive only when its hook file is on board.

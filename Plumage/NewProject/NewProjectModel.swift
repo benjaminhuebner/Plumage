@@ -31,7 +31,7 @@ final class NewProjectModel {
     // refines it with the persisted overlay (custom templates, enabled flags).
     private(set) var catalog: TemplateCatalog = .bundledDefault
     private let store: TemplateCatalogStore
-    private let overrides: ScaffoldOverrides
+    let overrides: ScaffoldOverrides
 
     init(
         store: TemplateCatalogStore = TemplateCatalogStore(),
@@ -46,13 +46,6 @@ final class NewProjectModel {
     func loadCatalog() async {
         let store = self.store
         catalog = await Task.detached(priority: .userInitiated) { store.load() }.value
-    }
-
-    // Resolves a `TemplateImage.file` relative path to its on-disk URL (override
-    // store), or nil when absent — the grid then falls back to a placeholder symbol.
-    func imageURL(forRelative relativePath: String) -> URL? {
-        let url = overrides.url(forRelative: relativePath)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     // MARK: - Derived input
@@ -72,17 +65,11 @@ final class NewProjectModel {
     }
 
     var isMetadataStepValid: Bool {
-        let value = trimmedName
-        return !value.isEmpty && !value.contains("/") && value != "." && value != ".."
-    }
-
-    // Always valid: the toggles always describe a usable GitSetup.
-    var isGitStepValid: Bool {
-        true
+        BundleNameRules.isValid(trimmedName)
     }
 
     var isOptionsStepValid: Bool {
-        isMetadataStepValid && isGitStepValid
+        isMetadataStepValid
     }
 
     func isValid(_ step: Step) -> Bool {
@@ -133,7 +120,7 @@ final class NewProjectModel {
     func assembledSpec(projectDirectory: URL) -> NewProjectSpec? {
         guard let templateID = selectedTemplateID else { return nil }
         let name = projectDirectory.lastPathComponent
-        guard !name.isEmpty, name != ".", name != ".." else { return nil }
+        guard BundleNameRules.isValid(name) else { return nil }
 
         let git =
             createGitRepo

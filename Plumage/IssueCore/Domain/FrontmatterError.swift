@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum FrontmatterError: Error, Sendable, Equatable {
     case missingFrontmatter
     case unreadable(message: String)

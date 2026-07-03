@@ -8,7 +8,6 @@ nonisolated struct LiveImplementRun: Equatable, Sendable {
 
 nonisolated struct QueuedImplementRun: Equatable, Sendable {
     let issue: String
-    let agentPid: pid_t
 }
 
 nonisolated struct WorktreeImplementRun: Equatable, Sendable {
@@ -144,7 +143,7 @@ nonisolated enum ImplementRunScanner {
                 continue
             }
             guard pid > 0, kill(pid, 0) == 0 else { continue }
-            queued.append(QueuedImplementRun(issue: slug, agentPid: pid))
+            queued.append(QueuedImplementRun(issue: slug))
         }
         return queued
     }

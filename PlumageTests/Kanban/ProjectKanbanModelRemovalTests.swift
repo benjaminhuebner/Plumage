@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 import Testing
 
@@ -153,29 +152,13 @@ struct OptimisticArchiveTests {
         let projectURL = URL(filePath: "/tmp/probe")
 
         await model.performDropOptimistic(
-            IssueDragPayload(folderName: "00001-a", currentStatus: .approved),
+            IssueDragPayload(folderName: "00001-a"),
             to: .column(.inProgress), projectURL: projectURL)
         #expect(model.lastDropError == "drop boom")
 
         await model.performArchiveOptimistic(folderName: "00002-b", projectURL: projectURL)
         #expect(model.lastRemovalError == "archive boom")
         #expect(model.lastDropError == nil)
-    }
-
-    @Test("rollback after a single removal does not stick lastRemovalError across a clear")
-    func errorClearsAfterClearRemovalError() async {
-        struct DummyError: Error, LocalizedError {
-            var errorDescription: String? { "boom" }
-        }
-        let model = ProjectKanbanModel(archiver: { _, _ in throw DummyError() })
-        let issueA = OptimisticDropTests.makeIssue(id: 1, folder: "00001-a", status: .approved)
-        model._setIssuesForTesting([.valid(issueA)])
-
-        await model.performArchiveOptimistic(
-            folderName: "00001-a", projectURL: URL(filePath: "/tmp/probe"))
-        #expect(model.lastRemovalError == "boom")
-        model.clearRemovalError()
-        #expect(model.lastRemovalError == nil)
     }
 
     @Test("archiver receives folder URL + archive root derived from projectURL")

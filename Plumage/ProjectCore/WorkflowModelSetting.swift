@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum WorkflowModelSetting: Hashable, Sendable, Codable {
     case uniform(ModelChoice)
     case perType([IssueType: ModelChoice])

@@ -49,11 +49,6 @@ final class RunAlertCoordinator {
         watcher = source
     }
 
-    func stop() {
-        watcher?.stop()
-        watcher = nil
-    }
-
     nonisolated static func shouldAlert(isFrontmost: Bool) -> Bool {
         !isFrontmost
     }

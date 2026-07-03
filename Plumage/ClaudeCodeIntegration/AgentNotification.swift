@@ -1,6 +1,6 @@
 import Foundation
 
-// `cwd`/`sessionID` key each payload line back to a live run.
+// One appended hook payload line; `cwd`/`sessionID` identify the emitting session.
 nonisolated struct AgentNotificationSignal: Codable, Equatable, Sendable {
     let sessionID: String
     let cwd: String
@@ -25,15 +25,16 @@ nonisolated struct AgentNotificationSignal: Codable, Equatable, Sendable {
 // merge with, not clobber, the project's committed hooks) so a blocked/idle run
 // signals attention with zero footprint in the project tree.
 nonisolated enum AgentNotificationHook {
-    static func appSupportDirectory(fileManager: FileManager = .default) -> URL {
+    private static func appSupportDirectory(fileManager: FileManager = .default) -> URL {
         let base =
             fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
         return base.appendingPathComponent("Plumage", isDirectory: true)
     }
 
-    // One shared file every implement run appends to; the app coordinator watches
-    // it and maps each line to a run by cwd. App-support, not the project tree.
+    // One shared file every implement run appends to; RunAlertCoordinator tails
+    // it and bounces the Dock when a valid signal line arrives while Plumage is
+    // in the background — the payload itself is not mapped back to a run.
     static func signalFileURL(fileManager: FileManager = .default) -> URL {
         appSupportDirectory(fileManager: fileManager)
             .appendingPathComponent("agent-notifications.jsonl")
@@ -71,17 +72,5 @@ nonisolated enum AgentNotificationHook {
             TerminalClaudeSession.isShellSafe(json)
         else { return nil }
         return json
-    }
-
-    // One run per checkout, so cwd alone is unambiguous and parallel-safe.
-    static func liveRun(
-        for signal: AgentNotificationSignal, among runs: [WorktreeImplementRun]
-    ) -> WorktreeImplementRun? {
-        let signalRoot = Self.canonicalPath(URL(filePath: signal.cwd))
-        return runs.first { Self.canonicalPath($0.checkoutRoot) == signalRoot }
-    }
-
-    private static func canonicalPath(_ url: URL) -> String {
-        url.resolvingSymlinksInPath().standardizedFileURL.path
     }
 }

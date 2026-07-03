@@ -69,25 +69,6 @@ struct AgentNotificationTests {
         #expect(obj["ultracode"] as? Bool == true)
     }
 
-    @Test("maps a signal to the live run in the same checkout (parallel-safe)")
-    func mapsToLiveRun() {
-        let runs = [
-            WorktreeImplementRun(
-                checkoutRoot: URL(filePath: "/work/proj-a"),
-                run: LiveImplementRun(issue: "00001-a", agentPid: 11)),
-            WorktreeImplementRun(
-                checkoutRoot: URL(filePath: "/work/proj-b"),
-                run: LiveImplementRun(issue: "00002-b", agentPid: 22)),
-        ]
-        let signalB = AgentNotificationSignal(
-            sessionID: "s", cwd: "/work/proj-b", notificationType: "idle_prompt", message: nil)
-        #expect(AgentNotificationHook.liveRun(for: signalB, among: runs)?.run.issue == "00002-b")
-
-        let unknown = AgentNotificationSignal(
-            sessionID: "s", cwd: "/work/proj-c", notificationType: "idle_prompt", message: nil)
-        #expect(AgentNotificationHook.liveRun(for: unknown, among: runs) == nil)
-    }
-
     @MainActor
     @Test("a session given a signal URL folds the Notification hook into its spawn args")
     func sessionInjectsHook() {

@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 extension DiscoveredIssue {
@@ -23,12 +22,7 @@ struct IssueRowDraggable: ViewModifier {
 
     func body(content: Content) -> some View {
         if case .valid(let value) = issue {
-            content.draggable(
-                IssueDragPayload(
-                    folderName: value.folderName,
-                    currentStatus: value.status
-                )
-            )
+            content.draggable(IssueDragPayload(folderName: value.folderName))
         } else {
             content
         }

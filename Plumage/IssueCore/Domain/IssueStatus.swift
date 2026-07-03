@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum IssueStatus: String, CaseIterable, Codable, Sendable {
     case draft
     case approved

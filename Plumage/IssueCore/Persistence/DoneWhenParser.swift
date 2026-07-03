@@ -19,8 +19,7 @@ nonisolated enum DoneWhenParser {
     // Indices count CRLF-normalized lines; mutating callers must normalize
     // the same way or the index addresses the wrong line.
     static func checkboxLines(in content: String) -> [CheckboxLine] {
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        let lines = normalized.components(separatedBy: "\n")
+        let lines = SpecText.normalizedLines(content: content).lines
         var result: [CheckboxLine] = []
         var inSection = false
         var fenceChar: Character?
@@ -29,7 +28,7 @@ nonisolated enum DoneWhenParser {
                 if isDoneWhenHeader(line) { inSection = true }
                 continue
             }
-            if let marker = fenceMarker(line) {
+            if let marker = SpecText.fenceMarker(line) {
                 if fenceChar == nil {
                     fenceChar = marker
                 } else if fenceChar == marker {
@@ -49,12 +48,6 @@ nonisolated enum DoneWhenParser {
     private static func isDoneWhenHeader(_ line: String) -> Bool {
         guard line.hasPrefix("## Done when") else { return false }
         return line.dropFirst("## Done when".count).allSatisfy(\.isWhitespace)
-    }
-
-    private static func fenceMarker(_ line: String) -> Character? {
-        if line.hasPrefix("```") { return "`" }
-        if line.hasPrefix("~~~") { return "~" }
-        return nil
     }
 
     private static func parseCheckbox(_ line: String, at index: Int) -> CheckboxLine? {

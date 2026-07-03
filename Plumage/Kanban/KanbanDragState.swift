@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 
 // The issue is cached at lift time so FloatingDragCard never scans
 // ProjectKanbanModel.issues per cursor frame and pulls no Observable

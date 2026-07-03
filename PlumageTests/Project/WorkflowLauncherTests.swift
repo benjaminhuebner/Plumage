@@ -143,7 +143,7 @@ struct WorkflowLauncherTests {
         let tabs = makeTabs()
         let launcher = makeIdleLauncher()
         launcher.scanQueuedRuns = { _ in
-            [QueuedImplementRun(issue: "00001-test", agentPid: 1)]
+            [QueuedImplementRun(issue: "00001-test")]
         }
         var banners: [String] = []
 
@@ -163,7 +163,7 @@ struct WorkflowLauncherTests {
         }
         launcher.scanQueuedRuns = { root in
             root.lastPathComponent == "Proj-wt"
-                ? [QueuedImplementRun(issue: "00001-test", agentPid: 1)] : []
+                ? [QueuedImplementRun(issue: "00001-test")] : []
         }
         var banners: [String] = []
 
@@ -184,7 +184,7 @@ struct WorkflowLauncherTests {
         }
         launcher.scanQueuedRuns = { root in
             root.lastPathComponent == "Proj-wt"
-                ? [QueuedImplementRun(issue: "00099-other", agentPid: 1)] : []
+                ? [QueuedImplementRun(issue: "00099-other")] : []
         }
         var banners: [String] = []
 
@@ -225,7 +225,7 @@ struct WorkflowLauncherTests {
         let tabs = makeTabs()
         let launcher = makeIdleLauncher()
         launcher.scanQueuedRuns = { _ in
-            [QueuedImplementRun(issue: "00099-other", agentPid: 1)]
+            [QueuedImplementRun(issue: "00099-other")]
         }
         var banners: [String] = []
         await runImplement(launcher, tabs: tabs, banners: &banners)
@@ -295,7 +295,7 @@ struct WorkflowLauncherTests {
         let tabs = makeTabs()
         let launcher = makeIdleLauncher()
         launcher.scanQueuedRuns = { _ in
-            [QueuedImplementRun(issue: "00099-other", agentPid: 1)]
+            [QueuedImplementRun(issue: "00099-other")]
         }
         launcher.provisionWorktree = { _, _ in
             throw WorktreeProvisionError.scriptFailed(message: "error: target path already exists")
@@ -326,7 +326,7 @@ struct WorkflowLauncherTests {
         let tabs = makeTabs()
         let launcher = makeIdleLauncher()
         launcher.scanQueuedRuns = { _ in
-            [QueuedImplementRun(issue: "00099-other", agentPid: 1)]
+            [QueuedImplementRun(issue: "00099-other")]
         }
         launcher.provisionWorktree = { _, _ in
             throw WorktreeProvisionError.scriptFailed(message: "transient failure")

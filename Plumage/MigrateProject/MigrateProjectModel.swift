@@ -35,15 +35,11 @@ final class MigrateProjectModel {
     var report: MigrationReport?
     private(set) var migratedProject: CreatedProject?
 
-    // Set once the user opens the migrated project, so closing the window
-    // afterwards doesn't re-summon Welcome. Reset per present (model is rebuilt).
-    var didOpenProject = false
-
     private var didLoad = false
     private let detector: @Sendable (URL) -> ProjectKind?
     private let repoStateReader: RepoStateReader
     private let store: TemplateCatalogStore
-    private let overrides: ScaffoldOverrides
+    let overrides: ScaffoldOverrides
 
     init(
         folderURL: URL,
@@ -58,13 +54,6 @@ final class MigrateProjectModel {
         self.repoStateReader = repoStateReader
         self.store = store
         self.overrides = overrides
-    }
-
-    // Resolves a `TemplateImage.file` relative path to its on-disk URL, or nil when
-    // absent — the grid then falls back to a placeholder symbol.
-    func imageURL(forRelative relativePath: String) -> URL? {
-        let url = overrides.url(forRelative: relativePath)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     // MARK: - Setup detection
@@ -122,12 +111,8 @@ final class MigrateProjectModel {
         selectedTemplateID != nil
     }
 
-    static func isValidName(_ value: String) -> Bool {
-        !value.isEmpty && !value.contains("/") && value != "." && value != ".."
-    }
-
     var isMetadataStepValid: Bool {
-        Self.isValidName(trimmedName)
+        BundleNameRules.isValid(trimmedName)
     }
 
     var isOptionsStepValid: Bool {
@@ -174,7 +159,7 @@ final class MigrateProjectModel {
     func assembledSpec() -> MigrationSpec? {
         guard let templateID = selectedTemplateID else { return nil }
         let name = trimmedName
-        guard Self.isValidName(name) else { return nil }
+        guard BundleNameRules.isValid(name) else { return nil }
 
         // Predefined id == ProjectKind.rawValue; a custom template maps to `.other`
         // for the kind-gated bits while its id drives catalog content resolution.

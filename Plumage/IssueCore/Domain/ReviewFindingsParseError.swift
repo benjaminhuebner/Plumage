@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum ReviewFindingsParseError: Error, Sendable, Equatable {
     case unreadable(message: String)
     case invalidJSON(message: String)

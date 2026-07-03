@@ -117,21 +117,27 @@ private struct CardWorkflowButton: View {
     let isDisabled: Bool
     let run: (WorkflowAction) -> Void
 
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Button {
             run(action)
         } label: {
-            Label(action.label, systemImage: action.systemImage)
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
+            Image(systemName: action.systemImage)
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(
                     isDisabled
                         ? AnyShapeStyle(.secondary)
                         : AnyShapeStyle(IssueWorkflowActionBar.aiGradient)
                 )
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
-        .controlSize(.mini)
+        .buttonStyle(.plain)
+        .scaleEffect(isHovering && !isDisabled ? 1.15 : 1)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
+        .onHover { isHovering = $0 }
         .disabled(isDisabled)
         .help(isDisabled ? "Card has unsaved edits in the editor" : action.label)
         // Unreachable inside the combined card element anyway — the wrapper's AX action is the path.
