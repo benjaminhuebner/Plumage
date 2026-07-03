@@ -16,6 +16,8 @@ struct IssueCardSwitch: View {
     // visible cell on drag-start/end (controller.isActive flips), which
     // is N×4 unnecessary body re-evals at lift-off.
     @Environment(\.openSpec) private var openSpec
+    @Environment(\.runWorkflow) private var runWorkflow
+    @Environment(\.workflowCommandIsEmpty) private var workflowCommandIsEmpty
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
 
@@ -43,6 +45,14 @@ struct IssueCardSwitch: View {
         }
     }
 
+    private func cardAction(for value: Issue) -> WorkflowAction? {
+        guard runStatus.liveRuns[value.folderName] == nil else { return nil }
+        guard let action = WorkflowAction.available(status: value.status, type: value.type),
+            !workflowCommandIsEmpty(action, value.type)
+        else { return nil }
+        return action
+    }
+
     private func columnNeighbor(of value: Issue, offset: Int) -> String? {
         let items = kanban.groupedIssues[value.column] ?? []
         guard let index = items.firstIndex(where: { $0.id == value.folderName }) else {
@@ -64,10 +74,24 @@ struct IssueCardSwitch: View {
         // DragGesture keeps firing throughout the drag.
         let cardOpacity: Double = isDragSource ? 0 : (isLocked ? 0.7 : 1.0)
 
+        let availableAction = cardAction(for: value)
+
         IssueCardView(
             issue: value, padding: padding,
             isHighlighted: kanban.highlightedIssueID == value.folderName,
-            liveRun: runStatus.liveRuns[value.folderName]?.state
+            liveRun: runStatus.liveRuns[value.folderName]?.state,
+            openBlockers: value.blockedBy.isEmpty
+                ? []
+                : BlockerResolution.openBlockers(
+                    blockedBy: value.blockedBy,
+                    of: value.folderName,
+                    index: BlockerResolution.index(kanban.issues)
+                ),
+            availableAction: availableAction,
+            isActionDisabled: isLocked,
+            onRunWorkflow: { action in
+                runWorkflow(action, value.folderName, value.type)
+            }
         )
         .opacity(cardOpacity)
         .frame(maxHeight: isDragSource ? 0 : nil)
@@ -83,9 +107,15 @@ struct IssueCardSwitch: View {
         // to the gesture-bearing wrapper, not the rendering view.
         .accessibilityAddTraits(.isButton)
         .accessibilityActions {
+            // The combined card element swallows the inner workflow button.
+            if let availableAction, !isLocked {
+                Button("Run \(availableAction.label)") {
+                    runWorkflow(availableAction, value.folderName, value.type)
+                }
+            }
             // Within-column reorder is otherwise gesture-only — these
             // actions are the keyboard/VoiceOver path to the same drop.
-            if let above = columnNeighbor(of: value, offset: -1) {
+            if let above = columnNeighbor(of: value, offset: -1), !kanban.filter.isActive {
                 Button("Move Up") {
                     guard !isLocked else { return }
                     kanban.dispatchDrop(
@@ -94,7 +124,7 @@ struct IssueCardSwitch: View {
                         projectURL: projectURL)
                 }
             }
-            if let below = columnNeighbor(of: value, offset: 1) {
+            if let below = columnNeighbor(of: value, offset: 1), !kanban.filter.isActive {
                 Button("Move Down") {
                     guard !isLocked else { return }
                     kanban.dispatchDrop(

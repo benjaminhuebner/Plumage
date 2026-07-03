@@ -354,6 +354,7 @@ struct ProjectWindow: View {
                 // create-success just dismisses and the new card arrives via FSEvents.
                 .environment(kanban)
                 .environment(navigator)
+                .environment(runStatus)
                 .environment(\.onIssueCreated) { _ in
                     showCreateSheet = false
                 }

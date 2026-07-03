@@ -47,6 +47,14 @@ final class ProjectKanbanModel {
 
     private(set) var issues: [DiscoveredIssue] = []
     private(set) var groupedIssues: [IssueColumn: [DiscoveredIssue]] = [:]
+    // The board filter narrows groupedIssues only; `issues` stays the full
+    // snapshot so reconcile, entry orders, and pickers see every card.
+    var filter = IssueFilter() {
+        didSet {
+            guard filter != oldValue else { return }
+            regroup()
+        }
+    }
     private(set) var highlightedIssueID: String?
     private(set) var lastDropError: String?
     private(set) var lastRemovalError: String?
@@ -66,6 +74,27 @@ final class ProjectKanbanModel {
 
     var pendingDropFolderName: String? { pendingDrop?.folderName }
     var pendingDropExpectedStatus: IssueStatus? { pendingDrop?.expectedStatus }
+
+    var totalColumnCounts: [IssueColumn: Int] {
+        issues.reduce(into: [:]) { counts, item in counts[item.column, default: 0] += 1 }
+    }
+
+    var availableFilterLabels: [String] {
+        var all = Set<String>()
+        for case .valid(let issue) in issues {
+            all.formUnion(issue.labels)
+        }
+        return all.sorted()
+    }
+
+    func clearFilter() {
+        filter = IssueFilter(idPadWidth: filter.idPadWidth)
+    }
+
+    private func regroup() {
+        let visible = filter.isActive ? issues.filter(filter.matches) : issues
+        groupedIssues = Self.group(visible)
+    }
 
     private let producerFactory: @Sendable (URL) -> IssueSnapshotProducer
     private let highlightClock: any Clock<Duration>
@@ -155,7 +184,6 @@ final class ProjectKanbanModel {
     private func applySnapshot(_ snapshot: [DiscoveredIssue], projectURL: URL) {
         let reconciled = Self.reconcile(incoming: snapshot, pending: pendingDrop)
         let entryOrders = Self.columnEntryOrders(previous: issues, incoming: reconciled.snapshot)
-        let groups = Self.group(reconciled.snapshot)
         // An externally removed issue must drop a confirm dialog still naming it,
         // else "Archive"/"Trash" silently no-ops on a folder that's already gone.
         if let pending = pendingRemoval,
@@ -167,7 +195,7 @@ final class ProjectKanbanModel {
         // content-only spec edit doesn't redraw the whole board.
         if reconciled.snapshot != issues {
             self.issues = reconciled.snapshot
-            self.groupedIssues = groups
+            regroup()
         }
         if reconciled.pendingCleared {
             pendingDrop = nil
@@ -277,7 +305,7 @@ final class ProjectKanbanModel {
     #if DEBUG
     func _setIssuesForTesting(_ issues: [DiscoveredIssue]) {
         self.issues = issues
-        self.groupedIssues = Self.group(issues)
+        regroup()
     }
     #endif
 
@@ -322,7 +350,7 @@ final class ProjectKanbanModel {
         // in at the OLD index before sliding it to the new one. The floating
         // overlay was already at the insertion point — snapping appears in place.
         issues = Self.replace(issues, folderName: issue.folderName, with: updated)
-        groupedIssues = Self.group(issues)
+        regroup()
 
         let specURL = IssueLayout.specURL(in: projectURL, folderName: issue.folderName)
         let mutatorFn = mutator
@@ -367,7 +395,7 @@ final class ProjectKanbanModel {
             issues.contains(where: { $0.id == folderName })
         {
             issues = Self.replace(issues, folderName: folderName, with: priorCard)
-            groupedIssues = Self.group(issues)
+            regroup()
         }
         pendingDrop = nil
         surfaceDropError(error)
@@ -406,7 +434,7 @@ final class ProjectKanbanModel {
         guard issues.contains(where: { $0.id == folderName }) else { return }
         let priorIssues = issues
         issues = issues.filter { $0.id != folderName }
-        groupedIssues = Self.group(issues)
+        regroup()
         let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
         let archiveRoot = IssueLayout.archiveDirectory(in: projectURL)
         let archiverFn = archiver
@@ -440,7 +468,7 @@ final class ProjectKanbanModel {
         guard issues.contains(where: { $0.id == folderName }) else { return }
         let priorIssues = issues
         issues = issues.filter { $0.id != folderName }
-        groupedIssues = Self.group(issues)
+        regroup()
         let folderURL = IssueLayout.issueFolder(in: projectURL, folderName: folderName)
         let trasherFn = trasher
         removalTask?.cancel()
@@ -479,7 +507,7 @@ final class ProjectKanbanModel {
             !issues.contains(where: { $0.id == folderName })
         {
             issues = issues + [priorCard]
-            groupedIssues = Self.group(issues)
+            regroup()
         }
         surfaceRemovalError(error)
     }

@@ -60,6 +60,10 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
         return "\(action): \(slug)"
     }
 
+    static func available(status: IssueStatus, type: IssueType) -> WorkflowAction? {
+        allCases.first { $0.isEnabled(status: status, type: type) }
+    }
+
     func isEnabled(status: IssueStatus, type: IssueType) -> Bool {
         switch self {
         case .plan:

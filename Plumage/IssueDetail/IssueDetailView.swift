@@ -31,6 +31,7 @@ struct IssueDetailView: View {
     @State private var quitFlushID = UUID()
     // Cached so the O(n×m) union+sort runs per board change, not per body eval.
     @State private var cachedExistingLabels: [String] = []
+    @State private var cachedBlockerCandidates: [BlockerCandidate] = []
 
     private let markdownLanguage = LanguageConfiguration.markdown()
     // Hides the right-edge minimap so the body editor uses the full width.
@@ -101,6 +102,7 @@ struct IssueDetailView: View {
             }
             refreshBackToBoardCache()
             seedExistingLabels()
+            seedBlockerCandidates()
             guard !model.isCreating else { return }
             await model.load()
             await model.loadPrompt()
@@ -305,6 +307,18 @@ struct IssueDetailView: View {
             )
             .padding(.horizontal, 16)
             .padding(.vertical, 5)
+            if model.isCreating || model.issue != nil {
+                BlockedByChipRow(
+                    blockers: resolvedBlockers,
+                    candidates: cachedBlockerCandidates,
+                    onAdd: onAddBlocker,
+                    onRemove: onRemoveBlocker,
+                    onOpen: { openSpec(.issue(folderName: $0)) }
+                )
+                .disabled(detailFieldsDisabled)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 5)
+            }
             if let folderName = model.folderName,
                 let run = runStatus.liveRuns[folderName]
             {
@@ -499,10 +513,39 @@ struct IssueDetailView: View {
     private func boardDidChange(_ current: DiscoveredIssue?) {
         model.observeKanban(currentIssue: current)
         seedExistingLabels()
+        seedBlockerCandidates()
     }
 
     private func seedExistingLabels() {
         cachedExistingLabels = Self.existingLabels(in: kanban.issues, excluding: currentLabels)
+    }
+
+    private var currentBlockedBy: [String] {
+        if model.isCreating { return model.blockedByDraft }
+        return model.issue?.blockedBy ?? []
+    }
+
+    private var resolvedBlockers: [ResolvedBlocker] {
+        guard !currentBlockedBy.isEmpty else { return [] }
+        return BlockerResolution.resolve(
+            blockedBy: currentBlockedBy,
+            of: model.folderName ?? "",
+            index: BlockerResolution.index(kanban.issues)
+        )
+    }
+
+    private func seedBlockerCandidates() {
+        let selfFolder = model.folderName
+        cachedBlockerCandidates = kanban.issues
+            .compactMap { discovered -> BlockerCandidate? in
+                guard case .valid(let issue) = discovered, issue.folderName != selfFolder else {
+                    return nil
+                }
+                return BlockerCandidate(
+                    folderName: issue.folderName, id: issue.id, title: issue.title
+                )
+            }
+            .sorted { $0.id < $1.id }
     }
 
     private static func existingLabels(
@@ -525,6 +568,7 @@ struct IssueDetailView: View {
         return .init(
             status: currentStatus,
             type: currentType,
+            openBlockers: resolvedBlockers.filter { $0.state == .open },
             runWorkflow: { action in triggerWorkflow(action, folderName: folderName) }
         )
     }
@@ -574,6 +618,31 @@ struct IssueDetailView: View {
         guard let issue = model.issue else { return }
         let next = issue.labels.filter { $0 != label }
         runFormCommit { try await model.commitLabels(next) }
+    }
+
+    private func onAddBlocker(_ folderName: String) {
+        if model.isCreating {
+            if !model.blockedByDraft.contains(folderName) {
+                model.blockedByDraft.append(folderName)
+            }
+            return
+        }
+        guard let issue = model.issue,
+            folderName != issue.folderName,
+            !issue.blockedBy.contains(folderName)
+        else { return }
+        let next = issue.blockedBy + [folderName]
+        runFormCommit { try await model.commitBlockedBy(next) }
+    }
+
+    private func onRemoveBlocker(_ folderName: String) {
+        if model.isCreating {
+            model.blockedByDraft.removeAll { $0 == folderName }
+            return
+        }
+        guard let issue = model.issue else { return }
+        let next = issue.blockedBy.filter { $0 != folderName }
+        runFormCommit { try await model.commitBlockedBy(next) }
     }
 
     private func onSelectType(_ newType: IssueType) {

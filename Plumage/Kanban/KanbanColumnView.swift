@@ -6,6 +6,7 @@ struct KanbanColumnView: View {
     let padding: Int
     let projectURL: URL
     let autoScroll: KanbanAutoScroll
+    var totalCount: Int?
 
     @Environment(\.openCreateIssue) private var openCreateIssue
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
@@ -25,7 +26,8 @@ struct KanbanColumnView: View {
                 issues: issues,
                 padding: padding,
                 projectURL: projectURL,
-                autoScroll: autoScroll
+                autoScroll: autoScroll,
+                isFiltered: totalCount != nil
             )
         }
         .frame(
@@ -46,13 +48,13 @@ struct KanbanColumnView: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(column.name)
                     .font(.title3.weight(.semibold))
-                Text("\(issues.count)")
+                Text(countText)
                     .font(.title3)
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(column.name), \(issues.count) issues")
+            .accessibilityLabel(countAccessibilityLabel)
             Spacer()
             Button {
                 openCreateIssue(column.primaryStatusForCreation)
@@ -66,6 +68,16 @@ struct KanbanColumnView: View {
             .accessibilityLabel("New issue in \(column.name)")
         }
     }
+
+    private var countText: String {
+        guard let totalCount else { return "\(issues.count)" }
+        return "\(issues.count) of \(totalCount)"
+    }
+
+    private var countAccessibilityLabel: String {
+        guard let totalCount else { return "\(column.name), \(issues.count) issues" }
+        return "\(column.name), \(issues.count) of \(totalCount) issues match the filter"
+    }
 }
 
 // Drag-aware body. Reads KanbanDragController so that target / drag-source
@@ -77,6 +89,7 @@ private struct DraggableColumnBody: View {
     let padding: Int
     let projectURL: URL
     let autoScroll: KanbanAutoScroll
+    var isFiltered: Bool = false
 
     @Environment(KanbanDragController.self) private var kanbanDrag
 
@@ -94,7 +107,7 @@ private struct DraggableColumnBody: View {
         )
 
         if issues.isEmpty && placeholderIndex == nil {
-            Text("No issues")
+            Text(isFiltered ? "No matches" : "No issues")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 24)

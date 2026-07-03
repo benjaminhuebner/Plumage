@@ -110,6 +110,59 @@ struct SpecParserTests {
         #expect(issue.mergeSubject == nil)
     }
 
+    @Test("parses blockedBy list including dangling entries verbatim")
+    func blockedByPresent() throws {
+        let content = """
+            ---
+            id: 8
+            title: t
+            type: feature
+            status: approved
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00008-x
+            labels: []
+            blockedBy: [00042-feature, 00999-gone]
+            ---
+
+            Body.
+            """
+        let issue = try requireSuccess(SpecParser.parse(content: content, folderName: "00008-x"))
+        #expect(issue.blockedBy == ["00042-feature", "00999-gone"])
+    }
+
+    @Test("blockedBy is empty when absent")
+    func blockedByAbsent() throws {
+        let issue = try requireSuccess(
+            SpecParser.parse(content: try load("valid-feature.md"), folderName: "00042-feature"))
+        #expect(issue.blockedBy.isEmpty)
+    }
+
+    @Test("blockedBy scalar instead of list is .invalidFieldType naming the field")
+    func blockedByScalar() throws {
+        let content = """
+            ---
+            id: 8
+            title: t
+            type: feature
+            status: approved
+            created: 2026-05-12T09:00:00Z
+            updated: 2026-05-12T10:00:00Z
+            branch: issue/00008-x
+            labels: []
+            blockedBy: 00042-feature
+            ---
+
+            Body.
+            """
+        let result = SpecParser.parse(content: content, folderName: "00008-x")
+        guard case .failure(.invalidFieldType(let field, _)) = result else {
+            Testing.Issue.record("expected .invalidFieldType, got \(result)")
+            return
+        }
+        #expect(field == "blockedBy")
+    }
+
     @Test("missing frontmatter delimiter is .missingFrontmatter")
     func missingFrontmatter() throws {
         #expect(

@@ -84,6 +84,7 @@ nonisolated enum SpecParser {
                 updated: updated,
                 branch: raw.branch,
                 labels: raw.labels ?? [],
+                blockedBy: raw.blockedBy ?? [],
                 mergeSubject: raw.mergeSubject,
                 order: raw.order,
                 goal: extractGoal(from: content)
@@ -241,6 +242,7 @@ private nonisolated struct RawFrontmatter: Decodable {
     let updated: String
     let branch: String
     let labels: [String]?
+    let blockedBy: [String]?
     let mergeSubject: String?
     let order: Double?
 }

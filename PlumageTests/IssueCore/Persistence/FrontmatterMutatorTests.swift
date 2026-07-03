@@ -349,6 +349,76 @@ struct FrontmatterMutatorTests {
         #expect(output.contains("labels: [\"a:b\", ok]"))
     }
 
+    @Test("blockedBy mutation rewrites existing line in flow style")
+    func blockedByRewrite() throws {
+        let input = baseSpec(status: "approved", blockedBy: "[00007-old]")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(blockedBy: .set(["00042-feature", "00043-chore"])),
+            now: now
+        )
+        #expect(output.contains("blockedBy: [00042-feature, 00043-chore]"))
+        #expect(!output.contains("00007-old"))
+    }
+
+    @Test("blockedBy mutation inserts after labels when key is absent")
+    func blockedByInsert() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(blockedBy: .set(["00042-feature"])),
+            now: now
+        )
+        let lines = output.components(separatedBy: "\n")
+        let labelsIdx = try #require(lines.firstIndex { $0.hasPrefix("labels:") })
+        #expect(lines[labelsIdx + 1] == "blockedBy: [00042-feature]")
+    }
+
+    @Test("blockedBy empty set on absent key adds no line")
+    func blockedByEmptyAbsentNoop() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(blockedBy: .set([])),
+            now: now
+        )
+        #expect(!output.contains("blockedBy"))
+    }
+
+    @Test("blockedBy empty set on present key writes empty flow-style list")
+    func blockedByEmptyPresent() throws {
+        let input = baseSpec(status: "approved", blockedBy: "[00042-feature]")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(blockedBy: .set([])),
+            now: now
+        )
+        #expect(output.contains("blockedBy: []"))
+    }
+
+    @Test("blockedBy entry with danger character gets quoted")
+    func blockedByQuoting() throws {
+        let input = baseSpec(status: "approved")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(blockedBy: .set(["a:b", "00042-feature"])),
+            now: now
+        )
+        #expect(output.contains("blockedBy: [\"a:b\", 00042-feature]"))
+    }
+
+    @Test("dangling blockedBy entries survive an unrelated mutation verbatim")
+    func blockedByDanglingPreserved() throws {
+        let input = baseSpec(status: "approved", blockedBy: "[00999-gone, \"weird:name\"]")
+        let output = try FrontmatterMutator.transform(
+            content: input,
+            mutation: FrontmatterMutation(status: .set(.done)),
+            now: now
+        )
+        #expect(output.contains("blockedBy: [00999-gone, \"weird:name\"]"))
+        #expect(output.contains("status: done"))
+    }
+
     @Test("missing title field with title.set throws noFrontmatter")
     func missingTitleFieldThrows() {
         let input = """
@@ -415,7 +485,7 @@ struct FrontmatterMutatorTests {
         #expect(output.contains("order: 2"))
     }
 
-    private func baseSpec(status: String, order: String? = nil) -> String {
+    private func baseSpec(status: String, order: String? = nil, blockedBy: String? = nil) -> String {
         var lines = [
             "---",
             "id: 1",
@@ -428,6 +498,7 @@ struct FrontmatterMutatorTests {
             "labels: []",
             "model: null",
         ]
+        if let blockedBy { lines.append("blockedBy: \(blockedBy)") }
         if let order { lines.append("order: \(order)") }
         lines.append("---")
         lines.append("")

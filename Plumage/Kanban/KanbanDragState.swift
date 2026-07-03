@@ -37,6 +37,23 @@ nonisolated func computePlaceholderIndex(
     }
 }
 
+// Reorder against a partially hidden column would run order math the user
+// can't see — while filtered, same-column row targets go inert (snap-back);
+// cross-column drops keep working as status changes.
+nonisolated func gateReorderWhileFiltered(
+    _ resolved: ResolvedDropTarget?,
+    sourceColumn: IssueColumn?,
+    isFiltered: Bool
+) -> ResolvedDropTarget? {
+    guard isFiltered, let resolved, let sourceColumn else { return resolved }
+    switch resolved.target {
+    case .aboveCard(_, let column), .belowCard(_, let column):
+        return column == sourceColumn ? nil : resolved
+    case .column:
+        return resolved
+    }
+}
+
 // Multi-column layering over the generic single-column resolver: pick the
 // hovered column, then resolve within it. Kanban cards are uniform, so the
 // placeholder height is the layout constant rather than a measured frame.

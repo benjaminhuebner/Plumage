@@ -18,9 +18,25 @@ struct KanbanView: View {
     @State private var dragFilteredIssues: [IssueColumn: [DiscoveredIssue]]?
 
     var body: some View {
+        let isFiltered = kanban.filter.isActive
+        let totalCounts = isFiltered ? kanban.totalColumnCounts : [:]
+
+        VStack(alignment: .leading, spacing: 0) {
+            KanbanFilterBar()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            boardScroll(isFiltered: isFiltered, totalCounts: totalCounts)
+        }
+        .task { kanban.filter.idPadWidth = padding }
+    }
+
+    private func boardScroll(
+        isFiltered: Bool, totalCounts: [IssueColumn: Int]
+    ) -> some View {
         @Bindable var autoScroll = autoScroll
 
-        ScrollView(.horizontal, showsIndicators: false) {
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(IssueColumn.allCases) { column in
                     KanbanColumnView(
@@ -28,7 +44,8 @@ struct KanbanView: View {
                         issues: grouped[column] ?? [],
                         padding: padding,
                         projectURL: projectURL,
-                        autoScroll: autoScroll
+                        autoScroll: autoScroll,
+                        totalCount: isFiltered ? totalCounts[column] ?? 0 : nil
                     )
                 }
             }
@@ -125,12 +142,16 @@ struct KanbanView: View {
             filtered = grouped.mapValues { items in items.filter { $0.id != source } }
             dragFilteredIssues = filtered
         }
-        let resolved = resolveDropTarget(
-            cursor: kanbanDrag.cursorLocation,
-            cardFrames: frames.rows,
-            columnFrames: frames.containers,
-            sortedIssues: filtered,
-            sourceFolderName: source
+        let resolved = gateReorderWhileFiltered(
+            resolveDropTarget(
+                cursor: kanbanDrag.cursorLocation,
+                cardFrames: frames.rows,
+                columnFrames: frames.containers,
+                sortedIssues: filtered,
+                sourceFolderName: source
+            ),
+            sourceColumn: kanbanDrag.payload?.issue.column,
+            isFiltered: kanban.filter.isActive
         )
         guard kanbanDrag.target != resolved else { return }
         // Wrap the target change explicitly so only the placeholder-gap

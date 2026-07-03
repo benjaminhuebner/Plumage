@@ -160,3 +160,70 @@ struct WorkflowActionDisabledTooltipTests {
         )
     }
 }
+
+@Suite("WorkflowAction.available")
+struct WorkflowActionAvailableTests {
+    @Test("at most one action is enabled for every status and type combination")
+    func atMostOneEnabled() {
+        for status in IssueStatus.allCases {
+            for type in IssueType.allCases {
+                let enabled = WorkflowAction.allCases.filter {
+                    $0.isEnabled(status: status, type: type)
+                }
+                #expect(enabled.count <= 1, "\(status)+\(type) enables \(enabled)")
+                #expect(WorkflowAction.available(status: status, type: type) == enabled.first)
+            }
+        }
+    }
+
+    @Test("maps statuses to the expected card action")
+    func expectedMapping() {
+        #expect(WorkflowAction.available(status: .draft, type: .feature) == .plan)
+        #expect(WorkflowAction.available(status: .draft, type: .chore) == .implement)
+        #expect(WorkflowAction.available(status: .approved, type: .feature) == .implement)
+        #expect(WorkflowAction.available(status: .inProgress, type: .feature) == .implement)
+        #expect(WorkflowAction.available(status: .waitingForReview, type: .feature) == .review)
+        #expect(WorkflowAction.available(status: .done, type: .feature) == nil)
+        #expect(WorkflowAction.available(status: .blocked, type: .feature) == nil)
+    }
+}
+
+@Suite("IssueWorkflowActionBar.blockedWarning")
+struct BlockedWarningTests {
+    private let open = ResolvedBlocker(
+        folderName: "00042-auth", state: .open, id: 42, title: "User auth")
+
+    @Test("implement with open blockers names them by padded id")
+    func implementWarns() {
+        let warning = IssueWorkflowActionBar.blockedWarning(for: .implement, openBlockers: [open])
+        #expect(warning == "Blocked by #00042 — still open.")
+    }
+
+    @Test("multiple blockers are comma-joined")
+    func multipleBlockers() {
+        let second = ResolvedBlocker(folderName: "00043-api", state: .open, id: 43, title: "API")
+        let warning = IssueWorkflowActionBar.blockedWarning(
+            for: .implement, openBlockers: [open, second])
+        #expect(warning == "Blocked by #00042, #00043 — still open.")
+    }
+
+    @Test("blocker without id falls back to the folder name")
+    func invalidBlockerFallsBackToFolder() {
+        let broken = ResolvedBlocker(folderName: "00005-broken", state: .open, id: nil, title: nil)
+        let warning = IssueWorkflowActionBar.blockedWarning(for: .implement, openBlockers: [broken])
+        #expect(warning == "Blocked by 00005-broken — still open.")
+    }
+
+    @Test("no open blockers yields no warning")
+    func noBlockersNoWarning() {
+        #expect(IssueWorkflowActionBar.blockedWarning(for: .implement, openBlockers: []) == nil)
+    }
+
+    @Test(
+        "only implement warns",
+        arguments: [WorkflowAction.plan, WorkflowAction.review]
+    )
+    func otherActionsStaySilent(action: WorkflowAction) {
+        #expect(IssueWorkflowActionBar.blockedWarning(for: action, openBlockers: [open]) == nil)
+    }
+}

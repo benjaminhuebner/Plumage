@@ -158,3 +158,57 @@ struct ResolveDropTargetTests {
         )
     }
 }
+
+@Suite("gateReorderWhileFiltered")
+struct GateReorderWhileFilteredTests {
+    private func resolved(_ target: ProjectKanbanModel.DropTarget) -> ResolvedDropTarget {
+        ResolvedDropTarget(column: target.columnForTest, target: target, insertionFrame: .zero)
+    }
+
+    @Test("without an active filter every target passes through")
+    func unfilteredPassthrough() {
+        let target = resolved(.aboveCard(folderName: "00002-b", column: .todo))
+        let gated = gateReorderWhileFiltered(target, sourceColumn: .todo, isFiltered: false)
+        #expect(gated == target)
+    }
+
+    @Test("filtered same-column aboveCard goes inert")
+    func filteredAboveSameColumn() {
+        let target = resolved(.aboveCard(folderName: "00002-b", column: .todo))
+        #expect(gateReorderWhileFiltered(target, sourceColumn: .todo, isFiltered: true) == nil)
+    }
+
+    @Test("filtered same-column belowCard goes inert")
+    func filteredBelowSameColumn() {
+        let target = resolved(.belowCard(folderName: "00002-b", column: .todo))
+        #expect(gateReorderWhileFiltered(target, sourceColumn: .todo, isFiltered: true) == nil)
+    }
+
+    @Test("filtered cross-column row target keeps working")
+    func filteredCrossColumnRowTarget() {
+        let target = resolved(.aboveCard(folderName: "00002-b", column: .inProgress))
+        let gated = gateReorderWhileFiltered(target, sourceColumn: .todo, isFiltered: true)
+        #expect(gated == target)
+    }
+
+    @Test("filtered column-background target keeps working, even in the own column")
+    func filteredColumnTarget() {
+        let target = resolved(.column(.todo))
+        let gated = gateReorderWhileFiltered(target, sourceColumn: .todo, isFiltered: true)
+        #expect(gated == target)
+    }
+
+    @Test("nil resolution stays nil")
+    func nilStaysNil() {
+        #expect(gateReorderWhileFiltered(nil, sourceColumn: .todo, isFiltered: true) == nil)
+    }
+}
+
+extension ProjectKanbanModel.DropTarget {
+    fileprivate var columnForTest: IssueColumn {
+        switch self {
+        case .column(let column), .aboveCard(_, let column), .belowCard(_, let column):
+            column
+        }
+    }
+}

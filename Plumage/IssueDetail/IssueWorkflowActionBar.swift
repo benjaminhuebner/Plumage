@@ -9,6 +9,7 @@ struct IssueWorkflowActionBar: View {
 
     let status: IssueStatus
     let type: IssueType
+    var openBlockers: [ResolvedBlocker] = []
     let runWorkflow: (WorkflowAction) -> Void
 
     @Environment(\.workflowCommandIsEmpty) private var workflowCommandIsEmpty
@@ -48,10 +49,33 @@ struct IssueWorkflowActionBar: View {
         // string still gets published, which VoiceOver may announce as
         // silence after the label.
         if enabled {
-            core
+            if let warning = Self.blockedWarning(for: action, openBlockers: openBlockers) {
+                core
+                    .help(warning)
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                            .offset(x: 4, y: -4)
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityHint(warning)
+            } else {
+                core
+            }
         } else {
             core.accessibilityHint(tooltip)
         }
+    }
+
+    nonisolated static func blockedWarning(
+        for action: WorkflowAction, openBlockers: [ResolvedBlocker]
+    ) -> String? {
+        guard action == .implement, !openBlockers.isEmpty else { return nil }
+        let names = openBlockers.map { blocker in
+            blocker.id.map { "#" + IssueIDFormatter.padded($0, width: 5) } ?? blocker.folderName
+        }
+        return "Blocked by \(names.joined(separator: ", ")) — still open."
     }
 }
 

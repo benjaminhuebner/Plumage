@@ -7,6 +7,10 @@ struct IssueCardView: View {
     // flips re-render, instead of every card subscribing to highlightedIssueID.
     let isHighlighted: Bool
     var liveRun: RunState?
+    var openBlockers: [ResolvedBlocker] = []
+    var availableAction: WorkflowAction?
+    var isActionDisabled: Bool = false
+    var onRunWorkflow: (WorkflowAction) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -25,6 +29,9 @@ struct IssueCardView: View {
             }
             parts.append(run)
         }
+        if !openBlockers.isEmpty {
+            parts.append("blocked by \(openBlockers.count) open issue(s)")
+        }
         parts.append(issue.status.label)
         return parts.joined(separator: ", ")
     }
@@ -34,6 +41,13 @@ struct IssueCardView: View {
             HStack(alignment: .top) {
                 IssueTypePill(type: issue.type)
                 Spacer()
+                if let availableAction {
+                    CardWorkflowButton(
+                        action: availableAction,
+                        isDisabled: isActionDisabled,
+                        run: onRunWorkflow
+                    )
+                }
                 Image("FeatherGlyph")
                     .resizable()
                     .scaledToFit()
@@ -69,6 +83,9 @@ struct IssueCardView: View {
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
                 Spacer()
+                if !openBlockers.isEmpty {
+                    OpenBlockerBadge(blockers: openBlockers)
+                }
                 if let liveRun {
                     RunProgressBadge(state: liveRun)
                 }
@@ -92,6 +109,54 @@ struct IssueCardView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityHint("Opens issue detail")
+    }
+}
+
+private struct CardWorkflowButton: View {
+    let action: WorkflowAction
+    let isDisabled: Bool
+    let run: (WorkflowAction) -> Void
+
+    var body: some View {
+        Button {
+            run(action)
+        } label: {
+            Label(action.label, systemImage: action.systemImage)
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+                .foregroundStyle(
+                    isDisabled
+                        ? AnyShapeStyle(.secondary)
+                        : AnyShapeStyle(IssueWorkflowActionBar.aiGradient)
+                )
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.mini)
+        .disabled(isDisabled)
+        .help(isDisabled ? "Card has unsaved edits in the editor" : action.label)
+        // Unreachable inside the combined card element anyway — the wrapper's AX action is the path.
+        .accessibilityHidden(true)
+    }
+}
+
+private struct OpenBlockerBadge: View {
+    let blockers: [ResolvedBlocker]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "lock.fill")
+                .imageScale(.small)
+            Text("\(blockers.count)")
+                .font(.caption2.monospacedDigit())
+        }
+        .foregroundStyle(.red)
+        .help("Blocked by " + blockers.map(blockerLine).joined(separator: ", "))
+        .accessibilityHidden(true)
+    }
+
+    private func blockerLine(_ blocker: ResolvedBlocker) -> String {
+        guard let id = blocker.id, let title = blocker.title else { return blocker.folderName }
+        return "#\(IssueIDFormatter.padded(id, width: 5)) \(title)"
     }
 }
 
@@ -229,7 +294,8 @@ nonisolated enum CardLabelFit {
                 )
             ),
             padding: 5,
-            isHighlighted: false
+            isHighlighted: false,
+            availableAction: .implement
         )
         IssueCardView(
             issue: Issue(
@@ -245,7 +311,11 @@ nonisolated enum CardLabelFit {
                 goal: "Stuck on an external decision."
             ),
             padding: 5,
-            isHighlighted: false
+            isHighlighted: false,
+            openBlockers: [
+                ResolvedBlocker(folderName: "00007-auth", state: .open, id: 7, title: "User auth"),
+                ResolvedBlocker(folderName: "00009-api", state: .open, id: 9, title: "API layer"),
+            ]
         )
     }
     .padding()

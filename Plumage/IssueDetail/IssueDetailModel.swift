@@ -54,6 +54,7 @@ final class IssueDetailModel {
     var typeDraft: IssueType = .feature
     var statusDraft: IssueStatus = .draft
     var labelsDraft: [String] = []
+    var blockedByDraft: [String] = []
 
     private(set) var issue: Issue?
     private(set) var loadState: LoadState = .idle
@@ -319,6 +320,7 @@ final class IssueDetailModel {
             typeDraft = parsed.type
             statusDraft = parsed.status
             labelsDraft = parsed.labels
+            blockedByDraft = parsed.blockedBy
             frontmatterError = nil
         case .failure(let error):
             issue = nil
@@ -539,6 +541,11 @@ final class IssueDetailModel {
         try await runFormWrite(FrontmatterMutation(labels: .set(newLabels)))
     }
 
+    func commitBlockedBy(_ newBlockedBy: [String]) async throws {
+        guard let current = issue, current.blockedBy != newBlockedBy else { return }
+        try await runFormWrite(FrontmatterMutation(blockedBy: .set(newBlockedBy)))
+    }
+
     // Ordering is the contract: tasks land in the spec before the status
     // flips, and the caller marks findings sent only after both succeeded —
     // a failure at any step leaves the findings open, never half-sent.
@@ -573,6 +580,7 @@ final class IssueDetailModel {
         let title = trimmedTitle
         let type = typeDraft
         let labels = labelsDraft
+        let blockedBy = blockedByDraft
         let status = statusDraft
         let prompt = bodyDraft
         let mutator = self.mutator
@@ -591,13 +599,16 @@ final class IssueDetailModel {
         }
 
         // Status defaults to .draft in the template — skip the mutator round-
-        // trip when the chosen status already matches.
-        if status != .draft {
+        // trip when nothing beyond the template needs writing.
+        var postMutation = FrontmatterMutation()
+        if status != .draft { postMutation.status = .set(status) }
+        if !blockedBy.isEmpty { postMutation.blockedBy = .set(blockedBy) }
+        if postMutation.status != .keep || postMutation.blockedBy != .keep {
             do {
                 try await Task.detached(priority: .userInitiated) {
                     try mutator.mutate(
                         specURL: allocatedURL,
-                        mutation: FrontmatterMutation(status: .set(status)),
+                        mutation: postMutation,
                         now: now
                     )
                 }.value

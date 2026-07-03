@@ -18,6 +18,7 @@ nonisolated struct FrontmatterMutation: Sendable {
     var status: SetValue<IssueStatus> = .keep
     var order: SetValue<Double?> = .keep
     var labels: SetValue<[String]> = .keep
+    var blockedBy: SetValue<[String]> = .keep
     // Body splice is done in the same single write as the frontmatter
     // mutation so saveBody can't leave the file with a new body but a
     // stale `updated:` stamp on partial failure.
@@ -58,6 +59,7 @@ nonisolated enum FrontmatterMutator {
         var sawStatus = false
         var sawOrder = false
         var sawLabels = false
+        var sawBlockedBy = false
         var sawUpdated = false
         var statusIndex: Int?
 
@@ -97,6 +99,11 @@ nonisolated enum FrontmatterMutator {
                 if case .set(let value) = mutation.labels {
                     frontmatter[index] = "\(indent)labels: \(formatLabels(value))"
                 }
+            case "blockedBy":
+                sawBlockedBy = true
+                if case .set(let value) = mutation.blockedBy {
+                    frontmatter[index] = "\(indent)blockedBy: \(formatLabels(value))"
+                }
             case "updated":
                 sawUpdated = true
                 frontmatter[index] = "\(indent)updated: \(nowString)"
@@ -120,6 +127,19 @@ nonisolated enum FrontmatterMutator {
             // Re-resolve statusIndex against possibly-updated frontmatter.
             let insertAfter = frontmatter.firstIndex { line in
                 parseKey(from: line)?.0 == "status"
+            }
+            if let insertAfter {
+                frontmatter.insert(line, at: insertAfter + 1)
+            } else {
+                frontmatter.append(line)
+            }
+        }
+
+        // Unlike the sibling keys, absent blockedBy inserts — every existing spec predates the key.
+        if case .set(let value) = mutation.blockedBy, !sawBlockedBy, !value.isEmpty {
+            let line = "blockedBy: \(formatLabels(value))"
+            let insertAfter = frontmatter.firstIndex { line in
+                parseKey(from: line)?.0 == "labels"
             }
             if let insertAfter {
                 frontmatter.insert(line, at: insertAfter + 1)

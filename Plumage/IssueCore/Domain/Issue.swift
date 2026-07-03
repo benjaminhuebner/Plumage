@@ -10,6 +10,7 @@ nonisolated struct Issue: Hashable, Sendable {
     let updated: Date
     let branch: String
     let labels: [String]
+    let blockedBy: [String]
     let mergeSubject: String?
     let order: Double?
     let goal: String?
@@ -27,6 +28,7 @@ nonisolated struct Issue: Hashable, Sendable {
         updated: Date,
         branch: String,
         labels: [String],
+        blockedBy: [String] = [],
         mergeSubject: String? = nil,
         order: Double? = nil,
         goal: String? = nil
@@ -40,6 +42,7 @@ nonisolated struct Issue: Hashable, Sendable {
         self.updated = updated
         self.branch = branch
         self.labels = labels
+        self.blockedBy = blockedBy
         self.mergeSubject = mergeSubject
         self.order = order
         self.goal = goal
