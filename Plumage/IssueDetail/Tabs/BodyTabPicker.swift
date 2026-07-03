@@ -1,8 +1,9 @@
 import SwiftUI
 
-struct BodyTabPicker: View {
+struct BodyTabPicker<Trailing: View>: View {
     @Binding var selectedTab: BodyTab
     var badgeCounts: [BodyTab: Int] = [:]
+    @ViewBuilder var trailing: Trailing
     @Namespace private var underlineNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -13,6 +14,8 @@ struct BodyTabPicker: View {
                     tabButton(for: tab)
                 }
                 Spacer(minLength: 0)
+                trailing
+                    .padding(.trailing, 4)
             }
             Divider()
         }
@@ -49,7 +52,6 @@ struct BodyTabPicker: View {
                 .padding(.top, 8)
                 .padding(.bottom, 4)
                 .foregroundStyle(isActive ? Color.primary : Color.secondary)
-                .contentShape(Rectangle())
 
                 ZStack {
                     Rectangle()
@@ -63,9 +65,16 @@ struct BodyTabPicker: View {
                     }
                 }
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
+    }
+}
+
+extension BodyTabPicker where Trailing == EmptyView {
+    init(selectedTab: Binding<BodyTab>, badgeCounts: [BodyTab: Int] = [:]) {
+        self.init(selectedTab: selectedTab, badgeCounts: badgeCounts) { EmptyView() }
     }
 }
 

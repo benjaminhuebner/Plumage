@@ -325,8 +325,13 @@ struct IssueDetailView: View {
                 }
             }
             if !model.isCreating {
-                BodyTabPicker(selectedTab: model.bodyTabBinding, badgeCounts: tabBadgeCounts)
-                    .padding(.horizontal, 12)
+                BodyTabPicker(selectedTab: model.bodyTabBinding, badgeCounts: tabBadgeCounts) {
+                    if model.selectedBodyTab == .diff {
+                        DiffViewModeToggle()
+                            .transition(.opacity)
+                    }
+                }
+                .padding(.horizontal, 12)
             }
         }
     }

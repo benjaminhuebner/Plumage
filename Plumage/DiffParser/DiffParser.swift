@@ -393,7 +393,8 @@ nonisolated public enum DiffParser {
             kind: existing.kind,
             content: existing.content,
             tokens: existing.tokens,
-            hasNoTrailingNewline: true
+            hasNoTrailingNewline: true,
+            changedRanges: existing.changedRanges
         )
         state.currentHunk = hunk
     }
@@ -408,7 +409,7 @@ nonisolated public enum DiffParser {
             newStart: partial.newStart,
             newCount: partial.newCount,
             headerContext: partial.headerContext,
-            lines: partial.lines
+            lines: WordDiffPass.enrich(partial.lines)
         )
         state.currentFile?.hunks.append(hunk)
         state.currentHunk = nil

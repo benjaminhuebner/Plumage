@@ -42,17 +42,22 @@ nonisolated public struct Line: Sendable, Equatable, Hashable {
     public let content: String
     public let tokens: [DiffToken]
     public let hasNoTrailingNewline: Bool
+    // nil = no word-level info (unpaired line or classifier cap hit),
+    // distinct from [] (paired line whose tokens all matched).
+    public let changedRanges: [Range<String.Index>]?
 
     public init(
         kind: LineKind,
         content: String,
         tokens: [DiffToken] = [],
-        hasNoTrailingNewline: Bool = false
+        hasNoTrailingNewline: Bool = false,
+        changedRanges: [Range<String.Index>]? = nil
     ) {
         self.kind = kind
         self.content = content
         self.tokens = tokens
         self.hasNoTrailingNewline = hasNoTrailingNewline
+        self.changedRanges = changedRanges
     }
 }
 

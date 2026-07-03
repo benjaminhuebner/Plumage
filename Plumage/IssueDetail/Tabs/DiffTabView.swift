@@ -4,6 +4,7 @@ import SwiftUI
 struct DiffTabView: View {
     @Bindable var model: DiffTabModel
     var findings: ReviewFindingsModel?
+    @AppStorage(DiffViewMode.storageKey) private var viewMode: DiffViewMode = .unified
 
     var body: some View {
         switch model.state {
@@ -71,7 +72,7 @@ struct DiffTabView: View {
                 // reorder or insertion would silently transfer the user's
                 // collapse state to a different file.
                 ForEach(files, id: \.path) { file in
-                    FileDiffSection(file: file, findings: findings)
+                    FileDiffSection(file: file, viewMode: viewMode, findings: findings)
                 }
             }
             .padding(.horizontal, 24)
@@ -84,6 +85,7 @@ struct DiffTabView: View {
 
 private struct FileDiffSection: View {
     let file: FileDiff
+    let viewMode: DiffViewMode
     var findings: ReviewFindingsModel?
     @State private var isExpanded: Bool = true
 
@@ -94,7 +96,7 @@ private struct FileDiffSection: View {
                     if offset > 0 {
                         HunkSeparator()
                     }
-                    HunkView(hunk: hunk, commenting: commenting)
+                    HunkView(hunk: hunk, viewMode: viewMode, commenting: commenting)
                 }
             }
             .padding(.top, 4)
@@ -181,13 +183,20 @@ private struct HunkSeparator: View {
 
 private struct HunkView: View {
     let hunk: Hunk
+    let viewMode: DiffViewMode
     var commenting: DiffCommenting?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             hunkHeader
-            DiffHunkLinesView(hunk: hunk, style: .detail, commenting: commenting)
-                .equatable()
+            switch viewMode {
+            case .unified:
+                DiffHunkLinesView(hunk: hunk, style: .detail, commenting: commenting)
+                    .equatable()
+            case .sideBySide:
+                SideBySideHunkView(hunk: hunk, style: .detail, commenting: commenting)
+                    .equatable()
+            }
         }
     }
 
