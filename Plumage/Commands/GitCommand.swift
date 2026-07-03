@@ -4,12 +4,14 @@ extension FocusedValues {
     @Entry var gitCommitAction: EditorAction?
     @Entry var gitPushAction: EditorAction?
     @Entry var gitPullAction: EditorAction?
+    @Entry var gitAddRemoteAction: EditorAction?
 }
 
 struct GitCommand: Commands {
     @FocusedValue(\.gitCommitAction) private var commitAction
     @FocusedValue(\.gitPushAction) private var pushAction
     @FocusedValue(\.gitPullAction) private var pullAction
+    @FocusedValue(\.gitAddRemoteAction) private var addRemoteAction
 
     var body: some Commands {
         CommandMenu("Git") {
@@ -25,6 +27,9 @@ struct GitCommand: Commands {
             Button("Pull") { pullAction?.run() }
                 .keyboardShortcut("l", modifiers: [.command, .option])
                 .disabled(pullAction == nil)
+            Divider()
+            Button("Add Remote…") { addRemoteAction?.run() }
+                .disabled(addRemoteAction == nil)
         }
     }
 }

@@ -15,13 +15,16 @@ struct ProjectWindow: View {
     @State private var createInitialStatus: IssueStatus = .draft
     @State private var showCommitSheet = false
     @State private var showSyncSheet = false
+    @State private var showAddRemoteSheet = false
     // Owned here (not built inline in the sheet closure) so the instance is
     // stable across ProjectWindow re-renders — otherwise each re-render made a
     // fresh model and the view showed one whose async remote load never ran.
     @State private var syncModel: GitSyncModel?
+    @State private var addRemoteModel: AddRemoteModel?
     @State private var commitAction: EditorAction?
     @State private var pushAction: EditorAction?
     @State private var pullAction: EditorAction?
+    @State private var addRemoteAction: EditorAction?
     @State private var indicator = StatusIndicatorModel()
     @State private var claudeUsage = ClaudeUsageModel()
     @State private var claudeStatus = ClaudeStatusModel()
@@ -157,6 +160,7 @@ struct ProjectWindow: View {
             .focusedSceneValue(\.gitCommitAction, commitAction)
             .focusedSceneValue(\.gitPushAction, pushAction)
             .focusedSceneValue(\.gitPullAction, pullAction)
+            .focusedSceneValue(\.gitAddRemoteAction, addRemoteAction)
             .task(id: handle.url) {
                 MainThreadHangSampler.shared.startIfEnabled()
                 RunCompletionNotifier.shared.watchProjectRuns(root: handle.url)
@@ -387,6 +391,18 @@ struct ProjectWindow: View {
                     GitSyncView(
                         model: syncModel,
                         onDismiss: { showSyncSheet = false },
+                        onAddAccount: {
+                            settingsNavigation.selectedTab = .accounts
+                            SettingsOpener.open()
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $showAddRemoteSheet) {
+                if let addRemoteModel {
+                    AddRemoteSheet(
+                        model: addRemoteModel,
+                        onDismiss: { showAddRemoteSheet = false },
                         onAddAccount: {
                             settingsNavigation.selectedTab = .accounts
                             SettingsOpener.open()
@@ -837,10 +853,18 @@ struct ProjectWindow: View {
                     showSyncSheet = true
                 }
             }
+            if addRemoteAction == nil {
+                addRemoteAction = EditorAction {
+                    guard !showAddRemoteSheet else { return }
+                    addRemoteModel = AddRemoteModel(repoURL: handle.url)
+                    showAddRemoteSheet = true
+                }
+            }
         } else {
             commitAction = nil
             pushAction = nil
             pullAction = nil
+            addRemoteAction = nil
         }
     }
 
