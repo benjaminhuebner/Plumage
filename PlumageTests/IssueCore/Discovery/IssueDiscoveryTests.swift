@@ -218,6 +218,60 @@ struct IssueDiscoveryTests {
         #expect(before != after)
     }
 
+    @Test("a worktree-style symlinked .claude still discovers issues")
+    func symlinkedClaudeDirectory() throws {
+        let primary = try makeTempProject()
+        try writeIssue(in: primary, folder: "00001-real", id: 1, type: "feature")
+        let worktree = try makeTempProject()
+        try FileManager.default.createSymbolicLink(
+            at: worktree.appendingPathComponent(".claude"),
+            withDestinationURL: primary.appendingPathComponent(".claude")
+        )
+
+        let issues = IssueDiscovery.discoverIssues(in: worktree)
+        #expect(issueIds(issues) == [1])
+    }
+
+    @Test("a spec symlinked outside the issues root stays blocked")
+    func hostileSpecSymlink() throws {
+        let project = try makeTempProject()
+        try writeIssue(in: project, folder: "00001-legit", id: 1, type: "feature")
+        let outside = project.deletingLastPathComponent()
+            .appendingPathComponent("outside-\(UUID().uuidString).md")
+        try "secret".write(to: outside, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        let pwnDir = project.appendingPathComponent(".claude/issues/00002-pwn")
+        try FileManager.default.createDirectory(at: pwnDir, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: pwnDir.appendingPathComponent("spec.md"),
+            withDestinationURL: outside
+        )
+
+        let issues = IssueDiscovery.discoverIssues(in: project)
+        #expect(issueIds(issues) == [1])
+        #expect(issues.count == 1)
+    }
+
+    @Test("an issue folder symlinked outside the issues root stays blocked")
+    func hostileFolderSymlink() throws {
+        let project = try makeTempProject()
+        try writeIssue(in: project, folder: "00001-legit", id: 1, type: "feature")
+        let outsideDir = project.deletingLastPathComponent()
+            .appendingPathComponent("outside-dir-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        try "no frontmatter".write(
+            to: outsideDir.appendingPathComponent("spec.md"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+        try FileManager.default.createSymbolicLink(
+            at: project.appendingPathComponent(".claude/issues/00002-pwn"),
+            withDestinationURL: outsideDir
+        )
+
+        let issues = IssueDiscovery.discoverIssues(in: project)
+        #expect(issueIds(issues) == [1])
+        #expect(issues.count == 1)
+    }
+
     private func folderName(for discovered: DiscoveredIssue) -> String {
         switch discovered {
         case .valid(let issue): issue.folderName

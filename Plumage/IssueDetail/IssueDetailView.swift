@@ -8,6 +8,7 @@ struct IssueDetailView: View {
 
     @State private var model: IssueDetailModel
     @State private var diffTabModel: DiffTabModel?
+    @State private var reviewFindings: ReviewFindingsModel?
     @State private var gitRepoWatcher: GitRepoWatcher?
     // Each editable tab keeps its own cursor/scroll state so switching tabs
     // doesn't drag row 80 of a 200-line spec into a 2-line prompt and vice versa.
@@ -106,6 +107,7 @@ struct IssueDetailView: View {
             refreshEditorMessages()
             refreshDirtyCache()
             startDiffTab()
+            await reviewFindings?.load()
         }
         .onChange(of: dismissToOrigin == nil) { _, _ in refreshBackToBoardCache() }
         .onChange(of: model.loadedSpecContent) { _, _ in refreshDirtyCache() }
@@ -302,7 +304,7 @@ struct IssueDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 5)
             if !model.isCreating {
-                BodyTabPicker(selectedTab: model.bodyTabBinding)
+                BodyTabPicker(selectedTab: model.bodyTabBinding, badgeCounts: tabBadgeCounts)
                     .padding(.horizontal, 12)
             }
         }
@@ -347,7 +349,7 @@ struct IssueDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .diff:
             if let diffTabModel {
-                DiffTabView(model: diffTabModel)
+                DiffTabView(model: diffTabModel, findings: reviewFindings)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -357,7 +359,7 @@ struct IssueDetailView: View {
 
     @ViewBuilder
     private func reviewSections(issue: Issue) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Divider()
             EvidenceSection(state: model.evidence, isStale: model.evidenceIsStale)
             if !model.doneWhenCriteria.isEmpty {
@@ -365,6 +367,15 @@ struct IssueDetailView: View {
                     criteria: model.doneWhenCriteria,
                     isDisabled: model.conflict != nil,
                     binding: { model.doneWhenBinding(at: $0) }
+                )
+            }
+            if let reviewFindings {
+                RequestChangesSection(
+                    openCount: reviewFindings.openFindings.count,
+                    isBusy: model.isRequestingChanges,
+                    errorMessage: model.lastRequestChangesError,
+                    onRequestChanges: { requestChanges() },
+                    onDismissError: { model.clearRequestChangesError() }
                 )
             }
             MergeBranchSection(
@@ -390,8 +401,8 @@ struct IssueDetailView: View {
                 onRebaseAndMerge: rebaseAndMergeAction
             )
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
         .task {
             // Poll while the merge section is visible: the
             // run-state file isn't covered by any watcher, and the
@@ -431,6 +442,12 @@ struct IssueDetailView: View {
     private var currentLabels: [String] {
         if model.isCreating { return model.labelsDraft }
         return model.issue?.labels ?? []
+    }
+
+    private var tabBadgeCounts: [BodyTab: Int] {
+        guard let reviewFindings else { return [:] }
+        let count = reviewFindings.openFindings.count
+        return count > 0 ? [.diff: count] : [:]
     }
 
     private var currentKanbanIssue: DiscoveredIssue? {
@@ -578,6 +595,12 @@ struct IssueDetailView: View {
         gitRepoWatcher = watcher
         diffTabModel = diffModel
         diffModel.start()
+        if reviewFindings == nil, let folderName = model.folderName {
+            reviewFindings = ReviewFindingsModel(
+                findingsURL: IssueLayout.reviewFindingsURL(
+                    in: projectURL, folderName: folderName)
+            )
+        }
     }
 
     private func refreshBackToBoardCache() {
@@ -655,6 +678,26 @@ struct IssueDetailView: View {
         do { try await model.saveBody() } catch { firstError = firstError ?? error }
         do { try await model.savePrompt() } catch { firstError = firstError ?? error }
         if let firstError { throw firstError }
+    }
+
+    private func requestChanges() {
+        guard let findingsModel = reviewFindings, let folderName = model.folderName else { return }
+        Task {
+            // Flush dirty buffers first: the task append reads spec.md from disk
+            // and a later editor save would clobber the appended tasks.
+            do {
+                try await saveAllEditableTabs()
+            } catch {
+                presentSaveAlert(message: error.localizedDescription)
+                return
+            }
+            let taskTexts = findingsModel.openFindings.map(\.reviewFixTaskText)
+            guard await model.requestChanges(taskTexts: taskTexts) else { return }
+            await findingsModel.markOpenFindingsSent()
+            // The launcher owns the busy-checkout handling (worktree vs. queue
+            // prompt), so a blocked launch here behaves like any implement start.
+            runWorkflow(.implement, folderName, currentType)
+        }
     }
 
     private func triggerWorkflow(_ action: WorkflowAction, folderName: String) {

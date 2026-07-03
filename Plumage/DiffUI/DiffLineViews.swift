@@ -7,11 +7,14 @@ import SwiftUI
 nonisolated struct DiffLineStyle: Equatable {
     let font: Font
     let horizontalPadding: CGFloat
+    let showsLineNumbers: Bool
 
     static let detail = DiffLineStyle(
-        font: .system(.body, design: .monospaced), horizontalPadding: 12)
+        font: .system(.body, design: .monospaced), horizontalPadding: 12,
+        showsLineNumbers: true)
     static let compact = DiffLineStyle(
-        font: .system(.caption, design: .monospaced), horizontalPadding: 0)
+        font: .system(.caption, design: .monospaced), horizontalPadding: 0,
+        showsLineNumbers: false)
 }
 
 // Equatable container for one hunk's lines: Hunk is a value, replaced
@@ -20,14 +23,55 @@ nonisolated struct DiffLineStyle: Equatable {
 struct DiffHunkLinesView: View, Equatable {
     let hunk: Hunk
     let style: DiffLineStyle
+    var commenting: DiffCommenting?
+
+    init(hunk: Hunk, style: DiffLineStyle, commenting: DiffCommenting? = nil) {
+        self.hunk = hunk
+        self.style = style
+        self.commenting = commenting
+    }
+
+    // Equality skips findings content: changes invalidate rows via @Observable tracking.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.hunk == rhs.hunk, lhs.style == rhs.style else { return false }
+        switch (lhs.commenting, rhs.commenting) {
+        case (nil, nil):
+            return true
+        case (let left?, let right?):
+            return left.file == right.file && left.model === right.model
+        default:
+            return false
+        }
+    }
 
     var body: some View {
+        let numbers = style.showsLineNumbers ? DiffLineNumber.numbers(for: hunk) : []
+        let digits = DiffLineNumber.columnDigits(for: hunk)
         LazyVStack(alignment: .leading, spacing: 0) {
             // Index identity is safe here: lines never reorder in place —
             // a changed hunk is a different Hunk value with fresh rows.
-            ForEach(hunk.lines.indices, id: \.self) { index in
-                DiffLineRow(line: hunk.lines[index], style: style)
+            if let commenting {
+                let anchors = DiffLineAnchor.anchors(for: hunk, file: commenting.file)
+                ForEach(hunk.lines.indices, id: \.self) { index in
+                    CommentableDiffLineRow(
+                        line: hunk.lines[index],
+                        style: style,
+                        anchor: anchors[index],
+                        model: commenting.model,
+                        numbers: numbers.isEmpty ? nil : numbers[index],
+                        numberColumnDigits: digits
+                    )
+                    .id(anchors[index])
+                }
+            } else {
+                ForEach(hunk.lines.indices, id: \.self) { index in
+                    DiffLineRow(
+                        line: hunk.lines[index], style: style,
+                        numbers: numbers.isEmpty ? nil : numbers[index],
+                        numberColumnDigits: digits
+                    )
                     .equatable()
+                }
             }
         }
     }
@@ -36,9 +80,26 @@ struct DiffHunkLinesView: View, Equatable {
 struct DiffLineRow: View, Equatable {
     let line: Line
     let style: DiffLineStyle
+    var numbers: DiffLineNumber?
+    var numberColumnDigits: Int
+
+    init(
+        line: Line, style: DiffLineStyle,
+        numbers: DiffLineNumber? = nil, numberColumnDigits: Int = 0
+    ) {
+        self.line = line
+        self.style = style
+        self.numbers = numbers
+        self.numberColumnDigits = numberColumnDigits
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
+            if style.showsLineNumbers, numbers != nil {
+                Text(numberColumnsText)
+                    .font(style.font)
+                    .foregroundStyle(.tertiary)
+            }
             Text(symbol)
                 .font(style.font)
                 .foregroundStyle(symbolColor)
@@ -50,6 +111,19 @@ struct DiffLineRow: View, Equatable {
         .padding(.horizontal, style.horizontalPadding)
         .padding(.vertical, 1)
         .background(rowTint)
+    }
+
+    // Monospaced space-padding keeps both number columns aligned without
+    // any measured widths.
+    private var numberColumnsText: String {
+        let width = max(numberColumnDigits, 1)
+        let old = numbers?.old.map(String.init) ?? ""
+        let new = numbers?.new.map(String.init) ?? ""
+        return pad(old, to: width) + " " + pad(new, to: width)
+    }
+
+    private func pad(_ value: String, to width: Int) -> String {
+        String(repeating: " ", count: max(width - value.count, 0)) + value
     }
 
     private var symbol: String {

@@ -77,6 +77,8 @@ final class IssueDetailModel {
     private(set) var lastSeenIssue: DiscoveredIssue?
     private(set) var allocationError: String?
     private(set) var isMerging: Bool = false
+    private(set) var isRequestingChanges: Bool = false
+    private(set) var lastRequestChangesError: String?
     // Live implement run owning this checkout — merging would switch the
     // run's branch underneath it, so the UI disables merge while set.
     private(set) var blockingImplementRun: LiveImplementRun?
@@ -534,6 +536,30 @@ final class IssueDetailModel {
     func commitLabels(_ newLabels: [String]) async throws {
         guard let current = issue, current.labels != newLabels else { return }
         try await runFormWrite(FrontmatterMutation(labels: .set(newLabels)))
+    }
+
+    // Ordering is the contract: tasks land in the spec before the status
+    // flips, and the caller marks findings sent only after both succeeded —
+    // a failure at any step leaves the findings open, never half-sent.
+    func requestChanges(taskTexts: [String]) async -> Bool {
+        guard !taskTexts.isEmpty, let url = specURL else { return false }
+        isRequestingChanges = true
+        defer { isRequestingChanges = false }
+        lastRequestChangesError = nil
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try SpecTaskAppender.appendReviewFixTasks(specURL: url, taskTexts: taskTexts)
+            }.value
+            try await commitStatus(.inProgress)
+            return true
+        } catch {
+            lastRequestChangesError = error.localizedDescription
+            return false
+        }
+    }
+
+    func clearRequestChangesError() {
+        lastRequestChangesError = nil
     }
 
     func createIssueFromDraft() async throws {

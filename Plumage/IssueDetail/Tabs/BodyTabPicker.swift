@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BodyTabPicker: View {
     @Binding var selectedTab: BodyTab
+    var badgeCounts: [BodyTab: Int] = [:]
     @Namespace private var underlineNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -34,6 +35,15 @@ struct BodyTabPicker: View {
                         .imageScale(.small)
                     Text(tab.displayName)
                         .font(.system(.callout, design: .default).weight(isActive ? .semibold : .regular))
+                    if let count = badgeCounts[tab], count > 0 {
+                        Text("\(count)")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .foregroundStyle(Color.accentColor)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                            .accessibilityLabel("\(count) open review comments")
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)

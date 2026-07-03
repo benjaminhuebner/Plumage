@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DiffTabView: View {
     @Bindable var model: DiffTabModel
+    var findings: ReviewFindingsModel?
 
     var body: some View {
         switch model.state {
@@ -12,7 +13,7 @@ struct DiffTabView: View {
         case .empty:
             emptyState
         case .diff(let files):
-            diffList(files)
+            diffContent(files)
         case .error(let error):
             errorState(error)
         }
@@ -37,6 +38,31 @@ struct DiffTabView: View {
     }
 
     @ViewBuilder
+    private func diffContent(_ files: [FileDiff]) -> some View {
+        ScrollViewReader { proxy in
+            VStack(alignment: .leading, spacing: 0) {
+                if let findings {
+                    DiffFindingsSummary(model: findings, files: files) { anchor in
+                        jump(to: anchor, in: files, proxy: proxy)
+                    }
+                }
+                diffList(files)
+            }
+        }
+    }
+
+    // Two-step scroll: land on the file section first so the lazy rows in
+    // between materialize, then home in on the line anchor.
+    private func jump(to anchor: DiffLineAnchor, in files: [FileDiff], proxy: ScrollViewProxy) {
+        guard files.contains(where: { $0.path == anchor.file }) else { return }
+        withAnimation { proxy.scrollTo(anchor.file, anchor: .top) }
+        Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            withAnimation { proxy.scrollTo(anchor, anchor: .center) }
+        }
+    }
+
+    @ViewBuilder
     private func diffList(_ files: [FileDiff]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
@@ -45,10 +71,12 @@ struct DiffTabView: View {
                 // reorder or insertion would silently transfer the user's
                 // collapse state to a different file.
                 ForEach(files, id: \.path) { file in
-                    FileDiffSection(file: file)
+                    FileDiffSection(file: file, findings: findings)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 24)
         }
         .frame(minHeight: 240)
     }
@@ -56,6 +84,7 @@ struct DiffTabView: View {
 
 private struct FileDiffSection: View {
     let file: FileDiff
+    var findings: ReviewFindingsModel?
     @State private var isExpanded: Bool = true
 
     var body: some View {
@@ -65,13 +94,18 @@ private struct FileDiffSection: View {
                     if offset > 0 {
                         HunkSeparator()
                     }
-                    HunkView(hunk: hunk)
+                    HunkView(hunk: hunk, commenting: commenting)
                 }
             }
             .padding(.top, 4)
         } label: {
             FileDiffHeader(file: file)
         }
+    }
+
+    private var commenting: DiffCommenting? {
+        guard let findings else { return nil }
+        return DiffCommenting(file: file.path, model: findings)
     }
 }
 
@@ -147,11 +181,12 @@ private struct HunkSeparator: View {
 
 private struct HunkView: View {
     let hunk: Hunk
+    var commenting: DiffCommenting?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             hunkHeader
-            DiffHunkLinesView(hunk: hunk, style: .detail)
+            DiffHunkLinesView(hunk: hunk, style: .detail, commenting: commenting)
                 .equatable()
         }
     }
