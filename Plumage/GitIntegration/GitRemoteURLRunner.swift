@@ -3,6 +3,13 @@ import Foundation
 nonisolated struct GitRemoteInfo: Sendable, Equatable {
     let host: String
     let owner: String
+    let repo: String?
+
+    init(host: String, owner: String, repo: String? = nil) {
+        self.host = host
+        self.owner = owner
+        self.repo = repo
+    }
 }
 
 nonisolated struct GitRemoteURLRunner: Sendable {
@@ -50,17 +57,24 @@ nonisolated struct GitRemoteURLRunner: Sendable {
         {
             let host = String(remoteURL[remoteURL.index(after: at)..<colon])
             let path = String(remoteURL[remoteURL.index(after: colon)...])
-            guard !host.isEmpty, let owner = firstComponent(path) else { return nil }
-            return GitRemoteInfo(host: host.lowercased(), owner: owner)
+            guard !host.isEmpty, let parsed = pathOwnerRepo(path) else { return nil }
+            return GitRemoteInfo(host: host.lowercased(), owner: parsed.owner, repo: parsed.repo)
         }
         guard let components = URLComponents(string: remoteURL),
             let host = components.host, !host.isEmpty,
-            let owner = firstComponent(components.path)
+            let parsed = pathOwnerRepo(components.path)
         else { return nil }
-        return GitRemoteInfo(host: host.lowercased(), owner: owner)
+        return GitRemoteInfo(host: host.lowercased(), owner: parsed.owner, repo: parsed.repo)
     }
 
-    private static func firstComponent(_ path: String) -> String? {
-        path.split(separator: "/").map(String.init).first
+    private static func pathOwnerRepo(_ path: String) -> (owner: String, repo: String?)? {
+        let parts = path.split(separator: "/").map(String.init)
+        guard let owner = parts.first else { return nil }
+        let repo = parts.count > 1 ? stripGitSuffix(parts[1]) : nil
+        return (owner, repo)
+    }
+
+    private static func stripGitSuffix(_ name: String) -> String {
+        name.hasSuffix(".git") ? String(name.dropLast(4)) : name
     }
 }

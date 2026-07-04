@@ -72,6 +72,18 @@ final class ProjectKanbanModel {
     // broken project from a legitimately empty board.
     private(set) var boardError: String?
 
+    // Active numbers derive live from the snapshot; archived ones need a disk
+    // scan (the archive isn't part of the board snapshot), cached here.
+    private(set) var archivedGitHubNumbers: Set<Int> = []
+
+    var adoptedGitHubNumbers: Set<Int> {
+        var numbers = archivedGitHubNumbers
+        for case .valid(let issue) in issues {
+            if let github = issue.github { numbers.insert(github) }
+        }
+        return numbers
+    }
+
     var pendingDropFolderName: String? { pendingDrop?.folderName }
     var pendingDropExpectedStatus: IssueStatus? { pendingDrop?.expectedStatus }
 
@@ -157,6 +169,16 @@ final class ProjectKanbanModel {
             ingest(snapshot, projectURL: projectURL)
         }
         await producer.stop()
+    }
+
+    // Scans the archive on demand (e.g. when the import sheet opens) rather than
+    // on every board load — runProjectURL is already set by the first ingest.
+    func refreshAdoptedGitHubNumbers() async {
+        guard let projectURL = runProjectURL else { return }
+        let archiveDir = IssueLayout.archiveDirectory(in: projectURL)
+        archivedGitHubNumbers = await Task.detached(priority: .utility) {
+            AdoptedGitHubScan.archivedNumbers(inArchive: archiveDir)
+        }.value
     }
 
     func ingest(_ snapshot: [DiscoveredIssue], projectURL: URL) {
@@ -713,5 +735,25 @@ final class ProjectKanbanModel {
         // ordering: the optimistic update's `Self.replace` keeps the source at its
         // old array position, which rendered the card at the wrong slot until FSEvent re-sorted.
         Dictionary(grouping: issues, by: \.column).mapValues { $0.sortedForKanban() }
+    }
+}
+
+nonisolated enum AdoptedGitHubScan {
+    static func archivedNumbers(inArchive archiveDirectory: URL) -> Set<Int> {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: archiveDirectory.path),
+            let enumerator = fm.enumerator(
+                at: archiveDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        else { return [] }
+        var numbers = Set<Int>()
+        for case let url as URL in enumerator where url.lastPathComponent == "spec.md" {
+            guard let content = try? String(contentsOf: url, encoding: .utf8),
+                case .success(let issue) = SpecParser.parse(
+                    content: content, folderName: url.deletingLastPathComponent().lastPathComponent),
+                let github = issue.github
+            else { continue }
+            numbers.insert(github)
+        }
+        return numbers
     }
 }

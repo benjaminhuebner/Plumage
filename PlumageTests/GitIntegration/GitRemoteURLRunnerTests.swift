@@ -8,9 +8,9 @@ struct GitRemoteURLRunnerTests {
     private let repo = URL(fileURLWithPath: "/tmp/repo")
     private let fakeGit = URL(fileURLWithPath: "/usr/bin/git")
 
-    @Test("parses https, ssh, and scp-like GitHub remotes to host + owner")
+    @Test("parses https, ssh, and scp-like GitHub remotes to host + owner + repo")
     func parsesRemoteForms() {
-        let expected = GitRemoteInfo(host: "github.com", owner: "octocat")
+        let expected = GitRemoteInfo(host: "github.com", owner: "octocat", repo: "Hello-World")
         #expect(GitRemoteURLRunner.parse(remoteURL: "https://github.com/octocat/Hello-World.git") == expected)
         #expect(GitRemoteURLRunner.parse(remoteURL: "https://github.com/octocat/Hello-World") == expected)
         #expect(GitRemoteURLRunner.parse(remoteURL: "git@github.com:octocat/Hello-World.git") == expected)
@@ -18,11 +18,20 @@ struct GitRemoteURLRunnerTests {
         #expect(GitRemoteURLRunner.parse(remoteURL: "https://user@github.com/octocat/Hello-World.git") == expected)
     }
 
-    @Test("normalizes the host to lowercase but keeps owner case")
+    @Test("captures the repo name, strips trailing .git, keeps case; owner-only leaves repo nil")
+    func parsesRepoComponent() {
+        #expect(GitRemoteURLRunner.parse(remoteURL: "git@github.com:acme/Cool.Tools.git")?.repo == "Cool.Tools")
+        #expect(GitRemoteURLRunner.parse(remoteURL: "https://github.com/acme/Cool.Tools")?.repo == "Cool.Tools")
+        #expect(GitRemoteURLRunner.parse(remoteURL: "https://github.com/octocat")?.repo == nil)
+        #expect(GitRemoteURLRunner.parse(remoteURL: "https://github.com/octocat")?.owner == "octocat")
+    }
+
+    @Test("normalizes the host to lowercase but keeps owner and repo case")
     func normalizesHost() {
         let info = GitRemoteURLRunner.parse(remoteURL: "git@GitHub.com:Octocat/Repo.git")
         #expect(info?.host == "github.com")
         #expect(info?.owner == "Octocat")
+        #expect(info?.repo == "Repo")
     }
 
     @Test("non-URL, empty, and local remotes return nil")
@@ -38,7 +47,9 @@ struct GitRemoteURLRunnerTests {
         mock.stdoutForArgs[["-C", repo.path, "remote", "get-url", "origin"]] =
             "https://github.com/octocat/Hello-World.git\n"
         let runner = GitRemoteURLRunner(runner: mock, resolveBinary: { self.fakeGit })
-        #expect(await runner.originRemote(for: repo) == GitRemoteInfo(host: "github.com", owner: "octocat"))
+        #expect(
+            await runner.originRemote(for: repo)
+                == GitRemoteInfo(host: "github.com", owner: "octocat", repo: "Hello-World"))
     }
 
     @Test("originRemote returns nil when there is no origin")
@@ -63,7 +74,7 @@ struct GitRemoteURLRunnerTests {
         let runner = GitRemoteURLRunner(runner: mock, resolveBinary: { self.fakeGit })
         #expect(
             await runner.remoteInfo(for: repo, remote: "upstream")
-                == GitRemoteInfo(host: "github.com", owner: "acme"))
+                == GitRemoteInfo(host: "github.com", owner: "acme", repo: "tools"))
     }
 
     @Test("remoteInfo rejects an option-shaped remote name without running git")

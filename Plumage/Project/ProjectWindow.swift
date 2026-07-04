@@ -21,10 +21,14 @@ struct ProjectWindow: View {
     // fresh model and the view showed one whose async remote load never ran.
     @State private var syncModel: GitSyncModel?
     @State private var addRemoteModel: AddRemoteModel?
+    @State private var showImportIssuesSheet = false
+    @State private var importIssuesModel: GitHubImportModel?
+    @State private var githubOriginPresent = false
     @State private var commitAction: EditorAction?
     @State private var pushAction: EditorAction?
     @State private var pullAction: EditorAction?
     @State private var addRemoteAction: EditorAction?
+    @State private var importIssuesAction: EditorAction?
     @State private var indicator = StatusIndicatorModel()
     @State private var claudeUsage = ClaudeUsageModel()
     @State private var claudeStatus = ClaudeStatusModel()
@@ -161,6 +165,7 @@ struct ProjectWindow: View {
             .focusedSceneValue(\.gitPushAction, pushAction)
             .focusedSceneValue(\.gitPullAction, pullAction)
             .focusedSceneValue(\.gitAddRemoteAction, addRemoteAction)
+            .focusedSceneValue(\.gitImportIssuesAction, importIssuesAction)
             .task(id: handle.url) {
                 MainThreadHangSampler.shared.startIfEnabled()
                 RunCompletionNotifier.shared.watchProjectRuns(root: handle.url)
@@ -299,10 +304,14 @@ struct ProjectWindow: View {
                 // `.onChange(of: isLoaded)` below re-runs it once load settles.
                 refreshCreateIssueAction()
                 _ = await (reload, run, detect, navLoad, xcodeDiscover, usagePoll, statusPoll)
+                await refreshGithubOrigin()
             }
             .onChange(of: isLoaded) { _, _ in refreshCreateIssueAction() }
             .onChange(of: isLoaded) { _, _ in refreshGitActions() }
-            .onChange(of: gitModel.repoState.isGitRepo) { _, _ in refreshGitActions() }
+            .onChange(of: gitModel.repoState.isGitRepo) { _, _ in
+                refreshGitActions()
+                Task { await refreshGithubOrigin() }
+            }
             .onChange(of: xcodeRun.discoveryState) { _, state in
                 if state == .ready {
                     Task {
@@ -404,6 +413,19 @@ struct ProjectWindow: View {
                         model: addRemoteModel,
                         onDismiss: { showAddRemoteSheet = false },
                         onAddAccount: {
+                            settingsNavigation.selectedTab = .accounts
+                            SettingsOpener.open()
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $showImportIssuesSheet) {
+                if let importIssuesModel {
+                    GitHubImportSheet(
+                        model: importIssuesModel,
+                        adoptedNumbers: kanban.adoptedGitHubNumbers,
+                        onDismiss: { showImportIssuesSheet = false },
+                        onConnectAccount: {
                             settingsNavigation.selectedTab = .accounts
                             SettingsOpener.open()
                         }
@@ -866,6 +888,41 @@ struct ProjectWindow: View {
             pullAction = nil
             addRemoteAction = nil
         }
+        let importEnabled = active && githubOriginPresent
+        if importEnabled {
+            if importIssuesAction == nil {
+                importIssuesAction = EditorAction {
+                    guard !showImportIssuesSheet else { return }
+                    importIssuesModel = makeImportModel()
+                    Task { await kanban.refreshAdoptedGitHubNumbers() }
+                    showImportIssuesSheet = true
+                }
+            }
+        } else {
+            importIssuesAction = nil
+        }
+    }
+
+    private func makeImportModel() -> GitHubImportModel {
+        GitHubImportModel(
+            projectURL: handle.url,
+            boundAccountID: currentConfig()?.githubAccountID,
+            openInEditor: { folderName in
+                if selectedRoute == .kanban { detailOriginRoute = .kanban }
+                selectedRoute = .issue(folderName: folderName)
+            })
+    }
+
+    private func refreshGithubOrigin() async {
+        guard gitModel.repoState.isGitRepo else {
+            githubOriginPresent = false
+            refreshGitActions()
+            return
+        }
+        let runner = GitRemoteURLRunner(runner: ProductionGitProcessRunner())
+        let remote = await runner.originRemote(for: handle.url)
+        githubOriginPresent = remote?.host == GitHubAccount.defaultHost && remote?.repo != nil
+        refreshGitActions()
     }
 
     private func refreshCreateIssueAction() {

@@ -42,6 +42,7 @@ nonisolated struct NextIssueAllocator: Sendable {
         type: IssueType,
         labels: [String],
         prompt: String,
+        github: Int? = nil,
         now: Date = .now
     ) throws -> URL {
         guard Self.isValidSlug(slug) else { throw NextIssueAllocatorError.invalidSlug }
@@ -72,7 +73,8 @@ nonisolated struct NextIssueAllocator: Sendable {
             slug: slug,
             created: created,
             type: type,
-            labels: labels
+            labels: labels,
+            github: github
         )
 
         let folderName = "\(padded)-\(slug)"
@@ -232,7 +234,8 @@ nonisolated struct NextIssueAllocator: Sendable {
         slug: String,
         created: String,
         type: IssueType,
-        labels: [String]
+        labels: [String],
+        github: Int? = nil
     ) -> String {
         var out = template
         out = out.replacingOccurrences(of: "<<<ID>>>", with: String(id))
@@ -244,25 +247,33 @@ nonisolated struct NextIssueAllocator: Sendable {
         out = out.replacingOccurrences(of: "<<<TITLE>>>", with: FrontmatterMutator.formatTitleValue(title))
         out = out.replacingOccurrences(of: "<<<SLUG>>>", with: slug)
         out = out.replacingOccurrences(of: "<<<CREATED>>>", with: created)
-        return injectTypeAndLabels(out, type: type, labels: labels)
+        return injectTypeAndLabels(out, type: type, labels: labels, github: github)
     }
 
     private static func injectTypeAndLabels(
         _ rendered: String,
         type: IssueType,
-        labels: [String]
+        labels: [String],
+        github: Int?
     ) -> String {
-        var lines = rendered.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        for index in lines.indices {
-            if lines[index] == "type: feature" {
-                lines[index] = "type: \(type.rawValue)"
-            }
-            if lines[index] == "labels: []" {
+        let lines = rendered.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var out: [String] = []
+        out.reserveCapacity(lines.count + 1)
+        for line in lines {
+            if line == "type: feature" {
+                out.append("type: \(type.rawValue)")
+            } else if line == "labels: []" {
                 // Same quoting as the edit path — raw joining produced
                 // invalid YAML (red card) for labels containing `:` or `#`.
-                lines[index] = "labels: \(FrontmatterMutator.formatLabels(labels))"
+                out.append("labels: \(FrontmatterMutator.formatLabels(labels))")
+                // Cross-ref has no template marker — insert it inside the frontmatter, after labels.
+                if let github {
+                    out.append("github: \(github)")
+                }
+            } else {
+                out.append(line)
             }
         }
-        return lines.joined(separator: "\n")
+        return out.joined(separator: "\n")
     }
 }

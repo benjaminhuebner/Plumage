@@ -141,6 +141,32 @@ struct NextIssueAllocatorPureTests {
         #expect(rendered.contains("type: feature"))
         #expect(rendered.contains("labels: []"))
     }
+
+    @Test("substituteTemplate injects a github line only when a number is given")
+    func substituteTemplateGithub() throws {
+        let template = """
+            ---
+            id: <<<ID>>>
+            title: <<<TITLE>>>
+            type: feature
+            status: draft
+            created: <<<CREATED>>>
+            updated: <<<CREATED>>>
+            branch: issue/<<<ID_PADDED>>>-<<<SLUG>>>
+            labels: []
+            ---
+            """
+        let withGithub = NextIssueAllocator.substituteTemplate(
+            template, id: 1, idPadded: "00001", title: "T", slug: "t",
+            created: "2026-05-13T07:00:00Z", type: .feature, labels: [], github: 42)
+        #expect(withGithub.contains("github: 42\n"))
+        #expect(try SpecParser.parse(content: withGithub, folderName: "00001-t").get().github == 42)
+
+        let without = NextIssueAllocator.substituteTemplate(
+            template, id: 1, idPadded: "00001", title: "T", slug: "t",
+            created: "2026-05-13T07:00:00Z", type: .feature, labels: [])
+        #expect(!without.contains("github:"))
+    }
 }
 
 @Suite("NextIssueAllocatorError descriptions")
@@ -203,6 +229,24 @@ struct NextIssueAllocatorAllocateTests {
         #expect(content.contains("labels: [chore, v0.1]\n"))
         #expect(content.contains("created: 2026-05-13T07:00:00Z\n"))
         #expect(content.contains("updated: 2026-05-13T07:00:00Z\n"))
+    }
+
+    @Test("allocate injects github frontmatter that round-trips; absent by default")
+    func allocateGithubCrossRef() throws {
+        let fixture = try Fixture()
+        try fixture.writeTemplate()
+
+        let allocator = NextIssueAllocator(projectURL: fixture.root)
+        let adopted = try allocator.allocate(
+            slug: "bar", title: "Bar", type: .feature, labels: [], prompt: "", github: 137)
+        let adoptedContent = try String(contentsOf: adopted, encoding: .utf8)
+        #expect(adoptedContent.contains("github: 137\n"))
+        #expect(try SpecParser.parse(content: adoptedContent, folderName: "x").get().github == 137)
+
+        let plain = try allocator.allocate(
+            slug: "baz", title: "Baz", type: .feature, labels: [], prompt: "")
+        let plainContent = try String(contentsOf: plain, encoding: .utf8)
+        #expect(!plainContent.contains("github:"))
     }
 
     @Test("active collision throws .slugCollision and writes nothing")

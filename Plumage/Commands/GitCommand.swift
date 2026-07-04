@@ -5,6 +5,7 @@ extension FocusedValues {
     @Entry var gitPushAction: EditorAction?
     @Entry var gitPullAction: EditorAction?
     @Entry var gitAddRemoteAction: EditorAction?
+    @Entry var gitImportIssuesAction: EditorAction?
 }
 
 struct GitCommand: Commands {
@@ -12,6 +13,7 @@ struct GitCommand: Commands {
     @FocusedValue(\.gitPushAction) private var pushAction
     @FocusedValue(\.gitPullAction) private var pullAction
     @FocusedValue(\.gitAddRemoteAction) private var addRemoteAction
+    @FocusedValue(\.gitImportIssuesAction) private var importIssuesAction
 
     var body: some Commands {
         CommandMenu("Git") {
@@ -30,6 +32,9 @@ struct GitCommand: Commands {
             Divider()
             Button("Add Remote…") { addRemoteAction?.run() }
                 .disabled(addRemoteAction == nil)
+            Divider()
+            Button("Import GitHub Issues…") { importIssuesAction?.run() }
+                .disabled(importIssuesAction == nil)
         }
     }
 }

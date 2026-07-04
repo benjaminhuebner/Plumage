@@ -14,6 +14,8 @@ nonisolated struct Issue: Hashable, Sendable {
     let mergeSubject: String?
     let order: Double?
     let goal: String?
+    // Cross-ref only — never a Plumage id or a sort/identity key.
+    let github: Int?
     // Fingerprint of the sibling evidence.json, set during discovery — makes
     // snapshot equality notice evidence-only changes the spec text can't show.
     var evidenceStamp: String?
@@ -31,7 +33,8 @@ nonisolated struct Issue: Hashable, Sendable {
         blockedBy: [String] = [],
         mergeSubject: String? = nil,
         order: Double? = nil,
-        goal: String? = nil
+        goal: String? = nil,
+        github: Int? = nil
     ) {
         self.id = id
         self.folderName = folderName
@@ -46,6 +49,7 @@ nonisolated struct Issue: Hashable, Sendable {
         self.mergeSubject = mergeSubject
         self.order = order
         self.goal = goal
+        self.github = github
     }
 
     // Copy for status/order patches that must keep every other field —
@@ -65,7 +69,8 @@ nonisolated struct Issue: Hashable, Sendable {
             blockedBy: blockedBy,
             mergeSubject: mergeSubject,
             order: order,
-            goal: goal
+            goal: goal,
+            github: github
         )
         copy.evidenceStamp = evidenceStamp
         return copy
