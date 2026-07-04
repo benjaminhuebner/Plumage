@@ -177,31 +177,41 @@ struct ProjectSettingsView: View {
             description:
                 "The default branch each issue's diff is compared against. Changing it affects Diff tabs opened afterward."
         )
-        HStack {
-            Text("Default branch")
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: 160, alignment: .leading)
-            Menu {
-                ForEach(gitPickerCandidates, id: \.self) { candidate in
-                    Button {
-                        model.setDefaultBranch(candidate)
-                    } label: {
-                        if candidate == model.defaultBranch {
-                            Label(candidate, systemImage: "checkmark")
-                        } else {
-                            Text(candidate)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Default branch")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 160, alignment: .leading)
+                Menu {
+                    ForEach(gitPickerCandidates, id: \.self) { candidate in
+                        Button {
+                            model.setDefaultBranch(candidate)
+                        } label: {
+                            if candidate == model.defaultBranch {
+                                Label(candidate, systemImage: "checkmark")
+                            } else {
+                                Text(candidate)
+                            }
                         }
                     }
+                } label: {
+                    Text(model.defaultBranch)
                 }
-            } label: {
-                Text(model.defaultBranch)
+                .fixedSize()
+                .disabled(!model.canEdit || !model.isGitRepo)
+                .accessibilityLabel("Default branch")
+                .accessibilityValue(model.defaultBranch)
+                .accessibilityIdentifier("default-branch-picker")
+                Spacer(minLength: 0)
             }
-            .fixedSize()
-            .disabled(!model.canEdit)
-            .accessibilityLabel("Default branch")
-            .accessibilityValue(model.defaultBranch)
-            .accessibilityIdentifier("default-branch-picker")
-            Spacer(minLength: 0)
+            if !model.isGitRepo {
+                Label(
+                    "This project has no git repository — initialize one to choose a default branch.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
     }
 

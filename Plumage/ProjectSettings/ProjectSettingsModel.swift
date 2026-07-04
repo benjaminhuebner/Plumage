@@ -67,6 +67,8 @@ final class ProjectSettingsModel {
     // choice saves immediately. Branch candidates load async for the picker.
     var defaultBranch: String = "main"
     private(set) var branchCandidates: [String] = []
+    // Gates the default-branch picker: a non-git project has nothing to pick.
+    private(set) var isGitRepo: Bool = true
 
     enum LoadState: Sendable, Equatable {
         case loading
@@ -122,13 +124,17 @@ final class ProjectSettingsModel {
     func load() async {
         loadState = .loading
         let url = projectURL
-        let result: Result<ProjectConfig, Error> = await Task.detached(priority: .userInitiated) {
-            do {
-                return .success(try ConfigLoader.load(at: url))
-            } catch {
-                return .failure(error)
-            }
-        }.value
+        let (result, repoIsGit): (Result<ProjectConfig, Error>, Bool) =
+            await Task.detached(priority: .userInitiated) {
+                let config: Result<ProjectConfig, Error>
+                do {
+                    config = .success(try ConfigLoader.load(at: url))
+                } catch {
+                    config = .failure(error)
+                }
+                return (config, RepoStateReader().read(repoURL: url).isGitRepo)
+            }.value
+        isGitRepo = repoIsGit
         switch result {
         case .success(let config):
             apply(config: config)
@@ -309,6 +315,10 @@ final class ProjectSettingsModel {
     }
 
     func loadBranchCandidates() async {
+        guard isGitRepo else {
+            branchCandidates = []
+            return
+        }
         let url = projectURL
         branchCandidates = await Task.detached(priority: .userInitiated) {
             (try? await GitBranchLister().branches(repoURL: url)) ?? []

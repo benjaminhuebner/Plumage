@@ -558,6 +558,30 @@ struct ProjectSettingsModelTests {
         #expect(git["agentFilesInGit"] as? Bool == true)
         #expect(parsed["plumageManaged"] != nil)
     }
+
+    @Test("load reflects git-repo presence; a non-git project skips branch loading")
+    func loadDetectsGitRepoPresence() async throws {
+        // TempProject.make creates no .git → not a repo.
+        let nonGit = try makeProject()
+        defer { try? FileManager.default.removeItem(at: nonGit) }
+        let m1 = ProjectSettingsModel(projectURL: nonGit)
+        await m1.load()
+        #expect(m1.isGitRepo == false)
+        await m1.loadBranchCandidates()
+        #expect(m1.branchCandidates.isEmpty)
+
+        // Fake a repo with a .git/HEAD — RepoStateReader is filesystem-based,
+        // so no `git init` is needed to exercise the true branch.
+        let gitProject = try makeProject()
+        defer { try? FileManager.default.removeItem(at: gitProject) }
+        let gitDir = gitProject.appendingPathComponent(".git")
+        try FileManager.default.createDirectory(at: gitDir, withIntermediateDirectories: true)
+        try "ref: refs/heads/main\n".write(
+            to: gitDir.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+        let m2 = ProjectSettingsModel(projectURL: gitProject)
+        await m2.load()
+        #expect(m2.isGitRepo == true)
+    }
 }
 
 // @unchecked Sendable: the writer closure runs off MainActor since the

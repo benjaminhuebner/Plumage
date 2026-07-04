@@ -64,6 +64,51 @@ struct MergeIntegrationTests {
     }
 
     @Test(
+        "merge writes a real merged.diff snapshot via the production capture path",
+        .enabled(if: ToolchainLocator.git() != nil)
+    )
+    func mergeWritesRealSnapshot() async throws {
+        let repo = try await TmpGitRepo.make()
+        let mainBranch = repo.mainBranch
+
+        // No mergedDiffCapturer/mergedDiffWriter override → exercises the real
+        // GitDiffRunner capture + real file write (the path unit tests stub out).
+        let model = await IssueDetailModel(
+            specURL: repo.specURL,
+            folderName: repo.folderName,
+            projectURL: repo.tmpDir,
+            mergeRunner: GitMergeRunner(),
+            configLoader: { _ in
+                ProjectConfig(
+                    name: "Test", schemaVersion: 2, issueIdPadding: 5,
+                    git: GitConfig(defaultBranch: mainBranch))
+            }
+        )
+        await model.load()
+
+        let success = await model.mergeToTarget(
+            mode: .fastForward, commitSubject: nil, deleteBranch: true)
+        #expect(success == true)
+
+        // The branch is gone — the snapshot must have been captured before that.
+        let branchPresent = await repo.branchExists(repo.issueBranch)
+        #expect(branchPresent == false)
+
+        // merged.diff exists and holds the branch's committed contribution.
+        let snapshotURL = IssueLayout.mergedDiffURL(
+            in: repo.tmpDir, folderName: repo.folderName)
+        let snapshot = try String(contentsOf: snapshotURL, encoding: .utf8)
+        #expect(snapshot.contains("diff --git"))
+        #expect(snapshot.contains("content.txt"))
+        #expect(snapshot.contains("+branch"))
+
+        // And it parses to the file DiffTabModel would render post-merge.
+        let parsed = DiffParser.parse(unifiedDiff: snapshot)
+        #expect(parsed.count == 1)
+        #expect(parsed.first?.path == "content.txt")
+    }
+
+    @Test(
         "squash mode lands exactly one new commit on main with the subject and force-deletes the branch",
         .enabled(if: ToolchainLocator.git() != nil)
     )
