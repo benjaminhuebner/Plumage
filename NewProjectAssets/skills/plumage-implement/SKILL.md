@@ -1,11 +1,16 @@
 ---
 name: plumage-implement
 description: This skill should be used when the user runs `/plumage-implement [slug]`, asks to "start implementing issue NNNN", "continue the run", or "resume after the crash". Takes an approved spec and turns it into commits on an issue branch, ending with `PR.md` and status `waiting-for-review`. Fresh-starts from `approved`, resumes from `in-progress`, runs the per-task loop, runs the pre-commit gate, writes PR.md. Do NOT use to merge, push, or open a remote PR — those are separate operations. Do NOT use when the issue is `draft` + `feature` (run `/plumage-plan` first) or already `waiting-for-review` / `done`.
+argument-hint: "[slug]"
 user-invocable: true
 disable-model-invocation: true
 ---
 
-Plumage-implement is the implementation half of Plumage's workflow. Each step is tracked in `<bundle>/runs/<slug>.json` (inside the project's `*.plumage` bundle) so the work survives crashes.
+Plumage-implement is the implementation half of Plumage's workflow. Each step is tracked in `<bundle>/runs/<slug>.json` (inside the project's `*.plumage` bundle) so the work survives crashes. Three scripts carry the run mechanics — invoke them with their full repo-relative path so the permission allowlist matches:
+
+- `.claude/skills/plumage-implement/scripts/start-run.sh <slug>` — starts or resumes the run (queue, branch, run-state, status flip) in one call.
+- `.claude/skills/plumage-implement/scripts/complete-task.sh <slug>` — completes one task (gate, evidence, spec tick, run-state) in one call.
+- `.claude/skills/plumage-implement/scripts/finish-run.sh <slug>` — flips the spec to `waiting-for-review` and archives the run-state.
 
 ## Standalone usage
 
@@ -13,13 +18,7 @@ This skill works without the Plumage app: invoke `/plumage-implement <slug>` dir
 
 ## Step 0: Find and activate matching skills and agents
 
-Identify the task surface — what domains and tooling this issue actually touches — from the spec, the user's request, or the issue description. Then scan installed skills and subagents and invoke every one whose description matches that surface, before any real work begins. The `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so the routing is manual.
-
-- Skills via the Skill tool, subagents via the Agent tool.
-- Match on description, not name. Invoke when the description covers the task surface; don't invoke speculatively because a name sounds related.
-- Re-scan when work reveals a domain that wasn't obvious at the start.
-
-If nothing matches or no relevant plugin is installed, continue — the scan happens regardless, the activation is what's conditional.
+Identify the task surface — the domains and tooling this issue touches — from the spec and the request. Then invoke every installed skill (Skill tool) and subagent (Agent tool) whose *description* matches that surface, before real work begins; the `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so this routing is manual. Match on description, not name; re-scan when work reveals a new domain. No match → continue.
 
 ## Round-trip discipline
 
@@ -29,7 +28,9 @@ Wall-clock cost is dominated by model round-trips, not tool time. Default habits
 - Delegate broad exploration ("where is X handled?", "which conventions do these files share?") to an Explore subagent and keep only the digest in context; read known files directly, in narrow line ranges.
 - Re-read nothing the context already holds.
 - Chain bookkeeping into single Bash calls — the per-task loop is one chained call, not 5–7 separate ones.
-- Front-load every interaction (see Fresh start); a mid-loop question or permission prompt can stall the run for hours.
+- Front-load every interaction (see below); a mid-loop question or permission prompt can stall the run for hours.
+
+Ground every progress claim in a tool result from this session: report only what you can point to evidence for, and if something is not yet verified, say so explicitly. If tests fail, say so with the output; if a step was skipped, say that.
 
 ## Decide the entry point
 
@@ -38,96 +39,46 @@ The argument is either the issue's folder name (slug) or **inlined issue content
 - `.claude/issues/<argument>/` exists → it is the slug; continue below.
 - Otherwise treat the argument as inlined content. Locate the spec frontmatter inside it (the block carrying `id:`, `branch:`, `status:`, `type:`) and resolve the folder from it: strip the `issue/` prefix from `branch`, or pad `id` to the project's `issueIdPadding` (default 5) and glob `.claude/issues/<padded>-*`. The on-disk `spec.md` stays the source of truth for status, task ticks, and `mergeSubject` — the inlined text is upfront context only and may be stale by the time the run starts.
 - Neither an existing folder nor parseable frontmatter → stop and ask which issue is meant.
+- `<slug>` omitted entirely → list open issues (status `approved` or `in-progress`) and let the user pick one.
 
-Read `.claude/issues/<id-padded>-<slug>/spec.md` and dispatch on frontmatter `status` + `type`:
+Read `.claude/issues/<id-padded>-<slug>/spec.md`. `start-run.sh` enforces the status dispatch (`approved`/`in-progress` proceed, `draft`+`chore`/`spike` proceeds without a plan, everything else exits 6 with the right next step) — but read the spec content yourself first; the brief plan below needs it.
 
-| Status | Type | Action |
-|---|---|---|
-| `approved` | any | Fresh start. |
-| `in-progress` | any | Resume. |
-| `draft` | `feature` | Stop. Tell the user to run `/plumage-plan <slug>` first. |
-| `draft` | `chore` / `spike` | Fresh start, no plan required. |
-| `waiting-for-review` | any | Stop. This issue is past implementation. |
-| `done` | any | Stop. |
+## Start the run
 
-If `<slug>` is omitted at invocation: list open issues (status `approved` or `in-progress`) and let the user pick one.
+Everything that needs the user happens **before** the run mechanics, never mid-loop:
 
-## The run-state file
-
-The run-state file at `<bundle>/runs/<slug>.json` is how the run survives crashes. Resolve `<bundle>` by globbing the project root — `bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)` (the `! -name '.*'` skips any legacy hidden `.plumage` dotfolder). See `references/run-state-schema.md` for the full schema, who writes which field, the glob convention, and the atomic-write protocol. Key invariants:
-
-- `runs/` lives inside the committable bundle but is gitignored, so run-state never enters git.
-- All writes are atomic (`.tmp` + `rename`). Never write the file in place.
-- Plumage writes `plumagePid`, `plumageHeartbeatAt`, `agentLastOutputAt`, and `lastUserVisibleAction`. The skill must not touch those.
-- The skill writes `kind`, `runId`, `issue`, `startedAt`, `agentPid`, `phase`, `lastProgressAt`, `branch`, `headBeforeRun`, `lastCompletedTask`, `totalTasks`. During the loop, `scripts/complete-task.sh` maintains `phase`, `lastProgressAt`, and `lastCompletedTask`.
-
-## Fresh start
-
-1. **Check the working tree.** Run `git status`. If there are uncommitted changes, stop and ask the user — stash, commit, or discard — before continuing. Do not carry dirty state onto the issue branch.
-2. **Wait for the checkout (FIFO queue).** First the same-slug guard: this slug already live or queued *anywhere* → stop, the issue is already being worked on. Check every worktree from `git worktree list --porcelain`: a live `runs/<slug>.json` in its bundle (`agentPid` alive; a missing, zero, or non-numeric pid is dead — `kill -0 0` probes the caller's own process group, so validate before probing) or a live entry for the slug in a `runs/queue/`. Then take a place in line:
+1. **Brief plan** (fresh starts only — a resume skips this). Restate the spec's technical approach in 2–3 sentences: which files/modules will be touched, the architectural choice for this issue, and anything that looked clear in the spec but is ambiguous now that the code is in front of the agent. If something is genuinely unclear — a question whose answer changes the implementation — ask now. Do not guess.
+2. **Front-load interaction.** Ask every clarifying question the brief plan surfaced. If any task's verification will need pixels or real HID (see `references/verification.md`), call computer-use `request_access` for the app under test now.
+3. **Chore/spike without a task list:** if the spec has no unchecked `## Tasks` yet, derive the tasks from the spec/prompt and write them into the spec first (ordered checkboxes, one commit each) — `start-run.sh` refuses a spec without tasks, and the loop needs them.
+4. **Start:**
 
     ```bash
-    QUEUE_OWNER_PID=$(ps -o ppid= -p $$) scripts/wait-for-turn.sh <slug>
+    .claude/skills/plumage-implement/scripts/start-run.sh <slug>
     ```
 
-    Free checkout → returns immediately, the run starts now. Busy checkout (live implement run, or earlier live waiters — no line-jumping) → it enqueues under `<bundle>/runs/queue/` and polls, printing `waiting behind <issue> (position N)` plus the parallel alternative (`scripts/setup-worktree.sh <slug>`). Exit 4 = still waiting: re-invoke the same command until granted (the Bash tool caps one call at 10 min). Exit 3 = same-slug conflict: stop. While queued the issue stays `approved` and nothing below runs; dead runs and dead waiters never block (crash leftovers are skipped and removed lazily). In a secondary worktree with no local live run the call returns immediately — runs in different worktrees proceed in parallel.
-3. Read `git.defaultBranch` from `<bundle>/config.json` (default `main`).
-4. Capture `headBeforeRun = git rev-parse <defaultBranch>`.
-5. Write the initial run-state file with `phase: "starting"`, `lastCompletedTask: 0`, `totalTasks` set to the count of unchecked tasks in the spec's `## Tasks` section, and `agentPid` set to the session PID, captured as `ps -o ppid= -p $$` — the long-lived `claude` process that owns this session. Never write `$$` itself: each Bash tool call runs in a fresh shell that is dead by the next call, so `$$` would make this run look crashed to step 2 of a parallel start. Then remove the queue entry — `QUEUE_OWNER_PID=$(ps -o ppid= -p $$) scripts/wait-for-turn.sh <slug> --remove` — the run-state is now what blocks the next waiter. (On abort between grant and run-state write, remove the entry the same way.)
-6. Branch: `git checkout -b issue/<slug> <defaultBranch>` — one command, no checkout of `<defaultBranch>` first. This is what makes fresh starts work in a secondary worktree, where `<defaultBranch>` is typically checked out in the primary and `git checkout <defaultBranch>` would fail. If `issue/<slug>` already exists, check it out instead.
-7. Set spec frontmatter `status: in-progress`, `updated:` to now.
-8. **Brief plan.** Before Task 1, restate the spec's technical approach in 2–3 sentences:
-    - Which files/modules will be touched.
-    - The architectural choice for this issue — if the spec pins it down, confirm; if the spec leaves room, state the choice now.
-    - Anything that looked clear in the spec but is ambiguous now that the code is in front of the agent.
+    One call does all of it: dirty-tree check, same-slug guard across all worktrees, FIFO queue for this checkout, branch checkout/creation from the configured default branch, run-state write (fresh or resume — on resume the spec's task ticks are authoritative and `agentPid` is re-bound to this session), queue-entry removal, spec flip to `in-progress`. Exit codes:
 
-    If something is genuinely unclear — not slightly ambiguous, but a question whose answer changes the implementation — stop and ask before starting Task 1. Do not guess.
-9. **Front-load all interaction.** Everything that needs the user or a permission prompt happens now, never mid-loop: ask every clarifying question the brief plan surfaced, and if any task's verification will need pixels or real HID (see `references/verification.md`), call computer-use `request_access` for the app under test now.
+    - `0` — run started; the output names the next task number.
+    - `4` — still queued behind another run in this checkout. Re-invoke the same command until granted (a queue wait prints the parallel alternative: `setup-worktree.sh <slug>`). Do not end the turn while queued.
+    - `5` — dirty working tree. Stop and ask the user: stash, commit, or discard. Never carry dirty state onto the issue branch.
+    - `3` — this slug is already running or queued elsewhere. Stop; the issue is taken.
+    - `6` — wrong status (message names the right next step, e.g. `/plumage-plan` first).
 
-## Resume
+The run-state file at `<bundle>/runs/<slug>.json` is how the run survives crashes; see `references/run-state-schema.md` for the schema and field ownership. The scripts own all routine writes: `start-run.sh` the initial document, `complete-task.sh` the per-task updates, `run-phase.sh` the exceptional phases (below), `finish-run.sh` the archive. Never edit the file by hand and never touch the Plumage-owned fields (`plumagePid`, `plumageHeartbeatAt`, `agentLastOutputAt`, `lastUserVisibleAction`).
 
-1. Spec status is already `in-progress`. Read the run-state file.
-2. The spec's task checkboxes are authoritative for the resume position — find the next `- [ ]` task in `## Tasks` and start there. If `lastCompletedTask` in the run-state disagrees with what the spec shows, write the corrected value back so future reads are consistent. The spec is the source of truth; the run-state is a hint we keep up to date.
-3. `git checkout issue/<slug>`. Do not re-create the branch.
-4. If no run-state file exists but the spec says `in-progress` (e.g., the user did things manually): treat the next unchecked task as the resume point and write a fresh run-state.
-5. Skip the brief plan — it ran on the original fresh start.
+### Review-fix rounds (Request Changes)
 
-## Parallel runs
+Plumage's "Request Changes" review action appends one `- [ ] Review fix: <file>:<line> — <comment>` task per finding, flips the spec back to `in-progress`, and relaunches this skill. `start-run.sh` handles the bookkeeping (counters from the spec's ticks, fresh `headBeforeRun` when the old run-state was archived). Everything else is the normal loop: one gate + one commit per review-fix task (evidence upserts into the existing `evidence.json`), final gate, then **rewrite** PR.md (replace, don't append — the reviewer reads it fresh), back to `waiting-for-review`.
 
-Two implement runs on disjoint issues can proceed concurrently — **one run per git worktree**, never two in one checkout (they would fight over branch, index, and working tree). Overlapping starts in one checkout don't error anymore: the fresh-start queue serializes them — the later run waits FIFO and starts automatically when the checkout frees. True parallelism needs a worktree, and setup is one call:
+## Turn discipline (Stop hook)
 
-```bash
-scripts/setup-worktree.sh <slug>
-```
+A Stop hook blocks the turn from ending while this session owns an unfinished run or queue entry. The only legitimate ways to end the turn mid-run:
 
-It creates `../<project>-<slug>` detached from the default branch, provisions `.claude/` and the `*.plumage` bundle for the repo's layout, and prints the next steps (`cd` there, `claude`, `/plumage-implement <slug>`). Running it for a second, third, fourth slug yields independent parallel runs. The provisioning rules it enforces — binding for any manual setup too:
+- **Task failed twice, cause unclear:** `.claude/skills/plumage-implement/scripts/run-phase.sh <slug> "failed at task <n>"`, then report what failed, where, and what was tried.
+- **Blocked on a decision only the user can make:** `.claude/skills/plumage-implement/scripts/run-phase.sh <slug> "needs-input: <one-line question>"`, then ask the one focused question and stop. On the user's answer, continue the loop (set the phase back by completing the next task as usual).
+- **Run finished:** the Finish section below.
 
-- **Never symlink the bundle.** The bundle resolver glob (`find -maxdepth 1 -type d`) is symlink-blind, and a shared `runs/` would make every fresh start see the other worktree's run as live. The script copies the bundle without `runs/` and `sessions/`, so each worktree owns its run-state.
-- **`.claude/` follows tracked-ness.** Tracked → it arrives with the checkout, nothing to provision. Untracked → it is symlinked to the *primary* worktree's copy so spec status flips and PR.md propagate back to where the app and the merge look for them (a copied `.claude/` silently loses that propagation).
-
-Manual fallback, for tracked `.claude/` + bundle only — untracked layouts use the script:
-
-```bash
-git worktree add --detach ../<project>-<slug> <defaultBranch>
-cd ../<project>-<slug>
-claude        # separate session, then: /plumage-implement <slug>
-```
-
-`--detach` matters: without it the command fails whenever `<defaultBranch>` is checked out in the primary worktree (a branch can only be checked out once per repo). The detached HEAD is fine — fresh start branches explicitly with `git checkout -b issue/<slug> <defaultBranch>`.
-
-Each worktree has its own working tree, index, and checked-out branch; commits land on each run's own `issue/<slug>`, sharing one repository.
-
-**What serializes:** builds and tests never run in parallel. The gate lock is keyed on the repo's common git dir, so it is shared across all worktrees — the later gate prints `waiting for gate lock held by PID <n>` and continues automatically when the lock frees (the skill passes `--wait=1800`, so a queue of N runs plus a cold-worktree full build doesn't hit the 900 s default timeout). Implementation work between gates runs fully in parallel.
-
-**App-instance verification:** any manual launch, AX/computer-use driving, or screenshot session against the app under test is bracketed by the gates' exclusive lock — `scripts/exclusive-lock.sh acquire --wait` … quit the instance … `release`, always with the `LOCK_OWNER_PID=$(ps -o ppid= -p $$)` prefix (each tool shell dies by the next call; evaluated there, the expression yields the long-lived session PID). While the lock is held, parallel gates queue behind it instead of killing the instance or stealing focus mid-verification. The full bracket, launch rules, verification tiers, and AX/computer-use recipes live in `references/verification.md`.
-
-**Caveats:**
-
-- `--close-instances` kills running instances of the app under test by bundle name, globally — including a manually launched verification instance from the other worktree (unless that verification holds the exclusive lock, see above). Inherent to the shared bundle ID; relaunch after the gate.
-- Docs append race: re-read `decisions.md`/`notes.md` immediately before appending — the Edit tool's stale-file check forces a re-read when a parallel run appended in between, so the race is self-healing. If both runs still append between each other's merges, the second squash-merge conflicts; trivial keep-both resolution.
-- A fresh worktree starts with cold DerivedData — its first gate pays a full build.
-- A branch checked out in one worktree cannot be checked out in another; git's own error on resume is the desired protection (another run owns that branch). `setup-worktree.sh` refuses such a slug up front.
-- After merge: `scripts/teardown-worktree.sh <slug>` removes the worktree (refuses on a dirty tree) and deletes `issue/<slug>` only when the spec status is `done` — squash merges leave no git ancestry to prove "merged", the spec status is the source of truth. `--force` overrides both guards.
+Anything else — plans, summaries, promises about work not yet done — is an early stop; keep working instead.
 
 ## Per-task loop
 
@@ -137,69 +88,81 @@ For each unchecked task in the spec, in order:
 2. **Complete in one chained call:**
 
     ```bash
-    scripts/complete-task.sh <slug> && git add <file> <file>... && git commit -m "<imperative single-line message>"
+    .claude/skills/plumage-implement/scripts/complete-task.sh <slug> && git add <file> <file>... && git commit -m "<imperative single-line message>"
     ```
 
-    `complete-task.sh` chains the bookkeeping: branch assert (mismatch means the checkout was switched underneath the run — run-state `phase: "failed at task <n>"`, exit 3, never commit onto a foreign branch) → default gate (`precommit-gate.sh --wait=1800 --close-instances`, semantics unchanged; it forwards `--first-commit` on the run's first commit, `--skip-build` when an earlier step already built via a higher-fidelity tool, `--full` if explicitly wanted) → spec task tick (`spec-task-tick.py --task 1`, fence-aware, bumps `updated:`) → one atomic run-state write (`lastCompletedTask`, next `phase`, `lastProgressAt`). Which task it completes is derived from run-state + commit count, so it is idempotent: a re-run after a hook-blocked commit re-gates the fixed tree, skips the already-done tick, and repeats the same run-state write.
+    `complete-task.sh` chains the bookkeeping: branch assert → evidence attempts-increment → default gate (`--wait=1800 --close-instances`; it forwards `--first-commit` on the run's first commit, `--skip-build` when an earlier step already built via a higher-fidelity tool, `--full` if explicitly wanted) → evidence pass-record upsert → spec task tick → one atomic run-state write. Which task it completes is derived from run-state + commit count, so it is idempotent: a re-run after a hook-blocked commit re-gates the fixed tree, skips the already-done tick, and repeats the same run-state write.
     - `git add` and `git commit` stay **literal** in the chained command — the git-policy hooks match on command text and must keep firing. Stage only the files this task touched; **never** `git add -A` (unrelated dirty state must not ride along).
     - Commit message: imperative single line, present tense, no period, describes the result.
     - Worktree caveat: in a secondary worktree, run `git commit` as its own call after the chain — the review hook scans the primary checkout for chained forms.
     - A task whose changes live entirely in untracked files (e.g. only `.claude/` in a project where it is untracked) still commits: `git commit --allow-empty -m "…"`. The one-commit-per-task rhythm is what makes the re-run detection in `complete-task.sh` work.
-    - Gate expectations are unchanged: fast default gate (~15 s warm) behind every commit — build (zero warnings, compiler-enforced), tests minus `.integration`/`*UITests`, lint, secret scans. A new test added in this task must be green; existing tests must not regress. For a docs-only task build/test are a fast no-op — still run the chain. A `waiting for gate lock held by PID <n>` line is normal (parallel worktree run), not a failure.
+    - Gate expectations: fast default gate (~15 s warm) behind every commit — build (zero warnings), tests minus `.integration`/`*UITests`, lint, secret scans. A new test added in this task must be green; existing tests must not regress. For a docs-only task build/test are a fast no-op — still run the chain. A `waiting for gate lock held by PID <n>` line is normal (parallel worktree run), not a failure.
 3. **On fail** (any non-zero link in the chain):
     - Gate failure: try once more, applying whatever fix the build/test output points to. Hook-blocked commit: fix what the hook flagged, then re-run the same chained command — idempotent, no double tick.
-    - Still failing → stop. Run-state: `phase: "failed at task <n>"`. Tell the user what failed, where, and what was tried. Do not commit broken code. Do not proceed to the next task.
+    - Still failing → stop via the Turn-discipline path: `run-phase.sh <slug> "failed at task <n>"`, tell the user what failed, where, and what was tried. Do not commit broken code. Do not proceed to the next task.
 
-## Final gate (`--full`)
+## Verification evidence
 
-After the last task, before PR.md. (`complete-task.sh` already set run-state phase → `"pre-commit-gate"` when it completed the final task.)
+Both `complete-task.sh` modes record what the gates actually proved into `.claude/issues/<slug>/evidence.json` (per-task and final-gate records: `attempts`, `passedAt`, `head`, `flags` — written atomically by the scripts, never by hand). Plumage's PR tab and `/plumage-review` read it. Evidence is informative only: a write failure warns but never fails the task, and the merge button never depends on it.
+
+## Final gate (`--final-gate`)
+
+After the last task, before PR.md:
 
 ```bash
-scripts/precommit-gate.sh --full --wait=1800 --close-instances
+.claude/skills/plumage-implement/scripts/complete-task.sh <slug> --final-gate
 ```
 
-The default gate already ran behind every commit; this single `--full` pass adds the `.integration` suites and the swift-format full-tree sweep — the slow, real-I/O checks worth running once at the end (target ≤ 4 min, typically far less on a warm cache). Seven checks total: build, tests, SwiftLint, swift-format, untracked-secret-files, hardcoded-secret-in-diff, and (with `--first-commit`) `.gitignore` sanity. See `references/precommit-gate.md` for the rationale per check and what failures mean.
+This runs the gate with `--full --wait=1800 --close-instances` (no spec tick, no task counters), records the run-level `finalGate` evidence record, and advances the run-state phase to `"writing PR.md"`. The default gate already ran behind every commit; this single full pass adds the `.integration` suites and the swift-format full-tree sweep (target ≤ 4 min, typically far less warm). See `references/precommit-gate.md` for the rationale per check.
 
-`--close-instances` matters: a running instance of the app under test (a leftover `<app>.app`, or an Xcode Run/debug session held under `debugserver`) wedges xcodebuild's test launch into a multi-minute hang. With the flag the gate closes it (and a holding debugserver) before testing; without it, a running instance makes the gate skip the whole test step — on a TTY it prompts to close instead.
+`--close-instances` matters: a running instance of the app under test wedges xcodebuild's test launch. An instance that *hosts the gate itself* (embedded session) is never killed — the test step skips with an explicit reason; run gates from a terminal session when dogfooding the app on itself.
 
-Any failure stops the run; nothing is rolled back, the user decides. For `spike` issues the gate is optional — skip if the spec sets `skipPreCommitGate: true` in frontmatter.
+Any failure stops the run (via `run-phase.sh` + report); nothing is rolled back, the user decides. For `spike` issues the gate is optional — skip if the spec sets `skipPreCommitGate: true` in frontmatter.
+
+## Verify "Done when"
+
+Before writing PR.md, walk the spec's `## Done when` checkboxes one by one. For each criterion: verify it against evidence from this run (a test in the gate, an AX assertion, a preview, a pixel pass — climb the ladder in `references/verification.md`; for several app-visible claims at once use the acceptance subagent described there). Tick a criterion only with evidence in hand. A criterion that cannot be verified stays unchecked and is listed in PR.md's Notes with the reason — an honest gap beats a hollow tick.
 
 ## Write PR.md
 
-Update run-state phase → `"writing PR.md"`. Write `.claude/issues/<id-padded>-<slug>/PR.md` with these sections:
+Write `.claude/issues/<id-padded>-<slug>/PR.md` with these sections:
 
 - **Summary** — what this PR does, two or three sentences. Describe the result, do not restate the spec.
 - **Diff stats** — output of `git diff --stat <defaultBranch>...issue/<slug>`.
 - **Commits** — chronological list, subject + short hash (7 chars).
 - **How to test** — concrete steps a reviewer can run to verify it works. Include the commands, what to look at, and what "passes" means. Reproducible from `git checkout issue/<slug>` alone.
-- **Notes** — anything surprising, anything deferred, anything the reviewer should know.
+- **Notes** — anything surprising, anything deferred, any unverified Done-when criterion with the reason.
 
-In the same step, set `mergeSubject` in the spec frontmatter (add the field if absent, overwrite if present): a one-line imperative English summary of the whole branch, following the commit-message convention. It becomes the squash-commit subject when the issue is merged. No issue id or slug, no merge mechanics ("squash", "merge branch"), no trailing period — e.g. `mergeSubject: Add squash mode to issue merge`.
+In the same step, set `mergeSubject` in the spec frontmatter (add the field if absent, overwrite if present): a one-line imperative English summary of the whole branch, following the commit-message convention. No issue id or slug, no merge mechanics, no trailing period — e.g. `mergeSubject: Add squash mode to issue merge`.
 
 ## Record what was learned
 
 Before finishing, check:
 
-- Non-obvious technical decision in this run (library swap, architecture call, deliberately-not-doing-X)? → one dated line in `.claude/docs/decisions.md` under **Did**, linking to the issue slug or a commit hash.
-- A direction deliberately rejected during the run? → one dated line in `.claude/docs/decisions.md` under **Won't (and why)**.
+- Non-obvious technical decision in this run (library swap, architecture call, deliberately-not-doing-X)? → one dated entry in `.claude/docs/decisions.md` under **Did**, linking to the issue slug or a commit hash. **Keep it to ~3 sentences** — the entry records the decision and its why; implementation detail lives in PR.md and the commits. Old **Did** entries rotate to `decisions-archive.md`; always append to `decisions.md` itself.
+- A direction deliberately rejected during the run? → one dated entry under **Won't (and why)**, same length discipline.
 - Library quirk, perf surprise, refactor candidate? → one line in `.claude/docs/notes.md`.
 
 If both files end up untouched after a non-trivial issue, ask the user once: "Nothing went into decisions or notes — did I really learn nothing?" If they confirm, move on.
 
 ## Finish
 
-1. Set spec frontmatter `status: waiting-for-review`, `updated:` to now.
-2. Delete `<bundle>/runs/<slug>.json`.
-3. Print one line: `Issue <id-padded>-<slug> ready for review.`
+```bash
+.claude/skills/plumage-implement/scripts/finish-run.sh <slug>
+```
+
+One call: flips the spec to `waiting-for-review` (with `updated:` bumped), then enriches the run-state with `finishedAt` + `outcome: completed` and archives it to `<bundle>/runs/history/` — the file leaving the top level of `runs/` is the completion signal Plumage's notifier keys on, and what tells the Stop hook the turn may end. Never plain-delete the run-state. Then print one line: `Issue <id-padded>-<slug> ready for review.`
+
+## Parallel runs
+
+Two implement runs on disjoint issues can proceed concurrently — **one run per git worktree**, never two in one checkout; `start-run.sh` queues overlapping starts in one checkout FIFO (exit 4). Worktree setup is one call: `.claude/skills/plumage-implement/scripts/setup-worktree.sh <slug>`. Builds and tests still serialize via the shared gate lock (a `waiting for gate lock held by PID <n>` line is normal, not a failure). Provisioning rules, the app-instance verification bracket, teardown, and the caveats live in `references/parallel-runs.md` — read it before any manual worktree setup, cross-worktree debugging, or teardown.
 
 ## When to stop and ask
 
-Stop and ask under any of these conditions:
+Stop (via the Turn-discipline phases above) under any of these conditions:
 
-- Spec status is `draft` and type is `feature` (`/plumage-plan` must run first).
-- Spec status is `waiting-for-review` or `done` (this issue is past implementation).
+- `start-run.sh` exits 3, 5, or 6 (taken slug, dirty tree, wrong status).
 - Spec contradicts `PROJECT.md`, a `decisions.md` **Did** entry, or a **Won't** entry.
-- Working tree is dirty on Fresh start.
 - A task fails twice and the cause is not clear from build/test output.
 - The pre-commit gate fails on something outside the scope of any single task.
 - A blocker emerges that requires a decision the spec does not cover.

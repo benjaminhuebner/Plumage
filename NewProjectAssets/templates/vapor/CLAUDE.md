@@ -26,4 +26,5 @@
 %% PITFALLS %%
 - Auto-migration is convenient and dangerous. Hides production data loss. Write explicit migrations, in every environment.
 - Convert `EventLoopFuture` at boundaries; don't introduce new `EventLoopFuture` code in handlers.
+- Blocking calls in a handler (sync file I/O, `sleep`, heavy CPU) stall the event loop for every request on it — use async APIs and offload CPU-heavy work.
 %% /PITFALLS %%

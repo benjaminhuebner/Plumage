@@ -29,6 +29,8 @@ struct ClaudeMdComposerTests {
         #expect(md.contains("Liquid Glass"))  // apple-shared PITFALLS
         #expect(md.contains("Swift Testing"))  // swift-shared BUILD AND TEST
         #expect(md.contains("xcrun mcpbridge"))  // nested <<<XCODE_MCP_LINE>>> resolved
+        #expect(md.contains("DerivedData/SWBBuildService"))  // apple-shared BUILD_AND_TEST (serial rule)
+        #expect(md.contains("squash-merged"))  // base skeleton merge etiquette
         #expect(!md.contains("<<<"))  // no unresolved tokens
     }
 
@@ -54,6 +56,8 @@ struct ClaudeMdComposerTests {
         #expect(!md.contains("## Conventions"))  // empty section heading dropped
         #expect(!md.contains("## Common pitfalls"))
         #expect(md.contains("## Coding defaults"))  // static section survives
+        #expect(md.contains("squash-merged"))  // base etiquette present without any layer
+        #expect(md.contains("Comments default to none"))  // base comments policy
     }
 
     @Test("Every kind renders without leftover tokens or section markers")

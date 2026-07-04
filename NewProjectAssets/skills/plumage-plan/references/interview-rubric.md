@@ -53,7 +53,7 @@ Error paths, empty states, concurrent access, large inputs, permission failures.
 
 ### 7. Tasks — ordered list of commits
 
-Each task should be one commit, verifiable on its own. Five to fifteen is a reasonable range.
+Each task should be one commit, verifiable on its own. Five to fifteen is a reasonable range. Order tasks as **vertical slices** — a thin end-to-end path first (data → logic → UI → observable result), then widen — rather than horizontal layers (all models, then all UI): slices surface integration risk in task 2, layers hide it until the end. The final task is always an end-to-end verification of the Done-when criteria in the running app — implementation drift is caught there, not at review.
 
 **Pushback:**
 
@@ -65,14 +65,14 @@ Each task should be one commit, verifiable on its own. Five to fifteen is a reas
 
 ### 8. Done when — checkboxes that decide whether the spec is finished
 
-Specific and checkable.
+Specific and checkable. Name *how* each criterion is verified — test, AX assertion, preview, pixel check, or manual step — matching the verification ladder `/plumage-implement` climbs (its `references/verification.md`). The implement run ticks each criterion only with that evidence in hand.
 
-- Good: "VoiceOver pass on the new sheet"
-- Good: "Existing tests still green; three new tests covering empty/single/many cases"
+- Good: "VoiceOver pass on the new sheet — manual"
+- Good: "Existing tests still green; three new tests covering empty/single/many cases — test"
 - Bad: "Accessibility checked" — by whom, against what?
 - Bad: "Feels good" — subjective; rewrite.
 
-**Why:** "Done when" is what flips the spec to `waiting-for-review`. If it depends on subjective judgment, the issue never finishes.
+**Why:** "Done when" is what flips the spec to `waiting-for-review`. If it depends on subjective judgment, the issue never finishes; if it doesn't name its verification method, the implement run can only claim, not prove.
 
 ## Interview hygiene
 

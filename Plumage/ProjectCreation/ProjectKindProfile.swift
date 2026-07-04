@@ -69,6 +69,7 @@ nonisolated extension ProjectKindProfile {
         "block-during-plumage-plan",
         "force-plumage-skill",
         "stop-after-spec-approved",
+        "keep-implement-run-alive",
     ]
     static let swiftHooks = workflowHooks + ["format-swift", "lint-swift"]
 }

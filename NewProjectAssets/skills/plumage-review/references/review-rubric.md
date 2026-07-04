@@ -13,6 +13,7 @@ Cross-check the diff against the spec's "Technical approach", "Tasks", and "Done
 - Did every task in the spec produce a commit?
 - Did the diff touch files outside the spec's "Technical approach"? Scope creep is reviewable even if the extra changes are good — surface it.
 - Are the "Done when" criteria actually exercised by the tests in the diff, or only claimed in PR.md?
+- Does a ticked "Done when" criterion have backing — a gate record in `evidence.json`, a test in the diff, or a named verification in PR.md? A tick without backing is a finding; an honest unticked criterion explained in PR.md's Notes is not.
 
 **Pushback:** "Looks like the spec" is not enough. The reviewer's job is to verify, not to nod. If a spec task is "Add validation for empty input" and the diff has no test that asserts the empty-input case, that is a finding — even if validation code exists.
 
@@ -50,7 +51,9 @@ The pre-commit gate already ran at the end of `/plumage-implement` — its resul
 
 - Warnings silenced with `// swiftlint:disable <rule>` — does each have a one-line justification? Is the justification convincing?
 - New uses of `@unchecked Sendable` or `@preconcurrency` — does each have a comment and a `notes.md` entry, per the convention?
-- New `TODO`/`FIXME` comments without an owner or issue reference.
+- New `TODO`/`FIXME` comments at all — owner-less TODOs are banned outright, and issue references in comments are banned too (provenance lives in commits and docs); deferred work belongs in a spec task or a `notes.md` line, not in the code.
+- Doc comments (`///`, `/** */`) on new code without explicit user request — these violate the project default; the `no-doc-comments` hook may have missed them (it is fail-open in rare cases).
+- `evidence.json` anomalies: a task with many `attempts` (repeated gate failures — what kept failing?), a `finalGate.head` that is not the branch tip (commits after the last full gate), or `--skip-build` on a task whose claims needed a build.
 
 **Pushback:** A justification of "needed for this to compile" is not a justification — push for the actual reason. "Needed because `ProcessRunning` is a Sendable struct with a closure property" is one.
 

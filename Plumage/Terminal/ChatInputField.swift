@@ -237,7 +237,7 @@ private final class SubmittingTextView: NSTextView {
 }
 
 private struct StatefulPreview<Content: View>: View {
-    @State var text: String
+    @State private var text: String
     let content: (Binding<String>) -> Content
 
     init(initialText: String, @ViewBuilder content: @escaping (Binding<String>) -> Content) {

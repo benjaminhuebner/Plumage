@@ -18,4 +18,5 @@
 
 %% PITFALLS %%
 - Most platform-divergent bugs surface on macOS first (multi-window, keyboard navigation, menubar, AppKit interop). Test there too — passing on iOS doesn't mean passing on macOS.
+- Keyboard shortcuts for the macOS destination: `.keyboardShortcut(...)` on commands (`Commands` builder in the App scene), not on views.
 %% /PITFALLS %%

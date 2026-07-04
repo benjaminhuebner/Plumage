@@ -21,15 +21,15 @@
 #             owned by someone else is a no-op with a message.
 #   status    Print the owner PID or "free".
 #
-# Owner resolution: LOCK_OWNER_PID if set, else the parent of this script's
-# process. From an agent session each tool shell is ephemeral (dead by the
-# next call), so the agent invocation MUST pass the session PID explicitly:
+# Owner resolution: LOCK_OWNER_PID if set; with --session-owner the parent of
+# this script's parent (script ← tool shell ← claude session) — the flag agent
+# sessions should always pass:
 #
-#   LOCK_OWNER_PID=$(ps -o ppid= -p $$) scripts/exclusive-lock.sh acquire --wait
+#   scripts/exclusive-lock.sh acquire --wait --session-owner
 #
-# evaluated in the tool shell, where $$'s parent is the long-lived claude
-# process. Run interactively from a terminal, the bare default is right (the
-# parent is the interactive shell, which lives until the tab closes).
+# Without either, the parent of this script's process: right interactively
+# (the interactive shell lives until the tab closes), ephemeral inside a tool
+# shell — hence the flag.
 #
 # Exit codes:
 #   0  success (acquired / released / no-op release / status printed)
@@ -45,8 +45,10 @@ shift 2>/dev/null || true
 
 wait_for_lock=0
 wait_secs=900
+session_owner=0
 for arg in "$@"; do
     case "$arg" in
+        --session-owner) session_owner=1 ;;
         --wait) wait_for_lock=1 ;;
         --wait=*)
             wait_for_lock=1
@@ -68,8 +70,12 @@ if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     exit 2
 fi
 
-# See header: agent sessions must pass LOCK_OWNER_PID (the bare default is
-# this script's parent — right interactively, ephemeral inside a tool shell).
+# See header: agent sessions pass --session-owner (grandparent = the claude
+# process); the bare default is this script's parent — right interactively,
+# ephemeral inside a tool shell.
+if [ "$session_owner" -eq 1 ] && [ -z "${LOCK_OWNER_PID:-}" ]; then
+    LOCK_OWNER_PID="$(ps -o ppid= -p $PPID 2>/dev/null | tr -d ' ')"
+fi
 LOCK_OWNER_PID="${LOCK_OWNER_PID:-$(ps -o ppid= -p $$ | tr -d ' ')}"
 export LOCK_OWNER_PID
 . "${BASH_SOURCE%/*}/lock-lib.sh"

@@ -3,6 +3,7 @@
 - Bridge with `NSViewRepresentable` / `NSHostingView`. When the project mixes both, follow its existing pattern — don't migrate AppKit to SwiftUI unrequested.
 - Each window has its own scene-scoped state. Use `@FocusedValue`, `SceneStorage`, scene-scoped `@Observable` models, or per-document state.
 - Document types: declare in Info.plist via `CFBundleDocumentTypes`.
+- macOS idioms, not iOS imports: settings live in the Settings scene (⌘,) and the menu bar — not in sidebar footers or in-content gear buttons.
 %% /CONVENTIONS %%
 
 %% BUILD_AND_TEST %%

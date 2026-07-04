@@ -60,8 +60,9 @@ check_rm() {
   # `rm -rf /Users/foo` (expanded by Claude) would slip through.
   for t in $targets; do
     case "$t" in
-      # Wipe of home, project, or root — literal and expanded
-      '/'|'~'|'.'|'./'|'$HOME'|"$HOME")
+      # Wipe of home, project, parent, or root — literal and expanded.
+      # Globbing is off while tokenizing, so '/*' arrives literally.
+      '/'|'/*'|'~'|'.'|'./'|'..'|'../'|'$HOME'|"$HOME")
         block "rm -rf of a top-level path: $t" ;;
       # Anything inside home — literal and expanded
       '~/'*|'$HOME/'*|"$HOME"/*)
@@ -116,7 +117,7 @@ check_find() {
   [ "$delete" -eq 1 ] || return 0
   for t in $roots; do
     case "$t" in
-      '/'|'~'|'$HOME'|"$HOME"|'~/'*|'$HOME/'*|"$HOME"/*)
+      '/'|'~'|'..'|'../'|'$HOME'|"$HOME"|'~/'*|'$HOME/'*|"$HOME"/*)
         block "find -delete from a top-level path: $t" ;;
     esac
   done

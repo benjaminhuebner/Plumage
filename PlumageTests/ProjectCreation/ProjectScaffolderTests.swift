@@ -351,7 +351,7 @@ struct ProjectScaffolderTests {
                 atPath: dir.appending(path: ".claude/skills/plumage-plan/scripts/roadmap.py").path))
         #expect(!fm.fileExists(atPath: dir.appending(path: ".plumage/scripts").path))
         let docs = try fm.contentsOfDirectory(atPath: dir.appending(path: ".claude/docs").path)
-        #expect(Set(docs) == ["PROJECT.md", "notes.md", "decisions.md"])
+        #expect(Set(docs) == ["PROJECT.md", "notes.md", "decisions.md", "decisions-archive.md"])
     }
 
     @Test("A user-authored skill is scaffolded from the override store, tree intact")

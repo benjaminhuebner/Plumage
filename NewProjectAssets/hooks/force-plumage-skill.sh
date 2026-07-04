@@ -8,9 +8,9 @@
 #    /plumage-* (implement/review) removes it. block-during-plumage-plan.sh
 #    reads this marker to know a plan turn is live and turns the skill's
 #    "spec.md only" rule into a real PreToolUse riegel.
-#    Marker path + session-scoping mirror record-turn-base.py. Interview replies
-#    (no slash command) leave the marker untouched — the script returns before
-#    the marker logic when the prompt isn't a recognised /plumage-* command.
+#    Marker: <tmpdir>/plumage-plan-active/<sanitized session_id>. Interview
+#    replies (no slash command) leave the marker untouched — the script returns
+#    before the marker logic when the prompt isn't a recognised /plumage-* command.
 #
 # 2. Inject a system reminder so the agent follows the project skill instead of
 #    Claude Code's built-in Plan-Mode flow (Phase 1 Explore … Phase 5

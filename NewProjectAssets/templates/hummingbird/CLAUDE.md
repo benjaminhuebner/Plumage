@@ -23,4 +23,5 @@
 %% PITFALLS %%
 - Forgetting to call `next(request, context)` in middleware drops the request silently.
 - Detached `Task { }` for long-running work bypasses service-lifecycle's graceful shutdown.
+- Blocking calls in handlers (sync I/O, `sleep`, heavy CPU) stall the cooperative thread pool — use async APIs and offload CPU-heavy work.
 %% /PITFALLS %%

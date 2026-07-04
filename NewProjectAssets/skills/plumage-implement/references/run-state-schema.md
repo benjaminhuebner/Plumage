@@ -55,7 +55,7 @@ bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
 | `lastUserVisibleAction` | Plumage | On UI events | Free text; safe to ignore from inside the skill |
 | `plumagePid` | Plumage | At session start | The GUI's PID |
 | `plumageHeartbeatAt` | Plumage | Every 10s | The GUI heartbeat — **the skill must not write this** |
-| `agentPid` | skill | At fresh start | The `claude` session PID via `ps -o ppid= -p $$` (parent of the tool shell). Never `$$` itself — each Bash tool call runs in a fresh shell that is dead by the next call, so `$$` would always read as a crashed run |
+| `agentPid` | skill (`start-run.sh`) | At fresh start AND on every resume | The long-lived `claude` session PID, resolved inside `start-run.sh` (parent of the tool shell). Re-bound on resume so a run continued in a new session is not swept as crashed |
 | `agentLastOutputAt` | Plumage's PTY reader | Debounced to 1s | The skill **does not** write this — Plumage's PTY-read-handler updates it from observing terminal output |
 | `phase` | skill | On every transition | Values: `starting`, `running task N`, `pre-commit-gate`, `writing PR.md`, `failed at task N` |
 | `lastProgressAt` | skill | On phase change, task tick | Drives the Liveness verdict |
@@ -64,7 +64,7 @@ bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)
 | `lastCompletedTask` | skill | After each task passes | Integer; 0 means none done yet |
 | `totalTasks` | skill (write once) | At fresh start | Count of unchecked tasks in the spec |
 
-During the per-task loop, the skill-side writes to `lastCompletedTask`, `phase`, and `lastProgressAt` are performed by `scripts/complete-task.sh` (one atomic read-modify-write per completed task, setting the *next* phase — `"running task <n+1>"`, or `"pre-commit-gate"` after the last task). The agent writes these fields directly only outside the loop: at fresh start, on resume corrections, and when marking `"failed at task <n>"` after a task is given up.
+The scripts own all writes. `scripts/start-run.sh` writes the initial document (fresh) or re-binds `agentPid`/counters (resume, spec ticks authoritative). During the per-task loop, `scripts/complete-task.sh` maintains `lastCompletedTask`, `phase`, and `lastProgressAt` (one atomic read-modify-write per completed task, setting the *next* phase; `--final-gate` advances `"pre-commit-gate"` → `"writing PR.md"`). Exceptional phases — `"failed at task <n>"`, `"needs-input: <question>"` — are written via `scripts/run-phase.sh`. The agent never edits the file by hand.
 
 ## Atomic writes
 
@@ -94,14 +94,31 @@ At the start of a fresh run, the skill writes:
 
 Plumage adds the `plumage*` and `lastUserVisibleAction` fields on its own schedule. The agent and Plumage write disjoint field sets, so they don't race for the same keys — but the *file* still gets concurrent writers, hence atomic-rename.
 
+## History records
+
+A finished run is never plain-deleted: it moves to `<bundle>/runs/history/<slug>/<stamp>.json` (stamp = colon-free UTC time like `20260703T001720Z`; the app reads the JSON fields, the name only sorts and dedupes). History records are the run-state plus two fields:
+
+| Field | Who writes | Values |
+|---|---|---|
+| `finishedAt` | archiver (write once) | ISO 8601 UTC |
+| `outcome` | archiver (write once) | `completed`, `failed at task <N>`, `crashed` |
+
+Who archives:
+
+- **Skill** (`scripts/finish-run.sh <slug>`, Finish step): `outcome: completed`.
+- **Plumage** (crashed-run sweep): a run-state whose `agentPid` is dead past a grace period and whose slug has no queue entry is moved with `outcome: crashed` — or `failed at task <N>` when the phase already says so.
+
+Live scanners (Plumage and the fresh-start liveness checks) read only the top level of `runs/`; `runs/history/` and `runs/queue/` are invisible to them. The file leaving the top level is the completion signal Plumage's run notifier keys on. History grows unbounded on disk by design (file system is truth); the app caps what it *shows*, not what exists.
+
 ## Phase values
 
 The `phase` field is a free-form string with these standard values:
 
-- `"starting"` — initial state, before Task 1 runs
+- `"starting"` — initial state, before Task 1 runs (also set on resume)
 - `"running task <N>"` — actively implementing Task N
 - `"pre-commit-gate"` — last task done, running the gate
 - `"writing PR.md"` — gate passed, writing the PR
 - `"failed at task <N>"` — Task N failed twice, stopped
+- `"needs-input: <question>"` — run blocked on a user decision; the Stop hook lets the turn end only on a finished, failed, or needs-input run
 
-Plumage parses these to drive the status display. New phase strings are allowed if needed — Plumage shows them verbatim. The four standard names should not change without a Plumage release that handles the renames.
+Plumage parses these to drive the status display. New phase strings are allowed if needed — Plumage shows them verbatim. The standard names should not change without a Plumage release that handles the renames.

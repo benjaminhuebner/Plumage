@@ -1,6 +1,6 @@
 %% CONVENTIONS %%
 - UI is **SwiftUI** unless the codebase says otherwise.
-- Views run on the main actor. Off-main work goes in actors or `Task.detached`.
+- Views run on the main actor. Off-main work goes in actors or `nonisolated` async functions — `Task.detached` only when deliberately shedding priority and task-locals.
 %% /CONVENTIONS %%
 
 %% BUILD_AND_TEST %%

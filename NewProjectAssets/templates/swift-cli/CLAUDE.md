@@ -10,6 +10,7 @@
 - Machine-readable output (`--json`): valid JSON to stdout, no log lines or progress decoration mixed in.
 - Exit codes: `0` success, `1` generic error, `2` argument misuse. Document them in `--help`.
 - Signal handling (`SIGINT`, `SIGTERM`): use swift-system or argument-parser helpers, not raw signal handlers.
+- Color and progress decoration only when stdout is a TTY (`isatty`), and respect `NO_COLOR`. Piped output stays plain.
 %% /CONVENTIONS %%
 
 %% BUILD_AND_TEST %%

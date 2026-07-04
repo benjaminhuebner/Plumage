@@ -8,10 +8,13 @@
 #
 # Usage:
 #   scripts/complete-task.sh <slug> [--first-commit] [--skip-build] [--full]
+#   scripts/complete-task.sh <slug> --final-gate
 #
 # <slug> is the issue folder name under the issues dir (e.g.
 # 00042-add-user-auth). Flags are forwarded to precommit-gate.sh, which always
-# runs with --wait=1800 --close-instances.
+# runs with --wait=1800 --close-instances. --final-gate runs the end-of-run
+# full gate instead of completing a task: it implies --full, skips the spec
+# tick and task counters, and advances the run-state phase to "writing PR.md".
 #
 # Which task this call completes is derived, not passed: lastCompletedTask
 # from the run-state plus the commit count since headBeforeRun. A re-run after
@@ -19,8 +22,17 @@
 # the gate re-runs on the fixed tree, the already-ticked spec is left alone,
 # and the run-state write repeats the same values. Idempotent by construction.
 #
+# Both modes record verification evidence in <issues>/<slug>/evidence.json
+# (next to PR.md, so it rides the same worktree→primary sync path): an
+# attempts counter incremented before every gate run, and on a gate pass an
+# upsert of the per-task record ({task, attempts, passedAt, head, flags}) or
+# the run-level finalGate record. Atomic tmp+mv; upsert by task number keeps
+# idempotent re-runs from duplicating records. Evidence is informative only —
+# a failed evidence write warns and never fails the task.
+#
 # Exit codes:
-#   0  task completed (gate passed, spec ticked, run-state updated)
+#   0  task completed (gate passed, spec ticked, run-state updated) — or, with
+#      --final-gate: gate passed and evidence recorded
 #   2  usage or environment error (bad flag, missing bundle/spec/run-state)
 #   3  branch mismatch (run-state phase set to "failed at task <n>")
 #   *  other non-zero: propagated from precommit-gate.sh (1 = check failure,
@@ -31,10 +43,16 @@ set -uo pipefail
 # ---- Argument parsing -------------------------------------------------------
 
 slug=""
+final_gate=0
 gate_flags=()
+flags_json='[]'
 for arg in "$@"; do
     case "$arg" in
-        --first-commit|--skip-build|--full) gate_flags+=("$arg") ;;
+        --final-gate) final_gate=1 ;;
+        --first-commit|--skip-build|--full)
+            gate_flags+=("$arg")
+            flags_json=$(printf '%s' "$flags_json" | jq -c --arg f "$arg" '. + [$f]')
+            ;;
         -h|--help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -84,6 +102,7 @@ if [ ! -f "$spec" ]; then
     echo "error: spec not found at $spec" >&2
     exit 2
 fi
+evidence="$issues_dir/$slug/evidence.json"
 
 run_state="$bundle/runs/$slug.json"
 if [ ! -f "$run_state" ]; then
@@ -129,7 +148,7 @@ ticked=${counts% *}
 unchecked=${counts#* }
 total=$((ticked + unchecked))
 
-if [ "$n" -gt "$total" ]; then
+if [ "$final_gate" -eq 0 ] && [ "$n" -gt "$total" ]; then
     echo "error: nothing left to complete — all $total tasks are done and committed" >&2
     exit 2
 fi
@@ -148,6 +167,26 @@ write_run_state() {
     fi
 }
 
+# The base filter re-asserts identity fields, so a missing or malformed
+# evidence file self-heals into a valid document on the next write.
+evidence_base='.version = 1 | .issue = $issue | .branch = $branch
+    | .totalTasks = ($total | tonumber) | .tasks = (.tasks // [])'
+write_evidence() {
+    local filter="$1"; shift
+    local tmp="$evidence.tmp" src='{}'
+    if [ -f "$evidence" ] && jq -e . "$evidence" >/dev/null 2>&1; then
+        src=$(cat "$evidence")
+    fi
+    if printf '%s' "$src" | jq --arg now "$(now)" --arg issue "$slug" \
+        --arg branch "$expected_branch" --arg total "$total" "$@" \
+        "$evidence_base | $filter" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$evidence"
+    else
+        rm -f "$tmp"
+        echo "warning: evidence update failed ($evidence) — continuing" >&2
+    fi
+}
+
 # ---- Branch assert ----------------------------------------------------------
 
 expected_branch=$(jq -r '.branch // empty' "$run_state")
@@ -157,7 +196,8 @@ if [ -z "$expected_branch" ]; then
 fi
 current_branch=$(git branch --show-current 2>/dev/null || true)
 if [ "$current_branch" != "$expected_branch" ]; then
-    write_run_state ".phase = \"failed at task $n\" | .lastProgressAt = \$now" || true
+    if [ "$final_gate" -eq 1 ]; then fail_phase="failed at final gate"; else fail_phase="failed at task $n"; fi
+    write_run_state ".phase = \"$fail_phase\" | .lastProgressAt = \$now" || true
     echo "error: on branch '${current_branch:-<detached>}', expected '$expected_branch' —" >&2
     echo "       the checkout was switched underneath the run; not committing onto a foreign branch" >&2
     exit 3
@@ -165,12 +205,40 @@ fi
 
 # ---- Pre-commit gate ----------------------------------------------------------
 
-echo "completing task $n/$total of $slug (ticked: $ticked, commits since start: $commits)"
+if [ "$final_gate" -eq 1 ]; then
+    case " ${gate_flags[*]+${gate_flags[*]}} " in
+        *" --full "*) ;;
+        *)
+            gate_flags+=(--full)
+            flags_json=$(printf '%s' "$flags_json" | jq -c '. + ["--full"]')
+            ;;
+    esac
+    write_evidence '.finalGate = ((.finalGate // {}) | .attempts = ((.attempts // 0) + 1))'
+    echo "running final gate for $slug (full pass)"
+else
+    write_evidence '
+        .tasks = (if [.tasks[] | select(.task == $n)] | length > 0
+            then [.tasks[] | if .task == $n then .attempts = ((.attempts // 0) + 1) else . end]
+            else .tasks + [{task: $n, attempts: 1}] end)
+        | .tasks |= sort_by(.task)' --argjson n "$n"
+    echo "completing task $n/$total of $slug (ticked: $ticked, commits since start: $commits)"
+fi
 "$script_dir/precommit-gate.sh" --wait=1800 --close-instances ${gate_flags[@]+"${gate_flags[@]}"}
 gate_rc=$?
 if [ "$gate_rc" -ne 0 ]; then
     exit "$gate_rc"
 fi
+
+head_now=$(git rev-parse HEAD 2>/dev/null || echo "")
+if [ "$final_gate" -eq 1 ]; then
+    write_evidence '.finalGate = ((.finalGate // {}) + {passedAt: $now, head: $head, flags: $flags})' \
+        --arg head "$head_now" --argjson flags "$flags_json"
+    write_run_state '.phase = "writing PR.md" | .lastProgressAt = $now' || exit 2
+    echo "final gate passed: $slug — next phase: writing PR.md"
+    exit 0
+fi
+write_evidence '.tasks = [.tasks[] | if .task == $n then . + {passedAt: $now, head: $head, flags: $flags} else . end]' \
+    --argjson n "$n" --arg head "$head_now" --argjson flags "$flags_json"
 
 # ---- Tick + run-state ---------------------------------------------------------
 

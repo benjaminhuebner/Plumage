@@ -14,18 +14,39 @@ nonisolated struct SettingsComposer {
         ("force-plumage-skill", "UserPromptSubmit", nil),
         ("block-dangerous-bash", "PreToolUse", "Bash"),
         ("block-git-commit", "PreToolUse", "Bash"),
-        ("block-secret-files", "PreToolUse", "Read|Edit|Write|Glob|Grep"),
-        ("block-secrets-in-content", "PreToolUse", "Edit|Write"),
+        ("block-secret-files", "PreToolUse", "Read|Edit|Write|Glob|Grep|MultiEdit"),
+        ("block-secrets-in-content", "PreToolUse", "Write|Edit|MultiEdit"),
         ("block-during-plumage-plan", "PreToolUse", "Write|Edit|MultiEdit|ExitPlanMode"),
-        ("format-swift", "PostToolUse", "Edit|Write"),
-        ("lint-swift", "PostToolUse", "Edit|Write"),
+        ("format-swift", "PostToolUse", "Edit|Write|MultiEdit"),
+        ("lint-swift", "PostToolUse", "Edit|Write|MultiEdit"),
         ("stop-after-spec-approved", "PostToolUse", "Edit|Write|MultiEdit"),
+        ("keep-implement-run-alive", "Stop", nil),
     ]
 
     private static let commonPermissions = [
         "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
         "Bash(git branch:*)", "Bash(git show:*)", "Bash(git rev-parse:*)",
         "Bash(rg:*)", "Bash(jq:*)",
+    ]
+
+    // The /plumage-* workflow scripts ship with every kind; without these entries
+    // an implement run stalls on a permission prompt mid-loop. git add/commit are
+    // the per-task loop's commit pair — the git-policy hooks stay in front of them.
+    private static let workflowPermissions = [
+        "Bash(.claude/skills/plumage-implement/scripts/precommit-gate.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/complete-task.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/exclusive-lock.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/spec-task-tick.py:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/start-run.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/wait-for-turn.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/finish-run.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/run-phase.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/setup-worktree.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/teardown-worktree.sh:*)",
+        "Bash(.claude/skills/plumage-implement/scripts/gate-determinism-probe.sh:*)",
+        "Bash(.claude/skills/plumage-plan/scripts/next-issue-id.sh:*)",
+        "Bash(.claude/skills/plumage-plan/scripts/roadmap.py:*)",
+        "Bash(git add:*)", "Bash(git commit:*)",
     ]
 
     func settingsJSON(
@@ -155,6 +176,7 @@ nonisolated struct SettingsComposer {
         }
         if gate.format != nil { allow.append("Bash(swift-format:*)") }
         if gate.lint != nil { allow.append("Bash(swiftlint:*)") }
+        allow += Self.workflowPermissions
         return allow
     }
 

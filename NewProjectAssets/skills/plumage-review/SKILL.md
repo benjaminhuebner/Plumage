@@ -1,6 +1,7 @@
 ---
 name: plumage-review
-description: This skill should be used when the user runs `/plumage-review <slug>` or asks to "review the PR", "check this before merge", "go over issue NNNN", or "tell me if this is mergeable". Reads an issue's spec, PR.md, and the cumulative diff against the default branch, cross-checks against PROJECT.md and decisions.md, and appends a structured review section to PR.md ending with one of two recommendations (Accept / Discuss). Do NOT use to merge, reject the issue, or move status — those are user actions via Plumage's UI buttons.
+description: This skill should be used when the user runs `/plumage-review <slug>` or asks to "review the PR", "check this before merge", "go over issue NNNN", or "tell me if this is mergeable". Reads an issue's spec, PR.md, evidence.json, and the cumulative diff against the default branch, cross-checks against PROJECT.md and decisions.md, and appends a structured review section to PR.md ending with one of two recommendations (Accept / Discuss). Do NOT use to merge, reject the issue, or move status — those are user actions via Plumage's UI buttons.
+argument-hint: "[slug]"
 user-invocable: true
 disable-model-invocation: true
 ---
@@ -13,13 +14,7 @@ This skill works without the Plumage app: invoke `/plumage-review <slug>` direct
 
 ## Step 0: Find and activate matching skills and agents
 
-Identify the task surface — what domains and tooling this issue actually touches — from the spec, the user's request, or the issue description. Then scan installed skills and subagents and invoke every one whose description matches that surface, before any real work begins. The `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so the routing is manual.
-
-- Skills via the Skill tool, subagents via the Agent tool.
-- Match on description, not name. Invoke when the description covers the task surface; don't invoke speculatively because a name sounds related.
-- Re-scan when work reveals a domain that wasn't obvious at the start.
-
-If nothing matches or no relevant plugin is installed, continue — the scan happens regardless, the activation is what's conditional.
+Identify the task surface — the domains and tooling this issue touches — from the spec, the request, or the issue description. Then invoke every installed skill (Skill tool) and subagent (Agent tool) whose *description* matches that surface, before real work begins; the `/plumage-*` slash command doesn't trip plugin auto-routers (Axiom and similar), so this routing is manual. Match on description, not name; re-scan when work reveals a new domain. No match → continue.
 
 ## Preconditions
 
@@ -34,15 +29,11 @@ Read `.claude/issues/<id-padded>-<slug>/spec.md` and dispatch on frontmatter `st
 
 Also confirm: the issue branch `issue/<slug>` exists and `PR.md` exists in the issue folder. If either is missing, stop and report — the issue is in an inconsistent state.
 
-**Check for a live implement run in this checkout.** A `/plumage-implement` run on *any* issue reads and writes the working tree the review is about to inspect. Resolve the bundle — `bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)` — and scan `<bundle>/runs/*.json` for an implement run whose `agentPid` is alive. Treat a missing, zero, or non-numeric `agentPid` as dead — `kill -0 0` probes the caller's own process group and always succeeds, so validate before probing. If a live run exists, stop: name the run (issue, PID) and point the user to the worktree workflow (section "Parallel runs" in plumage-implement's SKILL.md) — review in a separate worktree, or wait until the run finishes. Entries with a dead `agentPid` are crash leftovers and don't block. A missing `runs/` directory means no live run — proceed. A live run in *another* worktree writes its own bundle copy there and correctly never blocks this checkout.
+**Check for a live implement run in this checkout.** A `/plumage-implement` run on *any* issue reads and writes the working tree the review is about to inspect. Resolve the bundle — `bundle=$(find . -maxdepth 1 -type d -name '*.plumage' ! -name '.*' | head -1)` — and scan `<bundle>/runs/*.json` for an implement run whose `agentPid` is alive. Treat a missing, zero, or non-numeric `agentPid` as dead — `kill -0 0` probes the caller's own process group and always succeeds, so validate before probing. If a live run exists, stop: name the run (issue, PID) and point the user to the worktree workflow (plumage-implement's `references/parallel-runs.md`) — review in a separate worktree, or wait until the run finishes. Entries with a dead `agentPid` are crash leftovers and don't block. A missing `runs/` directory means no live run — proceed. A live run in *another* worktree writes its own bundle copy there and correctly never blocks this checkout.
 
 ## Read project context
 
-Before forming any finding, read whichever of these files have content:
-
-- `.claude/docs/PROJECT.md` — what the project is and is not. A diff implementing something out-of-scope is reviewable even if the diff itself is clean.
-- `.claude/docs/decisions.md` — both **Did** and **Won't (and why)**. The cross-check matters: a diff that revives a rejected direction is blocking, even if the diff is technically good.
-- `.claude/docs/notes.md` — library quirks, perf notes, known traps. A diff that hits a known trap deserves a note.
+Read `.claude/docs/PROJECT.md` directly (small, always relevant — a diff implementing something out-of-scope is reviewable even if the diff itself is clean). For the rest, **delegate the doc sweep to an Explore subagent** and keep only its digest: give it the issue's topic and the diff's touched areas, and have it report every `decisions.md` **Did** or **Won't** entry that the diff could conflict with (`decisions-archive.md` holds rotated older entries — it binds equally, grep it too) plus relevant `notes.md` quirks and known traps. A diff that revives a rejected direction is blocking, even if technically good.
 
 Optionally run `.claude/skills/plumage-plan/scripts/roadmap.py` to see whether other issues are in flight. Helpful when the diff touches code that may interact with an `in-progress` issue elsewhere — surface that as a Note so the user can think about merge order.
 
@@ -50,10 +41,11 @@ Optionally run `.claude/skills/plumage-plan/scripts/roadmap.py` to see whether o
 
 Read in this order:
 
-1. **`spec.md`** — what the issue was supposed to do. Goal, scope, technical approach, tasks, done-when.
+1. **`spec.md`** — what the issue was supposed to do. Goal, scope, technical approach, tasks, done-when (incl. which criteria the run ticked).
 2. **`PR.md`** — what `/plumage-implement` says it did. Summary, diff stats, commit list, how-to-test, notes.
-3. **The diff:** `git diff <defaultBranch>...issue/<slug>` (three-dot, against merge-base). Read `git.defaultBranch` from the project's `*.plumage` bundle's `config.json` (default `main`). If the diff is large (>2000 lines), run `git diff --stat <defaultBranch>...issue/<slug>` first to map the surface, then read full diffs of the most-changed files plus a sample of the rest. Note in the review which files were read fully and which were sampled.
-4. **The commits:** `git log <defaultBranch>..issue/<slug> --oneline` to see the progression. Then `git show <hash>` on any commit whose message looks suspicious (catch-all message, big diff for small message, etc.).
+3. **`evidence.json`** (same folder) — what the gates actually proved. Per task: `attempts` (high counts = gate friction worth a look), `flags` (`--skip-build` means that task's gate did not rebuild), `passedAt`/`head`. `finalGate.head` should match the branch tip — a mismatch means commits landed after the last full gate. Missing or stale evidence is a Note, never blocking on its own.
+4. **The diff:** `git diff <defaultBranch>...issue/<slug>` (three-dot, against merge-base). Read `git.defaultBranch` from the project's `*.plumage` bundle's `config.json` (default `main`). If the diff is large (>2000 lines), run `git diff --stat <defaultBranch>...issue/<slug>` first to map the surface, then read full diffs of the most-changed files plus a sample of the rest. Note in the review which files were read fully and which were sampled.
+5. **The commits:** `git log <defaultBranch>..issue/<slug> --oneline` to see the progression. Then `git show <hash>` on any commit whose message looks suspicious (catch-all message, big diff for small message, etc.).
 
 ## Conduct the review
 
@@ -69,6 +61,7 @@ Cross-checks that override comfort:
 - Diff adds tests but skips an obvious failure mode named in the spec's edge cases → finding.
 - Diff touches files outside what the spec's "Technical approach" said → finding (scope creep is reviewable, even if the result is good).
 - `PR.md`'s "How to test" steps do not actually exercise the spec's "Done when" criteria → finding.
+- A "Done when" criterion is ticked but neither `evidence.json`, the tests in the diff, nor PR.md show what verified it → finding (an unticked criterion with a Notes entry explaining why is the honest form, not a finding).
 
 ## Write the review section
 

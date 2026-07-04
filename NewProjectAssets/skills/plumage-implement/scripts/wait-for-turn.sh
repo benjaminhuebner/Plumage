@@ -139,11 +139,16 @@ if [ $remove -eq 1 ]; then
 fi
 
 # ---- Same-slug refusal in this checkout --------------------------------------
+# A live run owned by THIS session is ours — idempotent re-entry (resume,
+# re-invocation after a crash-free retry), never a conflict.
 
 run_state="$bundle/runs/$slug.json"
-if [ -f "$run_state" ] && pid_alive "$(jq -r '.agentPid // empty' "$run_state" 2>/dev/null)"; then
-    echo "error: $slug is already being implemented in this checkout (live run, PID $(jq -r '.agentPid' "$run_state"))" >&2
-    exit 3
+if [ -f "$run_state" ]; then
+    rs_pid="$(jq -r '.agentPid // empty' "$run_state" 2>/dev/null)"
+    if [ "$rs_pid" != "$owner_pid" ] && pid_alive "$rs_pid"; then
+        echo "error: $slug is already being implemented in this checkout (live run, PID $rs_pid)" >&2
+        exit 3
+    fi
 fi
 for f in "$queue_dir"/*.json; do
     [ -f "$f" ] || continue
@@ -192,12 +197,15 @@ own_name="${own_entry##*/}"
 deadline=$(( $(date +%s) + timeout_secs ))
 last_report=""
 while :; do
-    # A live implement run in this checkout blocks everyone.
+    # A live implement run in this checkout blocks everyone — except a run
+    # owned by this very session (own re-entry must not deadlock on itself).
     blocker=""
     for f in "$bundle"/runs/*.json; do
         [ -f "$f" ] || continue
         [ "$(jq -r '.kind // empty' "$f" 2>/dev/null)" = "implement" ] || continue
-        if pid_alive "$(jq -r '.agentPid // empty' "$f" 2>/dev/null)"; then
+        f_pid="$(jq -r '.agentPid // empty' "$f" 2>/dev/null)"
+        [ "$f_pid" = "$owner_pid" ] && continue
+        if pid_alive "$f_pid"; then
             blocker="$(jq -r '.issue // empty' "$f")"
             break
         fi

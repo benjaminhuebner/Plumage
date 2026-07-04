@@ -23,13 +23,13 @@ Defaults per claim type:
 Any manual launch, AX driving, or screenshot session against the app under test is bracketed by the gate's exclusive lock so parallel gates queue instead of killing the instance:
 
 ```bash
-LOCK_OWNER_PID=$(ps -o ppid= -p $$) scripts/exclusive-lock.sh acquire --wait
+.claude/skills/plumage-implement/scripts/exclusive-lock.sh acquire --wait --session-owner
 # … launch, drive, verify …
 # quit the app instance, THEN:
-LOCK_OWNER_PID=$(ps -o ppid= -p $$) scripts/exclusive-lock.sh release
+.claude/skills/plumage-implement/scripts/exclusive-lock.sh release --session-owner
 ```
 
-Quit the instance *before* releasing so the desktop is clean when the next gate fires; release *before* running your own gate (the gate's PID differs from the session PID and would queue behind your own lock). The `LOCK_OWNER_PID` prefix is required in agent sessions: each tool shell dies by the next call; evaluated in the tool shell, the expression yields the long-lived session PID.
+Quit the instance *before* releasing so the desktop is clean when the next gate fires; release *before* running your own gate (the gate's PID differs from the session PID and would queue behind your own lock). `--session-owner` is required in agent sessions: it registers the long-lived `claude` process as the lock owner instead of the ephemeral tool shell.
 
 Launching the build under test:
 

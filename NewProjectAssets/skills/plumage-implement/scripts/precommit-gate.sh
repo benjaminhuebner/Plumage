@@ -214,7 +214,10 @@ fi
 # session holding the app under `debugserver`. Decide before the test step.
 
 if [ $skip_tests -eq 0 ] && [ -n "$app_name" ]; then
-    running_pids=$(pgrep -f "${app_name}.app/Contents/MacOS/${app_name}" 2>/dev/null || true)
+    # -a matters: BSD pgrep silently excludes this process's own ancestors, so
+    # without it an instance hosting this gate (embedded terminal session) is
+    # invisible here and the test step wedges against it.
+    running_pids=$(pgrep -a -f "${app_name}.app/Contents/MacOS/${app_name}" 2>/dev/null || true)
     if [ -n "$running_pids" ]; then
         pid_list=$(printf '%s' "$running_pids" | tr '\n' ' ')
         decision=""
@@ -233,18 +236,45 @@ if [ $skip_tests -eq 0 ] && [ -n "$app_name" ]; then
         fi
 
         if [ "$decision" = "close" ]; then
+            # Never kill the instance hosting this very gate (embedded terminal
+            # session, app under test == host app): walk our own ancestry and
+            # spare any running pid found in it — killing it kills this run.
+            gate_ancestors=" "
+            walker=$$
+            while [ -n "$walker" ] && [ "$walker" -gt 1 ] 2>/dev/null; do
+                gate_ancestors="$gate_ancestors$walker "
+                walker=$(ps -o ppid= -p "$walker" 2>/dev/null | tr -d ' ')
+            done
+            host_pids=" "
             for pid in $running_pids; do
+                case "$gate_ancestors" in
+                    *" $pid "*) host_pids="$host_pids$pid " ;;
+                esac
+            done
+            killed_any=0
+            for pid in $running_pids; do
+                case "$host_pids" in *" $pid "*) continue ;; esac
                 ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
                 if [ -n "$ppid" ]; then
                     pcmd=$(ps -o comm= -p "$ppid" 2>/dev/null || true)
                     case "$pcmd" in *debugserver*) kill "$ppid" 2>/dev/null || true ;; esac
                 fi
                 kill "$pid" 2>/dev/null || true
+                killed_any=1
             done
-            sleep 2
-            for pid in $running_pids; do kill -9 "$pid" 2>/dev/null || true; done
-            sleep 1
-            if pgrep -f "${app_name}.app/Contents/MacOS/${app_name}" >/dev/null 2>&1; then
+            if [ $killed_any -eq 1 ]; then
+                sleep 2
+                for pid in $running_pids; do
+                    case "$host_pids" in *" $pid "*) continue ;; esac
+                    kill -9 "$pid" 2>/dev/null || true
+                done
+                sleep 1
+            fi
+            if [ "$host_pids" != " " ]; then
+                host_list=$(echo $host_pids)
+                skip_tests=1
+                skip_tests_reason="$app_name (pid $host_list) hosts this gate — embedded run cannot test itself; run the gate from a terminal session"
+            elif pgrep -a -f "${app_name}.app/Contents/MacOS/${app_name}" >/dev/null 2>&1; then
                 skip_tests=1
                 skip_tests_reason="$app_name still running after close (orphaned/stuck — reboot may be needed)"
             fi
@@ -261,10 +291,12 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"; release_lock' EXIT
 
 # record <step-n> <pass|fail|skip> <seconds> [reason]   (detail excerpt: $work/<n>.detail)
+# `if`, not `[ … ] &&`: a trailing && with no reason returns 1, and a track whose
+# last record is reason-less would then read as crashed ("exited abnormally").
 record() {
     printf '%s' "$2" > "$work/$1.status"
     printf '%s' "$3" > "$work/$1.secs"
-    [ $# -ge 4 ] && printf '%s' "$4" > "$work/$1.reason"
+    if [ $# -ge 4 ]; then printf '%s' "$4" > "$work/$1.reason"; fi
 }
 
 now() { date +%s; }

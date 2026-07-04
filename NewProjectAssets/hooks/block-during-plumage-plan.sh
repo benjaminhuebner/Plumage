@@ -13,8 +13,8 @@
 # is the only real guard.
 #
 # "Active" = a session-scoped marker written by force-plumage-skill.sh on
-# /plumage-plan, cleared on /plumage-implement|review or once the spec reaches
-# `status: approved`. Marker path + session-scoping mirror record-turn-base.py. A
+# /plumage-plan (<tmpdir>/plumage-plan-active/<sanitized session_id>), cleared
+# on /plumage-implement|review or once the spec reaches `status: approved`. A
 # marker older than TTL_SECONDS is treated as orphaned (abandoned plan turn) —
 # ignored and removed, so a stale marker can't wedge an unrelated later task in
 # the same session.

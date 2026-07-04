@@ -75,7 +75,7 @@ struct SettingsComposerTests {
         #expect(perms.contains("Bash(git status:*)"))
     }
 
-    @Test("block-secret-files matcher covers Glob and Grep")
+    @Test("block-secret-files matcher covers Glob, Grep, and MultiEdit")
     func secretFilesMatcherCoversGlobGrep() throws {
         let obj = try settings(.macOS)
         let preGroups = try #require(groups(obj, event: "PreToolUse"))
@@ -84,7 +84,44 @@ struct SettingsComposerTests {
                 ($0["command"] as? String)?.contains("block-secret-files.sh") == true
             } == true
         }
-        #expect((secretFiles?["matcher"] as? String) == "Read|Edit|Write|Glob|Grep")
+        #expect((secretFiles?["matcher"] as? String) == "Read|Edit|Write|Glob|Grep|MultiEdit")
+    }
+
+    @Test("keep-implement-run-alive is wired under Stop for every kind, without a matcher")
+    func stopHookWiredForEveryKind() throws {
+        for kind in ProjectKind.allCases {
+            let obj = try settings(kind)
+            let stopGroups = try #require(groups(obj, event: "Stop"), "no Stop groups for \(kind)")
+            let alive = stopGroups.first { group in
+                (group["hooks"] as? [[String: Any]])?.contains {
+                    ($0["command"] as? String)?.contains("keep-implement-run-alive.sh") == true
+                } == true
+            }
+            #expect(alive != nil, "keep-implement-run-alive missing for \(kind)")
+            #expect(alive?["matcher"] == nil)
+        }
+    }
+
+    @Test("Workflow script and git add/commit permissions land for every kind")
+    func workflowPermissionsForEveryKind() throws {
+        for kind in ProjectKind.allCases {
+            let perms = try permissions(try settings(kind))
+            #expect(
+                perms.contains("Bash(.claude/skills/plumage-implement/scripts/start-run.sh:*)"),
+                "start-run missing for \(kind)")
+            #expect(
+                perms.contains("Bash(.claude/skills/plumage-implement/scripts/complete-task.sh:*)"),
+                "complete-task missing for \(kind)")
+            #expect(
+                perms.contains("Bash(.claude/skills/plumage-implement/scripts/finish-run.sh:*)"),
+                "finish-run missing for \(kind)")
+            #expect(
+                perms.contains("Bash(.claude/skills/plumage-plan/scripts/next-issue-id.sh:*)"),
+                "next-issue-id missing for \(kind)")
+            #expect(
+                perms.contains("Bash(git add:*)") && perms.contains("Bash(git commit:*)"),
+                "git add/commit missing for \(kind)")
+        }
     }
 
     @Test("settings.local.json is minimal valid JSON")

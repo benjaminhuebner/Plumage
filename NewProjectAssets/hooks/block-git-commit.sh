@@ -3,9 +3,9 @@
 #
 # Git safety:
 #   - `git push` and `git tag` are always blocked.
-#   - `git commit` is blocked on protected branches (main, master),
-#     in detached HEAD, on unborn branches pointing at main/master,
-#     and when no git repo can be located.
+#   - `git commit` is blocked on protected branches (main, master, and the
+#     project's configured git.defaultBranch), in detached HEAD, on unborn
+#     branches pointing at main/master, and when no git repo can be located.
 #   - Anything else is allowed.
 #
 # Design philosophy: fail CLOSED on ambiguity. One false block beats one
@@ -163,8 +163,16 @@ while IFS= read -r tok; do
         exit 2
       fi
 
+      # The configured default branch is protected too — projects on
+      # master/develop/... get the same guard as main.
+      config_default=""
+      bundle=$(find "$repo_dir" -maxdepth 1 -type d -name '*.plumage' ! -name '.*' 2>/dev/null | head -1)
+      if [[ -n "$bundle" && -f "$bundle/config.json" ]]; then
+        config_default=$(jq -r '.git.defaultBranch // empty' "$bundle/config.json" 2>/dev/null || true)
+      fi
+
       case "$branch" in
-        main|master)
+        main|master|"${config_default:-main}")
           {
             echo "Blocked: refusing to commit on protected branch '$branch'. Create or check out a feature branch first (e.g. \`git checkout -b feature/<slug>\`). If a branch isn't appropriate for this work, suggest a one-sentence commit message to the user and let them run it."
             [[ "$effective" != "$tok" ]] && echo "(Resolved from alias: \`$tok\` → \`$effective\`)"
