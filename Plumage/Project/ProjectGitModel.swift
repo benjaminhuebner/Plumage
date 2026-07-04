@@ -1,25 +1,38 @@
 import Foundation
 import Observation
 
+nonisolated struct BranchMergeRequest: Identifiable, Sendable, Hashable {
+    let source: String
+    let target: String
+    var id: String { "\(source)->\(target)" }
+}
+
 @Observable
 @MainActor
 final class ProjectGitModel {
     private(set) var repoState: RepoState = .notARepo
     private(set) var branches: [String] = []
     private(set) var branchActionError: String?
+    var pendingBranchMerge: BranchMergeRequest?
+    private(set) var isMerging = false
+    private(set) var lastMergeError: GitMergeError?
+    private(set) var lastMergeNotice: String?
 
     @ObservationIgnored private var watcher: GitRepoStateWatcher?
     @ObservationIgnored private var consumeTask: Task<Void, Never>?
     @ObservationIgnored private var currentRepoURL: URL?
     @ObservationIgnored private let branchLister: GitBranchLister
     @ObservationIgnored private let checkoutRunner: GitCheckoutRunner
+    @ObservationIgnored private let mergeRunner: any GitMergeRunning
 
     init(
         branchLister: GitBranchLister = GitBranchLister(),
-        checkoutRunner: GitCheckoutRunner = GitCheckoutRunner()
+        checkoutRunner: GitCheckoutRunner = GitCheckoutRunner(),
+        mergeRunner: any GitMergeRunning = GitMergeRunner()
     ) {
         self.branchLister = branchLister
         self.checkoutRunner = checkoutRunner
+        self.mergeRunner = mergeRunner
     }
 
     func loadBranches() async {
@@ -65,6 +78,51 @@ final class ProjectGitModel {
         branchActionError = nil
     }
 
+    func requestBranchMerge(source: String, target: String) {
+        guard source != target else { return }
+        guard branches.contains(source), branches.contains(target) else { return }
+        lastMergeError = nil
+        lastMergeNotice = nil
+        pendingBranchMerge = BranchMergeRequest(source: source, target: target)
+    }
+
+    func mergeBranch(
+        source: String, target: String, mode: GitMergeMode,
+        subject: String?, deleteSource: Bool
+    ) async -> Bool {
+        guard let repoURL = currentRepoURL, source != target else { return false }
+        isMerging = true
+        defer { isMerging = false }
+        lastMergeError = nil
+        lastMergeNotice = nil
+        do {
+            let outcome = try await mergeRunner.mergeBranch(
+                repoURL: repoURL, targetBranch: target, sourceBranch: source,
+                mode: mode, commitSubject: subject, deleteBranch: deleteSource)
+            if let cleanupNotice = outcome.worktreeCleanupNotice {
+                lastMergeNotice = "Merge succeeded, but \(cleanupNotice)."
+            } else if let deleteError = outcome.branchDeleteError {
+                lastMergeNotice = "Merge succeeded, but branch was not deleted: \(deleteError)"
+            }
+            await loadBranches()
+            return true
+        } catch let error as GitMergeError {
+            lastMergeError = error
+            return false
+        } catch {
+            lastMergeError = .mergeFailed(mode: mode, stderr: error.localizedDescription)
+            return false
+        }
+    }
+
+    func clearMergeError() {
+        lastMergeError = nil
+    }
+
+    func clearMergeNotice() {
+        lastMergeNotice = nil
+    }
+
     func start(repoURL: URL) {
         // Skip the no-op rebuild when the window is reused for the same
         // project — otherwise scenePhase changes would tear the watcher down
@@ -90,6 +148,14 @@ final class ProjectGitModel {
         repoState = .notARepo
         branches = []
         branchActionError = nil
+        pendingBranchMerge = nil
+        isMerging = false
+        lastMergeError = nil
+        lastMergeNotice = nil
+    }
+
+    func _setRepoURLForTesting(_ url: URL) {
+        currentRepoURL = url
     }
 
     deinit {

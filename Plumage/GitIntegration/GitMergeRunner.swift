@@ -85,10 +85,10 @@ nonisolated struct GitMergeOutcome: Sendable, Equatable {
 }
 
 nonisolated protocol GitMergeRunning: Sendable {
-    func mergeIssueBranch(
+    func mergeBranch(
         repoURL: URL,
         targetBranch: String,
-        issueBranch: String,
+        sourceBranch: String,
         mode: GitMergeMode,
         commitSubject: String?,
         deleteBranch: Bool
@@ -115,10 +115,10 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         self.resolveBinary = resolveBinary
     }
 
-    func mergeIssueBranch(
+    func mergeBranch(
         repoURL: URL,
         targetBranch: String,
-        issueBranch: String,
+        sourceBranch: String,
         mode: GitMergeMode,
         commitSubject: String?,
         deleteBranch: Bool
@@ -131,12 +131,12 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         guard GitBranchName.isSafe(targetBranch) else {
             throw GitMergeError.branchNotFound(name: targetBranch)
         }
-        guard GitBranchName.isSafe(issueBranch) else {
-            throw GitMergeError.branchNotFound(name: issueBranch)
+        guard GitBranchName.isSafe(sourceBranch) else {
+            throw GitMergeError.branchNotFound(name: sourceBranch)
         }
         try await runPreChecks(
             binary: binary, repoURL: repoURL,
-            targetBranch: targetBranch, issueBranch: issueBranch)
+            targetBranch: targetBranch, sourceBranch: sourceBranch)
         // Remember where the user was: a failed merge must not strand them
         // on the target branch when they started somewhere else.
         let originalBranch = await currentBranch(binary: binary, repoURL: repoURL)
@@ -145,11 +145,11 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
             switch mode {
             case .fastForward:
                 try await fastForwardMerge(
-                    binary: binary, repoURL: repoURL, issueBranch: issueBranch)
+                    binary: binary, repoURL: repoURL, sourceBranch: sourceBranch)
             case .squash:
                 try await squashMerge(
                     binary: binary, repoURL: repoURL,
-                    issueBranch: issueBranch, subject: commitSubject ?? "")
+                    sourceBranch: sourceBranch, subject: commitSubject ?? "")
             }
         } catch {
             await rollBack(
@@ -163,14 +163,14 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
             // A branch checked out in a worktree cannot be deleted — remove the
             // (clean) worktree first; a dirty one keeps worktree and branch.
             switch await removeWorktreeOwning(
-                branch: issueBranch, binary: binary, repoURL: repoURL)
+                branch: sourceBranch, binary: binary, repoURL: repoURL)
             {
             case .kept(let reason):
                 outcome = GitMergeOutcome(branchDeleteError: nil, worktreeCleanupNotice: reason)
             case .none, .removed:
                 let deleteError = await safeDeleteBranch(
-                    binary: binary, repoURL: repoURL, branch: issueBranch, mode: mode)
-                if deleteError == nil { deletedBranch = issueBranch }
+                    binary: binary, repoURL: repoURL, branch: sourceBranch, mode: mode)
+                if deleteError == nil { deletedBranch = sourceBranch }
                 outcome = GitMergeOutcome(branchDeleteError: deleteError)
             }
         } else {
@@ -267,7 +267,7 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         binary: URL,
         repoURL: URL,
         targetBranch: String,
-        issueBranch: String
+        sourceBranch: String
     ) async throws {
         // 1. status --porcelain must be empty. A failing status would also
         //    print nothing — don't let that masquerade as a clean tree.
@@ -280,23 +280,23 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
             throw GitMergeError.workingTreeDirty(files: parsePorcelain(status.stdout))
         }
 
-        // 2. Issue branch must exist locally. rev-parse exits non-zero if not.
+        // 2. Source branch must exist locally. rev-parse exits non-zero if not.
         let branchProbe = try await callGit(
             binary: binary, repoURL: repoURL,
-            args: ["rev-parse", "--verify", issueBranch])
+            args: ["rev-parse", "--verify", sourceBranch])
         if branchProbe.exitCode != 0 {
-            throw GitMergeError.branchNotFound(name: issueBranch)
+            throw GitMergeError.branchNotFound(name: sourceBranch)
         }
 
         // 3. Fast-forward must be possible: targetBranch must be an ancestor of
-        //    issueBranch. --is-ancestor: 0 = yes, 1 = no, anything else (128: bad ref)
+        //    sourceBranch. --is-ancestor: 0 = yes, 1 = no, anything else (128: bad ref)
         //    is a different failure — reporting it as "not fast-forward" sent users rebasing for a typo.
         let ffProbe = try await callGit(
             binary: binary, repoURL: repoURL,
-            args: ["merge-base", "--is-ancestor", targetBranch, issueBranch])
+            args: ["merge-base", "--is-ancestor", targetBranch, sourceBranch])
         if ffProbe.exitCode == 1 {
             throw GitMergeError.notFastForward(
-                targetBranch: targetBranch, issueBranch: issueBranch)
+                targetBranch: targetBranch, issueBranch: sourceBranch)
         }
         if ffProbe.exitCode != 0 {
             throw GitMergeError.branchNotFound(name: targetBranch)
@@ -348,17 +348,17 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         }
     }
 
-    private func fastForwardMerge(binary: URL, repoURL: URL, issueBranch: String) async throws {
+    private func fastForwardMerge(binary: URL, repoURL: URL, sourceBranch: String) async throws {
         let result = try await callGit(
             binary: binary, repoURL: repoURL,
-            args: ["merge", "--ff-only", issueBranch])
+            args: ["merge", "--ff-only", sourceBranch])
         if result.exitCode != 0 {
             throw GitMergeError.mergeFailed(mode: .fastForward, stderr: stderrString(result))
         }
     }
 
     private func squashMerge(
-        binary: URL, repoURL: URL, issueBranch: String, subject: String
+        binary: URL, repoURL: URL, sourceBranch: String, subject: String
     ) async throws {
         // Defense in depth: the UI disables the merge button on an empty
         // subject, but never let `git commit -m ""` happen regardless.
@@ -368,7 +368,7 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
         }
         let merge = try await callGit(
             binary: binary, repoURL: repoURL,
-            args: ["merge", "--squash", issueBranch])
+            args: ["merge", "--squash", sourceBranch])
         if merge.exitCode != 0 {
             throw GitMergeError.mergeFailed(mode: .squash, stderr: stderrString(merge))
         }

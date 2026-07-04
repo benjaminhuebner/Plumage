@@ -6,6 +6,7 @@ struct BranchSwitcherPopover: View {
 
     @State private var isCreating = false
     @State private var newBranchName = ""
+    @State private var draggedBranch: String?
     @FocusState private var nameFieldFocused: Bool
 
     var body: some View {
@@ -118,6 +119,34 @@ struct BranchSwitcherPopover: View {
     }
 
     private func branchRow(_ branch: String) -> some View {
+        BranchSwitcherRow(
+            branch: branch,
+            isCurrent: branch == model.repoState.branchName,
+            rowHeight: Self.rowHeight,
+            model: model,
+            isPresented: $isPresented,
+            draggedBranch: $draggedBranch)
+    }
+}
+
+private struct BranchSwitcherRow: View {
+    let branch: String
+    let isCurrent: Bool
+    let rowHeight: CGFloat
+    let model: ProjectGitModel
+    @Binding var isPresented: Bool
+    @Binding var draggedBranch: String?
+
+    @State private var isHovering = false
+    @State private var isDropTargeted = false
+
+    // isTargeted: can't see the payload, so the drop highlight over the
+    // drag's own source row is suppressed via the shared draggedBranch state.
+    private var showsDropHighlight: Bool {
+        isDropTargeted && draggedBranch != branch
+    }
+
+    var body: some View {
         Button {
             Task {
                 if await model.checkout(branch) {
@@ -128,17 +157,77 @@ struct BranchSwitcherPopover: View {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark")
                     .imageScale(.small)
-                    .opacity(branch == model.repoState.branchName ? 1 : 0)
+                    .opacity(isCurrent ? 1 : 0)
                 Text(branch)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
+                Image(systemName: "line.3.horizontal")
+                    .imageScale(.small)
+                    .foregroundStyle(.tertiary)
+                    .opacity(isHovering ? 1 : 0)
+                    .accessibilityHidden(true)
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 6)
-            .frame(height: Self.rowHeight)
+            .frame(height: rowHeight)
         }
         .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.accentColor.opacity(0.15))
+                .opacity(showsDropHighlight ? 1 : 0)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(showsDropHighlight ? 1 : 0)
+        )
+        .pointerStyle(.grabIdle)
+        .draggable(BranchDragPayload(branchName: branch)) {
+            BranchDragChip(branchName: branch)
+                .onAppear { draggedBranch = branch }
+        }
+        .dropDestination(for: BranchDragPayload.self) { payloads, _ in
+            defer { draggedBranch = nil }
+            guard let payload = payloads.first, payload.branchName != branch else {
+                return false
+            }
+            model.requestBranchMerge(source: payload.branchName, target: branch)
+            isPresented = false
+            return true
+        } isTargeted: { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isDropTargeted = hovering
+            }
+        }
+        .onHover { hovering in
+            // Opacity-only fade — inherently Reduce-Motion-safe.
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
         .accessibilityIdentifier("branch-row-\(branch)")
+    }
+}
+
+private struct BranchDragChip: View {
+    let branchName: String
+
+    var body: some View {
+        Label(branchName, systemImage: "arrow.triangle.branch")
+            .font(.caption)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+            )
     }
 }

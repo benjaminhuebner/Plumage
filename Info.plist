@@ -91,6 +91,16 @@
 				<string>public.data</string>
 			</array>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.benjaminhuebner.plumage.branch-drag</string>
+			<key>UTTypeDescription</key>
+			<string>Plumage Branch Drag</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>

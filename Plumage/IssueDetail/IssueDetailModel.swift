@@ -497,17 +497,17 @@ final class IssueDetailModel {
         let now = clock()
         let specURL = context.specURL
 
-        // Read the branch's committed contribution now — mergeIssueBranch may
+        // Read the branch's committed contribution now — mergeBranch may
         // delete the branch, so a post-merge diff would have nothing to diff.
         let snapshotText = await mergedDiffCapturer(
             context.projectURL, gitDefaultBranch, issueBranch)
 
         let outcome: GitMergeOutcome
         do {
-            outcome = try await runner.mergeIssueBranch(
+            outcome = try await runner.mergeBranch(
                 repoURL: context.projectURL,
                 targetBranch: context.targetBranch,
-                issueBranch: issueBranch,
+                sourceBranch: issueBranch,
                 mode: mode,
                 commitSubject: context.subject,
                 deleteBranch: deleteBranch

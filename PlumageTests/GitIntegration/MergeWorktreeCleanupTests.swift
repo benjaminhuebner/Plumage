@@ -33,10 +33,10 @@ struct MergeWorktreeCleanupTests {
         defer { try? FileManager.default.removeItem(at: target) }
         try await addWorktree(repo: repo, at: target)
 
-        let outcome = try await GitMergeRunner().mergeIssueBranch(
+        let outcome = try await GitMergeRunner().mergeBranch(
             repoURL: repo.tmpDir,
             targetBranch: repo.mainBranch,
-            issueBranch: repo.issueBranch,
+            sourceBranch: repo.issueBranch,
             mode: .squash,
             commitSubject: "Squash the issue",
             deleteBranch: true
@@ -63,10 +63,10 @@ struct MergeWorktreeCleanupTests {
         try "wip".write(
             to: target.appendingPathComponent("wip.txt"), atomically: true, encoding: .utf8)
 
-        let outcome = try await GitMergeRunner().mergeIssueBranch(
+        let outcome = try await GitMergeRunner().mergeBranch(
             repoURL: repo.tmpDir,
             targetBranch: repo.mainBranch,
-            issueBranch: repo.issueBranch,
+            sourceBranch: repo.issueBranch,
             mode: .squash,
             commitSubject: "Squash the issue",
             deleteBranch: true

@@ -671,6 +671,38 @@ struct ProjectWindow: View {
                         + "or wait in line — a queued run starts by itself when it's its turn."
                 )
             }
+            .sheet(
+                item: Binding(
+                    get: { gitModel.pendingBranchMerge },
+                    set: { gitModel.pendingBranchMerge = $0 }
+                )
+            ) { request in
+                BranchMergeSheet(
+                    request: request,
+                    isMerging: gitModel.isMerging,
+                    error: gitModel.lastMergeError,
+                    noticeMessage: gitModel.lastMergeNotice,
+                    onDismissError: { gitModel.clearMergeError() },
+                    onMerge: { mode, subject, deleteSource in
+                        Task {
+                            let merged = await gitModel.mergeBranch(
+                                source: request.source, target: request.target,
+                                mode: mode, subject: subject, deleteSource: deleteSource)
+                            // A non-fatal notice keeps the sheet open so the
+                            // user sees it; plain success just closes.
+                            if merged, gitModel.lastMergeNotice == nil {
+                                gitModel.pendingBranchMerge = nil
+                            }
+                        }
+                    },
+                    onClose: {
+                        gitModel.clearMergeError()
+                        gitModel.clearMergeNotice()
+                        gitModel.pendingBranchMerge = nil
+                    }
+                )
+                .interactiveDismissDisabled(gitModel.isMerging)
+            }
             .alert(
                 "Worktree setup failed",
                 isPresented: Binding(

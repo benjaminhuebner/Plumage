@@ -977,10 +977,10 @@ struct IssueDetailModelTests {
     private struct StubMergeRunner: GitMergeRunning {
         let outcome: GitMergeOutcome
 
-        func mergeIssueBranch(
+        func mergeBranch(
             repoURL: URL,
             targetBranch: String,
-            issueBranch: String,
+            sourceBranch: String,
             mode: GitMergeMode,
             commitSubject: String?,
             deleteBranch: Bool
@@ -1000,10 +1000,10 @@ struct IssueDetailModelTests {
     private struct LoggingMergeRunner: GitMergeRunning {
         let log: LockedBox<[String]>
 
-        func mergeIssueBranch(
+        func mergeBranch(
             repoURL: URL,
             targetBranch: String,
-            issueBranch: String,
+            sourceBranch: String,
             mode: GitMergeMode,
             commitSubject: String?,
             deleteBranch: Bool
