@@ -63,6 +63,10 @@ final class ProjectSettingsModel {
         ProjectSettingsModel.uniformWorkflowEfforts(.implementAction)
     var reviewEfforts: [IssueType: EffortLevel] =
         ProjectSettingsModel.uniformWorkflowEfforts(.reviewAction)
+    // The diff base. Seeded from config.gitDefaultBranch on load; a picker
+    // choice saves immediately. Branch candidates load async for the picker.
+    var defaultBranch: String = "main"
+    private(set) var branchCandidates: [String] = []
 
     enum LoadState: Sendable, Equatable {
         case loading
@@ -159,6 +163,7 @@ final class ProjectSettingsModel {
         planEfforts = Self.workflowEfforts(from: config.efforts?.plan, slot: .planAction)
         implementEfforts = Self.workflowEfforts(from: config.efforts?.implement, slot: .implementAction)
         reviewEfforts = Self.workflowEfforts(from: config.efforts?.review, slot: .reviewAction)
+        defaultBranch = config.gitDefaultBranch
     }
 
     private static func uniformWorkflowModels(_ slot: ModelSlot) -> [IssueType: ModelChoice] {
@@ -286,6 +291,28 @@ final class ProjectSettingsModel {
     // Model-independent: Plan is always plan-mode regardless of model choice.
     func resolvedFallbackMode(for action: WorkflowAction) -> PermissionMode {
         action.permissionMode
+    }
+
+    var defaultBranchBinding: Binding<String> {
+        Binding(
+            get: { self.defaultBranch },
+            set: { self.setDefaultBranch($0) }
+        )
+    }
+
+    func setDefaultBranch(_ value: String) {
+        guard canEdit, value != defaultBranch else { return }
+        defaultBranch = value
+        // Discrete picker choice; flush now so a Diff tab opened right after
+        // uses the new base instead of waiting on the 500ms debounce.
+        Task { [weak self] in await self?.saveNow() }
+    }
+
+    func loadBranchCandidates() async {
+        let url = projectURL
+        branchCandidates = await Task.detached(priority: .userInitiated) {
+            (try? await GitBranchLister().branches(repoURL: url)) ?? []
+        }.value
     }
 
     // For workflow slots this is the collapsed-header value: the uniform
@@ -609,6 +636,9 @@ final class ProjectSettingsModel {
 
     private func mutated(from base: ProjectConfig) -> ProjectConfig {
         var copy = base
+        // Only defaultBranch is editable here; githubAccountID rides along so
+        // the snapshot stays whole (ConfigWriter persists just defaultBranch).
+        copy.git = GitConfig(defaultBranch: defaultBranch, githubAccountID: base.git?.githubAccountID)
         copy.workflows = WorkflowsConfig(
             plan: workflowOverride(planCommand, default: Self.planDefault, mode: planPermissionMode),
             implement: workflowOverride(

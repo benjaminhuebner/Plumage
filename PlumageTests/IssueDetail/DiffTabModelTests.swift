@@ -14,6 +14,22 @@ struct DiffTabModelTests {
         return DiffTabModel(repoURL: repo, baseBranch: "main", runner: runner, watcher: nil)
     }
 
+    private func makeModel(
+        mock: MockGitProcessRunner, tipBranch: String, snapshotURL: URL?
+    ) -> DiffTabModel {
+        let binary = URL(fileURLWithPath: "/usr/bin/git")
+        let runner = GitDiffRunner(runner: mock, resolveBinary: { binary })
+        return DiffTabModel(
+            repoURL: repo, baseBranch: "main", tipBranch: tipBranch,
+            snapshotURL: snapshotURL, runner: runner, watcher: nil)
+    }
+
+    private func wireTipMissing(_ mock: MockGitProcessRunner, tip: String) {
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "main"]] = "abc\n"
+        mock.exitCodeForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", tip]] = 1
+    }
+
     private func wireBaseChecks(_ mock: MockGitProcessRunner) {
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "main"]] = "abc\n"
@@ -79,6 +95,45 @@ struct DiffTabModelTests {
             if case .error(.baseBranchMissing) = state { return true }
             return false
         }
+    }
+
+    @Test("missing tip branch renders the frozen merge snapshot")
+    func snapshotFallbackRenders() async throws {
+        let diffText = """
+            diff --git a/x b/x
+            index 1111111..2222222 100644
+            --- a/x
+            +++ b/x
+            @@ -1,1 +1,1 @@
+            -old
+            +new
+            """
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("merged-\(UUID().uuidString).diff")
+        try diffText.write(to: snapshotURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+
+        let mock = MockGitProcessRunner()
+        wireTipMissing(mock, tip: "issue/gone")
+        let model = makeModel(mock: mock, tipBranch: "issue/gone", snapshotURL: snapshotURL)
+        model.reload()
+        try await waitForState(model) {
+            guard case .diff = $0 else { return false }
+            return true
+        }
+        if case .diff(let files) = model.state {
+            #expect(files.count == 1)
+            #expect(files[0].path == "x")
+        }
+    }
+
+    @Test("missing tip branch with no snapshot falls to the empty state")
+    func snapshotFallbackEmptyWhenNoFile() async throws {
+        let mock = MockGitProcessRunner()
+        wireTipMissing(mock, tip: "issue/gone")
+        let model = makeModel(mock: mock, tipBranch: "issue/gone", snapshotURL: nil)
+        model.reload()
+        try await waitForState(model) { $0 == .empty }
     }
 
     @Test("renders a representative .swift fixture through the model state")

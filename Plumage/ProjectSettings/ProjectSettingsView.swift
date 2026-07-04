@@ -24,6 +24,7 @@ struct ProjectSettingsView: View {
                     loadFailedBanner(message: message)
                 case .loaded:
                     projectSection
+                    gitSection
                     workflowCommandsSection
                     workflowModesSection
                     modelsAndEffortSection
@@ -38,6 +39,7 @@ struct ProjectSettingsView: View {
             model.onSaved = onProjectConfigSaved
             model.onRenamed = onProjectRenamed
             await model.load()
+            await model.loadBranchCandidates()
         }
         .onDisappear {
             // Belt-and-braces: a typed-into command text within the 500ms
@@ -166,6 +168,49 @@ struct ProjectSettingsView: View {
                 "Renames the bundle on disk to “\(model.trimmedProjectName).plumage” and updates the window title. A running chat session keeps going."
             )
         }
+    }
+
+    @ViewBuilder
+    private var gitSection: some View {
+        sectionHeader(
+            title: "Git",
+            description:
+                "The default branch each issue's diff is compared against. Changing it affects Diff tabs opened afterward."
+        )
+        HStack {
+            Text("Default branch")
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 160, alignment: .leading)
+            Menu {
+                ForEach(gitPickerCandidates, id: \.self) { candidate in
+                    Button {
+                        model.setDefaultBranch(candidate)
+                    } label: {
+                        if candidate == model.defaultBranch {
+                            Label(candidate, systemImage: "checkmark")
+                        } else {
+                            Text(candidate)
+                        }
+                    }
+                }
+            } label: {
+                Text(model.defaultBranch)
+            }
+            .fixedSize()
+            .disabled(!model.canEdit)
+            .accessibilityLabel("Default branch")
+            .accessibilityValue(model.defaultBranch)
+            .accessibilityIdentifier("default-branch-picker")
+            Spacer(minLength: 0)
+        }
+    }
+
+    // The stored branch always renders, even before the candidate list loads —
+    // a menu picker whose selection isn't among its options shows blank.
+    private var gitPickerCandidates: [String] {
+        model.branchCandidates.contains(model.defaultBranch)
+            ? model.branchCandidates
+            : [model.defaultBranch] + model.branchCandidates
     }
 
     @ViewBuilder

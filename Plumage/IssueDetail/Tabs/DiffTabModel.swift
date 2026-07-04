@@ -15,6 +15,8 @@ final class DiffTabModel {
 
     let repoURL: URL
     let baseBranch: String
+    let tipBranch: String
+    let snapshotURL: URL?
 
     private let runner: GitDiffRunner
     private var loadTask: Task<Void, Never>?
@@ -29,11 +31,15 @@ final class DiffTabModel {
     init(
         repoURL: URL,
         baseBranch: String = "main",
+        tipBranch: String = "HEAD",
+        snapshotURL: URL? = nil,
         runner: GitDiffRunner = GitDiffRunner(runner: ProductionGitProcessRunner()),
         watcher: GitRepoWatcher? = nil
     ) {
         self.repoURL = repoURL
         self.baseBranch = baseBranch
+        self.tipBranch = tipBranch
+        self.snapshotURL = snapshotURL
         self.runner = runner
         self.watcher = watcher
     }
@@ -64,21 +70,28 @@ final class DiffTabModel {
         let runner = self.runner
         let repo = self.repoURL
         let base = self.baseBranch
+        let tip = self.tipBranch
+        let snapshot = self.snapshotURL
         state = .loading
         loadTask = Task { [weak self] in
             do {
-                let rawDiff = try await runner.run(repoURL: repo, base: base)
+                let rawDiff = try await runner.run(repoURL: repo, base: base, tip: tip)
                 if Task.isCancelled { return }
                 let parsed = DiffParser.parse(unifiedDiff: rawDiff)
                 guard let self, self.isCurrentGeneration(generation) else { return }
-                if parsed.isEmpty {
-                    self.state = .empty
-                } else {
-                    self.state = .diff(parsed)
-                }
+                self.state = Self.state(forParsed: parsed)
             } catch is CancellationError {
                 return
             } catch let error as GitDiffError {
+                // A gone tip branch (merged & deleted) isn't an error to surface —
+                // render the frozen snapshot captured at merge, else empty.
+                if case .tipBranchMissing = error {
+                    let fallback = Self.loadSnapshot(at: snapshot)
+                    if Task.isCancelled { return }
+                    guard let self, self.isCurrentGeneration(generation) else { return }
+                    self.state = fallback
+                    return
+                }
                 guard let self, self.isCurrentGeneration(generation) else { return }
                 self.state = .error(error)
             } catch {
@@ -86,6 +99,17 @@ final class DiffTabModel {
                 self.state = .error(.spawnFailed(error.localizedDescription))
             }
         }
+    }
+
+    private static func state(forParsed parsed: [FileDiff]) -> State {
+        parsed.isEmpty ? .empty : .diff(parsed)
+    }
+
+    private static func loadSnapshot(at url: URL?) -> State {
+        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return .empty
+        }
+        return state(forParsed: DiffParser.parse(unifiedDiff: text))
     }
 
     private func isCurrentGeneration(_ generation: UInt64) -> Bool {

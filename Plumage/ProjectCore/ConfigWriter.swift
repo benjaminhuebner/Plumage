@@ -11,8 +11,7 @@ nonisolated enum ConfigWriter {
 
     static func write(_ config: ProjectConfig, atBundle bundle: URL) throws {
         // Read the on-disk JSON as a generic dictionary first so every key
-        // outside the three writable subsections survives untouched — including
-        // external edits to keys like `git.defaultBranch` between load and save.
+        // outside the writable subsections survives untouched.
         let configURL = try guardedConfigURL(atBundle: bundle)
         var rootObject = try readRootObject(at: configURL)
 
@@ -25,7 +24,21 @@ nonisolated enum ConfigWriter {
         try overlay(key: "models", value: config.models, into: &rootObject)
         try overlay(key: "efforts", value: config.efforts, into: &rootObject)
 
+        // `git` is different: only `defaultBranch` is app-writable, so deep-merge
+        // just that sub-key and leave sibling keys (agentFilesInGit, branchPrefix,
+        // githubAccountID, any unmodeled ones) exactly as they sit on disk.
+        mergeGitDefaultBranch(config.git?.defaultBranch, into: &rootObject)
+
         try writeRootObject(rootObject, to: configURL)
+    }
+
+    private static func mergeGitDefaultBranch(
+        _ defaultBranch: String?, into root: inout [String: Any]
+    ) {
+        guard let defaultBranch else { return }
+        var git = root["git"] as? [String: Any] ?? [:]
+        git["defaultBranch"] = defaultBranch
+        root["git"] = git
     }
 
     // Persists the display `name` only. The debounced settings auto-save must

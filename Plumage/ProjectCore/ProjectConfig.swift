@@ -2,7 +2,7 @@ nonisolated struct ProjectConfig: Codable, Hashable, Sendable {
     let name: String
     let schemaVersion: Int
     let issueIdPadding: Int?
-    let git: GitConfig?
+    var git: GitConfig?
     var workflows: WorkflowsConfig?
     var models: ModelsConfig?
     var efforts: EffortsConfig?

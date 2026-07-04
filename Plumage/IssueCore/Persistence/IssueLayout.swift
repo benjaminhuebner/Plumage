@@ -40,6 +40,11 @@ nonisolated enum IssueLayout {
             .appendingPathComponent("review-findings.json")
     }
 
+    static func mergedDiffURL(in projectURL: URL, folderName: String) -> URL {
+        issueFolder(in: projectURL, folderName: folderName)
+            .appendingPathComponent("merged.diff")
+    }
+
     static func templateURL(in projectURL: URL) -> URL {
         issuesDirectory(in: projectURL).appendingPathComponent("_TEMPLATE.md")
     }

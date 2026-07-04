@@ -137,6 +137,8 @@ final class IssueDetailModel {
     private nonisolated let localBranchLister: @Sendable (URL) async -> [String]
     private nonisolated let storedMergeTargetLoader: @Sendable (URL) -> String?
     private nonisolated let storedMergeTargetSaver: @Sendable (URL, String) -> Void
+    private nonisolated let mergedDiffCapturer: @Sendable (URL, String, String) async -> String?
+    private nonisolated let mergedDiffWriter: @Sendable (URL, String) -> Void
 
     var isBodyDirty: Bool { bodyDraft != loadedBodyContent }
 
@@ -146,6 +148,13 @@ final class IssueDetailModel {
 
     var canSaveInCreatingMode: Bool {
         isCreating && !titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // A tiny synchronous config.json read — startDiffTab needs the base now,
+    // not via an async hop.
+    var gitDefaultBranch: String {
+        guard let projectURL else { return "main" }
+        return configLoader(projectURL)?.gitDefaultBranch ?? "main"
     }
 
     init(
@@ -182,6 +191,14 @@ final class IssueDetailModel {
         storedMergeTargetSaver: @escaping @Sendable (URL, String) -> Void = {
             guard let bundle = try? BundleResolver.resolve(from: $0).bundle else { return }
             try? MergeTargetStore.save($1, bundle: bundle)
+        },
+        mergedDiffCapturer: @escaping @Sendable (URL, String, String) async -> String? = {
+            repoURL, base, tip in
+            try? await GitDiffRunner(runner: ProductionGitProcessRunner())
+                .run(repoURL: repoURL, base: base, tip: tip)
+        },
+        mergedDiffWriter: @escaping @Sendable (URL, String) -> Void = { url, text in
+            try? text.write(to: url, atomically: true, encoding: .utf8)
         }
     ) {
         self.kind = .loaded(folderName: folderName)
@@ -200,6 +217,8 @@ final class IssueDetailModel {
         self.localBranchLister = localBranchLister
         self.storedMergeTargetLoader = storedMergeTargetLoader
         self.storedMergeTargetSaver = storedMergeTargetSaver
+        self.mergedDiffCapturer = mergedDiffCapturer
+        self.mergedDiffWriter = mergedDiffWriter
         // Pre-load synchronously so first mount renders without a ProgressView
         // flash. Local volumes only — even the stat can stall on a network mount;
         // remote specs take async load(). 64 KB cap so a pathological spec can't stall construction.
@@ -282,6 +301,14 @@ final class IssueDetailModel {
         storedMergeTargetSaver: @escaping @Sendable (URL, String) -> Void = {
             guard let bundle = try? BundleResolver.resolve(from: $0).bundle else { return }
             try? MergeTargetStore.save($1, bundle: bundle)
+        },
+        mergedDiffCapturer: @escaping @Sendable (URL, String, String) async -> String? = {
+            repoURL, base, tip in
+            try? await GitDiffRunner(runner: ProductionGitProcessRunner())
+                .run(repoURL: repoURL, base: base, tip: tip)
+        },
+        mergedDiffWriter: @escaping @Sendable (URL, String) -> Void = { url, text in
+            try? text.write(to: url, atomically: true, encoding: .utf8)
         }
     ) {
         self.kind = .creating(initialStatus: creatingInitialStatus)
@@ -300,6 +327,8 @@ final class IssueDetailModel {
         self.localBranchLister = localBranchLister
         self.storedMergeTargetLoader = storedMergeTargetLoader
         self.storedMergeTargetSaver = storedMergeTargetSaver
+        self.mergedDiffCapturer = mergedDiffCapturer
+        self.mergedDiffWriter = mergedDiffWriter
         self.statusDraft = creatingInitialStatus
         // In creating mode the form must render immediately — there is
         // nothing on disk to load. Mark loaded so the view skips the
@@ -468,6 +497,11 @@ final class IssueDetailModel {
         let now = clock()
         let specURL = context.specURL
 
+        // Read the branch's committed contribution now — mergeIssueBranch may
+        // delete the branch, so a post-merge diff would have nothing to diff.
+        let snapshotText = await mergedDiffCapturer(
+            context.projectURL, gitDefaultBranch, issueBranch)
+
         let outcome: GitMergeOutcome
         do {
             outcome = try await runner.mergeIssueBranch(
@@ -487,6 +521,14 @@ final class IssueDetailModel {
             // banner still has something to render.
             lastMergeError = .mergeFailed(mode: mode, stderr: error.localizedDescription)
             return false
+        }
+
+        // Merge landed: freeze the captured diff so the tab survives the
+        // branch's deletion. Best-effort — a write failure never fails a merge.
+        if let snapshotText, let folder = folderName {
+            mergedDiffWriter(
+                IssueLayout.mergedDiffURL(in: context.projectURL, folderName: folder),
+                snapshotText)
         }
 
         let saver = storedMergeTargetSaver

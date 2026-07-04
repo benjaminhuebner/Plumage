@@ -195,46 +195,83 @@ struct ConfigWriterTests {
         #expect(parsed["schemaVersion"] == nil)
     }
 
-    @Test("write leaves git untouched even when snapshot's git differs")
-    func gitNotClobbered() throws {
+    @Test("write persists git.defaultBranch and preserves sibling git keys and sections")
+    func defaultBranchPersistsSiblingsPreserved() throws {
         let (project, bundle) = try tempBundle(content: Self.sampleConfig)
         defer { try? FileManager.default.removeItem(at: project) }
 
-        // Simulate an external tool changing git.defaultBranch between the
-        // in-app load and the in-app save. ConfigWriter must NOT overwrite
-        // the external edit with the in-memory baseConfig's `git`.
-        let configURL = bundle.appendingPathComponent("config.json")
-        let original = try Data(contentsOf: configURL)
-        var parsed = try #require(
-            JSONSerialization.jsonObject(with: original) as? [String: Any]
-        )
-        var git = try #require(parsed["git"] as? [String: Any])
-        git["defaultBranch"] = "trunk"
-        parsed["git"] = git
-        let mutatedJSON = try JSONSerialization.data(
-            withJSONObject: parsed, options: [.prettyPrinted]
-        )
-        try mutatedJSON.write(to: configURL, options: [.atomic])
-
-        // Stale in-memory loaded config still has git.defaultBranch=main.
+        // In-app edit of the default branch; the targeted deep-merge must set
+        // only `defaultBranch` and leave every sibling git key + section intact.
         var loaded = try ConfigLoader.load(at: project)
-        loaded = ProjectConfig(
-            name: loaded.name, schemaVersion: loaded.schemaVersion,
-            issueIdPadding: loaded.issueIdPadding,
-            git: GitConfig(defaultBranch: "main"),
-            workflows: nil, models: ModelsConfig(chat: .sonnet)
-        )
+        loaded.git = GitConfig(defaultBranch: "develop")
+        loaded.models = ModelsConfig(chat: .sonnet)
         try ConfigWriter.write(loaded, atBundle: bundle)
 
-        let after = try Data(contentsOf: configURL)
-        let afterParsed = try #require(
-            JSONSerialization.jsonObject(with: after) as? [String: Any]
+        let configURL = bundle.appendingPathComponent("config.json")
+        let parsed = try #require(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: configURL)) as? [String: Any]
         )
-        let afterGit = try #require(afterParsed["git"] as? [String: Any])
-        // External edit survives: trunk, NOT main.
-        #expect(afterGit["defaultBranch"] as? String == "trunk")
-        // Sibling git keys also preserved.
+        let git = try #require(parsed["git"] as? [String: Any])
+        #expect(git["defaultBranch"] as? String == "develop")
+        // Unmodeled sibling git keys survive the deep-merge.
+        #expect(git["branchPrefix"] as? String == "issue/")
+        #expect(git["agentFilesInGit"] as? Bool == true)
+        // Other sections and unknown top-level keys survive.
+        #expect((parsed["models"] as? [String: Any])?["chat"] as? String == "sonnet")
+        #expect(parsed["plumageManaged"] != nil)
+    }
+
+    @Test("write preserves an on-disk git.githubAccountID while changing defaultBranch")
+    func githubAccountIDPreservedOnBranchWrite() throws {
+        let (project, bundle) = try tempBundle(content: Self.sampleConfig)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        // Seed an account id on disk that ConfigWriter has no writer for — the
+        // targeted defaultBranch merge must not drop it.
+        let configURL = bundle.appendingPathComponent("config.json")
+        var onDisk = try #require(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: configURL)) as? [String: Any]
+        )
+        var git = try #require(onDisk["git"] as? [String: Any])
+        git["githubAccountID"] = "acct-42"
+        onDisk["git"] = git
+        try JSONSerialization.data(withJSONObject: onDisk, options: [.prettyPrinted])
+            .write(to: configURL, options: [.atomic])
+
+        var loaded = try ConfigLoader.load(at: project)
+        loaded.git = GitConfig(defaultBranch: "release")
+        try ConfigWriter.write(loaded, atBundle: bundle)
+
+        let afterGit = try #require(
+            (JSONSerialization.jsonObject(with: try Data(contentsOf: configURL))
+                as? [String: Any])?["git"] as? [String: Any]
+        )
+        #expect(afterGit["defaultBranch"] as? String == "release")
+        #expect(afterGit["githubAccountID"] as? String == "acct-42")
         #expect(afterGit["branchPrefix"] as? String == "issue/")
+    }
+
+    @Test("write creates a git block with only defaultBranch when config has none")
+    func createsGitBlockWhenAbsent() throws {
+        let project = try TempProject.make(content: nil)
+        let bundle = project.appendingPathComponent("Test.plumage", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let config = ProjectConfig(
+            name: "Fresh", schemaVersion: 2, issueIdPadding: 5,
+            git: GitConfig(defaultBranch: "trunk"),
+            workflows: nil, models: nil
+        )
+        try ConfigWriter.write(config, atBundle: bundle)
+
+        let configURL = bundle.appendingPathComponent("config.json")
+        let git = try #require(
+            (JSONSerialization.jsonObject(with: try Data(contentsOf: configURL))
+                as? [String: Any])?["git"] as? [String: Any]
+        )
+        #expect(git["defaultBranch"] as? String == "trunk")
+        #expect(git.count == 1)
     }
 
     @Test("setting a sub-field of models to nil removes it from disk")

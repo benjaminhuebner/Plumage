@@ -995,6 +995,64 @@ struct IssueDetailModelTests {
         ) async throws {}
     }
 
+    // Appends "merge" to the shared log when invoked so the capture-ordering
+    // test can prove the snapshot is read before the branch is touched.
+    private struct LoggingMergeRunner: GitMergeRunning {
+        let log: LockedBox<[String]>
+
+        func mergeIssueBranch(
+            repoURL: URL,
+            targetBranch: String,
+            issueBranch: String,
+            mode: GitMergeMode,
+            commitSubject: String?,
+            deleteBranch: Bool
+        ) async throws -> GitMergeOutcome {
+            log.mutate { $0.append("merge") }
+            return GitMergeOutcome(branchDeleteError: nil)
+        }
+
+        func rebaseIssueBranch(
+            repoURL: URL,
+            targetBranch: String,
+            issueBranch: String
+        ) async throws {}
+    }
+
+    @Test("merge captures the branch diff before deletion and writes it on success")
+    func mergeCapturesSnapshotBeforeDelete() async throws {
+        let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
+        let log = LockedBox<[String]>(value: [])
+        let written = LockedBox<(url: URL, text: String)?>(value: nil)
+
+        let model = env.makeModel(
+            mergeRunner: LoggingMergeRunner(log: log),
+            configLoader: { _ in Self.configWith(defaultBranch: "main") },
+            mergedDiffCapturer: { _, base, tip in
+                log.mutate { $0.append("capture") }
+                #expect(base == "main")
+                #expect(tip == "issue/00001-x")
+                return "SNAPSHOT DIFF"
+            },
+            mergedDiffWriter: { url, text in
+                log.mutate { $0.append("write") }
+                written.mutate { $0 = (url, text) }
+            }
+        )
+        await model.load()
+
+        let success = await model.mergeToTarget(
+            mode: .squash, commitSubject: "Merge it", deleteBranch: true)
+
+        #expect(success == true)
+        // Capture reads the branch before the merge/delete; the write lands after.
+        #expect(log.value == ["capture", "merge", "write"])
+        #expect(written.value?.text == "SNAPSHOT DIFF")
+        #expect(
+            written.value?.url
+                == IssueLayout.mergedDiffURL(in: env.tmpDir, folderName: "00001-test"))
+    }
+
     @Test("a kept worktree after merge surfaces as a notice")
     func worktreeCleanupNoticeSurfaces() async throws {
         let env = try makeEnvironment(spec: Self.baseSpec(status: "waiting-for-review"))
@@ -1336,7 +1394,11 @@ private final class TestEnvironment {
         discoverer: @escaping @Sendable (URL) -> [DiscoveredIssue] = { _ in [] },
         localBranchLister: @escaping @Sendable (URL) async -> [String] = { _ in [] },
         storedMergeTargetLoader: @escaping @Sendable (URL) -> String? = { _ in nil },
-        storedMergeTargetSaver: @escaping @Sendable (URL, String) -> Void = { _, _ in }
+        storedMergeTargetSaver: @escaping @Sendable (URL, String) -> Void = { _, _ in },
+        mergedDiffCapturer: @escaping @Sendable (URL, String, String) async -> String? = {
+            _, _, _ in nil
+        },
+        mergedDiffWriter: @escaping @Sendable (URL, String) -> Void = { _, _ in }
     ) -> IssueDetailModel {
         IssueDetailModel(
             specURL: specURL,
@@ -1350,7 +1412,9 @@ private final class TestEnvironment {
             discoverer: discoverer,
             localBranchLister: localBranchLister,
             storedMergeTargetLoader: storedMergeTargetLoader,
-            storedMergeTargetSaver: storedMergeTargetSaver
+            storedMergeTargetSaver: storedMergeTargetSaver,
+            mergedDiffCapturer: mergedDiffCapturer,
+            mergedDiffWriter: mergedDiffWriter
         )
     }
 

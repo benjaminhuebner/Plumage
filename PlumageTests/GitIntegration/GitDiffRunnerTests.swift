@@ -18,11 +18,12 @@ struct GitDiffRunnerTests {
         let mock = MockGitProcessRunner()
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
         mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "main"]] = "abc123\n"
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "HEAD"]] = "def456\n"
         mock.stdoutForArgs[["-C", repo.path, "diff", "main...HEAD", "--"]] = "diff --git a/x b/x\n"
         let runner = makeRunner(mock: mock)
         let diff = try await runner.run(repoURL: repo)
         #expect(diff == "diff --git a/x b/x\n")
-        #expect(mock.recordedCalls.count == 3)
+        #expect(mock.recordedCalls.count == 4)
     }
 
     @Test("throws .gitNotFound when binary cannot be resolved")
@@ -102,6 +103,35 @@ struct GitDiffRunnerTests {
         let runner = makeRunner(mock: mock)
         let result = try await runner.run(repoURL: repo, base: "develop")
         #expect(result == "diff content")
+    }
+
+    @Test("custom tip argument scopes the diff range to <base>...<tip>")
+    func customTip() async throws {
+        let mock = MockGitProcessRunner()
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "main"]] = "abc\n"
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "issue/foo"]] = "def\n"
+        mock.stdoutForArgs[["-C", repo.path, "diff", "main...issue/foo", "--"]] = "scoped diff"
+        let runner = makeRunner(mock: mock)
+        let result = try await runner.run(repoURL: repo, base: "main", tip: "issue/foo")
+        #expect(result == "scoped diff")
+    }
+
+    @Test("throws .tipBranchMissing when rev-parse <tip> exits non-zero")
+    func tipMissing() async {
+        let mock = MockGitProcessRunner()
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--git-dir"]] = ".git\n"
+        mock.stdoutForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "main"]] = "abc\n"
+        mock.exitCodeForArgs[["-C", repo.path, "rev-parse", "--verify", "--quiet", "issue/gone"]] = 1
+        let runner = makeRunner(mock: mock)
+        do {
+            _ = try await runner.run(repoURL: repo, base: "main", tip: "issue/gone")
+            Issue.record("expected throw")
+        } catch let error as GitDiffError {
+            #expect(error == .tipBranchMissing("issue/gone"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
     }
 
     @Test("smoke: diff main...HEAD against the real Plumage repo runs")

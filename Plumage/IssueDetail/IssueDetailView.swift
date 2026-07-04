@@ -712,7 +712,15 @@ struct IssueDetailView: View {
         // this card's lifetime — deliberately no cross-card diff cache.
         guard diffTabModel == nil else { return }
         let watcher = GitRepoWatcher(repoURL: projectURL)
-        let diffModel = DiffTabModel(repoURL: projectURL, watcher: watcher)
+        let snapshotURL = model.folderName.map {
+            IssueLayout.mergedDiffURL(in: projectURL, folderName: $0)
+        }
+        let diffModel = DiffTabModel(
+            repoURL: projectURL,
+            baseBranch: model.gitDefaultBranch,
+            tipBranch: model.issue?.branch ?? "HEAD",
+            snapshotURL: snapshotURL,
+            watcher: watcher)
         gitRepoWatcher = watcher
         diffTabModel = diffModel
         diffModel.start()

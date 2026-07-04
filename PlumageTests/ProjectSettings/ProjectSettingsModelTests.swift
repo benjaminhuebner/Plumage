@@ -504,6 +504,60 @@ struct ProjectSettingsModelTests {
         #expect(model.workflowEfforts(for: .implementAction)[.chore] == .low)
         #expect(model.workflowEfforts(for: .implementAction)[.spike] == .default)
     }
+
+    @Test("load seeds defaultBranch from the config git block, else falls back to main")
+    func loadSeedsDefaultBranch() async throws {
+        let project = try makeProject()  // baseConfig has no git block
+        defer { try? FileManager.default.removeItem(at: project) }
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        #expect(model.defaultBranch == "main")
+
+        let withGit = """
+            {
+              "schemaVersion": 2,
+              "name": "Sample",
+              "git": { "defaultBranch": "trunk", "branchPrefix": "issue/" }
+            }
+            """
+        let project2 = try TempProject.make(content: withGit)
+        defer { try? FileManager.default.removeItem(at: project2) }
+        let model2 = ProjectSettingsModel(projectURL: project2)
+        await model2.load()
+        #expect(model2.defaultBranch == "trunk")
+    }
+
+    @Test("setDefaultBranch persists through the pipeline and preserves sibling git keys")
+    func setDefaultBranchPersists() async throws {
+        let config = """
+            {
+              "schemaVersion": 2,
+              "name": "Sample",
+              "git": { "defaultBranch": "main", "branchPrefix": "issue/", "agentFilesInGit": true },
+              "plumageManaged": { "skills": [{ "name": "x" }] }
+            }
+            """
+        let project = try TempProject.make(content: config)
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        let model = ProjectSettingsModel(projectURL: project)
+        await model.load()
+        #expect(model.defaultBranch == "main")
+
+        model.setDefaultBranch("develop")
+        await model.saveNow()
+
+        #expect(try ConfigLoader.load(at: project).gitDefaultBranch == "develop")
+        let bundle = try BundleResolver.findBundle(in: project)
+        let parsed = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: bundle.appendingPathComponent("config.json")))
+                as? [String: Any])
+        let git = try #require(parsed["git"] as? [String: Any])
+        #expect(git["branchPrefix"] as? String == "issue/")
+        #expect(git["agentFilesInGit"] as? Bool == true)
+        #expect(parsed["plumageManaged"] != nil)
+    }
 }
 
 // @unchecked Sendable: the writer closure runs off MainActor since the
