@@ -21,6 +21,10 @@ struct AppSettingsView: View {
                 .frame(width: Self.paneWidth, height: 452)
                 .tabItem { Label("Templates", systemImage: "doc.text") }
                 .tag(SettingsTab.templates)
+            UsageSettingsTab()
+                .frame(width: Self.paneWidth, height: 240)
+                .tabItem { Label("Usage", systemImage: "gauge.medium") }
+                .tag(SettingsTab.usage)
             AccountsSettingsTab()
                 .frame(width: Self.paneWidth, height: 408)
                 .tabItem { Label("Accounts", systemImage: "person.crop.circle") }

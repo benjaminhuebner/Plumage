@@ -11,22 +11,18 @@ struct ClaudeUsageResponseTests {
         let response = try ClaudeUsageResponse.decode(data: data)
         #expect(response.fiveHour?.utilizationPct == 42.5)
         #expect(response.sevenDay?.utilizationPct == 13.0)
-        #expect(response.sevenDayOpus == nil)
-        #expect(response.sevenDaySonnet == nil)
         let resets = try #require(response.fiveHour?.resetsAt)
         let expected = ISO8601DateFormatter()
         expected.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         #expect(expected.date(from: "2026-05-20T22:00:00.000Z") == resets)
     }
 
-    @Test("decodes Max-account fixture with Opus + Sonnet")
+    @Test("decodes Max-account fixture, ignoring extra window keys")
     func decodesMax() throws {
         let data = try fixture(named: "usage-response-max")
         let response = try ClaudeUsageResponse.decode(data: data)
         #expect(response.fiveHour?.utilizationPct == 87.25)
         #expect(response.sevenDay?.utilizationPct == 64.0)
-        #expect(response.sevenDayOpus?.utilizationPct == 18.5)
-        #expect(response.sevenDaySonnet?.utilizationPct == 4.0)
     }
 
     @Test("tolerates missing windows")
@@ -35,8 +31,6 @@ struct ClaudeUsageResponseTests {
         let response = try ClaudeUsageResponse.decode(data: data)
         #expect(response.fiveHour == nil)
         #expect(response.sevenDay == nil)
-        #expect(response.sevenDayOpus == nil)
-        #expect(response.sevenDaySonnet == nil)
     }
 
     @Test("drops window when utilization is missing")

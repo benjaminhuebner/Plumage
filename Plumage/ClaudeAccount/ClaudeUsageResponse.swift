@@ -3,8 +3,6 @@ import Foundation
 nonisolated struct ClaudeUsageResponse: Sendable, Equatable {
     let fiveHour: WindowUsage?
     let sevenDay: WindowUsage?
-    let sevenDayOpus: WindowUsage?
-    let sevenDaySonnet: WindowUsage?
 
     struct WindowUsage: Sendable, Equatable {
         let utilizationPct: Double
@@ -15,23 +13,17 @@ nonisolated struct ClaudeUsageResponse: Sendable, Equatable {
         let envelope = try JSONDecoder.usageDecoder.decode(Envelope.self, from: data)
         return ClaudeUsageResponse(
             fiveHour: envelope.fiveHour?.toWindow(),
-            sevenDay: envelope.sevenDay?.toWindow(),
-            sevenDayOpus: envelope.sevenDayOpus?.toWindow(),
-            sevenDaySonnet: envelope.sevenDaySonnet?.toWindow()
+            sevenDay: envelope.sevenDay?.toWindow()
         )
     }
 
     private struct Envelope: Decodable {
         let fiveHour: WindowBody?
         let sevenDay: WindowBody?
-        let sevenDayOpus: WindowBody?
-        let sevenDaySonnet: WindowBody?
 
         enum CodingKeys: String, CodingKey {
             case fiveHour = "five_hour"
             case sevenDay = "seven_day"
-            case sevenDayOpus = "seven_day_opus"
-            case sevenDaySonnet = "seven_day_sonnet"
         }
     }
 

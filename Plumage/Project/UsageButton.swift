@@ -3,6 +3,10 @@ import SwiftUI
 struct UsageButton: View {
     let model: ClaudeUsageModel
     @State private var showPopover = false
+    @AppStorage(UsageDisplaySettings.showFiveHourKey) private var showFiveHour: Bool =
+        UsageDisplaySettings.showFiveHourDefault
+    @AppStorage(UsageDisplaySettings.showSevenDayKey) private var showSevenDay: Bool =
+        UsageDisplaySettings.showSevenDayDefault
 
     var body: some View {
         Button {
@@ -23,47 +27,55 @@ struct UsageButton: View {
     private var label: some View {
         switch model.state {
         case .loading:
-            HStack(spacing: 4) {
-                ProgressView()
-                    .controlSize(.mini)
-                Text("5h…")
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
+            ProgressView()
+                .controlSize(.mini)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
         case .loggedOut, .error:
-            pill(text: "5h: —", tint: .secondary)
-        case .usage:
-            pill(text: pillText, tint: pillColor)
+            minimalIcon
+        case .usage(let response):
+            usageLabel(for: response)
         }
     }
 
-    private func pill(text: String, tint: Color) -> some View {
-        Text(text)
+    @ViewBuilder
+    private func usageLabel(for response: ClaudeUsageResponse) -> some View {
+        let segments = selectedSegments(for: response)
+        if segments.isEmpty {
+            minimalIcon
+        } else {
+            segmentPill(segments)
+        }
+    }
+
+    private func segmentPill(_ segments: [UsageSegment]) -> some View {
+        let tint = Self.percentColor(segments.map(\.pct).max() ?? 0)
+        return HStack(spacing: 4) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                if index > 0 {
+                    Text("·").foregroundStyle(.secondary)
+                }
+                Text("\(segment.label): \(Self.format(percent: segment.pct))")
+                    .foregroundStyle(Self.percentColor(segment.pct))
+            }
+        }
+        .font(.caption2)
+        .monospacedDigit()
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1)
+        .background(Capsule(style: .continuous).fill(tint.opacity(0.15)))
+        .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.35), lineWidth: 0.5))
+    }
+
+    private var minimalIcon: some View {
+        Image(systemName: "gauge.medium")
             .font(.caption2)
-            .monospacedDigit()
-            .foregroundStyle(tint)
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(tint.opacity(0.15))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(tint.opacity(0.35), lineWidth: 0.5)
-            )
     }
 
-    private var pillText: String {
-        guard let pct = model.fiveHour?.utilizationPct else { return "5h: —" }
-        return "5h: \(Self.format(percent: pct))"
-    }
-
-    private var pillColor: Color {
-        guard let pct = model.fiveHour?.utilizationPct else { return .secondary }
+    static func percentColor(_ pct: Double) -> Color {
         if pct >= 90 { return .red }
         if pct >= 75 { return .orange }
         return .green
@@ -74,10 +86,11 @@ struct UsageButton: View {
         case .loading: return "Loading Claude usage…"
         case .loggedOut: return "Claude CLI not logged in"
         case .error(let detail): return "Usage unavailable: \(detail)"
-        case .usage:
-            let five = model.fiveHour.map { "5h \(Self.format(percent: $0.utilizationPct))" } ?? "5h —"
-            let week = model.sevenDay.map { "7d \(Self.format(percent: $0.utilizationPct))" } ?? "7d —"
-            return "\(five) · \(week)"
+        case .usage(let response):
+            let segments = selectedSegments(for: response)
+            guard !segments.isEmpty else { return "Claude usage — click for details" }
+            return segments.map { "\($0.label) \(Self.format(percent: $0.pct))" }
+                .joined(separator: " · ")
         }
     }
 
@@ -86,10 +99,17 @@ struct UsageButton: View {
         case .loading: return "Claude usage loading"
         case .loggedOut: return "Claude usage unavailable, not logged in"
         case .error: return "Claude usage unavailable"
-        case .usage:
-            guard let pct = model.fiveHour?.utilizationPct else { return "Claude usage unavailable" }
-            return "Claude 5-hour window \(Self.format(percent: pct))"
+        case .usage(let response):
+            let segments = selectedSegments(for: response)
+            guard !segments.isEmpty else { return "Claude usage, click for details" }
+            return "Claude usage: "
+                + segments.map { "\($0.label) \(Self.format(percent: $0.pct))" }
+                .joined(separator: ", ")
         }
+    }
+
+    private func selectedSegments(for response: ClaudeUsageResponse) -> [UsageSegment] {
+        response.pillSegments(showFiveHour: showFiveHour, showSevenDay: showSevenDay)
     }
 
     static func format(percent value: Double) -> String {
@@ -139,18 +159,14 @@ struct UsageDetailPopover: View {
     private var usageRows: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let five = model.fiveHour {
-                row(label: "5-hour window", window: five, accent: percentColor(five.utilizationPct))
+                row(
+                    label: "5-hour window", window: five,
+                    accent: UsageButton.percentColor(five.utilizationPct))
             }
             if let week = model.sevenDay {
-                row(label: "7-day window", window: week, accent: percentColor(week.utilizationPct))
-            }
-            if let opus = model.sevenDayOpus, opus.utilizationPct > 0 {
-                row(label: "7-day Opus", window: opus, accent: percentColor(opus.utilizationPct))
-            }
-            if let sonnet = model.sevenDaySonnet, sonnet.utilizationPct > 0 {
                 row(
-                    label: "7-day Sonnet", window: sonnet,
-                    accent: percentColor(sonnet.utilizationPct))
+                    label: "7-day window", window: week,
+                    accent: UsageButton.percentColor(week.utilizationPct))
             }
         }
     }
@@ -172,12 +188,6 @@ struct UsageDetailPopover: View {
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func percentColor(_ pct: Double) -> Color {
-        if pct >= 90 { return .red }
-        if pct >= 75 { return .orange }
-        return .green
     }
 
     @ViewBuilder

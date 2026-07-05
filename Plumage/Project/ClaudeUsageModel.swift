@@ -29,16 +29,6 @@ final class ClaudeUsageModel {
         return nil
     }
 
-    var sevenDayOpus: ClaudeUsageResponse.WindowUsage? {
-        if case .usage(let response) = state { return response.sevenDayOpus }
-        return nil
-    }
-
-    var sevenDaySonnet: ClaudeUsageResponse.WindowUsage? {
-        if case .usage(let response) = state { return response.sevenDaySonnet }
-        return nil
-    }
-
     // Never returns normally — loops until the caller's Task is cancelled
     // (parent .task(id:) re-fire or window close); Task.sleep is that point.
     func startPolling(using client: ClaudeUsageClient, interval: Duration = .seconds(90)) async {
@@ -89,5 +79,23 @@ final class ClaudeUsageModel {
         case .serverError(let code): return "Server error \(code)"
         case .unparseable(let detail): return "Unparseable response: \(detail)"
         }
+    }
+}
+
+nonisolated struct UsageSegment: Sendable, Equatable {
+    let label: String
+    let pct: Double
+}
+
+nonisolated extension ClaudeUsageResponse {
+    func pillSegments(showFiveHour: Bool, showSevenDay: Bool) -> [UsageSegment] {
+        var segments: [UsageSegment] = []
+        if showFiveHour, let five = fiveHour {
+            segments.append(UsageSegment(label: "5h", pct: five.utilizationPct))
+        }
+        if showSevenDay, let week = sevenDay {
+            segments.append(UsageSegment(label: "7d", pct: week.utilizationPct))
+        }
+        return segments
     }
 }

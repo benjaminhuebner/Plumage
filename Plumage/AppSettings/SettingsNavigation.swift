@@ -4,6 +4,7 @@ nonisolated enum SettingsTab: Hashable, Sendable {
     case general
     case issueTypes
     case templates
+    case usage
     case accounts
 }
 

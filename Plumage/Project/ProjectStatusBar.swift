@@ -11,6 +11,8 @@ struct ProjectStatusBar: View {
     var onCancelQueued: (String) -> Void
     var chatIsWorking: Bool
     var onToggleChat: (() -> Void)?
+    @AppStorage(UsageDisplaySettings.showUsageKey) private var showUsage: Bool =
+        UsageDisplaySettings.showUsageDefault
 
     init(
         indicatorState: StatusIndicatorModel.IndicatorState,
@@ -65,7 +67,7 @@ struct ProjectStatusBar: View {
                 // (full text stays reachable via the .help tooltip below).
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
-                if let usageModel {
+                if let usageModel, showUsage {
                     usagePill(usageModel: usageModel)
                         .fixedSize()
                         .layoutPriority(0)
