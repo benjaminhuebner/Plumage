@@ -303,15 +303,15 @@ nonisolated struct ProjectMigrator {
     }
 
     private func setupGit(spec: MigrationSpec, root: URL, repoState: RepoState) async throws {
-        var hasRepo = repoState.isGitRepo
-        if !hasRepo, spec.git.initIfMissing {
-            try await gitInitRunner.initRepo(at: root, defaultBranch: "main")
-            hasRepo = true
+        if repoState.isGitRepo {
+            try ProjectGitHygiene.applyExcludes(
+                name: spec.name, plumageInGit: spec.git.plumageInGit,
+                claudeInGit: spec.git.claudeInGit, root: root)
+        } else if spec.git.initIfMissing {
+            try await GitInitService(gitInitRunner: gitInitRunner).initializeRepo(
+                at: root, name: spec.name, plumageInGit: spec.git.plumageInGit,
+                claudeInGit: spec.git.claudeInGit)
         }
-        guard hasRepo else { return }
-        try ProjectGitHygiene.applyExcludes(
-            name: spec.name, plumageInGit: spec.git.plumageInGit,
-            claudeInGit: spec.git.claudeInGit, root: root)
     }
 
     // MARK: - helpers

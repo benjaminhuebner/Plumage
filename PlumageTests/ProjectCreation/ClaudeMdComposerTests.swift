@@ -57,7 +57,7 @@ struct ClaudeMdComposerTests {
         #expect(!md.contains("## Common pitfalls"))
         #expect(md.contains("## Coding defaults"))  // static section survives
         #expect(md.contains("squash-merged"))  // base etiquette present without any layer
-        #expect(md.contains("Comments default to none"))  // base comments policy
+        #expect(md.contains("Pick the simplest design that works"))
     }
 
     @Test("Every kind renders without leftover tokens or section markers")

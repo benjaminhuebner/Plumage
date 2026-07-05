@@ -154,6 +154,15 @@ final class ProjectGitModel {
         lastMergeNotice = nil
     }
 
+    // A `git init` in a folder the watcher armed as a non-repo is invisible to
+    // its FSEvents stream (bound to an absent `.git`); rebuild it and read HEAD
+    // synchronously so the menu flips without the debounce.
+    func rescan(repoURL: URL) {
+        stop()
+        start(repoURL: repoURL)
+        repoState = RepoStateReader().read(repoURL: repoURL)
+    }
+
     func _setRepoURLForTesting(_ url: URL) {
         currentRepoURL = url
     }

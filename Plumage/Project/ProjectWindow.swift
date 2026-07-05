@@ -29,6 +29,12 @@ struct ProjectWindow: View {
     @State private var pullAction: EditorAction?
     @State private var addRemoteAction: EditorAction?
     @State private var importIssuesAction: EditorAction?
+    @State private var showTagSheet = false
+    @State private var tagModel: GitTagModel?
+    @State private var tagAction: EditorAction?
+    @State private var showInitSheet = false
+    @State private var initModel: GitInitModel?
+    @State private var initAction: EditorAction?
     @State private var indicator = StatusIndicatorModel()
     @State private var claudeUsage = ClaudeUsageModel()
     @State private var claudeStatus = ClaudeStatusModel()
@@ -161,7 +167,9 @@ struct ProjectWindow: View {
             .focusedSceneValue(\.createIssueInDefaultColumn, createIssueAction)
             .focusedSceneValue(\.terminalToggle, $isTerminalInspectorOpen)
             .focusedSceneValue(\.chatDockToggle, $isDockOpen)
+            .focusedSceneValue(\.gitInitAction, initAction)
             .focusedSceneValue(\.gitCommitAction, commitAction)
+            .focusedSceneValue(\.gitCreateTagAction, tagAction)
             .focusedSceneValue(\.gitPushAction, pushAction)
             .focusedSceneValue(\.gitPullAction, pullAction)
             .focusedSceneValue(\.gitAddRemoteAction, addRemoteAction)
@@ -430,6 +438,23 @@ struct ProjectWindow: View {
                             SettingsOpener.open()
                         }
                     )
+                }
+            }
+            .sheet(isPresented: $showTagSheet) {
+                if let tagModel {
+                    GitTagSheet(model: tagModel, onDismiss: { showTagSheet = false })
+                }
+            }
+            .sheet(isPresented: $showInitSheet) {
+                if let initModel {
+                    GitInitSheet(
+                        model: initModel,
+                        onDismiss: { showInitSheet = false },
+                        onInitialized: {
+                            gitModel.rescan(repoURL: handle.url)
+                            refreshGitActions()
+                            Task { await refreshGithubOrigin() }
+                        })
                 }
             }
     }
@@ -914,11 +939,19 @@ struct ProjectWindow: View {
                     showAddRemoteSheet = true
                 }
             }
+            if tagAction == nil {
+                tagAction = EditorAction {
+                    guard !showTagSheet else { return }
+                    tagModel = GitTagModel(repoURL: handle.url)
+                    showTagSheet = true
+                }
+            }
         } else {
             commitAction = nil
             pushAction = nil
             pullAction = nil
             addRemoteAction = nil
+            tagAction = nil
         }
         let importEnabled = active && githubOriginPresent
         if importEnabled {
@@ -932,6 +965,21 @@ struct ProjectWindow: View {
             }
         } else {
             importIssuesAction = nil
+        }
+
+        let canInit = isLoaded && !gitModel.repoState.isGitRepo
+        if canInit {
+            if initAction == nil {
+                initAction = EditorAction {
+                    guard !showInitSheet else { return }
+                    initModel = GitInitModel(
+                        repoURL: handle.url,
+                        projectName: currentConfig()?.name ?? handle.url.lastPathComponent)
+                    showInitSheet = true
+                }
+            }
+        } else {
+            initAction = nil
         }
     }
 

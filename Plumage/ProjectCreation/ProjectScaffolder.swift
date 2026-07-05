@@ -221,10 +221,8 @@ nonisolated struct ProjectScaffolder {
 
     private func initGitIfRequested(spec: NewProjectSpec, root: URL) async throws {
         guard let git = spec.git else { return }
-        try await gitInitRunner.initRepo(at: root, defaultBranch: "main")
-        try ProjectGitHygiene.applyExcludes(
-            name: spec.name, plumageInGit: git.plumageInGit, claudeInGit: git.claudeInGit,
-            root: root)
+        try await GitInitService(gitInitRunner: gitInitRunner).initializeRepo(
+            at: root, name: spec.name, plumageInGit: git.plumageInGit, claudeInGit: git.claudeInGit)
     }
 
     // MARK: - helpers
