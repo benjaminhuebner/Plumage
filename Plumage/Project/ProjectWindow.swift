@@ -48,6 +48,9 @@ struct ProjectWindow: View {
     @State private var showBuildLog = false
     @SceneStorage("claudeDock.open") private var isDockOpen = false
     @AppStorage(ChatButtonPlacement.storageKey) private var chatButtonPlacement: ChatButtonPlacement = .floating
+    @AppStorage(KeepMacAwakeSetting.storageKey) private var keepMacAwake: Bool =
+        KeepMacAwakeSetting.defaultValue
+    @State private var idleSleepGuard = IdleSleepGuard()
     @SceneStorage("inspector.terminal.open") private var isTerminalInspectorOpen = false
     @State private var windowContentWidth: CGFloat = 0
     // Previously the dock panel hosted a Chat/Terminal mode switcher whose
@@ -284,9 +287,11 @@ struct ProjectWindow: View {
                 // ⌘Q runs through applicationShouldTerminate, where SwiftUI's
                 // .onDisappear teardown isn't guaranteed to fire — register
                 // the subprocess stop so quitting never orphans claude.
-                QuitCoordinator.shared.register(quitHandlerID) { [weak session, weak terminalTabs] in
+                QuitCoordinator.shared.register(quitHandlerID) {
+                    [weak session, weak terminalTabs, idleSleepGuard] in
                     session?.stop()
                     terminalTabs?.stopAll()
+                    idleSleepGuard.update(shouldHold: false)
                 }
                 session.attach()
                 // Terminal sessions don't get explicit attach() here —
@@ -338,10 +343,16 @@ struct ProjectWindow: View {
             .onChange(of: xcodeRun.selectedDestination) { _, destination in
                 persistedDestinationID = destination?.id ?? ""
             }
+            // initial: true also holds for a window that opens onto an
+            // already-running session, not only on later transitions.
+            .onChange(of: shouldHoldAwake, initial: true) { _, hold in
+                idleSleepGuard.update(shouldHold: hold)
+            }
             .onDisappear {
                 runStatus.stop()
                 RunCompletionNotifier.shared.unwatchProjectRuns(root: handle.url)
                 QuitCoordinator.shared.unregister(quitHandlerID)
+                idleSleepGuard.update(shouldHold: false)
                 session.stop()
                 terminalTabs.stopAll()
                 workflowLauncher.cancel()
@@ -849,6 +860,28 @@ struct ProjectWindow: View {
 
     private var isLoaded: Bool {
         if case .loaded = model.state { true } else { false }
+    }
+
+    private var shouldHoldAwake: Bool {
+        keepMacAwake && anyClaudeActive
+    }
+
+    private var anyClaudeActive: Bool {
+        isLive(session.state) || terminalTabs.tabs.contains { isLive($0.session.state) }
+    }
+
+    private func isLive(_ state: ClaudeSession.State) -> Bool {
+        switch state {
+        case .starting, .running: true
+        case .idle, .exited: false
+        }
+    }
+
+    private func isLive(_ state: TerminalClaudeSession.State) -> Bool {
+        switch state {
+        case .starting, .running: true
+        case .idle, .exited: false
+        }
     }
 
     private func runWorkflow(_ action: WorkflowAction, folderName: String, issueType: IssueType) {

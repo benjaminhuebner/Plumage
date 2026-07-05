@@ -10,7 +10,7 @@ struct AppSettingsView: View {
         // heights — not min/ideal — keep dense tabs from ballooning the window.
         TabView(selection: $navigation.selectedTab) {
             GeneralSettingsTab()
-                .frame(width: Self.paneWidth, height: 188)
+                .frame(width: Self.paneWidth, height: 260)
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
             IssueTypesSettingsTab()
