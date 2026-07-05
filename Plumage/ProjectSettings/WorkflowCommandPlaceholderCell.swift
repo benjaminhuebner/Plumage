@@ -149,17 +149,17 @@ enum WorkflowCommandSerialization {
         }
     }
 
-    // nil when any `#if` token is not a known issue type — the whole line
+    // nil when any `#if` token is not in the type catalog — the whole line
     // then stays plain text, which is the user's typo signal.
     nonisolated static func directiveKind(
-        for text: String
+        for text: String, catalog: IssueTypeCatalog
     ) -> WorkflowCommandDirectiveCell.Kind? {
         guard let directive = WorkflowCommandDirective.parse(line: text) else { return nil }
         switch directive {
         case .open(let tokens):
             guard !tokens.isEmpty else { return nil }
-            let types = tokens.compactMap(IssueType.init(rawValue:))
-            guard types.count == tokens.count else { return nil }
+            let types = tokens.map(IssueType.init(rawValue:))
+            guard types.allSatisfy(catalog.contains) else { return nil }
             return .open(types: types)
         case .elseBranch:
             return .elseBranch
@@ -169,7 +169,9 @@ enum WorkflowCommandSerialization {
     }
 
     @MainActor
-    static func attributedString(from raw: String) -> NSAttributedString {
+    static func attributedString(
+        from raw: String, catalog: IssueTypeCatalog = .builtIn
+    ) -> NSAttributedString {
         let nsRaw = raw as NSString
         let fullRange = NSRange(location: 0, length: nsRaw.length)
         let defaultAttrs: [NSAttributedString.Key: Any] = [
@@ -199,9 +201,10 @@ enum WorkflowCommandSerialization {
             guard let match else { return }
             let textRange = match.range(at: 1)
             let text = nsRaw.substring(with: textRange)
-            guard let kind = directiveKind(for: text) else { return }
+            guard let kind = directiveKind(for: text, catalog: catalog) else { return }
             let attachment = NSTextAttachment()
-            attachment.attachmentCell = WorkflowCommandDirectiveCell(kind: kind, rawText: text)
+            attachment.attachmentCell = WorkflowCommandDirectiveCell(
+                kind: kind, rawText: text, catalog: catalog)
             replacements.append(Replacement(range: textRange, attachment: attachment))
         }
         replacements.sort { $0.range.location < $1.range.location }

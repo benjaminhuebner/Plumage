@@ -3,6 +3,7 @@ import SwiftUI
 struct IssueMetaRow: View {
     let status: IssueStatus
     let type: IssueType
+    let availableTypes: [IssueType]
     let labels: [String]
     let existingLabels: [String]
     let dates: Dates?
@@ -68,9 +69,15 @@ struct IssueMetaRow: View {
         .accessibilityHint("Choose a new status")
     }
 
+    // The current type always renders, even after being deleted from the
+    // catalog — otherwise the menu couldn't show the checkmark for it.
+    private var menuTypes: [IssueType] {
+        availableTypes.contains(type) ? availableTypes : [type] + availableTypes
+    }
+
     private var typeMenu: some View {
         Menu {
-            ForEach(IssueType.allCases, id: \.self) { entry in
+            ForEach(menuTypes, id: \.self) { entry in
                 Button {
                     onSelectType(entry)
                 } label: {
@@ -124,6 +131,7 @@ struct IssueMetaRow: View {
     IssueMetaRow(
         status: .waitingForReview,
         type: .feature,
+        availableTypes: IssueTypeCatalog.builtIn.types,
         labels: ["settings", "workflow"],
         existingLabels: ["ui", "backend", "perf"],
         dates: .init(created: Date(timeIntervalSinceNow: -3600), updated: Date()),

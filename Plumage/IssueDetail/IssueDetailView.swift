@@ -44,6 +44,7 @@ struct IssueDetailView: View {
     @Environment(\.runWorkflow) private var runWorkflow
     @Environment(\.jumpToRunTerminal) private var jumpToRunTerminal
     @Environment(\.onIssueCreated) private var onIssueCreated
+    @Environment(\.issueTypeCatalog) private var issueTypeCatalog
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(RunStatusModel.self) private var runStatus
 
@@ -103,6 +104,10 @@ struct IssueDetailView: View {
             refreshBackToBoardCache()
             seedExistingLabels()
             seedBlockerCandidates()
+            // New issues start on the catalog's configured default type.
+            if model.isCreating {
+                model.typeDraft = issueTypeCatalog.defaultType
+            }
             guard !model.isCreating else { return }
             await model.load()
             await model.loadPrompt()
@@ -296,6 +301,7 @@ struct IssueDetailView: View {
             IssueMetaRow(
                 status: currentStatus,
                 type: currentType,
+                availableTypes: issueTypeCatalog.types,
                 labels: currentLabels,
                 existingLabels: cachedExistingLabels,
                 dates: metaDates,
@@ -474,7 +480,7 @@ struct IssueDetailView: View {
     }
 
     private var backgroundTint: some View {
-        let color = currentType.color
+        let color = issueTypeCatalog.color(for: currentType)
         return LinearGradient(
             colors: [
                 color.opacity(0.10),
@@ -576,6 +582,7 @@ struct IssueDetailView: View {
         return .init(
             status: currentStatus,
             type: currentType,
+            draftBlocksImplement: issueTypeCatalog.draftBlocksImplement(for: currentType),
             openBlockers: resolvedBlockers.filter { $0.state == .open },
             runWorkflow: { action in triggerWorkflow(action, folderName: folderName) }
         )

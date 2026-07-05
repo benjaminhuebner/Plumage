@@ -2,6 +2,7 @@ import SwiftUI
 
 struct KanbanFilterBar: View {
     @Environment(ProjectKanbanModel.self) private var kanban
+    @Environment(\.issueTypeCatalog) private var issueTypeCatalog
 
     var body: some View {
         @Bindable var kanban = kanban
@@ -93,7 +94,7 @@ struct KanbanFilterBar: View {
                 }
             }
             Divider()
-            ForEach(IssueType.allCases, id: \.self) { type in
+            ForEach(issueTypeCatalog.types, id: \.self) { type in
                 Button {
                     kanban.filter.type = type
                 } label: {

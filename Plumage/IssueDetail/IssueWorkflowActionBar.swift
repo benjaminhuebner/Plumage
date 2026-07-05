@@ -9,6 +9,7 @@ struct IssueWorkflowActionBar: View {
 
     let status: IssueStatus
     let type: IssueType
+    let draftBlocksImplement: Bool
     var openBlockers: [ResolvedBlocker] = []
     let runWorkflow: (WorkflowAction) -> Void
 
@@ -25,11 +26,13 @@ struct IssueWorkflowActionBar: View {
     @ViewBuilder
     private func button(for action: WorkflowAction) -> some View {
         let commandEmpty = workflowCommandIsEmpty(action, type)
-        let enabled = action.isEnabled(status: status, type: type) && !commandEmpty
+        let enabled =
+            action.isEnabled(status: status, draftBlocksImplement: draftBlocksImplement)
+            && !commandEmpty
         let tooltip =
             commandEmpty
             ? "No command for this issue type."
-            : action.disabledTooltip(status: status, type: type)
+            : action.disabledTooltip(status: status, draftBlocksImplement: draftBlocksImplement)
         let core = Button {
             runWorkflow(action)
         } label: {
@@ -80,16 +83,18 @@ struct IssueWorkflowActionBar: View {
 }
 
 #Preview("Draft / Feature") {
-    IssueWorkflowActionBar(status: .draft, type: .feature) { _ in }
+    IssueWorkflowActionBar(status: .draft, type: .feature, draftBlocksImplement: true) { _ in }
         .padding()
 }
 
 #Preview("Approved / Feature") {
-    IssueWorkflowActionBar(status: .approved, type: .feature) { _ in }
+    IssueWorkflowActionBar(status: .approved, type: .feature, draftBlocksImplement: true) { _ in }
         .padding()
 }
 
 #Preview("Waiting for review / Chore") {
-    IssueWorkflowActionBar(status: .waitingForReview, type: .chore) { _ in }
-        .padding()
+    IssueWorkflowActionBar(status: .waitingForReview, type: .chore, draftBlocksImplement: false) {
+        _ in
+    }
+    .padding()
 }

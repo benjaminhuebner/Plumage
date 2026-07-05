@@ -104,7 +104,7 @@ struct ProjectSettingsModelTests {
         model.setModel(.sonnet, for: .planAction)
         #expect(!model.isWorkflowMixed(.planAction))
         #expect(model.model(for: .planAction) == .sonnet)
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             #expect(model.workflowModels(for: .planAction)[type] == .sonnet)
         }
         await model.saveNow()
@@ -121,7 +121,7 @@ struct ProjectSettingsModelTests {
         model.setWorkflowModel(.opus, for: .implementAction, type: .feature)
         await model.saveNow()
 
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             model.setWorkflowModel(.opus, for: .implementAction, type: type)
         }
         #expect(!model.isWorkflowMixed(.implementAction))

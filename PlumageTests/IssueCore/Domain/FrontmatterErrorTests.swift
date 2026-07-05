@@ -155,14 +155,12 @@ struct FrontmatterErrorTests {
         #expect(err.description.contains("id, title, type, status, created, updated, branch"))
     }
 
-    @Test("invalidEnumValue for type lists allowed types")
+    @Test("invalidEnumValue for type points at the user-defined catalog")
     func invalidEnumValueTypeDisplay() {
-        let err = FrontmatterError.invalidEnumValue(field: "type", value: "experiment")
-        #expect(err.summary == "Unknown type: 'experiment'")
-        #expect(err.description.contains("Unknown type: 'experiment'"))
-        #expect(err.description.contains("feature"))
-        #expect(err.description.contains("chore"))
-        #expect(err.description.contains("spike"))
+        let err = FrontmatterError.invalidEnumValue(field: "type", value: "")
+        #expect(err.summary == "Unknown type: ''")
+        #expect(err.description.contains("Unknown type: ''"))
+        #expect(err.description.contains("Issue Types"))
     }
 
     @Test("invalidEnumValue for status lists allowed statuses")

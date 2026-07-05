@@ -58,30 +58,32 @@ nonisolated enum WorkflowAction: String, CaseIterable, Sendable, Codable {
         return "\(action): \(slug)"
     }
 
-    static func available(status: IssueStatus, type: IssueType) -> WorkflowAction? {
-        allCases.first { $0.isEnabled(status: status, type: type) }
+    static func available(status: IssueStatus, draftBlocksImplement: Bool) -> WorkflowAction? {
+        allCases.first { $0.isEnabled(status: status, draftBlocksImplement: draftBlocksImplement) }
     }
 
-    func isEnabled(status: IssueStatus, type: IssueType) -> Bool {
+    // draftBlocksImplement is the issue type's catalog flag: types with the
+    // flag on are planned first; types with it off implement straight from draft.
+    func isEnabled(status: IssueStatus, draftBlocksImplement: Bool) -> Bool {
         switch self {
         case .plan:
-            return status == .draft && type == .feature
+            return status == .draft && draftBlocksImplement
         case .implement:
             if status == .approved || status == .inProgress { return true }
-            if status == .draft, type != .feature { return true }
+            if status == .draft, !draftBlocksImplement { return true }
             return false
         case .review:
             return status == .waitingForReview
         }
     }
 
-    func disabledTooltip(status: IssueStatus, type: IssueType) -> String {
+    func disabledTooltip(status: IssueStatus, draftBlocksImplement: Bool) -> String {
         if status == .done { return "Issue is done." }
         if status == .blocked { return "Issue is blocked." }
         switch self {
         case .plan:
-            if status == .draft && type != .feature {
-                return "Only feature issues are planned — chore/spike/refactor go directly to Implement."
+            if status == .draft && !draftBlocksImplement {
+                return "This issue type skips planning — it goes directly to Implement."
             }
             return "Issue is already approved or further along."
         case .implement:

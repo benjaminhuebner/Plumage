@@ -78,6 +78,7 @@ struct ProjectWindow: View {
 
     @Environment(\.processRunner) private var processRunner
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.issueTypeCatalog) private var issueTypeCatalog
     @Environment(RecentProjects.self) private var recentProjects
     @Environment(SettingsNavigation.self) private var settingsNavigation
     @FocusedValue(\.issueDetailBackToBoard) private var backToBoardAction: EditorAction?
@@ -987,6 +988,7 @@ struct ProjectWindow: View {
         GitHubImportModel(
             projectURL: handle.url,
             boundAccountID: currentConfig()?.githubAccountID,
+            defaultIssueType: issueTypeCatalog.defaultType,
             openInEditor: { folderName in
                 if selectedRoute == .kanban { detailOriginRoute = .kanban }
                 selectedRoute = .issue(folderName: folderName)

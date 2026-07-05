@@ -69,7 +69,7 @@ struct ProjectConfigTests {
         #expect(config.models?.plan == .uniform(.opus))
         #expect(config.models?.implement == .uniform(.sonnet))
         #expect(config.models?.review == .uniform(.haiku))
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             #expect(config.models?.workflowResolved(.plan, type: type) == .opus)
         }
     }
@@ -122,7 +122,7 @@ struct ProjectConfigTests {
         let empty = ModelsConfig()
         #expect(empty.chatResolved == .default)
         #expect(empty.terminalsResolved == .default)
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             #expect(empty.workflowResolved(.plan, type: type) == .default)
             #expect(empty.workflowResolved(.implement, type: type) == .default)
             #expect(empty.workflowResolved(.review, type: type) == .default)

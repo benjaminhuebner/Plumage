@@ -57,7 +57,7 @@ struct WorkflowModelEffortPickerRow: View {
                 Spacer(minLength: 0)
             }
             if expanded {
-                ForEach(IssueType.allCases, id: \.self) { type in
+                ForEach(model.issueTypes, id: \.self) { type in
                     let typeModel = model.workflowModelBinding(for: slot, type: type)
                     HStack(alignment: .center, spacing: ModelEffortColumns.spacing) {
                         IssueTypePill(type: type)

@@ -1,6 +1,6 @@
 ---
 name: plumage-implement
-description: This skill should be used when the user runs `/plumage-implement [slug]`, asks to "start implementing issue NNNN", "continue the run", or "resume after the crash". Takes an approved spec and turns it into commits on an issue branch, ending with `PR.md` and status `waiting-for-review`. Fresh-starts from `approved`, resumes from `in-progress`, runs the per-task loop, runs the pre-commit gate, writes PR.md. Do NOT use to merge, push, or open a remote PR — those are separate operations. Do NOT use when the issue is `draft` + `feature` (run `/plumage-plan` first) or already `waiting-for-review` / `done`.
+description: This skill should be used when the user runs `/plumage-implement [slug]`, asks to "start implementing issue NNNN", "continue the run", or "resume after the crash". Takes an approved spec and turns it into commits on an issue branch, ending with `PR.md` and status `waiting-for-review`. Fresh-starts from `approved`, resumes from `in-progress`, runs the per-task loop, runs the pre-commit gate, writes PR.md. Do NOT use to merge, push, or open a remote PR — those are separate operations. Do NOT use when the issue is `draft` and its type blocks implementing from draft — configurable per type in Plumage's Settings → Issue Types, default: only `feature` blocks (run `/plumage-plan` first). Do NOT use when the issue is already `waiting-for-review` / `done`.
 argument-hint: "[slug]"
 user-invocable: true
 disable-model-invocation: true
@@ -41,7 +41,7 @@ The argument is either the issue's folder name (slug) or **inlined issue content
 - Neither an existing folder nor parseable frontmatter → stop and ask which issue is meant.
 - `<slug>` omitted entirely → list open issues (status `approved` or `in-progress`) and let the user pick one.
 
-Read `.claude/issues/<id-padded>-<slug>/spec.md`. `start-run.sh` enforces the status dispatch (`approved`/`in-progress` proceed, `draft`+`chore`/`spike` proceeds without a plan, everything else exits 6 with the right next step) — but read the spec content yourself first; the brief plan below needs it.
+Read `.claude/issues/<id-padded>-<slug>/spec.md`. `start-run.sh` enforces the status dispatch (`approved`/`in-progress` proceed; `draft` proceeds without a plan only when the type's "draft blocks implement" flag is off in Plumage's issue-type catalog — default: `chore`/`spike`/`refactor`; everything else exits 6 with the right next step) — but read the spec content yourself first; the brief plan below needs it.
 
 ## Start the run
 
@@ -49,7 +49,7 @@ Everything that needs the user happens **before** the run mechanics, never mid-l
 
 1. **Brief plan** (fresh starts only — a resume skips this). Restate the spec's technical approach in 2–3 sentences: which files/modules will be touched, the architectural choice for this issue, and anything that looked clear in the spec but is ambiguous now that the code is in front of the agent. If something is genuinely unclear — a question whose answer changes the implementation — ask now. Do not guess.
 2. **Front-load interaction.** Ask every clarifying question the brief plan surfaced. If any task's verification will need pixels or real HID (see `references/verification.md`), call computer-use `request_access` for the app under test now.
-3. **Chore/spike without a task list:** if the spec has no unchecked `## Tasks` yet, derive the tasks from the spec/prompt and write them into the spec first (ordered checkboxes, one commit each) — `start-run.sh` refuses a spec without tasks, and the loop needs them.
+3. **Draft start without a task list** (types that skip planning): if the spec has no unchecked `## Tasks` yet, derive the tasks from the spec/prompt and write them into the spec first (ordered checkboxes, one commit each) — `start-run.sh` refuses a spec without tasks, and the loop needs them.
 4. **Start:**
 
     ```bash

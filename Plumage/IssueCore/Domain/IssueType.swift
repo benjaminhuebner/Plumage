@@ -1,14 +1,22 @@
-nonisolated enum IssueType: String, CaseIterable, Codable, Sendable {
-    case feature
-    case chore
-    case spike
-    case refactor
+nonisolated struct IssueType: RawRepresentable, Hashable, Codable, Sendable {
+    let rawValue: String
 
-    // Tolerant Codable path (ModelChoice discipline) — see IssueStatus.
-    // Frontmatter stays strict via SpecParser's raw-value validation.
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    static let feature = IssueType(rawValue: "feature")
+    static let chore = IssueType(rawValue: "chore")
+    static let spike = IssueType(rawValue: "spike")
+    static let refactor = IssueType(rawValue: "refactor")
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        let raw = try container.decode(String.self)
-        self = IssueType(rawValue: raw) ?? .chore
+        rawValue = try container.decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }

@@ -222,12 +222,11 @@ struct SpecParserTests {
     // Yams always wraps its own scanner/parser/composer errors as YamlError. Left untested
     // until a future Yams version produces a bare .dataCorrupted.
 
-    @Test("unknown type returns .invalidEnumValue")
+    @Test("unknown type parses — types are user-defined in the catalog")
     func unknownType() throws {
-        #expect(
-            SpecParser.parse(content: try load("unknown-type.md"), folderName: "x")
-                == .failure(.invalidEnumValue(field: "type", value: "experiment"))
-        )
+        let result = SpecParser.parse(content: try load("unknown-type.md"), folderName: "x")
+        let issue = try #require(try? result.get())
+        #expect(issue.type == IssueType(rawValue: "experiment"))
     }
 
     @Test("unknown status returns .invalidEnumValue")
@@ -330,8 +329,8 @@ struct SpecParserTests {
     func validateInvalid() throws {
         #expect(SpecParser.validate(content: try load("missing-frontmatter.md")) == .missingFrontmatter)
         #expect(
-            SpecParser.validate(content: try load("unknown-type.md"))
-                == .invalidEnumValue(field: "type", value: "experiment"))
+            SpecParser.validate(content: try load("unknown-status.md"))
+                == .invalidEnumValue(field: "status", value: "parked"))
     }
 
     private func requireSuccess(

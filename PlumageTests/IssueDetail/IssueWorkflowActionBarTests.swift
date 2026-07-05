@@ -4,50 +4,55 @@ import Testing
 
 @Suite("WorkflowAction.isEnabled")
 struct WorkflowActionIsEnabledTests {
-    @Test("plan: only enabled for draft + feature")
+    @Test("plan: only enabled for draft when the type blocks implement")
     func planEnabled() {
-        for type in IssueType.allCases {
+        for blocks in [true, false] {
             for status in IssueStatus.allCases {
-                let enabled = WorkflowAction.plan.isEnabled(status: status, type: type)
-                let expected = (status == .draft && type == .feature)
-                #expect(enabled == expected, "plan(\(status), \(type)) expected \(expected)")
+                let enabled = WorkflowAction.plan.isEnabled(
+                    status: status, draftBlocksImplement: blocks)
+                let expected = (status == .draft && blocks)
+                #expect(enabled == expected, "plan(\(status), blocks=\(blocks)) expected \(expected)")
             }
         }
     }
 
-    @Test("implement: approved/in-progress always; draft for every non-feature type")
+    @Test("implement: approved/in-progress always; draft only when the type doesn't block")
     func implementEnabled() {
-        for type in IssueType.allCases {
+        for blocks in [true, false] {
             for status in IssueStatus.allCases {
-                let enabled = WorkflowAction.implement.isEnabled(status: status, type: type)
+                let enabled = WorkflowAction.implement.isEnabled(
+                    status: status, draftBlocksImplement: blocks)
                 let expected: Bool
                 switch status {
                 case .approved, .inProgress: expected = true
-                case .draft: expected = (type != .feature)
+                case .draft: expected = !blocks
                 case .waitingForReview, .done, .blocked: expected = false
                 }
-                #expect(enabled == expected, "implement(\(status), \(type)) expected \(expected)")
+                #expect(
+                    enabled == expected, "implement(\(status), blocks=\(blocks)) expected \(expected)"
+                )
             }
         }
     }
 
     @Test("every draft issue exposes at least one enabled action")
     func draftAlwaysHasEnabledAction() {
-        for type in IssueType.allCases {
+        for blocks in [true, false] {
             let anyEnabled = WorkflowAction.allCases.contains { action in
-                action.isEnabled(status: .draft, type: type)
+                action.isEnabled(status: .draft, draftBlocksImplement: blocks)
             }
-            #expect(anyEnabled, "draft + \(type) must expose at least one action")
+            #expect(anyEnabled, "draft + blocks=\(blocks) must expose at least one action")
         }
     }
 
     @Test("review: only enabled for waiting-for-review")
     func reviewEnabled() {
-        for type in IssueType.allCases {
+        for blocks in [true, false] {
             for status in IssueStatus.allCases {
-                let enabled = WorkflowAction.review.isEnabled(status: status, type: type)
+                let enabled = WorkflowAction.review.isEnabled(
+                    status: status, draftBlocksImplement: blocks)
                 let expected = (status == .waitingForReview)
-                #expect(enabled == expected, "review(\(status), \(type)) expected \(expected)")
+                #expect(enabled == expected, "review(\(status), blocks=\(blocks)) expected \(expected)")
             }
         }
     }
@@ -55,11 +60,11 @@ struct WorkflowActionIsEnabledTests {
     @Test("done and blocked disable every action")
     func terminalStatesDisableAll() {
         for status in [IssueStatus.done, .blocked] {
-            for type in IssueType.allCases {
+            for blocks in [true, false] {
                 for action in WorkflowAction.allCases {
                     #expect(
-                        !action.isEnabled(status: status, type: type),
-                        "\(action)(\(status), \(type)) must be disabled"
+                        !action.isEnabled(status: status, draftBlocksImplement: blocks),
+                        "\(action)(\(status), blocks=\(blocks)) must be disabled"
                     )
                 }
             }
@@ -112,7 +117,7 @@ struct WorkflowActionDisabledTooltipTests {
     func doneOverride() {
         for action in WorkflowAction.allCases {
             #expect(
-                action.disabledTooltip(status: .done, type: .feature)
+                action.disabledTooltip(status: .done, draftBlocksImplement: true)
                     == "Issue is done."
             )
         }
@@ -122,24 +127,24 @@ struct WorkflowActionDisabledTooltipTests {
     func blockedOverride() {
         for action in WorkflowAction.allCases {
             #expect(
-                action.disabledTooltip(status: .blocked, type: .feature)
+                action.disabledTooltip(status: .blocked, draftBlocksImplement: true)
                     == "Issue is blocked."
             )
         }
     }
 
-    @Test("plan tooltip surfaces non-feature draft case")
-    func planNonFeatureDraft() {
+    @Test("plan tooltip surfaces the skips-planning draft case")
+    func planSkipsPlanningDraft() {
         #expect(
-            WorkflowAction.plan.disabledTooltip(status: .draft, type: .chore)
-                .contains("Only feature issues")
+            WorkflowAction.plan.disabledTooltip(status: .draft, draftBlocksImplement: false)
+                .contains("skips planning")
         )
     }
 
-    @Test("plan tooltip falls back to the 'already approved' line outside non-feature draft")
+    @Test("plan tooltip falls back to the 'already approved' line outside skips-planning draft")
     func planAlreadyApprovedFallback() {
         #expect(
-            WorkflowAction.plan.disabledTooltip(status: .approved, type: .feature)
+            WorkflowAction.plan.disabledTooltip(status: .approved, draftBlocksImplement: true)
                 == "Issue is already approved or further along."
         )
     }
@@ -147,7 +152,7 @@ struct WorkflowActionDisabledTooltipTests {
     @Test("implement tooltip pins the must-be-planned-first copy")
     func implementMustBePlanned() {
         #expect(
-            WorkflowAction.implement.disabledTooltip(status: .draft, type: .feature)
+            WorkflowAction.implement.disabledTooltip(status: .draft, draftBlocksImplement: true)
                 == "Issue must be planned first (Plan button)."
         )
     }
@@ -155,7 +160,7 @@ struct WorkflowActionDisabledTooltipTests {
     @Test("review tooltip pins the not-yet-implemented copy")
     func reviewNotYetImplemented() {
         #expect(
-            WorkflowAction.review.disabledTooltip(status: .inProgress, type: .feature)
+            WorkflowAction.review.disabledTooltip(status: .inProgress, draftBlocksImplement: true)
                 == "Issue is not yet implemented."
         )
     }
@@ -163,28 +168,33 @@ struct WorkflowActionDisabledTooltipTests {
 
 @Suite("WorkflowAction.available")
 struct WorkflowActionAvailableTests {
-    @Test("at most one action is enabled for every status and type combination")
+    @Test("at most one action is enabled for every status and flag combination")
     func atMostOneEnabled() {
         for status in IssueStatus.allCases {
-            for type in IssueType.allCases {
+            for blocks in [true, false] {
                 let enabled = WorkflowAction.allCases.filter {
-                    $0.isEnabled(status: status, type: type)
+                    $0.isEnabled(status: status, draftBlocksImplement: blocks)
                 }
-                #expect(enabled.count <= 1, "\(status)+\(type) enables \(enabled)")
-                #expect(WorkflowAction.available(status: status, type: type) == enabled.first)
+                #expect(enabled.count <= 1, "\(status)+blocks=\(blocks) enables \(enabled)")
+                #expect(
+                    WorkflowAction.available(status: status, draftBlocksImplement: blocks)
+                        == enabled.first
+                )
             }
         }
     }
 
     @Test("maps statuses to the expected card action")
     func expectedMapping() {
-        #expect(WorkflowAction.available(status: .draft, type: .feature) == .plan)
-        #expect(WorkflowAction.available(status: .draft, type: .chore) == .implement)
-        #expect(WorkflowAction.available(status: .approved, type: .feature) == .implement)
-        #expect(WorkflowAction.available(status: .inProgress, type: .feature) == .implement)
-        #expect(WorkflowAction.available(status: .waitingForReview, type: .feature) == .review)
-        #expect(WorkflowAction.available(status: .done, type: .feature) == nil)
-        #expect(WorkflowAction.available(status: .blocked, type: .feature) == nil)
+        #expect(WorkflowAction.available(status: .draft, draftBlocksImplement: true) == .plan)
+        #expect(WorkflowAction.available(status: .draft, draftBlocksImplement: false) == .implement)
+        #expect(WorkflowAction.available(status: .approved, draftBlocksImplement: true) == .implement)
+        #expect(
+            WorkflowAction.available(status: .inProgress, draftBlocksImplement: true) == .implement)
+        #expect(
+            WorkflowAction.available(status: .waitingForReview, draftBlocksImplement: true) == .review)
+        #expect(WorkflowAction.available(status: .done, draftBlocksImplement: true) == nil)
+        #expect(WorkflowAction.available(status: .blocked, draftBlocksImplement: true) == nil)
     }
 }
 

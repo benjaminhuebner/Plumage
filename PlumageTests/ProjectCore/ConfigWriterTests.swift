@@ -97,20 +97,20 @@ struct ConfigWriterTests {
         let parsed = try #require(JSONSerialization.jsonObject(with: written) as? [String: Any])
         let models = try #require(parsed["models"] as? [String: Any])
         let implement = try #require(models["implement"] as? [String: String])
-        #expect(
-            implement == [
-                "feature": "opus", "chore": "haiku", "spike": "default", "refactor": "default",
-            ])
+        #expect(implement == ["feature": "opus", "chore": "haiku"])
     }
 
-    @Test("identical per-type values collapse to the plain string on disk")
+    @Test("identical per-type values collapse to the plain string on disk via normalized(for:)")
     func identicalPerTypeCollapsesOnDisk() throws {
         let (project, bundle) = try tempBundle(content: Self.sampleConfig)
         defer { try? FileManager.default.removeItem(at: project) }
 
         var loaded = try ConfigLoader.load(at: project)
-        let allOpus = Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, ModelChoice.opus) })
-        loaded.models = ModelsConfig(plan: .perType(allOpus))
+        let allOpus = Dictionary(
+            uniqueKeysWithValues: IssueTypeCatalog.builtIn.types.map { ($0, ModelChoice.opus) })
+        loaded.models = ModelsConfig(
+            plan: WorkflowModelSetting.perType(allOpus)
+                .normalized(for: IssueTypeCatalog.builtIn.types))
         try ConfigWriter.write(loaded, atBundle: bundle)
 
         let configURL = bundle.appendingPathComponent("config.json")

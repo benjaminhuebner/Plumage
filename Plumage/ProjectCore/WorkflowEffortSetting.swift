@@ -10,14 +10,16 @@ nonisolated enum WorkflowEffortSetting: Hashable, Sendable, Codable {
         }
     }
 
-    // Completes missing types and collapses an all-identical map to .uniform.
-    var normalized: WorkflowEffortSetting {
+    // Completes missing types from the given catalog list and collapses an
+    // all-identical map to .uniform. Entries for types no longer in the
+    // catalog are dropped.
+    func normalized(for types: [IssueType]) -> WorkflowEffortSetting {
         switch self {
         case .uniform:
             return self
         case .perType(let map):
             var completed: [IssueType: EffortLevel] = [:]
-            for type in IssueType.allCases {
+            for type in types {
                 completed[type] = map[type] ?? .default
             }
             let values = Set(completed.values)
@@ -34,19 +36,19 @@ nonisolated enum WorkflowEffortSetting: Hashable, Sendable, Codable {
             self = .uniform(EffortLevel(storageValue: string))
             return
         }
+        // Types are user-defined, so every key loads; normalization against
+        // the catalog happens in ProjectSettingsModel.
         let raw = try container.decode([String: String].self)
         var map: [IssueType: EffortLevel] = [:]
         for (key, value) in raw {
-            // Unknown keys (a future issue type) load tolerantly, dropped on next write.
-            guard let type = IssueType(rawValue: key) else { continue }
-            map[type] = EffortLevel(storageValue: value)
+            map[IssueType(rawValue: key)] = EffortLevel(storageValue: value)
         }
-        self = WorkflowEffortSetting.perType(map).normalized
+        self = .perType(map)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        switch normalized {
+        switch self {
         case .uniform(let level):
             try container.encode(level.storageValue)
         case .perType(let map):

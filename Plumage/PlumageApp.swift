@@ -9,6 +9,7 @@ struct PlumageApp: App {
     @State private var templateImportRequest = TemplateArchiveImportRequest()
     @State private var updater = UpdaterModel()
     @State private var settingsNavigation = SettingsNavigation()
+    @State private var issueTypeCatalogModel = IssueTypeCatalogModel()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -21,6 +22,7 @@ struct PlumageApp: App {
                 .containerBackground(.ultraThickMaterial, for: .window)
                 .task {
                     await recentProjects.load()
+                    await issueTypeCatalogModel.load()
                     drainPendingURLs()
                 }
                 .onChange(of: appDelegate.pendingURLs) { _, _ in
@@ -80,6 +82,9 @@ struct PlumageApp: App {
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
                 ProjectWindow(handle: handle)
+                    // Restored project windows bypass Welcome, so the catalog
+                    // load must also anchor here (idempotent).
+                    .task { await issueTypeCatalogModel.load() }
                     .onChange(of: appDelegate.pendingURLs) { _, _ in
                         drainPendingURLs()
                     }
@@ -103,12 +108,16 @@ struct PlumageApp: App {
         .environment(recentProjects)
         .environment(migrationRequest)
         .environment(settingsNavigation)
+        .environment(\.issueTypeCatalog, issueTypeCatalogModel.catalog)
 
         Settings {
             AppSettingsView()
+                .task { await issueTypeCatalogModel.load() }
         }
         .windowResizability(.contentSize)
         .environment(settingsNavigation)
+        .environment(issueTypeCatalogModel)
+        .environment(\.issueTypeCatalog, issueTypeCatalogModel.catalog)
     }
 
     private func drainPendingURLs() {

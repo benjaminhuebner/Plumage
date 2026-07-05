@@ -9,6 +9,8 @@ extension IssueType {
         case .chore: .yellow
         case .spike: .orange
         case .refactor: .cyan
+        // User-defined types get a stable hash color from the label palette.
+        default: LabelColor.color(for: rawValue)
         }
     }
 }

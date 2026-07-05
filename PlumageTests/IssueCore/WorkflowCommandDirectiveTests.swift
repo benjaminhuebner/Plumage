@@ -52,7 +52,7 @@ struct WorkflowCommandDirectiveTests {
     @Test("bare #if matches no type and empty token list stays empty")
     func bareIf() {
         let bare = WorkflowCommandDirective.parse(line: "#if")
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             #expect(bare?.matches(type) == false)
         }
     }

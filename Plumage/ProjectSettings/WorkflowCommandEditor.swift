@@ -7,6 +7,7 @@ import SwiftUI
 // stays a plain Swift String.
 struct WorkflowCommandEditor: NSViewRepresentable {
     @Binding var text: String
+    var catalog: IssueTypeCatalog = .builtIn
     var onPlaceholderInsert: (WorkflowPlaceholder) -> Void = { _ in }
 
     static let minHeight: CGFloat = 90
@@ -42,17 +43,19 @@ struct WorkflowCommandEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        let catalogChanged = context.coordinator.catalog != catalog
+        context.coordinator.catalog = catalog
         // Avoid clobbering the user's caret position on every keystroke.
         let serialized = WorkflowCommandSerialization.string(
             from: textView.attributedString()
         )
-        if serialized != text {
+        if serialized != text || catalogChanged {
             context.coordinator.applyString(text, to: textView)
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, catalog: catalog)
     }
 
     // Grows the editor with its content instead of scrolling. Measured against
@@ -83,9 +86,11 @@ struct WorkflowCommandEditor: NSViewRepresentable {
         private let text: Binding<String>
         private weak var textView: NSTextView?
         private var suppressNextChange = false
+        var catalog: IssueTypeCatalog
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, catalog: IssueTypeCatalog) {
             self.text = text
+            self.catalog = catalog
         }
 
         func attach(textView: NSTextView) {
@@ -93,7 +98,9 @@ struct WorkflowCommandEditor: NSViewRepresentable {
         }
 
         func applyString(_ raw: String, to textView: NSTextView) {
-            let attributed = WorkflowCommandSerialization.attributedString(from: raw)
+            let attributed = WorkflowCommandSerialization.attributedString(
+                from: raw, catalog: catalog
+            )
             suppressNextChange = true
             textView.textStorage?.setAttributedString(attributed)
             suppressNextChange = false
@@ -189,12 +196,16 @@ struct WorkflowCommandEditor: NSViewRepresentable {
                 }
                 let textRange = match.range(at: 1)
                 let text = nsPlain.substring(with: textRange)
-                guard let kind = WorkflowCommandSerialization.directiveKind(for: text) else {
+                guard
+                    let kind = WorkflowCommandSerialization.directiveKind(
+                        for: text, catalog: catalog
+                    )
+                else {
                     continue
                 }
                 let attachment = NSTextAttachment()
                 attachment.attachmentCell = WorkflowCommandDirectiveCell(
-                    kind: kind, rawText: text
+                    kind: kind, rawText: text, catalog: catalog
                 )
                 storage.replaceCharacters(
                     in: textRange, with: NSAttributedString(attachment: attachment)

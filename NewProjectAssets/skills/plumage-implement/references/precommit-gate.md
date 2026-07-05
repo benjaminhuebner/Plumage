@@ -43,7 +43,7 @@ Two xcodebuild invocations against the same project deadlock over DerivedData/SW
 
 ## The seven checks
 
-For `feature` and `chore` issues all applicable checks must pass. For `spike` issues the gate is optional — skip if the spec sets `skipPreCommitGate: true`.
+All applicable checks must pass for every issue type. Exception: the gate is optional when the spec sets `skipPreCommitGate: true` in frontmatter (typical for `spike` issues — throwaway exploration code).
 
 ### 1. Build — zero errors, zero warnings
 

@@ -54,7 +54,7 @@ struct WorkflowCommandEditorDirectiveConversionTests {
     ) -> (textView: WorkflowCommandTextView, coordinator: WorkflowCommandEditor.Coordinator) {
         var text = initial
         let binding = Binding(get: { text }, set: { text = $0 })
-        let coordinator = WorkflowCommandEditor.Coordinator(text: binding)
+        let coordinator = WorkflowCommandEditor.Coordinator(text: binding, catalog: .builtIn)
         let textView = WorkflowCommandTextView()
         coordinator.attach(textView: textView)
         textView.delegate = coordinator

@@ -7,6 +7,7 @@ struct ProjectSettingsView: View {
     @State private var showRenameConfirm = false
     @Environment(\.onProjectConfigSaved) private var onProjectConfigSaved
     @Environment(\.onProjectRenamed) private var onProjectRenamed
+    @Environment(\.issueTypeCatalog) private var issueTypeCatalog
 
     init(projectURL: URL) {
         self.projectURL = projectURL
@@ -38,8 +39,12 @@ struct ProjectSettingsView: View {
         .task {
             model.onSaved = onProjectConfigSaved
             model.onRenamed = onProjectRenamed
+            model.setIssueTypes(issueTypeCatalog.types)
             await model.load()
             await model.loadBranchCandidates()
+        }
+        .onChange(of: issueTypeCatalog.types) { _, newTypes in
+            model.setIssueTypes(newTypes)
         }
         .onDisappear {
             // Belt-and-braces: a typed-into command text within the 500ms
@@ -255,6 +260,7 @@ struct ProjectSettingsView: View {
             }
             WorkflowCommandEditor(
                 text: binding,
+                catalog: issueTypeCatalog,
                 onPlaceholderInsert: { placeholder in
                     insertPlaceholder(placeholder, into: binding)
                 }
@@ -280,7 +286,7 @@ struct ProjectSettingsView: View {
                 Divider()
                     .frame(height: 14)
                 Menu {
-                    ForEach(IssueType.allCases, id: \.self) { type in
+                    ForEach(model.issueTypes, id: \.self) { type in
                         Button("#if \(type.rawValue)") {
                             insertDirectiveLine("#if \(type.rawValue)", into: binding)
                         }

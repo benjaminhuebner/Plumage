@@ -33,9 +33,14 @@ nonisolated enum SpecParser {
             return .failure(.invalidYAML(line: nil, column: nil, message: error.localizedDescription))
         }
 
-        guard let type = IssueType(rawValue: raw.type) else {
+        // Types are user-defined (catalog in app settings), so any non-empty
+        // token parses — a type deleted from the catalog must not invalidate
+        // existing specs. Only an empty value is rejected.
+        let typeToken = raw.type.trimmingCharacters(in: .whitespaces)
+        guard !typeToken.isEmpty else {
             return .failure(.invalidEnumValue(field: "type", value: raw.type))
         }
+        let type = IssueType(rawValue: typeToken)
         guard let status = IssueStatus(rawValue: raw.status) else {
             return .failure(.invalidEnumValue(field: "status", value: raw.status))
         }

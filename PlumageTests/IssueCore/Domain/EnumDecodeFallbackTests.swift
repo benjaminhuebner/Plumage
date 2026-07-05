@@ -15,9 +15,9 @@ struct EnumDecodeFallbackTests {
         #expect(try decode([IssueStatus].self, #"["in-progress"]"#) == [.inProgress])
     }
 
-    @Test("unknown IssueType raw value coerces to .chore instead of failing")
-    func issueTypeFallback() throws {
-        #expect(try decode([IssueType].self, #"["epic"]"#) == [.chore])
+    @Test("any IssueType raw value decodes as itself — types are user-defined")
+    func issueTypeDecodesVerbatim() throws {
+        #expect(try decode([IssueType].self, #"["epic"]"#) == [IssueType(rawValue: "epic")])
         #expect(try decode([IssueType].self, #"["spike"]"#) == [.spike])
     }
 

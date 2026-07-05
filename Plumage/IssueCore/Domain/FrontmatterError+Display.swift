@@ -51,7 +51,7 @@ extension FrontmatterError {
 
     private func allowedValues(for field: String) -> String {
         switch field {
-        case "type": IssueType.allCases.map(\.rawValue).joined(separator: ", ")
+        case "type": "any non-empty issue type (configured in Settings → Issue Types)"
         case "status": IssueStatus.allCases.map(\.rawValue).joined(separator: ", ")
         default: "(unknown field)"
         }

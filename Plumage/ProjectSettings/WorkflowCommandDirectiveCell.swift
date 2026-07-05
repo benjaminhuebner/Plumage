@@ -32,10 +32,10 @@ final class WorkflowCommandDirectiveCell: NSTextAttachmentCell, @unchecked Senda
     nonisolated static let baselineOffset: CGFloat = -2
 
     @MainActor
-    init(kind: Kind, rawText: String) {
+    init(kind: Kind, rawText: String, catalog: IssueTypeCatalog) {
         self.kind = kind
         self.rawText = rawText
-        self.segments = Self.makeSegments(for: kind)
+        self.segments = Self.makeSegments(for: kind, catalog: catalog)
         super.init()
     }
 
@@ -52,7 +52,7 @@ final class WorkflowCommandDirectiveCell: NSTextAttachmentCell, @unchecked Senda
     }
 
     @MainActor
-    private static func makeSegments(for kind: Kind) -> [Segment] {
+    private static func makeSegments(for kind: Kind, catalog: IssueTypeCatalog) -> [Segment] {
         let badge = Segment(
             label: kind.badgeLabel,
             fill: NSColor.secondaryLabelColor.withAlphaComponent(0.15),
@@ -65,9 +65,9 @@ final class WorkflowCommandDirectiveCell: NSTextAttachmentCell, @unchecked Senda
                 + types.map { type in
                     Segment(
                         label: type.rawValue,
-                        fill: NSColor(type.color),
+                        fill: NSColor(catalog.color(for: type)),
                         stroke: nil,
-                        textColor: NSColor(type.foregroundOnTint)
+                        textColor: NSColor(catalog.foregroundOnTint(for: type))
                     )
                 }
         case .elseBranch, .end:

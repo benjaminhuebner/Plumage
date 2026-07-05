@@ -2,6 +2,7 @@ import Observation
 
 nonisolated enum SettingsTab: Hashable, Sendable {
     case general
+    case issueTypes
     case templates
     case accounts
 }

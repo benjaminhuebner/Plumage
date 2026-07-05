@@ -257,7 +257,7 @@ struct WorkflowCommandResolverTests {
         let fx = try makeFixture()
         defer { fx.cleanup() }
         let unknownOnly = "#if foobar\n/never\n#end\n/always"
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             #expect(resolveOverride(unknownOnly, type: type, fixture: fx) == ["/always"])
         }
         let mixed = "#if chore foobar\n/mixed\n#end"
@@ -272,7 +272,7 @@ struct WorkflowCommandResolverTests {
         let template = "  #if chore\n/chore-line\n\t#end\n#end\n/tail"
         let lines = resolveOverride(template, type: .chore, fixture: fx)
         #expect(lines == ["/chore-line", "/tail"])
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             let all = resolveOverride(template, type: type, fixture: fx)
             #expect(!all.contains(where: { $0.contains("#if") || $0.contains("#end") }))
         }
@@ -308,7 +308,7 @@ struct WorkflowCommandResolverTests {
         let fx = try makeFixture()
         defer { fx.cleanup() }
         let template = "#if foobar\n/never\n#else\n/always\n#end"
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             #expect(resolveOverride(template, type: type, fixture: fx) == ["/always"])
         }
     }
@@ -372,7 +372,7 @@ struct WorkflowCommandResolverTests {
     @Test("filtersToEmpty is false for defaults and directive-free overrides")
     func filtersToEmptyPassThrough() {
         for action in WorkflowAction.allCases {
-            for type in IssueType.allCases {
+            for type in IssueTypeCatalog.builtIn.types {
                 #expect(
                     !WorkflowCommandResolver.filtersToEmpty(
                         action: action, type: type, override: nil
@@ -392,7 +392,7 @@ struct WorkflowCommandResolverTests {
         defer { fx.cleanup() }
         let template = "/my-plan <slug>\n<prompt>"
         let expected = ["/my-plan x", "PROMPT"]
-        for type in IssueType.allCases {
+        for type in IssueTypeCatalog.builtIn.types {
             #expect(resolveOverride(template, type: type, fixture: fx) == expected)
         }
     }

@@ -26,36 +26,25 @@ struct WorkflowEffortSettingTests {
         #expect(try decode("\"ultra\"") == .uniform(.default))
     }
 
-    @Test("JSON object decodes to .perType with all four types completed")
+    @Test("JSON object decodes to .perType with the given keys verbatim")
     func objectDecodesPerType() throws {
         let setting = try decode(#"{"feature": "max", "chore": "low"}"#)
-        #expect(
-            setting
-                == .perType([
-                    .feature: .max, .chore: .low, .spike: .default, .refactor: .default,
-                ]))
+        #expect(setting == .perType([.feature: .max, .chore: .low]))
     }
 
-    @Test("object with identical values collapses to .uniform on decode")
-    func identicalObjectCollapses() throws {
-        let setting = try decode(
-            #"{"feature": "high", "chore": "high", "spike": "high", "refactor": "high"}"#)
-        #expect(setting == .uniform(.high))
-    }
-
-    @Test("unknown object keys are ignored on decode")
-    func unknownKeysIgnored() throws {
+    @Test("custom-type keys load as their own types — the catalog is user-defined")
+    func customKeysLoad() throws {
         let setting = try decode(#"{"feature": "max", "epic": "low"}"#)
         #expect(setting.choice(for: .feature) == .max)
-        #expect(setting.choice(for: .chore) == .default)
-        if case .uniform = setting {
-            Testing.Issue.record("expected .perType, got .uniform")
-        }
+        #expect(setting.choice(for: IssueType(rawValue: "epic")) == .low)
+        #expect(setting.choice(for: .chore) == nil)
     }
 
-    @Test("empty object decodes as uniform .default")
-    func emptyObjectIsUniformDefault() throws {
-        #expect(try decode("{}") == .uniform(.default))
+    @Test("empty object decodes as an empty per-type map (every lookup nil)")
+    func emptyObjectIsEmptyMap() throws {
+        let setting = try decode("{}")
+        #expect(setting == .perType([:]))
+        #expect(setting.choice(for: .feature) == nil)
     }
 
     @Test("neither string nor object fails to decode")
@@ -71,21 +60,11 @@ struct WorkflowEffortSettingTests {
         #expect(value as? String == "high")
     }
 
-    @Test(".perType with differing values encodes as full four-key object")
+    @Test(".perType encodes its entries verbatim")
     func perTypeEncodesObject() throws {
         let value = try encodeToJSONObject(.perType([.feature: .max, .chore: .low]))
         let dict = try #require(value as? [String: String])
-        #expect(
-            dict == [
-                "feature": "max", "chore": "low", "spike": "default", "refactor": "default",
-            ])
-    }
-
-    @Test(".perType with identical values encodes as plain string")
-    func perTypeCollapsesOnEncode() throws {
-        let map = Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, EffortLevel.high) })
-        let value = try encodeToJSONObject(.perType(map))
-        #expect(value as? String == "high")
+        #expect(dict == ["feature": "max", "chore": "low"])
     }
 
     @Test("mixed setting round-trips")
@@ -106,17 +85,20 @@ struct WorkflowEffortSettingTests {
         #expect(WorkflowEffortSetting.uniform(.high).choice(for: .refactor) == .high)
     }
 
-    @Test("normalized completes missing types and collapses identical maps")
+    @Test("normalized(for:) completes missing types, drops stale ones, collapses identical maps")
     func normalization() {
+        let types = IssueTypeCatalog.builtIn.types
         let partial = WorkflowEffortSetting.perType([.feature: .max])
         #expect(
-            partial.normalized
+            partial.normalized(for: types)
                 == .perType([
                     .feature: .max, .chore: .default, .spike: .default, .refactor: .default,
                 ]))
         let allSame = WorkflowEffortSetting.perType(
-            Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, EffortLevel.max) }))
-        #expect(allSame.normalized == .uniform(.max))
-        #expect(WorkflowEffortSetting.perType([:]).normalized == .uniform(.default))
+            Dictionary(uniqueKeysWithValues: types.map { ($0, EffortLevel.max) }))
+        #expect(allSame.normalized(for: types) == .uniform(.max))
+        #expect(WorkflowEffortSetting.perType([:]).normalized(for: types) == .uniform(.default))
+        let stale = WorkflowEffortSetting.perType([IssueType(rawValue: "ghost"): .max])
+        #expect(stale.normalized(for: types) == .uniform(.default))
     }
 }

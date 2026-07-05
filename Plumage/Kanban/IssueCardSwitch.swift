@@ -18,6 +18,7 @@ struct IssueCardSwitch: View {
     @Environment(\.openSpec) private var openSpec
     @Environment(\.runWorkflow) private var runWorkflow
     @Environment(\.workflowCommandIsEmpty) private var workflowCommandIsEmpty
+    @Environment(\.issueTypeCatalog) private var issueTypeCatalog
     @Environment(\.kanbanFrameRegistry) private var frameRegistry
     @FocusedValue(\.specEditorDirtyFolderName) private var dirtyFolderName: String?
 
@@ -47,7 +48,11 @@ struct IssueCardSwitch: View {
 
     private func cardAction(for value: Issue) -> WorkflowAction? {
         guard runStatus.liveRuns[value.folderName] == nil else { return nil }
-        guard let action = WorkflowAction.available(status: value.status, type: value.type),
+        guard
+            let action = WorkflowAction.available(
+                status: value.status,
+                draftBlocksImplement: issueTypeCatalog.draftBlocksImplement(for: value.type)
+            ),
             !workflowCommandIsEmpty(action, value.type)
         else { return nil }
         return action

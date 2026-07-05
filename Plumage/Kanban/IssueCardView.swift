@@ -13,6 +13,7 @@ struct IssueCardView: View {
     var onRunWorkflow: (WorkflowAction) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.issueTypeCatalog) private var issueTypeCatalog
 
     private var accessibilityDescription: String {
         var parts = ["\(issue.type.rawValue.capitalized) · \(issue.title)"]
@@ -99,7 +100,7 @@ struct IssueCardView: View {
         // space, so a card with no goal is the same height as one with a
         // long goal.
         .frame(height: KanbanLayout.cardContentHeight, alignment: .top)
-        .cardSurface(tint: issue.type.color)
+        .cardSurface(tint: issueTypeCatalog.color(for: issue.type))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color.accentColor, lineWidth: 2)

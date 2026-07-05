@@ -13,6 +13,10 @@ struct AppSettingsView: View {
                 .frame(width: Self.paneWidth, height: 188)
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
+            IssueTypesSettingsTab()
+                .frame(width: Self.paneWidth, height: 560)
+                .tabItem { Label("Issue Types", systemImage: "square.grid.2x2") }
+                .tag(SettingsTab.issueTypes)
             TemplatesSettingsTab()
                 .frame(width: Self.paneWidth, height: 452)
                 .tabItem { Label("Templates", systemImage: "doc.text") }

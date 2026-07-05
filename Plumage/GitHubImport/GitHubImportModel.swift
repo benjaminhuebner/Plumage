@@ -35,6 +35,7 @@ final class GitHubImportModel {
     private let credentialStore: any GitHubCredentialStoring
     private let client: GitHubIssuesClient
     private let allocator: NextIssueAllocator
+    private let defaultIssueType: IssueType
     private let openInEditor: @MainActor (String) -> Void
 
     init(
@@ -45,6 +46,7 @@ final class GitHubImportModel {
         credentialStore: any GitHubCredentialStoring = ProductionGitHubCredentialStore(),
         client: GitHubIssuesClient = GitHubIssuesClient(),
         allocator: NextIssueAllocator? = nil,
+        defaultIssueType: IssueType = .feature,
         openInEditor: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.projectURL = projectURL
@@ -54,6 +56,7 @@ final class GitHubImportModel {
         self.credentialStore = credentialStore
         self.client = client
         self.allocator = allocator ?? NextIssueAllocator(projectURL: projectURL)
+        self.defaultIssueType = defaultIssueType
         self.openInEditor = openInEditor
     }
 
@@ -88,8 +91,8 @@ final class GitHubImportModel {
         adoptError = nil
         do {
             let folderName = try GitHubIssueAdopter.allocate(
-                allocator: allocator, title: issue.title, labels: issue.labels,
-                body: issue.body ?? "", number: number)
+                allocator: allocator, title: issue.title, type: defaultIssueType,
+                labels: issue.labels, body: issue.body ?? "", number: number)
             openInEditor(folderName)
         } catch {
             justAdopted.remove(number)
@@ -166,25 +169,27 @@ final class GitHubImportModel {
 
 nonisolated enum GitHubIssueAdopter {
     static func allocate(
-        allocator: NextIssueAllocator, title: String, labels: [String], body: String, number: Int
+        allocator: NextIssueAllocator, title: String, type: IssueType, labels: [String],
+        body: String, number: Int
     ) throws -> String {
         let base = NextIssueAllocator.slugify(title)
         let slug = base.isEmpty ? "gh\(number)" : base
         let url = try allocateOnce(
-            allocator, slug: slug, title: title, labels: labels, body: body, number: number)
+            allocator, slug: slug, title: title, type: type, labels: labels, body: body,
+            number: number)
         return url.deletingLastPathComponent().lastPathComponent
     }
 
     private static func allocateOnce(
-        _ allocator: NextIssueAllocator, slug: String, title: String, labels: [String],
-        body: String, number: Int
+        _ allocator: NextIssueAllocator, slug: String, title: String, type: IssueType,
+        labels: [String], body: String, number: Int
     ) throws -> URL {
         do {
             return try allocator.allocate(
-                slug: slug, title: title, type: .feature, labels: labels, prompt: body, github: number)
+                slug: slug, title: title, type: type, labels: labels, prompt: body, github: number)
         } catch NextIssueAllocatorError.slugCollision {
             return try allocator.allocate(
-                slug: "\(slug)-gh\(number)", title: title, type: .feature, labels: labels,
+                slug: "\(slug)-gh\(number)", title: title, type: type, labels: labels,
                 prompt: body, github: number)
         }
     }

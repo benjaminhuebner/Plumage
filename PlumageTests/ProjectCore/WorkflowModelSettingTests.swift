@@ -22,36 +22,25 @@ struct WorkflowModelSettingTests {
         #expect(try decode("\"default\"") == .uniform(.default))
     }
 
-    @Test("JSON object decodes to .perType with all four types completed")
+    @Test("JSON object decodes to .perType with the given keys verbatim")
     func objectDecodesPerType() throws {
         let setting = try decode(#"{"feature": "opus", "chore": "haiku"}"#)
-        #expect(
-            setting
-                == .perType([
-                    .feature: .opus, .chore: .haiku, .spike: .default, .refactor: .default,
-                ]))
+        #expect(setting == .perType([.feature: .opus, .chore: .haiku]))
     }
 
-    @Test("object with identical values collapses to .uniform on decode")
-    func identicalObjectCollapses() throws {
-        let setting = try decode(
-            #"{"feature": "sonnet", "chore": "sonnet", "spike": "sonnet", "refactor": "sonnet"}"#)
-        #expect(setting == .uniform(.sonnet))
-    }
-
-    @Test("unknown object keys are ignored on decode")
-    func unknownKeysIgnored() throws {
+    @Test("custom-type keys load as their own types — the catalog is user-defined")
+    func customKeysLoad() throws {
         let setting = try decode(#"{"feature": "opus", "epic": "haiku"}"#)
         #expect(setting.choice(for: .feature) == .opus)
-        #expect(setting.choice(for: .chore) == .default)
-        if case .uniform = setting {
-            Testing.Issue.record("expected .perType, got .uniform")
-        }
+        #expect(setting.choice(for: IssueType(rawValue: "epic")) == .haiku)
+        #expect(setting.choice(for: .chore) == nil)
     }
 
-    @Test("empty object decodes as uniform .default")
-    func emptyObjectIsUniformDefault() throws {
-        #expect(try decode("{}") == .uniform(.default))
+    @Test("empty object decodes as an empty per-type map (every lookup nil)")
+    func emptyObjectIsEmptyMap() throws {
+        let setting = try decode("{}")
+        #expect(setting == .perType([:]))
+        #expect(setting.choice(for: .feature) == nil)
     }
 
     @Test("neither string nor object fails to decode")
@@ -67,21 +56,11 @@ struct WorkflowModelSettingTests {
         #expect(value as? String == "haiku")
     }
 
-    @Test(".perType with differing values encodes as full four-key object")
+    @Test(".perType encodes its entries verbatim")
     func perTypeEncodesObject() throws {
         let value = try encodeToJSONObject(.perType([.feature: .opus, .chore: .haiku]))
         let dict = try #require(value as? [String: String])
-        #expect(
-            dict == [
-                "feature": "opus", "chore": "haiku", "spike": "default", "refactor": "default",
-            ])
-    }
-
-    @Test(".perType with identical values encodes as plain string")
-    func perTypeCollapsesOnEncode() throws {
-        let map = Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, ModelChoice.sonnet) })
-        let value = try encodeToJSONObject(.perType(map))
-        #expect(value as? String == "sonnet")
+        #expect(dict == ["feature": "opus", "chore": "haiku"])
     }
 
     @Test("mixed setting round-trips")
@@ -102,17 +81,20 @@ struct WorkflowModelSettingTests {
         #expect(WorkflowModelSetting.uniform(.haiku).choice(for: .refactor) == .haiku)
     }
 
-    @Test("normalized completes missing types and collapses identical maps")
+    @Test("normalized(for:) completes missing types, drops stale ones, collapses identical maps")
     func normalization() {
+        let types = IssueTypeCatalog.builtIn.types
         let partial = WorkflowModelSetting.perType([.feature: .opus])
         #expect(
-            partial.normalized
+            partial.normalized(for: types)
                 == .perType([
                     .feature: .opus, .chore: .default, .spike: .default, .refactor: .default,
                 ]))
         let allSame = WorkflowModelSetting.perType(
-            Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, ModelChoice.opus) }))
-        #expect(allSame.normalized == .uniform(.opus))
-        #expect(WorkflowModelSetting.perType([:]).normalized == .uniform(.default))
+            Dictionary(uniqueKeysWithValues: types.map { ($0, ModelChoice.opus) }))
+        #expect(allSame.normalized(for: types) == .uniform(.opus))
+        #expect(WorkflowModelSetting.perType([:]).normalized(for: types) == .uniform(.default))
+        let stale = WorkflowModelSetting.perType([IssueType(rawValue: "ghost"): .opus])
+        #expect(stale.normalized(for: types) == .uniform(.default))
     }
 }

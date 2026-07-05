@@ -10,15 +10,16 @@ nonisolated enum WorkflowModelSetting: Hashable, Sendable, Codable {
         }
     }
 
-    // Completes missing types and collapses an all-identical map to .uniform
-    // so disk mirrors the UI semantics.
-    var normalized: WorkflowModelSetting {
+    // Completes missing types from the given catalog list and collapses an
+    // all-identical map to .uniform so disk mirrors the UI semantics. Entries
+    // for types no longer in the catalog are dropped.
+    func normalized(for types: [IssueType]) -> WorkflowModelSetting {
         switch self {
         case .uniform:
             return self
         case .perType(let map):
             var completed: [IssueType: ModelChoice] = [:]
-            for type in IssueType.allCases {
+            for type in types {
                 completed[type] = map[type] ?? .default
             }
             let values = Set(completed.values)
@@ -35,19 +36,19 @@ nonisolated enum WorkflowModelSetting: Hashable, Sendable, Codable {
             self = .uniform(ModelChoice(storageValue: string))
             return
         }
+        // Types are user-defined, so every key loads; the catalog isn't known
+        // here — normalization happens where it is (ProjectSettingsModel).
         let raw = try container.decode([String: String].self)
         var map: [IssueType: ModelChoice] = [:]
         for (key, value) in raw {
-            // Unknown keys (a future issue type) load tolerantly, dropped on next write.
-            guard let type = IssueType(rawValue: key) else { continue }
-            map[type] = ModelChoice(storageValue: value)
+            map[IssueType(rawValue: key)] = ModelChoice(storageValue: value)
         }
-        self = WorkflowModelSetting.perType(map).normalized
+        self = .perType(map)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        switch normalized {
+        switch self {
         case .uniform(let choice):
             try container.encode(choice.storageValue)
         case .perType(let map):

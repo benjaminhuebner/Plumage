@@ -48,21 +48,18 @@ final class ProjectSettingsModel {
     var reviewPermissionMode: PermissionMode?
     var chatModel: ModelChoice = ModelsConfig.chatDefault
     var terminalsModel: ModelChoice = ModelsConfig.terminalsDefault
-    // Workflow slots are per-issue-type; the dicts always carry all four types.
-    var planModels: [IssueType: ModelChoice] =
-        ProjectSettingsModel.uniformWorkflowModels(.planAction)
-    var implementModels: [IssueType: ModelChoice] =
-        ProjectSettingsModel.uniformWorkflowModels(.implementAction)
-    var reviewModels: [IssueType: ModelChoice] =
-        ProjectSettingsModel.uniformWorkflowModels(.reviewAction)
+    // The app-wide type catalog, injected by the view before load(). The
+    // per-type dicts below always carry exactly these types.
+    private(set) var issueTypes: [IssueType] = IssueTypeCatalog.builtIn.types
+    // Workflow slots are per-issue-type; the dicts always carry all catalog types.
+    var planModels: [IssueType: ModelChoice] = [:]
+    var implementModels: [IssueType: ModelChoice] = [:]
+    var reviewModels: [IssueType: ModelChoice] = [:]
     var chatEffort: EffortLevel = EffortsConfig.chatDefault
     var terminalsEffort: EffortLevel = EffortsConfig.terminalsDefault
-    var planEfforts: [IssueType: EffortLevel] =
-        ProjectSettingsModel.uniformWorkflowEfforts(.planAction)
-    var implementEfforts: [IssueType: EffortLevel] =
-        ProjectSettingsModel.uniformWorkflowEfforts(.implementAction)
-    var reviewEfforts: [IssueType: EffortLevel] =
-        ProjectSettingsModel.uniformWorkflowEfforts(.reviewAction)
+    var planEfforts: [IssueType: EffortLevel] = [:]
+    var implementEfforts: [IssueType: EffortLevel] = [:]
+    var reviewEfforts: [IssueType: EffortLevel] = [:]
     // The diff base. Seeded from config.gitDefaultBranch on load; a picker
     // choice saves immediately. Branch candidates load async for the picker.
     var defaultBranch: String = "main"
@@ -161,43 +158,65 @@ final class ProjectSettingsModel {
         reviewPermissionMode = reviewOverride?.permissionMode
         chatModel = config.models?.chat ?? ModelsConfig.chatDefault
         terminalsModel = config.models?.terminals ?? ModelsConfig.terminalsDefault
-        planModels = Self.workflowModels(from: config.models?.plan, slot: .planAction)
-        implementModels = Self.workflowModels(from: config.models?.implement, slot: .implementAction)
-        reviewModels = Self.workflowModels(from: config.models?.review, slot: .reviewAction)
+        planModels = workflowModels(from: config.models?.plan, slot: .planAction)
+        implementModels = workflowModels(from: config.models?.implement, slot: .implementAction)
+        reviewModels = workflowModels(from: config.models?.review, slot: .reviewAction)
         chatEffort = config.efforts?.chat ?? EffortsConfig.chatDefault
         terminalsEffort = config.efforts?.terminals ?? EffortsConfig.terminalsDefault
-        planEfforts = Self.workflowEfforts(from: config.efforts?.plan, slot: .planAction)
-        implementEfforts = Self.workflowEfforts(from: config.efforts?.implement, slot: .implementAction)
-        reviewEfforts = Self.workflowEfforts(from: config.efforts?.review, slot: .reviewAction)
+        planEfforts = workflowEfforts(from: config.efforts?.plan, slot: .planAction)
+        implementEfforts = workflowEfforts(from: config.efforts?.implement, slot: .implementAction)
+        reviewEfforts = workflowEfforts(from: config.efforts?.review, slot: .reviewAction)
         defaultBranch = config.gitDefaultBranch
     }
 
-    private static func uniformWorkflowModels(_ slot: ModelSlot) -> [IssueType: ModelChoice] {
-        let value = ModelsConfig.slotDefault(for: slot)
-        return Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
+    // Re-completes the per-type dicts against a changed catalog: new types get
+    // the slot default (or the uniform value when the slot is uniform), removed
+    // types drop out. Called by the view before load() and on catalog changes.
+    func setIssueTypes(_ types: [IssueType]) {
+        guard types != issueTypes else { return }
+        issueTypes = types
+        planModels = recompleted(planModels, slot: .planAction)
+        implementModels = recompleted(implementModels, slot: .implementAction)
+        reviewModels = recompleted(reviewModels, slot: .reviewAction)
+        planEfforts = recompletedEfforts(planEfforts, slot: .planAction)
+        implementEfforts = recompletedEfforts(implementEfforts, slot: .implementAction)
+        reviewEfforts = recompletedEfforts(reviewEfforts, slot: .reviewAction)
     }
 
-    private static func workflowModels(
+    private func recompleted(
+        _ map: [IssueType: ModelChoice], slot: ModelSlot
+    ) -> [IssueType: ModelChoice] {
+        let values = Set(map.values)
+        let uniform = values.count == 1 ? values.first : nil
+        let fill = uniform ?? ModelsConfig.slotDefault(for: slot)
+        return Dictionary(uniqueKeysWithValues: issueTypes.map { ($0, map[$0] ?? fill) })
+    }
+
+    private func recompletedEfforts(
+        _ map: [IssueType: EffortLevel], slot: ModelSlot
+    ) -> [IssueType: EffortLevel] {
+        let values = Set(map.values)
+        let uniform = values.count == 1 ? values.first : nil
+        let fill = uniform ?? EffortsConfig.slotDefault(for: slot)
+        return Dictionary(uniqueKeysWithValues: issueTypes.map { ($0, map[$0] ?? fill) })
+    }
+
+    private func workflowModels(
         from setting: WorkflowModelSetting?, slot: ModelSlot
     ) -> [IssueType: ModelChoice] {
         let fallback = ModelsConfig.slotDefault(for: slot)
         return Dictionary(
-            uniqueKeysWithValues: IssueType.allCases.map {
+            uniqueKeysWithValues: issueTypes.map {
                 ($0, setting?.choice(for: $0) ?? fallback)
             })
     }
 
-    private static func uniformWorkflowEfforts(_ slot: ModelSlot) -> [IssueType: EffortLevel] {
-        let value = EffortsConfig.slotDefault(for: slot)
-        return Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
-    }
-
-    private static func workflowEfforts(
+    private func workflowEfforts(
         from setting: WorkflowEffortSetting?, slot: ModelSlot
     ) -> [IssueType: EffortLevel] {
         let fallback = EffortsConfig.slotDefault(for: slot)
         return Dictionary(
-            uniqueKeysWithValues: IssueType.allCases.map {
+            uniqueKeysWithValues: issueTypes.map {
                 ($0, setting?.choice(for: $0) ?? fallback)
             })
     }
@@ -349,7 +368,7 @@ final class ProjectSettingsModel {
             terminalsModel = value
             terminalsEffort = clampedEffort(terminalsEffort, for: value)
         case .planAction, .implementAction, .reviewAction:
-            setWorkflowModels(Self.uniform(value), for: slot)
+            setWorkflowModels(uniform(value), for: slot)
             clampWorkflowEfforts(for: slot, model: value)
         }
         scheduleSave()
@@ -361,7 +380,7 @@ final class ProjectSettingsModel {
 
     private func clampWorkflowEfforts(for slot: ModelSlot, model: ModelChoice) {
         var efforts = workflowEfforts(for: slot)
-        for type in IssueType.allCases {
+        for type in issueTypes {
             efforts[type] = clampedEffort(
                 efforts[type] ?? EffortsConfig.slotDefault(for: slot),
                 for: model
@@ -418,8 +437,8 @@ final class ProjectSettingsModel {
         }
     }
 
-    private static func uniform(_ value: ModelChoice) -> [IssueType: ModelChoice] {
-        Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
+    private func uniform(_ value: ModelChoice) -> [IssueType: ModelChoice] {
+        Dictionary(uniqueKeysWithValues: issueTypes.map { ($0, value) })
     }
 
     func effortBinding(for slot: ModelSlot) -> Binding<EffortLevel> {
@@ -444,7 +463,7 @@ final class ProjectSettingsModel {
         case .chat: chatEffort = value
         case .terminals: terminalsEffort = value
         case .planAction, .implementAction, .reviewAction:
-            setWorkflowEfforts(Self.uniformEffort(value), for: slot)
+            setWorkflowEfforts(uniformEffort(value), for: slot)
         }
         scheduleSave()
     }
@@ -491,8 +510,8 @@ final class ProjectSettingsModel {
         }
     }
 
-    private static func uniformEffort(_ value: EffortLevel) -> [IssueType: EffortLevel] {
-        Dictionary(uniqueKeysWithValues: IssueType.allCases.map { ($0, value) })
+    private func uniformEffort(_ value: EffortLevel) -> [IssueType: EffortLevel] {
+        Dictionary(uniqueKeysWithValues: issueTypes.map { ($0, value) })
     }
 
     // Public for ProjectSettingsView's onChange driver — every field bound
@@ -697,7 +716,7 @@ final class ProjectSettingsModel {
     private func workflowSetting(
         _ models: [IssueType: ModelChoice], slot: ModelSlot
     ) -> WorkflowModelSetting? {
-        let normalized = WorkflowModelSetting.perType(models).normalized
+        let normalized = WorkflowModelSetting.perType(models).normalized(for: issueTypes)
         if normalized == .uniform(ModelsConfig.slotDefault(for: slot)) { return nil }
         return normalized
     }
@@ -709,7 +728,7 @@ final class ProjectSettingsModel {
     private func workflowEffortSetting(
         _ efforts: [IssueType: EffortLevel], slot: ModelSlot
     ) -> WorkflowEffortSetting? {
-        let normalized = WorkflowEffortSetting.perType(efforts).normalized
+        let normalized = WorkflowEffortSetting.perType(efforts).normalized(for: issueTypes)
         if normalized == .uniform(EffortsConfig.slotDefault(for: slot)) { return nil }
         return normalized
     }

@@ -24,8 +24,9 @@
 #   3  same-slug conflict: already running or queued (any worktree)
 #   4  still waiting in this checkout's queue — re-invoke to keep waiting
 #   5  dirty working tree on fresh start — user must stash/commit/discard
-#   6  wrong spec status for implement (draft feature / waiting-for-review /
-#      done) — the message names the right next step
+#   6  wrong spec status for implement (draft of a type whose "draft blocks
+#      implement" flag is on / waiting-for-review / done) — the message names
+#      the right next step
 
 set -uo pipefail
 
@@ -117,18 +118,43 @@ fm_field() {
 status=$(fm_field status)
 type=$(fm_field type)
 
+# Whether a draft of this type blocks implement comes from Plumage's app-wide
+# issue-type catalog (Settings → Issue Types). Fallback when the catalog file
+# is missing or doesn't list the type: built-in defaults — only 'feature'
+# blocks; unknown types block (implementing an unvetted draft is the risky
+# direction).
+draft_blocks_implement() {
+    local t="$1"
+    local types_file="$HOME/Library/Application Support/Plumage/issue-types.json"
+    local flag=""
+    if [ -f "$types_file" ]; then
+        # Readable non-empty catalog: a type it doesn't list blocks ("true"),
+        # matching the app. Missing/corrupt/empty catalog: flag stays "" and
+        # the built-in defaults below apply, also matching the app.
+        flag=$(jq -r --arg t "$t" '
+            if ((.types // []) | length) == 0 then ""
+            else (([.types[] | select(.name == $t) | .draftBlocksImplement | tostring] | first) // "true")
+            end' "$types_file" 2>/dev/null) || flag=""
+    fi
+    if [ -z "$flag" ]; then
+        case "$t" in
+            chore|spike|refactor) flag="false" ;;
+            *) flag="true" ;;
+        esac
+    fi
+    [ "$flag" != "false" ]
+}
+
 mode=""
 case "$status" in
     approved) mode="fresh" ;;
     in-progress) mode="resume" ;;
     draft)
-        case "$type" in
-            chore|spike) mode="fresh" ;;
-            *)
-                echo "error: spec is draft and type '$type' needs planning — run /plumage-plan $slug first" >&2
-                exit 6
-                ;;
-        esac
+        if draft_blocks_implement "$type"; then
+            echo "error: spec is draft and type '$type' needs planning — run /plumage-plan $slug first (per-type draft blocking: Plumage Settings → Issue Types)" >&2
+            exit 6
+        fi
+        mode="fresh"
         ;;
     waiting-for-review|done)
         echo "error: spec status is '$status' — this issue is past implementation" >&2

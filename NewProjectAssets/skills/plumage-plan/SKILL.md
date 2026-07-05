@@ -1,6 +1,6 @@
 ---
 name: plumage-plan
-description: This skill should be used when the user runs `/plumage-plan <slug>` or `/plumage-plan <slug> - <prompt>`, or asks to "plan an issue", "scope this feature", "write a spec", or "interview me about issue NNNN". Drives an interactive interview that fills out a Plumage issue's `spec.md` and flips it from `draft` to `approved`. Do NOT use for `chore` or `spike` issues — those skip planning and go straight to `/plumage-implement`.
+description: This skill should be used when the user runs `/plumage-plan <slug>` or `/plumage-plan <slug> - <prompt>`, or asks to "plan an issue", "scope this feature", "write a spec", or "interview me about issue NNNN". Drives an interactive interview that fills out a Plumage issue's `spec.md` and flips it from `draft` to `approved`. Do NOT use for issue types that skip planning (their "draft blocks implement" flag is off in Plumage's Settings → Issue Types; default: `chore`, `spike`, `refactor`) — those go straight to `/plumage-implement`.
 argument-hint: "[slug] - [prompt]"
 user-invocable: true
 disable-model-invocation: true

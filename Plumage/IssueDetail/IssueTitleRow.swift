@@ -11,6 +11,7 @@ struct IssueTitleRow: View {
     struct WorkflowBarConfig {
         let status: IssueStatus
         let type: IssueType
+        let draftBlocksImplement: Bool
         var openBlockers: [ResolvedBlocker] = []
         let runWorkflow: (WorkflowAction) -> Void
     }
@@ -41,6 +42,7 @@ struct IssueTitleRow: View {
                 IssueWorkflowActionBar(
                     status: config.status,
                     type: config.type,
+                    draftBlocksImplement: config.draftBlocksImplement,
                     openBlockers: config.openBlockers,
                     runWorkflow: config.runWorkflow
                 )
@@ -64,7 +66,7 @@ struct IssueTitleRow: View {
             autoFocusTitle: false,
             onCommitTitle: {},
             isDisabled: false,
-            workflowBar: .init(status: .inProgress, type: .feature) { _ in }
+            workflowBar: .init(status: .inProgress, type: .feature, draftBlocksImplement: true) { _ in }
         )
         .padding()
         .frame(width: 700)
