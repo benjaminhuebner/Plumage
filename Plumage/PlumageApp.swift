@@ -9,6 +9,7 @@ struct PlumageApp: App {
     @State private var templateImportRequest = TemplateArchiveImportRequest()
     @State private var updater = UpdaterModel()
     @State private var settingsNavigation = SettingsNavigation()
+    @State private var helpNavigation = HelpNavigation()
     @State private var issueTypeCatalogModel = IssueTypeCatalogModel()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -39,6 +40,7 @@ struct PlumageApp: App {
         .commands {
             ProjectFileCommands(recentProjects: recentProjects, migrationRequest: migrationRequest)
             UpdateCommands(updater: updater)
+            HelpCommands(helpNavigation: helpNavigation)
         }
         .environment(recentProjects)
         .environment(migrationRequest)
@@ -79,6 +81,15 @@ struct PlumageApp: App {
         .restorationBehavior(.disabled)
         .keyboardShortcut("t", modifiers: [.command, .shift])
 
+        Window("Plumage Help", id: "help") {
+            HelpWindowView()
+                .environment(helpNavigation)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 960, height: 640)
+        .defaultPosition(.center)
+        .restorationBehavior(.disabled)
+
         WindowGroup("Project", for: ProjectHandle.self) { $handle in
             if let handle {
                 ProjectWindow(handle: handle)
@@ -102,6 +113,7 @@ struct PlumageApp: App {
             SpecEditorCommands()
             GitCommand()
             TerminalCommand()
+            HelpCommands(helpNavigation: helpNavigation)
         }
         // Restoration intentionally on: project windows open at quit
         // reopen; Welcome appears only when nothing restores.
@@ -181,6 +193,9 @@ final class PlumageAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         runAlertCoordinator.start()
         RunCompletionNotifier.shared.activate()
+        // Debug builds may not be in the LaunchServices database yet; explicit
+        // registration makes Help-menu search results available on first launch.
+        _ = NSHelpManager.shared.registerBooks(in: .main)
         // Sync the bundled claude theme so the embedded terminal renders without
         // opaque block backgrounds. Off-main: on iCloud Drive / NFS homes the writes
         // can take tens of milliseconds. Failure is best-effort, swallowed inside.

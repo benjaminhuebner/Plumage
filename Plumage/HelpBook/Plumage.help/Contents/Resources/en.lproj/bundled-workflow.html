@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Bundled Workflow</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Plumage Help</a></nav>
+<h1>The Bundled Workflow</h1>
+<p>Plumage ships a ready-made issue workflow: plan a spec, implement it task by task, review the result. Every piece of it can be reconfigured or replaced.</p>
+<h2>The three buttons</h2>
+<p>The Plan, Implement and Review buttons on an issue start a Claude session with a configurable command. Out of the box they run the bundled skills:</p>
+<table>
+<thead><tr>
+<th>Button</th>
+<th>Default command</th>
+<th>Permission mode</th>
+</tr></thead>
+<tbody>
+<tr><td>Plan</td><td><code>/plumage-plan</code></td><td>Plan Mode</td></tr>
+<tr><td>Implement</td><td><code>/plumage-implement</code></td><td>Accept Edits</td></tr>
+<tr><td>Review</td><td><code>/plumage-review</code></td><td>Default</td></tr>
+</tbody>
+</table>
+<p>Project settings let you edit each command (with <code>&lt;slug&gt;</code>, <code>&lt;prompt&gt;</code> and <code>&lt;spec&gt;</code> placeholders and per-issue-type <code>#if</code> branches), change its permission mode and pick a model and effort per workflow. The buttons launch whatever workflow you point them at.</p>
+<h2>What the bundled Implement does</h2>
+<p>The bundled implement skill works through the spec task by task on the issue's own branch, committing a checkpoint after each task. Every commit must pass a pre-commit gate. In the bundled Swift setup that means a warning-free build, green tests, clean SwiftLint and clean swift-format. The gate script is a file in your project and evolves with your stack.</p>
+<p>The skill does not merge, push or archive. Those remain your explicit actions.</p>
+<h2>Branches</h2>
+<p>Each issue works on its own branch, named <code>issue/&lt;slug&gt;</code> by default. The prefix and the default target branch are configurable in the project's <code>config.json</code> (<code>git.branchPrefix</code>, <code>git.defaultBranch</code>).</p>
+<h2>Parallel runs</h2>
+<p>Builds and tests run strictly serially across all worktrees; a "waiting for gate lock" line in a run is normal queueing rather than an error. Two implement runs can execute in parallel only in separate git worktrees. Starting a second run in the same checkout queues it first-in-first-out behind the active one.</p>
+<p>Run state lives in the <code>.plumage</code> bundle (<code>runs/</code>), so an interrupted run can be resumed after a crash or restart.</p>
+<h2>Make it yours</h2>
+<p>The skills behind the default commands are plain files in your project's <code>.claude/skills/</code>. Edit them there or override the templates that scaffold them to change what future projects start with (see Templates &amp; Scaffolding).</p>
+</body>
+</html>

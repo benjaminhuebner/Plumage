@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Archiving Issues</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Plumage Help</a></nav>
+<h1>Archiving Issues</h1>
+<p>Archiving moves a finished issue off the board without deleting anything.</p>
+<h2>How it works</h2>
+<p>Archiving moves the issue's whole folder from <code>.claude/issues/&lt;id&gt;-&lt;slug&gt;/</code> to <code>.claude/issues/archive/&lt;id&gt;-&lt;slug&gt;/</code>. Nothing is rewritten; spec, docs and PR file travel as-is. If a folder with the same name already exists in the archive, a numeric suffix is appended.</p>
+<h2>The Archive view</h2>
+<p>The Archive entry in the sidebar lists archived issues read-only. Unarchive an issue from its context menu and the folder moves straight back to <code>.claude/issues/</code>, where the issue reappears on the board.</p>
+<p>Archiving is always a manual action. Finishing or merging an issue never archives it automatically.</p>
+</body>
+</html>

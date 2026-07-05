@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Template Merge Syntax</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Plumage Help</a></nav>
+<h1>Template Merge Syntax</h1>
+<p>When template tiers contribute a file with the same name, Plumage merges the variants into one output file. The strategy is chosen in this order:</p>
+<ol>
+<li><strong>Placeholder merge</strong> whenever the least-specific variant contains <code>&lt;&lt;&lt;keyword&gt;&gt;&gt;</code> placeholder lines, regardless of file extension.</li>
+<li><strong>Format-aware merge</strong> by extension: <code>.json</code>, <code>.xml</code>, <code>.md</code> / <code>.markdown</code>.</li>
+<li><strong>Plain-text append</strong> for any other text file.</li>
+<li><strong>Copy</strong> for binary files and for variants a merge cannot parse. The most specific variant wins verbatim.</li>
+</ol>
+<p>Merged output keeps the most specific variant's permissions, so scripts stay executable.</p>
+<h2>Placeholder merge</h2>
+<p>The least-specific file (the skeleton) marks insertion points with a placeholder alone on its own line:</p>
+<pre><code>## Reference docs
+&lt;&lt;&lt;refdocs&gt;&gt;&gt;</code></pre>
+<p>Any contributing variant fills a placeholder with a matching block:</p>
+<pre><code>%% refdocs %%
+- docs/PROJECT.md — what this project is
+%% /refdocs %%</code></pre>
+<p>Rules:</p>
+<ul>
+<li>Matching is exact and case-sensitive: <code>&lt;&lt;&lt;refdocs&gt;&gt;&gt;</code> is filled only by <code>%% refdocs %%</code>, never by <code>%% Refdocs %%</code> or <code>%% ref docs %%</code>.</li>
+<li>Markers must stand alone on their line; whitespace around the keyword inside the markers is ignored.</li>
+<li>Several blocks with the same keyword, in one file or across tiers, join in source order separated by a blank line.</li>
+<li>Unfilled placeholders are dropped from the output. If the dropped placeholder sat directly under a <code>## </code> heading, the heading is removed too, so an empty section leaves no orphan.</li>
+<li>An unclosed <code>%% keyword %%</code> or a stray <code>%% /keyword %%</code> is an authoring error.</li>
+</ul>
+<h2>Markdown: merge by heading</h2>
+<p>Without placeholders, <code>.md</code> files merge section-wise:</p>
+<ul>
+<li>Sections match on the exact heading line, level included: <code>## Build and test</code> only matches <code>## Build and test</code>, never <code># Build and test</code>.</li>
+<li>A repeated heading fuses the contribution's leading block (up to its first blank line) into the existing section; lines the section already contains are skipped.</li>
+<li>New headings append at the end of the document.</li>
+<li>YAML frontmatter is never line-merged; the most specific variant's frontmatter wins wholesale.</li>
+<li>Fenced code blocks move and deduplicate as one unit. They are never split.</li>
+</ul>
+<h2>JSON: deep merge</h2>
+<ul>
+<li>Objects merge key by key; the more specific variant wins on conflicts.</li>
+<li>Arrays append elements that are not already present (deep value equality).</li>
+<li>Expect a regenerated file rather than a byte-for-byte edit: output is re-serialized pretty-printed with sorted keys.</li>
+<li>If any variant fails to parse, no merge happens and the most specific variant is copied verbatim.</li>
+</ul>
+<h2>XML: structural merge</h2>
+<ul>
+<li>All variants must share the root element name; otherwise the most specific variant is copied verbatim.</li>
+<li>Attributes replace by name.</li>
+<li>A child element whose name is unique on both sides merges recursively; other children append unless a structurally identical one already exists.</li>
+<li>Output is re-serialized pretty-printed.</li>
+</ul>
+<h2>Plain text: append</h2>
+<p>Text files with no better strategy concatenate in tier order, one blank line between chunks. A variant identical to an earlier one is skipped, so a copied and untouched file never doubles its content.</p>
+</body>
+</html>

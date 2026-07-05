@@ -1,8 +1,8 @@
 import Foundation
 
-// Pure + SwiftUI-free so loadPR can parse off-main once per load, rather than
+// Pure + SwiftUI-free so callers can parse off-main once per load, rather than
 // the view re-parsing on every body evaluation.
-nonisolated enum PRMarkdownParser {
+nonisolated enum MarkdownBlockParser {
     enum Block: Equatable, Sendable {
         case heading(level: Int, text: AttributedString)
         case paragraph(AttributedString)
@@ -139,8 +139,8 @@ nonisolated enum PRMarkdownParser {
     }
 
     // Only web links stay clickable; file:, javascript:, and relative
-    // destinations render as inert text so PR.md can never trigger a
-    // local open or script through the default-browser handoff.
+    // destinations render as inert text so rendered markdown can never
+    // trigger a local open or script through the default-browser handoff.
     private static func sanitizeLinks(_ attributed: inout AttributedString) {
         let disallowed = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
             guard let url = run.link else { return nil }

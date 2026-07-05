@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issues &amp; the Board</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Plumage Help</a></nav>
+<h1>Issues &amp; the Board</h1>
+<p>Issues live in <code>.claude/issues/&lt;id&gt;-&lt;slug&gt;/spec.md</code>. The spec's frontmatter is the source of truth; the board is a view of those files.</p>
+<h2>Statuses and columns</h2>
+<p>An issue is in one of six statuses: <code>draft</code>, <code>approved</code>, <code>in-progress</code>, <code>waiting-for-review</code>, <code>done</code> or <code>blocked</code>.</p>
+<p>The board shows four columns:</p>
+<table>
+<thead><tr>
+<th>Column</th>
+<th>Statuses</th>
+</tr></thead>
+<tbody>
+<tr><td>Todo</td><td><code>draft</code>, <code>approved</code>, <code>blocked</code></td></tr>
+<tr><td>In Progress</td><td><code>in-progress</code></td></tr>
+<tr><td>Waiting for Review</td><td><code>waiting-for-review</code></td></tr>
+<tr><td>Done</td><td><code>done</code></td></tr>
+</tbody>
+</table>
+<p>Draft, approved and blocked issues share the Todo column; look at the card's status badge to tell them apart.</p>
+<h2>Who moves an issue</h2>
+<p>The <code>status:</code> field is ordinary spec frontmatter. Like the rest of the file, it belongs to you. With the bundled workflow the skills manage it: Plan flips <code>draft</code> to <code>approved</code>, Implement moves through <code>in-progress</code> to <code>waiting-for-review</code> and the app's Merge action flips a merged issue to <code>done</code>. If you run your own workflow, edit <code>status:</code> however you like. The board follows the file.</p>
+<h2>Issue types</h2>
+<p>Each issue has a type, configurable in Settings &gt; Issue Types. A type's "draft blocks implement" flag decides whether an issue must be planned before the Implement button enables. By default only features require planning; chores, spikes and refactors can go straight from draft to Implement.</p>
+</body>
+</html>

@@ -66,7 +66,7 @@ final class IssueDetailModel {
     private(set) var prContent: String?
     // Pre-parsed PR.md blocks so PRTabView renders without re-parsing on every
     // body evaluation. Populated together with prContent in loadPR().
-    private(set) var prBlocks: [PRMarkdownParser.Block] = []
+    private(set) var prBlocks: [MarkdownBlockParser.Block] = []
     private(set) var evidence: EvidenceState = .missing
     private(set) var evidenceIsStale: Bool = false
     private(set) var runHistory: RunHistoryReader.Page = .empty
@@ -944,13 +944,13 @@ final class IssueDetailModel {
         // Read AND parse off-main so the markdown parse never runs on a view
         // body evaluation. Empty content yields no blocks (PRTabView shows the
         // empty state) while still recording prContent for state checks.
-        let result: (content: String?, blocks: [PRMarkdownParser.Block]) =
+        let result: (content: String?, blocks: [MarkdownBlockParser.Block]) =
             await Task.detached(priority: .utility) {
                 guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
                     return (nil, [])
                 }
                 let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
-                return (normalized, normalized.isEmpty ? [] : PRMarkdownParser.parse(normalized))
+                return (normalized, normalized.isEmpty ? [] : MarkdownBlockParser.parse(normalized))
             }.value
         prContent = result.content
         prBlocks = result.blocks

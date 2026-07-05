@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>How Plumage Works</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Plumage Help</a></nav>
+<h1>How Plumage Works</h1>
+<p>Plumage is a native macOS front end for Claude Code workflows: issues on a Kanban board, an embedded agent session, an integrated editor and a local PR view.</p>
+<h2>The bundled setup is optional</h2>
+<p>Plumage ships with a complete setup: a plan/implement/review workflow, project templates, hooks and skills. None of it is mandatory. Everything under <code>.claude/</code> is plain files scaffolded from templates you control. The workflow buttons run commands you can edit per project. Use the bundled workflow as it is or replace any part of it with your own. The "Bundled Defaults" section covers what ships in the box; everything else in this help, including the template system, describes the app itself and applies no matter how you set things up.</p>
+<h2>Files are the source of truth</h2>
+<p>Plumage stores nothing in a database. Everything lives in plain files inside your project:</p>
+<ul>
+<li><code>.claude/</code> holds issues, docs, hooks and skills. These are the same files Claude Code reads.</li>
+<li><code>&lt;name&gt;.plumage</code> is a bundle in your project folder with Plumage's own metadata: project configuration, run state and session bookkeeping.</li>
+</ul>
+<p>Plain-file state survives crashes and restarts. Git versions it like source code. When something looks wrong, any text editor will do.</p>
+<h2>Local by design</h2>
+<p>The workflow ends at "merged locally". Plumage never pushes on its own and never opens pull requests. The PR view is a local artifact rendered from the issue's <code>pr.md</code>. With a connected GitHub account, pushing and pulling are still manual actions.</p>
+<h2>Claude runs as a subprocess</h2>
+<p>All Claude interaction goes through the <code>claude</code> command-line tool installed on your Mac. It is the same Claude Code you would run in a terminal, with the same login. Plumage never calls the Anthropic API directly, so a Claude Pro or Max subscription works the same way it does in a terminal session.</p>
+</body>
+</html>

@@ -58,8 +58,5 @@ struct ProjectFileCommands: Commands {
             OpenRecentMenu(recentProjects: recentProjects)
             MigrateProjectMenuButton(migrationRequest: migrationRequest)
         }
-        // No help book exists — the default "Plumage Help" item dead-ends in
-        // a system error alert, which is worse than no menu.
-        CommandGroup(replacing: .help) {}
     }
 }

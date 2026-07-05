@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Templates &amp; Scaffolding</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Plumage Help</a></nav>
+<h1>Templates &amp; Scaffolding</h1>
+<p>New projects are scaffolded from templates. Three tiers stack, from least to most specific: <strong>Base &lt; Component &lt; Template</strong>. A more specific tier refines the tiers below it.</p>
+<p>The bundled templates lean Swift and Xcode, but nothing ties the template system to that stack. You can override any bundled file or add your own. A template can target whatever stack or workflow you have in mind. Even the bundled workflow skills arrive through templates; replace them and every new project starts differently.</p>
+<h2>What templates provide</h2>
+<p>Templates contribute hooks, skills, docs, agents and arbitrary files or folders. Typed items land in their fixed category folder (<code>hooks/</code>, <code>skills/</code>, <code>docs/</code>, <code>agents/</code>); plain files and folders are placed wherever the template puts them.</p>
+<h2>Customizing</h2>
+<p>Settings &gt; Templates and the Template Manager (⇧⌘T) let you override any bundled file or add your own. Overrides are stored per file in Application Support rather than inside your project, so a new scaffold always starts from your current template state.</p>
+<ul>
+<li>A dot marker (●) means an override actually differs from the bundled file.</li>
+<li><strong>Reset to default</strong> restores a bundled-backed file; <strong>Delete</strong> removes a user-authored one.</li>
+<li>Bundled files cannot be deleted from disk, so removing one places a tombstone that hides it from scaffolding.</li>
+<li><strong>Restore Defaults</strong> moves the whole override store to the Trash, so the step is recoverable.</li>
+</ul>
+<h2>Same-named files merge</h2>
+<p>When the same file name appears in more than one tier, the variants are composed into a single output file instead of the most specific one silently winning. How they compose depends on the file; see Template Merge Syntax.</p>
+</body>
+</html>

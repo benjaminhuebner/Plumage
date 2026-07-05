@@ -34,6 +34,10 @@
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>CFBundleHelpBookFolder</key>
+	<string>Plumage.help</string>
+	<key>CFBundleHelpBookName</key>
+	<string>com.benjaminhuebner.Plumage.help</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
