@@ -4,6 +4,8 @@ import os
 nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
     case kanban
     case issue(folderName: String)
+    case archive
+    case archivedIssue(folderName: String)
     case projectFile(relativePath: String)
     case projectSettings
 
@@ -11,7 +13,7 @@ nonisolated enum NavigatorRoute: Hashable, Sendable, Codable {
         switch self {
         case .projectFile(let rel):
             return projectURL.appendingPathComponent(rel)
-        case .kanban, .issue, .projectSettings:
+        case .kanban, .issue, .archive, .archivedIssue, .projectSettings:
             return nil
         }
     }
@@ -26,7 +28,7 @@ nonisolated extension NavigatorRoute {
             return rewrittenProjectFile(current, by: rewrites)
         case .issue(let folderName):
             return rewrittenIssue(folderName, by: rewrites)
-        case .kanban, .projectSettings:
+        case .kanban, .archive, .archivedIssue, .projectSettings:
             return nil
         }
     }

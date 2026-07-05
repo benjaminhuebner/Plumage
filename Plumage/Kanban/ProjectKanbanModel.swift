@@ -36,6 +36,9 @@ final class ProjectKanbanModel {
         enum Kind: Equatable, Sendable {
             case archive
             case trash
+            // Trash of an already-archived issue: same confirm, but the folder
+            // lives under archive/ and the card is in archivedIssues, not the board.
+            case archiveTrash
         }
         let kind: Kind
         let folderName: String
@@ -44,6 +47,7 @@ final class ProjectKanbanModel {
     typealias Mutator = @Sendable (URL, IssueStatus?, SetValue<Double?>, Date) throws -> Void
     typealias Archiver = @Sendable (_ folderURL: URL, _ archiveRoot: URL) throws -> URL
     typealias Trasher = @Sendable (_ folderURL: URL) throws -> URL
+    typealias Unarchiver = @Sendable (_ folderURL: URL, _ issuesRoot: URL) throws -> URL
 
     private(set) var issues: [DiscoveredIssue] = []
     private(set) var groupedIssues: [IssueColumn: [DiscoveredIssue]] = [:]
@@ -75,6 +79,10 @@ final class ProjectKanbanModel {
     // Active numbers derive live from the snapshot; archived ones need a disk
     // scan (the archive isn't part of the board snapshot), cached here.
     private(set) var archivedGitHubNumbers: Set<Int> = []
+
+    // Scanned on demand (route activation + after each archive action), never
+    // via a permanent watcher on the archive directory.
+    private(set) var archivedIssues: [DiscoveredIssue] = []
 
     var adoptedGitHubNumbers: Set<Int> {
         var numbers = archivedGitHubNumbers
@@ -110,9 +118,13 @@ final class ProjectKanbanModel {
     private let mutator: Mutator
     private let archiver: Archiver
     private let trasher: Trasher
+    private let unarchiver: Unarchiver
     private var highlightTask: Task<Void, Never>?
     private var dropTask: Task<Void, Never>?
     private var removalTask: Task<Void, Never>?
+    // Separate slot from removalTask so a board archive/trash can't cancel an
+    // in-flight unarchive (or archive-trash) mid-write, and vice versa.
+    private var archiveActionTask: Task<Void, Never>?
     private var errorClearTask: Task<Void, Never>?
     private var topOrderWriteTask: Task<Void, Never>?
     // While inactive, coalesce snapshots to the latest and apply once on
@@ -140,6 +152,9 @@ final class ProjectKanbanModel {
         },
         trasher: @escaping Trasher = { folderURL in
             try IssueArchiver.trash(folderURL: folderURL)
+        },
+        unarchiver: @escaping Unarchiver = { folderURL, issuesRoot in
+            try IssueArchiver.unarchive(folderURL: folderURL, issuesRoot: issuesRoot)
         }
     ) {
         self.producerFactory = producerFactory
@@ -148,6 +163,7 @@ final class ProjectKanbanModel {
         self.mutator = mutator
         self.archiver = archiver
         self.trasher = trasher
+        self.unarchiver = unarchiver
     }
 
     // Safety net for teardown: `[weak self]` in the Task closures prevents retain
@@ -157,6 +173,7 @@ final class ProjectKanbanModel {
         highlightTask?.cancel()
         dropTask?.cancel()
         removalTask?.cancel()
+        archiveActionTask?.cancel()
         errorClearTask?.cancel()
         topOrderWriteTask?.cancel()
     }
@@ -177,8 +194,16 @@ final class ProjectKanbanModel {
         guard let projectURL = runProjectURL else { return }
         let archiveDir = IssueLayout.archiveDirectory(in: projectURL)
         archivedGitHubNumbers = await Task.detached(priority: .utility) {
-            AdoptedGitHubScan.archivedNumbers(inArchive: archiveDir)
+            ArchiveReader.archivedGitHubNumbers(inArchive: archiveDir)
         }.value
+    }
+
+    func refreshArchivedIssues(projectURL: URL) async {
+        let archiveDir = IssueLayout.archiveDirectory(in: projectURL)
+        let scanned = await Task.detached(priority: .utility) {
+            ArchiveReader.discoverArchivedIssues(inArchive: archiveDir)
+        }.value
+        if scanned != archivedIssues { archivedIssues = scanned }
     }
 
     func ingest(_ snapshot: [DiscoveredIssue], projectURL: URL) {
@@ -205,7 +230,9 @@ final class ProjectKanbanModel {
         let entryOrders = Self.columnEntryOrders(previous: issues, incoming: reconciled.snapshot)
         // An externally removed issue must drop a confirm dialog still naming it,
         // else "Archive"/"Trash" silently no-ops on a folder that's already gone.
-        if let pending = pendingRemoval,
+        // Skips archiveTrash: its folder lives in archivedIssues, never the board
+        // snapshot, so this check would wrongly clear it every refresh.
+        if let pending = pendingRemoval, pending.kind != .archiveTrash,
             !reconciled.snapshot.contains(where: { $0.id == pending.folderName })
         {
             pendingRemoval = nil
@@ -274,6 +301,10 @@ final class ProjectKanbanModel {
         pendingRemoval = PendingRemoval(kind: .trash, folderName: folderName)
     }
 
+    func requestArchiveTrash(folderName: String) {
+        pendingRemoval = PendingRemoval(kind: .archiveTrash, folderName: folderName)
+    }
+
     func cancelPendingRemoval() {
         pendingRemoval = nil
     }
@@ -285,6 +316,8 @@ final class ProjectKanbanModel {
             applyOptimisticArchive(folderName: removal.folderName, projectURL: projectURL)
         case .trash:
             applyOptimisticTrash(folderName: removal.folderName, projectURL: projectURL)
+        case .archiveTrash:
+            applyOptimisticArchiveTrash(folderName: removal.folderName, projectURL: projectURL)
         }
     }
 
@@ -321,6 +354,10 @@ final class ProjectKanbanModel {
     func _setIssuesForTesting(_ issues: [DiscoveredIssue]) {
         self.issues = issues
         regroup()
+    }
+
+    func _setArchivedIssuesForTesting(_ issues: [DiscoveredIssue]) {
+        self.archivedIssues = issues
     }
     #endif
 
@@ -461,6 +498,8 @@ final class ProjectKanbanModel {
                 }.value
                 guard !Task.isCancelled else { return }
                 self?.lastRemovalCompleted = folderName
+                // A card just entered the archive; keep an open Archive list current.
+                await self?.refreshArchivedIssues(projectURL: projectURL)
             } catch {
                 // Same cancellation discipline as applyOptimisticDrop: if a newer
                 // removal cancelled us, priorIssues is stale and writing it back
@@ -507,6 +546,80 @@ final class ProjectKanbanModel {
         applyOptimisticTrash(folderName: folderName, projectURL: projectURL)
         let task = removalTask
         await task?.value
+    }
+
+    func applyOptimisticUnarchive(folderName: String, projectURL: URL) {
+        guard archivedIssues.contains(where: { $0.id == folderName }) else { return }
+        let prior = archivedIssues
+        archivedIssues = archivedIssues.filter { $0.id != folderName }
+        let folderURL = IssueLayout.archiveDirectory(in: projectURL)
+            .appendingPathComponent(folderName, isDirectory: true)
+        let issuesRoot = IssueLayout.issuesDirectory(in: projectURL)
+        let unarchiverFn = unarchiver
+        archiveActionTask?.cancel()
+        archiveActionTask = Task { [weak self] in
+            do {
+                _ = try await Task.detached {
+                    try unarchiverFn(folderURL, issuesRoot)
+                }.value
+                guard !Task.isCancelled else { return }
+                self?.lastRemovalCompleted = folderName
+                await self?.refreshArchivedIssues(projectURL: projectURL)
+            } catch {
+                // Same cancellation discipline as the board removals: a newer
+                // archive action cancelling us leaves `prior` stale, so skip the
+                // rollback rather than resurrect a card already acted on.
+                guard !Task.isCancelled else { return }
+                self?.rollbackOptimisticArchiveRemoval(
+                    to: prior, folderName: folderName, error: error.localizedDescription)
+            }
+        }
+    }
+
+    func performUnarchiveOptimistic(folderName: String, projectURL: URL) async {
+        applyOptimisticUnarchive(folderName: folderName, projectURL: projectURL)
+        let task = archiveActionTask
+        await task?.value
+    }
+
+    func applyOptimisticArchiveTrash(folderName: String, projectURL: URL) {
+        guard archivedIssues.contains(where: { $0.id == folderName }) else { return }
+        let prior = archivedIssues
+        archivedIssues = archivedIssues.filter { $0.id != folderName }
+        let folderURL = IssueLayout.archivedIssueFolder(in: projectURL, folderName: folderName)
+        let trasherFn = trasher
+        archiveActionTask?.cancel()
+        archiveActionTask = Task { [weak self] in
+            do {
+                _ = try await Task.detached {
+                    try trasherFn(folderURL)
+                }.value
+                guard !Task.isCancelled else { return }
+                self?.lastRemovalCompleted = folderName
+                await self?.refreshArchivedIssues(projectURL: projectURL)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.rollbackOptimisticArchiveRemoval(
+                    to: prior, folderName: folderName, error: error.localizedDescription)
+            }
+        }
+    }
+
+    func performArchiveTrashOptimistic(folderName: String, projectURL: URL) async {
+        applyOptimisticArchiveTrash(folderName: folderName, projectURL: projectURL)
+        let task = archiveActionTask
+        await task?.value
+    }
+
+    private func rollbackOptimisticArchiveRemoval(
+        to prior: [DiscoveredIssue], folderName: String, error: String
+    ) {
+        if let priorCard = prior.first(where: { $0.id == folderName }),
+            !archivedIssues.contains(where: { $0.id == folderName })
+        {
+            archivedIssues = (archivedIssues + [priorCard]).sortedForKanban()
+        }
+        surfaceRemovalError(error)
     }
 
     // Mirror of rollbackOptimisticDrop for archive/trash. Kept duplicated
@@ -735,25 +848,5 @@ final class ProjectKanbanModel {
         // ordering: the optimistic update's `Self.replace` keeps the source at its
         // old array position, which rendered the card at the wrong slot until FSEvent re-sorted.
         Dictionary(grouping: issues, by: \.column).mapValues { $0.sortedForKanban() }
-    }
-}
-
-nonisolated enum AdoptedGitHubScan {
-    static func archivedNumbers(inArchive archiveDirectory: URL) -> Set<Int> {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: archiveDirectory.path),
-            let enumerator = fm.enumerator(
-                at: archiveDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-        else { return [] }
-        var numbers = Set<Int>()
-        for case let url as URL in enumerator where url.lastPathComponent == "spec.md" {
-            guard let content = try? String(contentsOf: url, encoding: .utf8),
-                case .success(let issue) = SpecParser.parse(
-                    content: content, folderName: url.deletingLastPathComponent().lastPathComponent),
-                let github = issue.github
-            else { continue }
-            numbers.insert(github)
-        }
-        return numbers
     }
 }

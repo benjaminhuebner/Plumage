@@ -7,6 +7,7 @@ import SwiftUI
 enum SidebarListSelection: Hashable {
     case kanban
     case issue(folderName: String)
+    case archive
     case pinned(relativePath: String)
 }
 
@@ -76,6 +77,8 @@ struct NavigatorSidebar: View {
             ForEach(IssueColumn.allCases) { column in
                 columnRow(column)
             }
+            Label("Archive", systemImage: "archivebox")
+                .tag(SidebarListSelection.archive)
 
             PinnedSectionView(model: pinnedFiles, projectURL: projectURL)
         }
@@ -198,7 +201,7 @@ struct NavigatorSidebar: View {
     private var listHeightEstimate: CGFloat {
         let rowHeight: CGFloat = 28
         let headerHeight: CGFloat = 34
-        var height: CGFloat = headerHeight + rowHeight + 4 * rowHeight
+        var height: CGFloat = headerHeight + rowHeight + 4 * rowHeight + rowHeight
         for column in IssueColumn.allCases where expansionBinding(for: column).wrappedValue {
             height += CGFloat((kanban.groupedIssues[column] ?? []).count) * rowHeight
         }

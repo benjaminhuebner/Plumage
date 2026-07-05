@@ -24,6 +24,23 @@ nonisolated enum IssueArchiver {
         throw CocoaError(.fileWriteFileExists)
     }
 
+    static func unarchive(folderURL: URL, issuesRoot: URL) throws -> URL {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: issuesRoot, withIntermediateDirectories: true)
+        let base = folderURL.lastPathComponent
+        for suffix in 0...maxArchiveSuffix {
+            let name = suffix == 0 ? base : "\(base)-\(suffix)"
+            let destination = issuesRoot.appendingPathComponent(name, isDirectory: true)
+            do {
+                try fileManager.moveItem(at: folderURL, to: destination)
+                return destination
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                continue
+            }
+        }
+        throw CocoaError(.fileWriteFileExists)
+    }
+
     static func trash(folderURL: URL) throws -> URL {
         // FileManager.trashItem uses an autoreleasing out-parameter for the
         // resulting URL. Bridge: declare an NSURL? optional and pass via &.

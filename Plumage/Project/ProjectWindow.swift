@@ -676,7 +676,7 @@ struct ProjectWindow: View {
                     Button("Archive") {
                         kanban.confirmRemoval(removal, projectURL: handle.url)
                     }
-                case .trash:
+                case .trash, .archiveTrash:
                     Button("Move to Trash", role: .destructive) {
                         kanban.confirmRemoval(removal, projectURL: handle.url)
                     }
@@ -688,7 +688,7 @@ struct ProjectWindow: View {
                         "The issue folder moves to .claude/issues/archive/. "
                             + "Restoring means moving it back in Finder."
                     )
-                case .trash:
+                case .trash, .archiveTrash:
                     Text("You can restore it from the Trash.")
                 }
             }
@@ -794,7 +794,7 @@ struct ProjectWindow: View {
         guard let removal = kanban.pendingRemoval else { return "" }
         switch removal.kind {
         case .archive: return "Archive \"\(removal.folderName)\"?"
-        case .trash: return "Move \"\(removal.folderName)\" to Trash?"
+        case .trash, .archiveTrash: return "Move \"\(removal.folderName)\" to Trash?"
         }
     }
 
@@ -848,11 +848,14 @@ struct ProjectWindow: View {
     private static func routeTargetExists(_ route: NavigatorRoute, projectURL: URL) -> Bool {
         let fm = FileManager.default
         switch route {
-        case .kanban, .projectSettings:
+        case .kanban, .archive, .projectSettings:
             return true
         case .issue(let folderName):
             return fm.fileExists(
                 atPath: IssueLayout.specURL(in: projectURL, folderName: folderName).path)
+        case .archivedIssue(let folderName):
+            return fm.fileExists(
+                atPath: IssueLayout.archivedSpecURL(in: projectURL, folderName: folderName).path)
         case .projectFile(let rel):
             return fm.fileExists(atPath: projectURL.appendingPathComponent(rel).path)
         }

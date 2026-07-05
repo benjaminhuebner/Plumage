@@ -17,6 +17,15 @@ nonisolated enum IssueLayout {
         issuesDirectory(in: projectURL).appendingPathComponent(folderName, isDirectory: true)
     }
 
+    static func archivedIssueFolder(in projectURL: URL, folderName: String) -> URL {
+        archiveDirectory(in: projectURL).appendingPathComponent(folderName, isDirectory: true)
+    }
+
+    static func archivedSpecURL(in projectURL: URL, folderName: String) -> URL {
+        archivedIssueFolder(in: projectURL, folderName: folderName)
+            .appendingPathComponent("spec.md")
+    }
+
     static func specURL(in projectURL: URL, folderName: String) -> URL {
         issueFolder(in: projectURL, folderName: folderName).appendingPathComponent("spec.md")
     }

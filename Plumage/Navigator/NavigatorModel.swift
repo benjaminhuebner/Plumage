@@ -41,6 +41,8 @@ final class NavigatorModel {
                     return .kanban
                 case .issue(let folderName):
                     return .issue(folderName: folderName)
+                case .archive, .archivedIssue:
+                    return .archive
                 case .projectFile(let rel)
                 where !self.treeOwnsSelection && pinnedFiles.contains(rel):
                     return .pinned(relativePath: rel)
@@ -55,6 +57,8 @@ final class NavigatorModel {
                     route.wrappedValue = .kanban
                 case .issue(let folderName):
                     route.wrappedValue = .issue(folderName: folderName)
+                case .archive:
+                    route.wrappedValue = .archive
                 case .pinned(let rel):
                     self.treeOwnsSelection = false
                     route.wrappedValue = .projectFile(relativePath: rel)

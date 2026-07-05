@@ -17,6 +17,10 @@ struct NavigatorDetail: View {
             )
         case .issue(let folderName):
             IssueDetailView(projectURL: projectURL, folderName: folderName)
+        case .archive:
+            ArchiveView(projectURL: projectURL, padding: padding)
+        case .archivedIssue(let folderName):
+            ArchivedIssueReadOnlyView(projectURL: projectURL, folderName: folderName)
         case .projectFile(let relativePath):
             let fileURL = projectURL.appendingPathComponent(relativePath)
             switch NavigatorDetailDispatch.detailViewKind(for: relativePath) {

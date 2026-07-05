@@ -50,7 +50,7 @@ struct ProjectKanbanModelAdoptedTests {
         try writeArchiveSpec(in: project, folder: "00102-b", github: 102)
         try writeArchiveSpec(in: project, folder: "00103-c", github: nil)
 
-        let numbers = AdoptedGitHubScan.archivedNumbers(
+        let numbers = ArchiveReader.archivedGitHubNumbers(
             inArchive: IssueLayout.archiveDirectory(in: project))
         #expect(numbers == [101, 102])
     }
@@ -67,5 +67,21 @@ struct ProjectKanbanModelAdoptedTests {
         await model.refreshAdoptedGitHubNumbers()
 
         #expect(model.adoptedGitHubNumbers == [101, 200])
+    }
+
+    @Test("a number in both the archive scan and the active snapshot is deduped")
+    func dedupAcrossUnarchiveWindow() async throws {
+        let project = try makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        try writeArchiveSpec(in: project, folder: "00101-a", github: 101)
+
+        let model = ProjectKanbanModel()
+        model.ingest([], projectURL: project)
+        // The unarchive window: the board snapshot already carries the number
+        // while the cached archive scan still holds it.
+        model._setIssuesForTesting([validIssue(github: 101)])
+        await model.refreshAdoptedGitHubNumbers()
+
+        #expect(model.adoptedGitHubNumbers == [101])
     }
 }

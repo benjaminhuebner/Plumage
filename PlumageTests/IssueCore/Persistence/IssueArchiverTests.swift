@@ -90,6 +90,92 @@ struct IssueArchiverArchiveTests {
     }
 }
 
+@Suite("IssueArchiver.unarchive")
+struct IssueArchiverUnarchiveTests {
+    @Test("moves an archived folder back under the issues root")
+    func movesBack() throws {
+        let fixture = try ArchiverFixture()
+        let archived = try fixture.makeArchivedFolder(named: "00020-restore")
+
+        let dest = try IssueArchiver.unarchive(
+            folderURL: archived, issuesRoot: fixture.issuesRoot)
+
+        #expect(dest.lastPathComponent == "00020-restore")
+        #expect(
+            dest.deletingLastPathComponent().standardizedFileURL
+                == fixture.issuesRoot.standardizedFileURL)
+        #expect(FileManager.default.fileExists(atPath: dest.path))
+        #expect(!FileManager.default.fileExists(atPath: archived.path))
+    }
+
+    @Test("collision with an active folder appends a numeric suffix")
+    func collisionAppendsSuffix() throws {
+        let fixture = try ArchiverFixture()
+        let active = try fixture.makeIssueFolder(named: "00021-clash")
+        let archived = try fixture.makeArchivedFolder(named: "00021-clash")
+
+        let dest = try IssueArchiver.unarchive(
+            folderURL: archived, issuesRoot: fixture.issuesRoot)
+
+        #expect(dest.lastPathComponent == "00021-clash-1")
+        #expect(FileManager.default.fileExists(atPath: dest.path))
+        #expect(FileManager.default.fileExists(atPath: active.path))
+    }
+
+    @Test("collision walks suffixes 1, 2, ... until a free slot")
+    func collisionWalksMultipleSuffixes() throws {
+        let fixture = try ArchiverFixture()
+        _ = try fixture.makeIssueFolder(named: "00022-clash")
+        _ = try fixture.makeIssueFolder(named: "00022-clash-1")
+        _ = try fixture.makeIssueFolder(named: "00022-clash-2")
+        let archived = try fixture.makeArchivedFolder(named: "00022-clash")
+
+        let dest = try IssueArchiver.unarchive(
+            folderURL: archived, issuesRoot: fixture.issuesRoot)
+
+        #expect(dest.lastPathComponent == "00022-clash-3")
+        #expect(FileManager.default.fileExists(atPath: dest.path))
+    }
+
+    @Test("missing source folder throws")
+    func missingSourceThrows() throws {
+        let fixture = try ArchiverFixture()
+        let nonExistent = fixture.archiveRoot.appendingPathComponent("00023-ghost")
+        #expect(throws: (any Error).self) {
+            _ = try IssueArchiver.unarchive(
+                folderURL: nonExistent, issuesRoot: fixture.issuesRoot)
+        }
+    }
+
+    @Test("move-only: the id and folder name survive the round trip")
+    func idPreserved() throws {
+        let fixture = try ArchiverFixture()
+        let spec = """
+            ---
+            id: 42
+            title: Preserve me
+            type: feature
+            status: done
+            created: 2026-01-01T00:00:00Z
+            updated: 2026-01-01T00:00:00Z
+            branch: issue/00042-preserve
+            labels: []
+            ---
+
+            Body.
+            """
+        let archived = try fixture.makeArchivedFolder(named: "00042-preserve", content: spec)
+
+        let dest = try IssueArchiver.unarchive(
+            folderURL: archived, issuesRoot: fixture.issuesRoot)
+
+        #expect(dest.lastPathComponent == "00042-preserve")
+        let moved = try String(
+            contentsOf: dest.appendingPathComponent("spec.md"), encoding: .utf8)
+        #expect(moved == spec)
+    }
+}
+
 @Suite("IssueArchiver.trash")
 struct IssueArchiverTrashTests {
     @Test("moves folder to system trash and returns resulting URL")
@@ -154,11 +240,12 @@ private final class ArchiverFixture {
         return folder
     }
 
-    func makeArchivedFolder(named name: String) throws -> URL {
+    func makeArchivedFolder(named name: String, content: String = "pre") throws -> URL {
         try FileManager.default.createDirectory(at: archiveRoot, withIntermediateDirectories: true)
         let folder = archiveRoot.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try "pre".write(to: folder.appendingPathComponent("spec.md"), atomically: true, encoding: .utf8)
+        try content.write(
+            to: folder.appendingPathComponent("spec.md"), atomically: true, encoding: .utf8)
         return folder
     }
 
