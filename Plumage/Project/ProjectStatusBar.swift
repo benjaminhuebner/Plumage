@@ -40,8 +40,9 @@ struct ProjectStatusBar: View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 8) {
+                // Not fixedSize: a long branch name must middle-truncate in a
+                // tight column instead of pushing the bar past its edge.
                 ProjectBranchIndicator(state: repoState, gitModel: gitModel)
-                    .fixedSize()
                     .layoutPriority(0)
                 if let statusModel {
                     StatusPageButton(model: statusModel)
@@ -60,7 +61,9 @@ struct ProjectStatusBar: View {
                         .accessibilityIdentifier(banner == nil ? "indicator-label" : "drop-banner")
                         .lineLimit(1)
                 }
-                .fixedSize()
+                // Vertical-only: in a tight column the label tail-truncates
+                // (full text stays reachable via the .help tooltip below).
+                .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
                 if let usageModel {
                     usagePill(usageModel: usageModel)
@@ -83,7 +86,9 @@ struct ProjectStatusBar: View {
             // The window's corner curve cuts into the bar's trailing end;
             // extra padding keeps controls out of the curve.
             .padding(.trailing, 20)
-            .frame(maxWidth: .infinity, minHeight: 22)
+            // Leading-anchored: if the row ever overflows, the spacer side
+            // clips — never the branch pill at the leading edge.
+            .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
             // Solid fill, not .bar: bar material is navigation-layer chrome;
             // this strip sits on the content layer below the detail pane.
             .background(.background.secondary)

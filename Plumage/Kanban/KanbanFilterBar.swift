@@ -6,30 +6,36 @@ struct KanbanFilterBar: View {
 
     var body: some View {
         @Bindable var kanban = kanban
-        HStack(spacing: 10) {
-            searchField(text: $kanban.filter.text)
-            labelMenu
-            typeMenu
-            activeTokens
-            if kanban.filter.isActive {
-                Button("Clear All") {
-                    kanban.clearFilter()
+        // Scrollable failsafe: the bar must never impose a minimum width on
+        // the detail column — an over-wide detail child gets clipped and takes
+        // the board's scroll viewport out of reach with it.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                searchField(text: $kanban.filter.text)
+                labelMenu
+                typeMenu
+                activeTokens
+                if kanban.filter.isActive {
+                    Button("Clear All") {
+                        kanban.clearFilter()
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .accessibilityLabel("Clear all filters")
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .imageScale(.small)
+                            .accessibilityHidden(true)
+                        Text("Reorder within a column is paused while filtering")
+                            .lineLimit(1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .accessibilityLabel("Clear all filters")
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle")
-                        .imageScale(.small)
-                        .accessibilityHidden(true)
-                    Text("Reorder within a column is paused while filtering")
-                }
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .font(.callout)
         }
-        .font(.callout)
     }
 
     private func searchField(text: Binding<String>) -> some View {
@@ -56,7 +62,7 @@ struct KanbanFilterBar: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Color(NSColor.quaternarySystemFill), in: Capsule())
-        .frame(width: 240)
+        .frame(width: 240, alignment: .leading)
     }
 
     private var labelMenu: some View {

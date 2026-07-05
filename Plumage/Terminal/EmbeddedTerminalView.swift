@@ -12,6 +12,8 @@ struct EmbeddedTerminalView: View {
     var isVisible: Bool = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(TerminalFontPreference.defaultsKey)
+    private var fontSize: Double = TerminalFontPreference.defaultSize
 
     var body: some View {
         ZStack {
@@ -22,7 +24,8 @@ struct EmbeddedTerminalView: View {
                 session: session,
                 pendingCount: session.pendingInput.count,
                 isRunning: isRunning,
-                isVisible: isVisible
+                isVisible: isVisible,
+                fontSize: fontSize
             )
             .id(session.restartEpoch)
 
@@ -69,10 +72,11 @@ private struct SwiftTermBridge: NSViewRepresentable {
     let pendingCount: Int
     let isRunning: Bool
     let isVisible: Bool
+    let fontSize: Double
 
     @Environment(\.colorScheme) private var colorScheme
 
-    func makeNSView(context: Context) -> PersistentCursorTerminalView {
+    func makeNSView(context: Context) -> TerminalResizeContainer {
         let view = PersistentCursorTerminalView(frame: .zero)
         // Before insertion: a hidden tab's mount must not start the
         // keep-alive in viewDidMoveToWindow.
@@ -84,7 +88,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         view.onFilePathsDropped = { [weak session] text in
             session?.enqueue(text)
         }
-        view.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        view.font = TerminalFontPreference.font(ofSize: fontSize)
         // optionAsMetaKey=false lets macOS compose Option sequences (Option+E → €,
         // dead keys); the default sends ESC+letter, losing composition on a German
         // keyboard. Trade-off: Option word-nav is lost, but claude's REPL doesn't use it.
@@ -105,6 +109,10 @@ private struct SwiftTermBridge: NSViewRepresentable {
         view.caretColor = NSColor.labelColor
         view.cursorStyleChanged(source: view.terminal, newStyle: .blinkBlock)
 
+        // AppKit resizes the container; the terminal's own frame is applied
+        // async so SwiftTerm never mutates state inside a layout pass.
+        let container = TerminalResizeContainer(terminalView: view)
+
         // Bridge owns the attach lifecycle: mounters leave attach() to us so state
         // is guaranteed .starting once a PTY exists. attach() is idempotent on
         // .starting/.running and recovers from .exited (restart()/scenePhase path).
@@ -116,7 +124,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
             TerminalClaudeSession.isShellSafe(session.binaryURL.path)
         else {
             session.markExited(code: -1)
-            return view
+            return container
         }
         let args = session.shellSpawnArgs(appearanceIsDark: colorScheme == .dark)
         // Env construction lives in CCI — the PATH points at claude-internal
@@ -148,10 +156,11 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // firstResponder hand-off the caret renders hollow and keystrokes can drop.
         // Window may still be nil during first layout — best-effort, not load-bearing.
         view.window?.makeFirstResponder(view)
-        return view
+        return container
     }
 
-    func updateNSView(_ nsView: PersistentCursorTerminalView, context: Context) {
+    func updateNSView(_ container: TerminalResizeContainer, context: Context) {
+        let nsView = container.terminalView
         nsView.chromeActive = isVisible
         // SwiftTerm focuses only in makeNSView; on a tab switch (isVisible
         // false→true) re-grab focus, but never for a dead exited-session view.
@@ -165,6 +174,11 @@ private struct SwiftTermBridge: NSViewRepresentable {
             nsView.layer?.backgroundColor = NSColor.clear.cgColor
             applyForeground(to: nsView)
             applyPalette(to: nsView)
+        }
+        // Guarded by pointSize: the font setter reflows the whole buffer.
+        let targetSize = TerminalFontPreference.clamped(fontSize)
+        if nsView.font.pointSize != targetSize {
+            nsView.font = TerminalFontPreference.font(ofSize: fontSize)
         }
         flushPendingInput(into: nsView)
     }
@@ -181,8 +195,9 @@ private struct SwiftTermBridge: NSViewRepresentable {
 
     @MainActor
     static func dismantleNSView(
-        _ nsView: PersistentCursorTerminalView, coordinator: Coordinator
+        _ container: TerminalResizeContainer, coordinator: Coordinator
     ) {
+        let nsView = container.terminalView
         // Without explicit terminate(), LocalProcess.deinit leaves the child
         // running and the PTY fd pair leaked for the app session.
         coordinator.markStartedTask?.cancel()
@@ -197,7 +212,7 @@ private struct SwiftTermBridge: NSViewRepresentable {
         // Remove the event monitors on MainActor so the nonisolated deinit (which
         // would otherwise touch NSEvent.removeMonitor from arbitrary threads) finds
         // them nil and no-ops.
-        nsView.removeShiftEnterMonitor()
+        nsView.removeKeyMappingMonitor()
         nsView.removeMouseFocusMonitor()
         nsView.removeScrollMonitor()
         nsView.terminate()

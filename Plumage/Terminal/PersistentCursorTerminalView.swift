@@ -18,7 +18,7 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
         // Fallback when dismantleNSView was skipped (normal teardown nils these on
         // MainActor, making this a no-op). NSEvent.removeMonitor is main-thread-only
         // and deinit can run off-main — ferry onto the main queue.
-        guard shiftEnterMonitor != nil || mouseFocusMonitor != nil || scrollMonitor != nil
+        guard keyMappingMonitor != nil || mouseFocusMonitor != nil || scrollMonitor != nil
         else { return }
         // @unchecked Sendable: only carries the main-thread-bound references
         // across the queue hop; nothing reads them concurrently.
@@ -26,9 +26,9 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
             let tokens: [Any]
         }
         let teardown = Teardown(
-            tokens: [shiftEnterMonitor, mouseFocusMonitor, scrollMonitor].compactMap { $0 }
+            tokens: [keyMappingMonitor, mouseFocusMonitor, scrollMonitor].compactMap { $0 }
         )
-        shiftEnterMonitor = nil
+        keyMappingMonitor = nil
         mouseFocusMonitor = nil
         scrollMonitor = nil
         if Thread.isMainThread {
@@ -39,15 +39,6 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
             }
         }
     }
-
-    // SwiftTerm's intrinsicContentSize/fittingSize oscillate the layout on
-    // inspector-divider drag; noIntrinsicMetric + fittingSize .zero kill both
-    // feedback channels. Safe only inside SwiftTermBridge — a raw NSStackView/NSScrollView would collapse to 0pt.
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
-    }
-
-    override var fittingSize: NSSize { .zero }
 
     // Visibility gate for the keep-alive timer + key monitor: the inspector hides
     // its column instead of unmounting, and hidden tabs stay ZStack-mounted —
@@ -132,7 +123,7 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
             // sole file-drop handler — no super conflict for .fileURL drags.
             registerForDraggedTypes([.fileURL])
         } else {
-            removeShiftEnterMonitor()
+            removeKeyMappingMonitor()
             removeMouseFocusMonitor()
             removeScrollMonitor()
             unregisterDraggedTypes()
@@ -141,11 +132,11 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
 
     private func refreshChrome() {
         if window != nil && chromeActive {
-            installShiftEnterMonitor()
+            installKeyMappingMonitor()
             installMouseFocusMonitor()
             installScrollMonitor()
         } else {
-            removeShiftEnterMonitor()
+            removeKeyMappingMonitor()
             removeMouseFocusMonitor()
             removeScrollMonitor()
         }
@@ -198,33 +189,36 @@ final class PersistentCursorTerminalView: LocalProcessTerminalView {
             title: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
         pasteItem.target = self
         menu.addItem(pasteItem)
+        let selectAllItem = NSMenuItem(
+            title: "Select All", action: #selector(selectAll(_:)), keyEquivalent: "")
+        selectAllItem.target = self
+        menu.addItem(selectAllItem)
         return menu
     }
 
-    // claude's REPL submits on `\r` and treats `\n` as a soft newline. SwiftTerm
-    // submits Return/Numpad Enter even with Shift held, and its keyDown isn't `open` —
-    // a local NSEvent monitor (only while firstResponder) intercepts the keystroke first.
-    nonisolated(unsafe) private var shiftEnterMonitor: Any?
+    // Shift+Enter soft newline plus the macOS-native editing chords from
+    // TerminalKeyMapping (⌘⌫, ⌥⌫, ⌘/⌥-arrows). SwiftTerm's keyDown isn't `open` —
+    // a local NSEvent monitor (only while firstResponder) intercepts first.
+    nonisolated(unsafe) private var keyMappingMonitor: Any?
 
-    private func installShiftEnterMonitor() {
-        guard shiftEnterMonitor == nil else { return }
-        shiftEnterMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+    private func installKeyMappingMonitor() {
+        guard keyMappingMonitor == nil else { return }
+        keyMappingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
                 let window = self.window,
                 window === event.window,
                 window.firstResponder === self,
-                event.modifierFlags.contains(.shift),
-                event.keyCode == 36 || event.keyCode == 76
+                let sequence = TerminalKeyMapping.sequence(for: event)
             else { return event }
-            self.send(txt: "\n")
+            self.send(txt: sequence)
             return nil
         }
     }
 
-    func removeShiftEnterMonitor() {
-        if let token = shiftEnterMonitor {
+    func removeKeyMappingMonitor() {
+        if let token = keyMappingMonitor {
             NSEvent.removeMonitor(token)
-            shiftEnterMonitor = nil
+            keyMappingMonitor = nil
         }
     }
 

@@ -49,6 +49,7 @@ struct ProjectWindow: View {
     @SceneStorage("claudeDock.open") private var isDockOpen = false
     @AppStorage(ChatButtonPlacement.storageKey) private var chatButtonPlacement: ChatButtonPlacement = .floating
     @SceneStorage("inspector.terminal.open") private var isTerminalInspectorOpen = false
+    @State private var windowContentWidth: CGFloat = 0
     // Previously the dock panel hosted a Chat/Terminal mode switcher whose
     // selection persisted under "terminalPaneMode". This branch moved the
     // terminal out into an inspector with its own storage key; the one-shot
@@ -480,14 +481,27 @@ struct ProjectWindow: View {
                         isOpen: $isDockOpen
                     )
                 }
-                .navigationSplitViewColumnWidth(min: 50, ideal: 700, max: .infinity)
+                // min 360 keeps the status bar readable: the inspector sash and
+                // the window minimum both honor the detail column's floor.
+                .navigationSplitViewColumnWidth(min: 360, ideal: 700, max: .infinity)
                 .inspector(isPresented: $isTerminalInspectorOpen) {
                     TerminalInspectorView(tabsModel: terminalTabs, isOpen: isTerminalInspectorOpen)
-                        // Fixed, non-draggable width: a sash live-resize re-enters AppKit
-                        // layout on the SwiftTerm NSView and hits a Swift exclusivity crash —
-                        // removing the drag range removes the only reachable trigger.
-                        .inspectorColumnWidth(480)
+                        // Sash drag is safe again: TerminalResizeContainer keeps
+                        // SwiftTerm's resize out of the AppKit layout pass.
+                        .inspectorColumnWidth(
+                            min: TerminalInspectorWidthPolicy.minWidth(
+                                forContentWidth: windowContentWidth),
+                            ideal: TerminalInspectorWidthPolicy.idealWidth(
+                                forContentWidth: windowContentWidth),
+                            max: TerminalInspectorWidthPolicy.maxWidth(
+                                forContentWidth: windowContentWidth)
+                        )
                 }
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            TerminalInspectorWidthPolicy.quantizedContentWidth(proxy.size.width)
+        } action: { width in
+            windowContentWidth = width
         }
         .toolbar {
             if let backToBoardAction {
@@ -614,11 +628,7 @@ struct ProjectWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // .clipped() applies ONLY to NavigatorDetail so editor views
                 // that don't wrap horizontally stay contained within the
-                // detail column. ProjectStatusBar sits below the clip and
-                // remains visible even when detail is narrow (inspector open
-                // at max width + sidebar fixed at 240 leaves ~300pt — small
-                // enough that .fixedSize() chips on the status bar would
-                // otherwise be cut off without a hint).
+                // detail column; ProjectStatusBar sits below the clip.
                 .clipped()
                 ProjectStatusBar(
                     indicatorState: indicator.state,

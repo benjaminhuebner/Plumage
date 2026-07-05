@@ -4,6 +4,8 @@ struct TerminalCommand: Commands {
     @FocusedBinding(\.terminalToggle) private var inspector
     @FocusedBinding(\.chatDockToggle) private var chatDock
     @FocusedValue(\.terminalTabs) private var tabs
+    @AppStorage(TerminalFontPreference.defaultsKey)
+    private var terminalFontSize: Double = TerminalFontPreference.defaultSize
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
@@ -65,6 +67,25 @@ struct TerminalCommand: Commands {
                 )
                 .disabled((tabs?.count ?? 0) < number)
             }
+
+            Divider()
+
+            // Global preference, not per-tab: every mounted terminal observes
+            // the @AppStorage value and reflows via updateNSView.
+            Button("Increase Text Size") {
+                terminalFontSize = TerminalFontPreference.increased(from: terminalFontSize)
+            }
+            .keyboardShortcut("+", modifiers: [.command])
+
+            Button("Decrease Text Size") {
+                terminalFontSize = TerminalFontPreference.decreased(from: terminalFontSize)
+            }
+            .keyboardShortcut("-", modifiers: [.command])
+
+            Button("Default Text Size") {
+                terminalFontSize = TerminalFontPreference.defaultSize
+            }
+            .keyboardShortcut("0", modifiers: [.command])
         }
     }
 
