@@ -92,4 +92,31 @@ struct ClaudeMdComposerTests {
         #expect(out.claudeMd.contains("Strict concurrency is on"))  // swift-shared still bundled
         #expect(!out.claudeMd.contains("<<<"))
     }
+
+    @Test("A legacy layer block lands under the migrated skeleton's custom heading")
+    func legacyBlockFollowsMigratedSkeletonHeading() throws {
+        let fm = FileManager.default
+        let overrideRoot = fm.temporaryDirectory.appending(
+            path: "ComposerOverride-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: overrideRoot) }
+        // Skeleton already migrated (heading kept, placeholder gone); the layer is legacy.
+        for (rel, contents) in [
+            ("templates/CLAUDE.md", "# <<<PROJECT_NAME>>>\n\n## Custom\n"),
+            ("templates/macos/CLAUDE.md", "%% CUSTOM %%\n- custom note\n%% /CUSTOM %%\n"),
+        ] {
+            let url = overrideRoot.appending(path: rel)
+            try fm.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+        }
+
+        let composer = ClaudeMdComposer(
+            overrides: ScaffoldOverrides(bundledRoot: RepoAssets.root, overrideRoot: overrideRoot))
+        let out = try composer.compose(
+            spec: NewProjectSpec(
+                kind: .macOS, name: "Acme", tagline: "tl", projectDirectory: URL(filePath: "/tmp/x")))
+
+        #expect(out.claudeMd.contains("## Custom\n- custom note"))
+        #expect(!out.claudeMd.contains("## CUSTOM"))
+    }
 }

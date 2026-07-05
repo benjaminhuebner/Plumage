@@ -82,24 +82,43 @@ struct ProjectScaffolderScopeTests {
         #expect(!fm.fileExists(atPath: otherDir.appending(path: ".claude/docs/swift-only.md").path))
     }
 
-    @Test("Most-specific scope wins a name clash: template > component > base (#00084)")
+    @Test("Same-named text files concatenate across scopes in precedence order")
     func precedenceTemplateOverComponentOverBase() async throws {
         let ov = makeOverrideRoot()
         defer { try? FileManager.default.removeItem(at: ov) }
-        // `t.md`: base vs template — template wins. `c.md`: base/component/template — the
-        // template wins over the member component now.
-        try write("BASE-T", to: ov, rel: "docs/t.md")
-        try write("MAC-T", to: ov, rel: "templates/macOS/docs/t.md")
-        try write("BASE-C", to: ov, rel: "docs/c.md")
-        try write("MAC-C", to: ov, rel: "templates/macOS/docs/c.md")
-        try write("COMP-C", to: ov, rel: "components/swift-shared/docs/c.md")
+        try write("BASE-T", to: ov, rel: "docs/t.txt")
+        try write("MAC-T", to: ov, rel: "templates/macOS/docs/t.txt")
+        try write("BASE-C", to: ov, rel: "docs/c.txt")
+        try write("MAC-C", to: ov, rel: "templates/macOS/docs/c.txt")
+        try write("COMP-C", to: ov, rel: "components/swift-shared/docs/c.txt")
 
         let macDir = try await create(.macOS, overrideRoot: ov)
         defer { try? FileManager.default.removeItem(at: macDir.deletingLastPathComponent()) }
         #expect(
-            try String(contentsOf: macDir.appending(path: ".claude/docs/t.md"), encoding: .utf8) == "MAC-T")
+            try String(contentsOf: macDir.appending(path: ".claude/docs/t.txt"), encoding: .utf8)
+                == "BASE-T\n\nMAC-T")
         #expect(
-            try String(contentsOf: macDir.appending(path: ".claude/docs/c.md"), encoding: .utf8) == "MAC-C")
+            try String(contentsOf: macDir.appending(path: ".claude/docs/c.txt"), encoding: .utf8)
+                == "BASE-C\n\nCOMP-C\n\nMAC-C")
+    }
+
+    @Test("Same-named Markdown docs merge across scopes, later scopes appending")
+    func markdownDocsMergeAcrossScopes() async throws {
+        let ov = makeOverrideRoot()
+        defer { try? FileManager.default.removeItem(at: ov) }
+        try write("# Guide\n\n## Refs\n- base\n", to: ov, rel: "docs/g.md")
+        try write("## Refs\n- mac\n", to: ov, rel: "templates/macOS/docs/g.md")
+        try write("BASE-P", to: ov, rel: "docs/p.md")
+        try write("MAC-P", to: ov, rel: "templates/macOS/docs/p.md")
+
+        let macDir = try await create(.macOS, overrideRoot: ov)
+        defer { try? FileManager.default.removeItem(at: macDir.deletingLastPathComponent()) }
+        #expect(
+            try String(contentsOf: macDir.appending(path: ".claude/docs/g.md"), encoding: .utf8)
+                == "# Guide\n\n## Refs\n- base\n- mac\n")
+        #expect(
+            try String(contentsOf: macDir.appending(path: ".claude/docs/p.md"), encoding: .utf8)
+                == "BASE-P\n\nMAC-P")
     }
 
     @Test("A user's hand-built loose tree is reproduced in the project (#00078)")

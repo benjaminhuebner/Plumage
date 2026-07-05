@@ -84,29 +84,176 @@ struct ScaffoldOverridesTests {
                 .first { $0.name == "x.md" }?.variants)
         #expect(variants == ["docs/x.md", "templates/t1/docs/x.md"])
 
-        guard case .merged(let data) = try overrides.resolveLooseFile(variants: variants) else {
+        guard case .merged(let data, _) = try overrides.resolveLooseFile(variants: variants) else {
             Issue.record("expected a merged placeholder result")
             return
         }
         #expect(String(decoding: data, as: UTF8.self) == "# Doc\n\n## Refs\n- one\n- two\n")
     }
 
-    @Test("resolveLooseFile keeps the file-level winner when the skeleton has no placeholder")
-    func resolveLooseFileNoPlaceholderKeepsWinner() throws {
+    @Test("resolveLooseFile concatenates plain text variants bottom-up, skipping duplicates")
+    func resolveLooseFilePlainTextAppends() throws {
         let tree = try makeTree()
         defer { tree.cleanup() }
-        try write("BASE", to: tree.override, rel: "docs/x.md")
-        try write("TMPL", to: tree.override, rel: "templates/t1/docs/x.md")
+        try write("BASE\n", to: tree.override, rel: "docs/x.txt")
+        try write("BASE\n", to: tree.override, rel: "components/c1/docs/x.txt")
+        try write("TMPL\n", to: tree.override, rel: "templates/t1/docs/x.txt")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(
+                category: "docs", roots: ["", "components/c1", "templates/t1"]
+            )
+            .first { $0.name == "x.txt" }?.variants)
+        guard case .merged(let data, _) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected an appended text result")
+            return
+        }
+        #expect(String(decoding: data, as: UTF8.self) == "BASE\n\nTMPL\n")
+    }
+
+    @Test("resolveLooseFile keeps the file-level winner for binary variants")
+    func resolveLooseFileBinaryKeepsWinner() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        let binary = Data([0xFF, 0xFE, 0x00, 0x42])
+        let basePath = tree.override.appending(path: "docs/x.bin")
+        let tmplPath = tree.override.appending(path: "templates/t1/docs/x.bin")
+        for path in [basePath, tmplPath] {
+            try FileManager.default.createDirectory(
+                at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try binary.write(to: path)
+        }
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "x.bin" }?.variants)
+        guard case .copy(let url) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected a file-level copy result")
+            return
+        }
+        #expect(url == overrides.url(forRelative: "templates/t1/docs/x.bin"))
+    }
+
+    @Test("resolveLooseFile merges same-named Markdown by heading")
+    func resolveLooseFileMarkdownHeadingMerge() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("# Doc\n\n## Refs\n- one\n", to: tree.override, rel: "docs/x.md")
+        try write("## Refs\n- two\n\n## Extra\n- x\n", to: tree.override, rel: "templates/t1/docs/x.md")
         let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
 
         let variants = try #require(
             overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
                 .first { $0.name == "x.md" }?.variants)
-        guard case .copy(let url) = try overrides.resolveLooseFile(variants: variants) else {
-            Issue.record("expected a file-level copy result")
+        guard case .merged(let data, _) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected a heading-merged result")
             return
         }
-        #expect(url == overrides.url(forRelative: "templates/t1/docs/x.md"))
+        #expect(
+            String(decoding: data, as: UTF8.self)
+                == "# Doc\n\n## Refs\n- one\n- two\n\n## Extra\n- x\n")
+    }
+
+    @Test("resolveLooseFile deep-merges same-named JSON, later variants winning")
+    func resolveLooseFileJSONMerge() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write(#"{"a": 1, "list": ["x"]}"#, to: tree.override, rel: "docs/cfg.json")
+        try write(#"{"a": 2, "list": ["y"]}"#, to: tree.override, rel: "templates/t1/docs/cfg.json")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "cfg.json" }?.variants)
+        guard case .merged(let data, _) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected a JSON-merged result")
+            return
+        }
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["a"] as? Int == 2)
+        #expect(object["list"] as? [String] == ["x", "y"])
+    }
+
+    @Test("resolveLooseFile merges same-named XML structurally")
+    func resolveLooseFileXMLMerge() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("<cfg><a>1</a></cfg>", to: tree.override, rel: "docs/c.xml")
+        try write("<cfg><b>2</b></cfg>", to: tree.override, rel: "templates/t1/docs/c.xml")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "c.xml" }?.variants)
+        guard case .merged(let data, _) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected an XML-merged result")
+            return
+        }
+        let xml = String(decoding: data, as: UTF8.self)
+        #expect(xml.contains("<a>1</a>"))
+        #expect(xml.contains("<b>2</b>"))
+    }
+
+    @Test("resolveLooseFile keeps the placeholder merge for a placeholder-bearing JSON skeleton")
+    func resolveLooseFilePlaceholderJSONSkeleton() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("{\n<<<servers>>>\n}\n", to: tree.override, rel: "docs/cfg.json")
+        try write(
+            "%% servers %%\n\"a\": 1\n%% /servers %%\n",
+            to: tree.override, rel: "templates/t1/docs/cfg.json")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "cfg.json" }?.variants)
+        guard case .merged(let data, _) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected a merged placeholder result")
+            return
+        }
+        #expect(String(decoding: data, as: UTF8.self) == "{\n\"a\": 1\n}\n")
+    }
+
+    @Test("resolveLooseFile write keeps the winner's executable bit on merged text")
+    func resolveLooseFileMergedKeepsExecutableBit() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        let fm = FileManager.default
+        try write("#!/bin/sh\necho base\n", to: tree.override, rel: "docs/run.sh")
+        try write("#!/bin/sh\necho tmpl\n", to: tree.override, rel: "templates/t1/docs/run.sh")
+        try fm.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: tree.override.appending(path: "templates/t1/docs/run.sh").path)
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "run.sh" }?.variants)
+        let dest = tree.override.appending(path: "resolved-run.sh")
+        try overrides.resolveLooseFile(variants: variants).write(to: dest)
+        let permissions = try #require(
+            fm.attributesOfItem(atPath: dest.path)[.posixPermissions] as? NSNumber)
+        #expect(permissions.uint16Value & 0o111 != 0)
+    }
+
+    @Test("resolveLooseFile falls back to the winner copy for unparseable JSON")
+    func resolveLooseFileInvalidJSONFallsBack() throws {
+        let tree = try makeTree()
+        defer { tree.cleanup() }
+        try write("{not json", to: tree.override, rel: "docs/cfg.json")
+        try write(#"{"ok": true}"#, to: tree.override, rel: "templates/t1/docs/cfg.json")
+        let overrides = ScaffoldOverrides(bundledRoot: tree.bundled, overrideRoot: tree.override)
+
+        let variants = try #require(
+            overrides.composedLooseFileVariants(category: "docs", roots: ["", "templates/t1"])
+                .first { $0.name == "cfg.json" }?.variants)
+        guard case .copy(let url) = try overrides.resolveLooseFile(variants: variants) else {
+            Issue.record("expected a file-level copy fallback")
+            return
+        }
+        #expect(url == overrides.url(forRelative: "templates/t1/docs/cfg.json"))
     }
 
     @Test("Absent override resolves to the bundled file")

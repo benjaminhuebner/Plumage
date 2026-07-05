@@ -421,33 +421,91 @@ nonisolated struct ScaffoldOverrides: Sendable {
     // How a same-named loose file resolves to final bytes.
     enum ResolvedLooseFile: Equatable {
         case copy(URL)  // file-level override winner, copied verbatim (also: binary files)
-        case merged(Data)  // placeholder-merged text
+        case merged(Data, permissionsFrom: URL?)  // merged text, mode bits of the winner
 
-        // `.copy` stays a verbatim file copy so binary files survive unchanged.
+        // `.copy` stays a verbatim file copy so binary files survive unchanged; a
+        // merged write carries over the winner's POSIX mode so scripts stay executable.
         func write(to dest: URL, using fileManager: FileManager = .default) throws {
             switch self {
-            case .copy(let source): try fileManager.copyItem(at: source, to: dest)
-            case .merged(let data): try data.write(to: dest, options: .atomic)
+            case .copy(let source):
+                try fileManager.copyItem(at: source, to: dest)
+            case .merged(let data, let permissionsSource):
+                try data.write(to: dest, options: .atomic)
+                if let source = permissionsSource,
+                    let permissions = try? fileManager.attributesOfItem(atPath: source.path)[
+                        .posixPermissions]
+                {
+                    try fileManager.setAttributes(
+                        [.posixPermissions: permissions], ofItemAtPath: dest.path)
+                }
             }
         }
     }
 
-    // Resolve same-named `variants` (earliest root first) to final content. The earliest
-    // variant is the skeleton: if it carries `<<<keyword>>>` placeholders, every variant
-    // is harvested for `%% keyword %%` blocks and merged into it; otherwise the latest
-    // variant wins verbatim — so a non-placeholder
-    // or binary file is unchanged. The placeholder merge is opt-in and additive.
+    // The placeholder check outranks the extension dispatch: a `<<<keyword>>>` skeleton
+    // keeps the positioned merge even as `.json`/`.xml`, so legacy overrides compose
+    // unchanged instead of falling to a copy of the raw `%%`-block winner.
     func resolveLooseFile(variants: [String]) throws -> ResolvedLooseFile {
-        guard let skeletonRel = variants.first else { return .merged(Data()) }
-        let winnerRel = variants[variants.count - 1]
-        guard let skeleton = try? String(contentsOf: url(forRelative: skeletonRel), encoding: .utf8),
-            PlaceholderMerge.hasPlaceholders(skeleton)
-        else { return .copy(url(forRelative: winnerRel)) }
+        guard let skeletonRel = variants.first else { return .merged(Data(), permissionsFrom: nil) }
+        let winner = url(forRelative: variants[variants.count - 1])
+        let skeletonText = try? string(atRelative: skeletonRel)
 
-        // The skeleton (variants[0]) is already read; harvest the remaining variants too.
-        let contributions = try [skeleton] + variants.dropFirst().map { try string(atRelative: $0) }
-        let merged = try PlaceholderMerge.merge(skeleton: skeleton, contributions: contributions)
-        return .merged(Data(merged.utf8))
+        if let skeleton = skeletonText, PlaceholderMerge.hasPlaceholders(skeleton) {
+            // The skeleton (variants[0]) is already read; harvest the remaining variants too.
+            let contributions = try [skeleton] + variants.dropFirst().map { try string(atRelative: $0) }
+            let merged = try PlaceholderMerge.merge(skeleton: skeleton, contributions: contributions)
+            return .merged(Data(merged.utf8), permissionsFrom: winner)
+        }
+
+        if variants.count > 1 {
+            switch (skeletonRel as NSString).pathExtension.lowercased() {
+            case "json":
+                // Appending unparseable JSON would only compound the damage —
+                // structural merge or the file-level winner, nothing in between.
+                guard let datas = try? variants.map({ try data(atRelative: $0) }),
+                    let merged = try? JSONMerge.merge(variants: datas)
+                else { return .copy(winner) }
+                return .merged(merged, permissionsFrom: winner)
+            case "xml":
+                guard let datas = try? variants.map({ try data(atRelative: $0) }),
+                    let merged = try? XMLMerge.merge(variants: datas)
+                else { return .copy(winner) }
+                return .merged(merged, permissionsFrom: winner)
+            case "md", "markdown":
+                if let texts = try? variants.map({ try string(atRelative: $0) }) {
+                    return .merged(
+                        Data(MarkdownSectionMerge.merge(variants: texts).utf8),
+                        permissionsFrom: winner)
+                }
+            default:
+                break
+            }
+        }
+        guard let skeleton = skeletonText, variants.count > 1,
+            let contributions = try? variants.dropFirst().map({ try string(atRelative: $0) })
+        else { return .copy(winner) }
+        return .merged(
+            Data(Self.appendedText([skeleton] + contributions).utf8), permissionsFrom: winner)
+    }
+
+    // Bottom-appending concat for plain text variants: one blank line between
+    // chunks, variants identical to an earlier one (modulo surrounding whitespace)
+    // are skipped so a copied-then-untouched file doesn't double its content.
+    private static func appendedText(_ texts: [String]) -> String {
+        var seen: [String] = []
+        var result = ""
+        for text in texts {
+            let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty, !seen.contains(normalized) else { continue }
+            seen.append(normalized)
+            if result.isEmpty {
+                result = text
+            } else {
+                while result.hasSuffix("\n") { result.removeLast() }
+                result += "\n\n" + text
+            }
+        }
+        return result.isEmpty ? (texts.last ?? "") : result
     }
 
     // The typed/composition namespaces handled by their own scaffold steps; the

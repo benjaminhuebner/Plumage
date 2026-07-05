@@ -21,13 +21,10 @@ Issues live in `.claude/issues/<id>-<slug>/spec.md`. Frontmatter is source of tr
 When compacting, always preserve: the active issue slug and branch, the current task number and remaining tasks, files modified since the last commit, and any failing test names.
 
 ## Project layout
-<<<LAYOUT>>>
 
 ## Conventions
-<<<CONVENTIONS>>>
 
 ## Build and test
-<<<BUILD_AND_TEST>>>
 
 ## Branches and commits
 - Branch: `issue/<slug>`.
@@ -46,4 +43,3 @@ Gates serialize across all worktrees of the repo via a shared lock. Parallel `/p
 - Finish migrations: never leave two patterns for the same thing in the tree — a half-adopted pattern steers future code the wrong way. Too big to finish now → decisions.md entry + follow-up issue.
 
 ## Common pitfalls
-<<<PITFALLS>>>

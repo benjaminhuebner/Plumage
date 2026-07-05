@@ -1,10 +1,8 @@
 import Foundation
 
-// `CLAUDE.md` is composed by harvesting `%% keyword %%` blocks from every active layer
-// (via `PlaceholderMerge`), inlining them into the base skeleton's `<<<keyword>>>`
-// placeholders, substituting the scalar catalog/spec tokens, then dropping any
-// placeholder no layer filled. Scalar tokens resolve after block inlining so they fill
-// even inside an inlined block (e.g. the `<<<XCODE_MCP_LINE>>>` an Apple layer carries).
+// Composes CLAUDE.md by heading-merging the active layers into the base skeleton,
+// then resolving scalar tokens (post-merge, so layer-carried tokens fill too) and
+// dropping unfilled sections. Legacy-format overrides convert in memory first.
 nonisolated struct ClaudeMdComposer {
     let overrides: ScaffoldOverrides
     // The resolved catalog supplies the effective layer list and scalar tokens.
@@ -18,14 +16,26 @@ nonisolated struct ClaudeMdComposer {
     func compose(spec: NewProjectSpec) throws -> Output {
         let templateID = spec.templateID
         let layers = catalog.effectiveLayers(forTemplate: templateID)
-        let skeleton = try overrides.string(atRelative: "templates/CLAUDE.md")
-
-        let contributions = try layers.map {
+        let skeletonRaw = try overrides.string(atRelative: "templates/CLAUDE.md")
+        let contributionsRaw = try layers.map {
             try overrides.string(atRelative: ScaffoldOverrides.layerRelativePath($0))
         }
-        let resolved = try PlaceholderMerge.resolvedBlocks(from: contributions)
 
-        var result = PlaceholderMerge.inline(skeleton, resolved: resolved)
+        // Legacy pass: blocks still fill `<<<keyword>>>` lines of an unmigrated
+        // skeleton override (custom keywords have no heading mapping); consumed
+        // blocks stay out of the heading merge so their content can't land twice.
+        let resolved = try PlaceholderMerge.resolvedBlocks(from: contributionsRaw)
+        let consumed = PlaceholderMerge.placeholderKeywords(in: skeletonRaw)
+            .intersection(resolved.keys)
+        let headings = TemplateLayerFormatMigration.headings(forSkeleton: skeletonRaw)
+        let skeleton = TemplateLayerFormatMigration.strippingSectionPlaceholders(
+            from: PlaceholderMerge.inline(skeletonRaw, resolved: resolved))
+        let contributions = contributionsRaw.map {
+            TemplateLayerFormatMigration.headingSections(
+                from: $0, excluding: consumed, headings: headings)
+        }
+
+        var result = MarkdownSectionMerge.merge(variants: [skeleton] + contributions)
         result =
             result
             .replacingOccurrences(of: "<<<PROJECT_NAME>>>", with: spec.name)
@@ -39,6 +49,7 @@ nonisolated struct ClaudeMdComposer {
                 with: catalog.effectiveXcodeMcpLine(forTemplate: templateID)
             )
         result = PlaceholderMerge.dropUnresolved(result)
+        result = MarkdownSectionMerge.droppingEmptySections(result)
 
         return Output(claudeMd: result)
     }

@@ -86,6 +86,12 @@ nonisolated enum PlaceholderMerge {
         skeleton.components(separatedBy: "\n").contains { placeholderKeyword(ofLine: $0) != nil }
     }
 
+    // Every keyword `skeleton` carries as a placeholder line. Lets the composer
+    // tell which legacy block keywords the inline pass consumed.
+    static func placeholderKeywords(in skeleton: String) -> Set<String> {
+        Set(skeleton.components(separatedBy: "\n").compactMap(placeholderKeyword(ofLine:)))
+    }
+
     // Replace each `<<<keyword>>>` line that has a non-empty body in `resolved` with
     // that body. Placeholders without a body are left in place for `dropUnresolved`.
     static func inline(_ skeleton: String, resolved: [String: String]) -> String {
