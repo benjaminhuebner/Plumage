@@ -1,5 +1,3 @@
-import Foundation
-
 // Column animations resize the terminal every frame; each cell-boundary
 // crossing costs a PTY SIGWINCH and a full TUI repaint. Bursts coalesce to a
 // trailing apply so claude reflows a few times per animation, not per frame.

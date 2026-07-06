@@ -1,9 +1,9 @@
 import Foundation
 
-nonisolated enum GitStageError: Error, Sendable, Equatable {
+nonisolated enum GitStageError: LocalizedError, Sendable, Equatable {
     case emptyPathList
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .emptyPathList:
             return "No paths supplied — refusing to stage/unstage nothing."

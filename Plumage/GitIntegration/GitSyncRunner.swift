@@ -42,10 +42,10 @@ nonisolated struct GitPushOptions: Sendable, Equatable {
     }
 }
 
-nonisolated enum GitSyncError: Error, Sendable, Equatable {
+nonisolated enum GitSyncError: LocalizedError, Sendable, Equatable {
     case gitNotFound
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"
@@ -167,7 +167,7 @@ nonisolated struct GitSyncRunner: GitSyncing {
                 .line(
                     GitStreamLine(
                         source: .stderr,
-                        text: GitSyncError.gitNotFound.displayMessage)))
+                        text: GitSyncError.gitNotFound.localizedDescription)))
             continuation.yield(.finished(exitCode: 127))
             return
         }
@@ -258,7 +258,7 @@ nonisolated struct GitSyncRunner: GitSyncing {
             continuation.yield(
                 .line(
                     GitStreamLine(
-                        source: .stderr, text: error.displayMessage)))
+                        source: .stderr, text: error.localizedDescription)))
             return RunOutcome(exitCode: 127, stderrLines: [], authPromptHit: false)
         } catch {
             continuation.yield(

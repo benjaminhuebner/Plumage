@@ -52,7 +52,7 @@ struct ProjectGitModelMergeTests {
     private nonisolated static let repoURL = URL(filePath: "/tmp/probe-repo")
     private nonisolated static let fakeBinary = URL(filePath: "/usr/bin/git")
     private nonisolated static let listArgs = [
-        "for-each-ref", "--format=%(refname:short)", "refs/heads/",
+        "-C", repoURL.path, "for-each-ref", "--format=%(refname:short)", "refs/heads/",
     ]
 
     private func makeModel(

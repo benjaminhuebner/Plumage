@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum GitDiffError: Error, Sendable, Equatable {
+nonisolated enum GitDiffError: LocalizedError, Sendable, Equatable {
     case gitNotFound
     case repoNotFound(URL)
     case baseBranchMissing(String)
@@ -8,7 +8,7 @@ nonisolated enum GitDiffError: Error, Sendable, Equatable {
     case nonZeroExit(code: Int32, stderr: String)
     case spawnFailed(String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"

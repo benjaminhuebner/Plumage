@@ -26,7 +26,10 @@ struct GitTagListerTests {
     @Test("successful run returns parsed tags, newest first")
     func listTags() async throws {
         let mock = MockGitProcessRunner()
-        let args = ["for-each-ref", "--sort=-creatordate", "--format=%(refname:short)", "refs/tags/"]
+        let args = [
+            "-C", "/tmp", "for-each-ref", "--sort=-creatordate",
+            "--format=%(refname:short)", "refs/tags/",
+        ]
         mock.stdoutForArgs = [args: "v2.0.0\nv1.0.0\n"]
         let lister = GitTagLister(
             runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
@@ -36,16 +39,22 @@ struct GitTagListerTests {
         #expect(tags == ["v2.0.0", "v1.0.0"])
     }
 
-    @Test("non-zero exit throws listFailed with stderr")
+    @Test("non-zero exit throws nonZeroExit with stderr")
     func nonZeroExitThrows() async {
         let mock = MockGitProcessRunner()
-        let args = ["for-each-ref", "--sort=-creatordate", "--format=%(refname:short)", "refs/tags/"]
+        let args = [
+            "-C", "/tmp", "for-each-ref", "--sort=-creatordate",
+            "--format=%(refname:short)", "refs/tags/",
+        ]
         mock.exitCodeForArgs = [args: 128]
         mock.stderrForArgs = [args: "fatal: not a git repository"]
         let lister = GitTagLister(
             runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
 
-        await #expect(throws: GitTagListError.listFailed(stderr: "fatal: not a git repository")) {
+        await #expect(
+            throws: GitCommandError.nonZeroExit(
+                command: "git for-each-ref", code: 128, stderr: "fatal: not a git repository")
+        ) {
             _ = try await lister.tags(repoURL: URL(filePath: "/tmp"))
         }
     }
@@ -54,7 +63,7 @@ struct GitTagListerTests {
     func missingBinaryThrows() async {
         let lister = GitTagLister(runner: MockGitProcessRunner(), resolveBinary: { nil })
 
-        await #expect(throws: GitTagListError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             _ = try await lister.tags(repoURL: URL(filePath: "/tmp"))
         }
     }

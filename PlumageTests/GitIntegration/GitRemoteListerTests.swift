@@ -32,13 +32,13 @@ struct GitRemoteListerTests {
         #expect(try await lister.remotes(repoURL: repo).isEmpty)
     }
 
-    @Test("a non-zero git exit surfaces listFailed")
+    @Test("a non-zero git exit surfaces nonZeroExit")
     func remotesFailure() async {
         let mock = MockGitProcessRunner()
         mock.exitCodeForArgs[["-C", repo.path, "remote"]] = 128
         mock.stderrForArgs[["-C", repo.path, "remote"]] = "fatal: not a git repository"
         let lister = GitRemoteLister(runner: mock, resolveBinary: { self.fakeGit })
-        await #expect(throws: GitRemoteListError.self) {
+        await #expect(throws: GitCommandError.self) {
             _ = try await lister.remotes(repoURL: repo)
         }
     }
@@ -46,7 +46,7 @@ struct GitRemoteListerTests {
     @Test("a missing git binary surfaces gitNotFound")
     func remotesNoBinary() async {
         let lister = GitRemoteLister(runner: MockGitProcessRunner(), resolveBinary: { nil })
-        await #expect(throws: GitRemoteListError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             _ = try await lister.remotes(repoURL: repo)
         }
     }

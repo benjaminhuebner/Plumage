@@ -1,10 +1,10 @@
 import Foundation
 
-nonisolated enum GitCommitError: Error, Sendable, Equatable {
+nonisolated enum GitCommitError: LocalizedError, Sendable, Equatable {
     case emptyMessage
     case nothingToCommit
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .emptyMessage:
             return "Commit message is empty."

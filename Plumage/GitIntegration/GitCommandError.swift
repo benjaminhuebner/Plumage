@@ -3,7 +3,7 @@ import Foundation
 // One error shape for the simple one-shot git runners. `command` labels
 // nonZeroExit so every runner keeps its historical display text
 // ("git status failed: …", "git failed: …") character-identical.
-nonisolated enum GitCommandError: Error, Sendable, Equatable {
+nonisolated enum GitCommandError: LocalizedError, Sendable, Equatable {
     case gitNotFound
     case spawnFailed(String)
     case nonZeroExit(command: String, code: Int32, stderr: String)
@@ -19,7 +19,7 @@ nonisolated enum GitCommandError: Error, Sendable, Equatable {
         }
     }
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"

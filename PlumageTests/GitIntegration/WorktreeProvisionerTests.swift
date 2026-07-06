@@ -11,9 +11,9 @@ struct WorktreeProvisionerTests {
         return dir
     }
 
-    private func listerReturning(porcelain: String) -> GitWorktreeLister {
+    private func listerReturning(porcelain: String, repoRoot: URL) -> GitWorktreeLister {
         let mock = MockGitProcessRunner()
-        mock.stdoutForArgs = [["worktree", "list", "--porcelain"]: porcelain]
+        mock.stdoutForArgs = [["-C", repoRoot.path, "worktree", "list", "--porcelain"]: porcelain]
         return GitWorktreeLister(runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
     }
 
@@ -28,7 +28,7 @@ struct WorktreeProvisionerTests {
         let scriptRunner = MockGitProcessRunner()
         let provisioner = WorktreeProvisioner(
             runner: scriptRunner,
-            lister: listerReturning(porcelain: ""),
+            lister: listerReturning(porcelain: "", repoRoot: projectRoot),
             scriptURL: root.appending(component: "irrelevant.sh")
         )
 
@@ -47,7 +47,7 @@ struct WorktreeProvisionerTests {
         let missing = root.appending(component: "nope.sh")
         let provisioner = WorktreeProvisioner(
             runner: MockGitProcessRunner(),
-            lister: listerReturning(porcelain: ""),
+            lister: listerReturning(porcelain: "", repoRoot: projectRoot),
             scriptURL: missing
         )
 
@@ -70,7 +70,7 @@ struct WorktreeProvisionerTests {
         mock.stderrForArgs = [args: "error: no issue folder matches '00042-x'\n"]
         let provisioner = WorktreeProvisioner(
             runner: mock,
-            lister: listerReturning(porcelain: ""),
+            lister: listerReturning(porcelain: "", repoRoot: projectRoot),
             scriptURL: script
         )
 
@@ -92,7 +92,9 @@ struct WorktreeProvisionerTests {
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         let provisioner = WorktreeProvisioner(
             runner: MockGitProcessRunner(),
-            lister: listerReturning(porcelain: "worktree \(projectRoot.path)\nbranch refs/heads/main"),
+            lister: listerReturning(
+                porcelain: "worktree \(projectRoot.path)\nbranch refs/heads/main",
+                repoRoot: projectRoot),
             scriptURL: root.appending(component: "irrelevant.sh")
         )
 
@@ -113,7 +115,7 @@ struct WorktreeProvisionerTests {
         let porcelain = "worktree \(projectRoot.path)\nbranch refs/heads/main\n\nworktree \(target.path)\ndetached"
         let provisioner = WorktreeProvisioner(
             runner: scriptRunner,
-            lister: listerReturning(porcelain: porcelain),
+            lister: listerReturning(porcelain: porcelain, repoRoot: projectRoot),
             scriptURL: root.appending(component: "irrelevant.sh")
         )
 

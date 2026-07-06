@@ -3,7 +3,6 @@ import SwiftUI
 struct GitTagSheet: View {
     @Bindable var model: GitTagModel
     let onDismiss: () -> Void
-    @State private var submitTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -48,39 +47,19 @@ struct GitTagSheet: View {
                     .font(.callout)
             }
 
-            footer
+            SheetSubmitFooter(
+                submitTitle: "Create",
+                isWorking: model.isWorking,
+                canSubmit: model.canSubmit,
+                onSubmit: { await model.submit() },
+                onDismiss: onDismiss
+            )
         }
         .padding(20)
         .frame(width: 460)
         .task { await model.load() }
         .onChange(of: model.didFinish) { _, finished in
             if finished { onDismiss() }
-        }
-        .onDisappear { submitTask?.cancel() }
-    }
-
-    @ViewBuilder
-    private var footer: some View {
-        HStack {
-            if model.isWorking {
-                ProgressView().controlSize(.small)
-                Text("Working…").foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Cancel", role: .cancel) {
-                submitTask?.cancel()
-                onDismiss()
-            }
-            .keyboardShortcut(.cancelAction)
-            Button("Create") {
-                guard submitTask == nil else { return }
-                submitTask = Task {
-                    await model.submit()
-                    submitTask = nil
-                }
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(!model.canSubmit)
         }
     }
 }

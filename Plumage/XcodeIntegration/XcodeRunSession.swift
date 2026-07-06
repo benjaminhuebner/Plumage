@@ -53,7 +53,7 @@ nonisolated struct XcodeRunSession: Sendable {
         } catch is CancellationError {
             return .cancelled
         } catch {
-            return .launchFailed(message: humanReadable(error))
+            return .launchFailed(message: error.localizedDescription)
         }
 
         let settings: [String: String]
@@ -66,7 +66,7 @@ nonisolated struct XcodeRunSession: Sendable {
         } catch is CancellationError {
             return .cancelled
         } catch {
-            return .launchFailed(message: humanReadable(error))
+            return .launchFailed(message: error.localizedDescription)
         }
 
         guard let appURL = XcodebuildRunner.appBundleURL(from: settings) else {
@@ -88,7 +88,7 @@ nonisolated struct XcodeRunSession: Sendable {
             } catch is CancellationError {
                 return .cancelled
             } catch {
-                return .launchFailed(message: humanReadable(error))
+                return .launchFailed(message: error.localizedDescription)
             }
         }
 
@@ -98,14 +98,7 @@ nonisolated struct XcodeRunSession: Sendable {
         } catch is CancellationError {
             return .cancelled
         } catch {
-            return .launchFailed(message: humanReadable(error))
+            return .launchFailed(message: error.localizedDescription)
         }
-    }
-
-    private func humanReadable(_ error: Error) -> String {
-        if let error = error as? XcodeProcessRunnerError {
-            return error.displayMessage
-        }
-        return error.localizedDescription
     }
 }

@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum ChatButtonPlacement: String, CaseIterable, Identifiable {
     case floating
     case statusBar

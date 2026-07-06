@@ -48,16 +48,19 @@ struct GitWorktreeListerTests {
         #expect(worktrees[0].path.lastPathComponent == "Sample App")
     }
 
-    @Test("non-zero exit throws listFailed with stderr")
+    @Test("non-zero exit throws nonZeroExit with stderr")
     func nonZeroExitThrows() async {
         let mock = MockGitProcessRunner()
-        let args = ["worktree", "list", "--porcelain"]
+        let args = ["-C", "/tmp", "worktree", "list", "--porcelain"]
         mock.exitCodeForArgs = [args: 128]
         mock.stderrForArgs = [args: "fatal: not a git repository"]
         let lister = GitWorktreeLister(
             runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
 
-        await #expect(throws: GitWorktreeListError.listFailed(stderr: "fatal: not a git repository")) {
+        await #expect(
+            throws: GitCommandError.nonZeroExit(
+                command: "git worktree list", code: 128, stderr: "fatal: not a git repository")
+        ) {
             _ = try await lister.worktrees(repoURL: URL(filePath: "/tmp"))
         }
     }
@@ -66,7 +69,7 @@ struct GitWorktreeListerTests {
     func missingBinaryThrows() async {
         let lister = GitWorktreeLister(runner: MockGitProcessRunner(), resolveBinary: { nil })
 
-        await #expect(throws: GitWorktreeListError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             _ = try await lister.worktrees(repoURL: URL(filePath: "/tmp"))
         }
     }

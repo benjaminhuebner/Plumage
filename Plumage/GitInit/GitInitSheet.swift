@@ -4,7 +4,6 @@ struct GitInitSheet: View {
     @Bindable var model: GitInitModel
     let onDismiss: () -> Void
     var onInitialized: (() -> Void)?
-    @State private var submitTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -29,7 +28,13 @@ struct GitInitSheet: View {
                     .font(.callout)
             }
 
-            footer
+            SheetSubmitFooter(
+                submitTitle: "Initialize",
+                isWorking: model.isWorking,
+                canSubmit: !model.isWorking,
+                onSubmit: { await model.submit() },
+                onDismiss: onDismiss
+            )
         }
         .padding(20)
         .frame(width: 460)
@@ -38,32 +43,6 @@ struct GitInitSheet: View {
                 onInitialized?()
                 onDismiss()
             }
-        }
-        .onDisappear { submitTask?.cancel() }
-    }
-
-    @ViewBuilder
-    private var footer: some View {
-        HStack {
-            if model.isWorking {
-                ProgressView().controlSize(.small)
-                Text("Working…").foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Cancel", role: .cancel) {
-                submitTask?.cancel()
-                onDismiss()
-            }
-            .keyboardShortcut(.cancelAction)
-            Button("Initialize") {
-                guard submitTask == nil else { return }
-                submitTask = Task {
-                    await model.submit()
-                    submitTask = nil
-                }
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(model.isWorking)
         }
     }
 }

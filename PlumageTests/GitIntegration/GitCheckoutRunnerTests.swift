@@ -46,7 +46,7 @@ struct GitCheckoutRunnerTests {
         #expect(mock.recordedCalls.isEmpty)
     }
 
-    @Test("non-zero exit throws checkoutFailed with stderr")
+    @Test("non-zero exit throws nonZeroExit with stderr")
     func nonZeroExitThrows() async {
         let mock = MockGitProcessRunner()
         let args = ["-C", "/tmp/repo", "checkout", "main"]
@@ -58,7 +58,9 @@ struct GitCheckoutRunnerTests {
             runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
 
         await #expect(
-            throws: GitCheckoutError.checkoutFailed(
+            throws: GitCommandError.nonZeroExit(
+                command: "git checkout",
+                code: 1,
                 stderr: "error: Your local changes to the following files would be overwritten")
         ) {
             try await checkout.checkout(repoURL: repoURL, branch: "main")
@@ -69,7 +71,7 @@ struct GitCheckoutRunnerTests {
     func missingBinaryThrows() async {
         let checkout = GitCheckoutRunner(runner: MockGitProcessRunner(), resolveBinary: { nil })
 
-        await #expect(throws: GitCheckoutError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             try await checkout.checkout(repoURL: repoURL, branch: "main")
         }
     }

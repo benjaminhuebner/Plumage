@@ -660,15 +660,11 @@ struct ProjectWindow: View {
                         ? { isDockOpen.toggle() } : nil
                 )
             }
-            // Derived isPresented binding is the standard confirmationDialog
-            // shape; the kanban model owns the pending state so the card
-            // context menus (board + sidebar) share one dialog.
+            // The kanban model owns the pending state so the card context
+            // menus (board + sidebar) share one dialog.
             .confirmationDialog(
                 removalDialogTitle,
-                isPresented: Binding(
-                    get: { kanban.pendingRemoval != nil },
-                    set: { if !$0 { kanban.cancelPendingRemoval() } }
-                ),
+                isPresented: removalDialogPresented,
                 presenting: kanban.pendingRemoval
             ) { removal in
                 switch removal.kind {
@@ -692,14 +688,9 @@ struct ProjectWindow: View {
                     Text("You can restore it from the Trash.")
                 }
             }
-            // Side-effect-only setter: false routes to the launcher's cancel,
-            // no mirrored local state to keep in sync.
             .confirmationDialog(
                 "An implement run is already active",
-                isPresented: Binding(
-                    get: { workflowLauncher.pendingImplement != nil },
-                    set: { if !$0 { workflowLauncher.cancelPendingImplement() } }
-                ),
+                isPresented: implementConflictDialogPresented,
                 presenting: workflowLauncher.pendingImplement
             ) { _ in
                 Button("Start in Worktree") {
@@ -718,12 +709,7 @@ struct ProjectWindow: View {
                         + "or wait in line — a queued run starts by itself when it's its turn."
                 )
             }
-            .sheet(
-                item: Binding(
-                    get: { gitModel.pendingBranchMerge },
-                    set: { gitModel.pendingBranchMerge = $0 }
-                )
-            ) { request in
+            .sheet(item: $gitModel.pendingBranchMerge) { request in
                 BranchMergeSheet(
                     request: request,
                     isMerging: gitModel.isMerging,
@@ -752,10 +738,7 @@ struct ProjectWindow: View {
             }
             .alert(
                 "Worktree setup failed",
-                isPresented: Binding(
-                    get: { workflowLauncher.worktreeProvisionError != nil },
-                    set: { if !$0 { workflowLauncher.dismissWorktreeProvisionError() } }
-                ),
+                isPresented: worktreeErrorAlertPresented,
                 presenting: workflowLauncher.worktreeProvisionError
             ) { _ in
                 Button("Try Again") { workflowLauncher.retryWorktreeProvision() }
@@ -796,6 +779,29 @@ struct ProjectWindow: View {
         case .archive: return "Archive \"\(removal.folderName)\"?"
         case .trash, .archiveTrash: return "Move \"\(removal.folderName)\" to Trash?"
         }
+    }
+
+    // Computed on the view, not the models: ProjectKanbanModel and
+    // WorkflowLauncher stay SwiftUI-free by design.
+    private var removalDialogPresented: Binding<Bool> {
+        Binding(
+            get: { kanban.pendingRemoval != nil },
+            set: { if !$0 { kanban.cancelPendingRemoval() } }
+        )
+    }
+
+    private var implementConflictDialogPresented: Binding<Bool> {
+        Binding(
+            get: { workflowLauncher.pendingImplement != nil },
+            set: { if !$0 { workflowLauncher.cancelPendingImplement() } }
+        )
+    }
+
+    private var worktreeErrorAlertPresented: Binding<Bool> {
+        Binding(
+            get: { workflowLauncher.worktreeProvisionError != nil },
+            set: { if !$0 { workflowLauncher.dismissWorktreeProvisionError() } }
+        )
     }
 
     private var backToOriginAction: (() -> Void)? {

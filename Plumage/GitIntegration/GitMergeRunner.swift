@@ -6,7 +6,7 @@ nonisolated enum GitMergeMode: String, Sendable, Equatable {
     case fastForward
 }
 
-nonisolated enum GitMergeError: Error, LocalizedError, Sendable, Equatable {
+nonisolated enum GitMergeError: LocalizedError, Sendable, Equatable {
     case gitNotFound
     case implementRunActive(issue: String)
     case mergedIssueRunActive(issue: String, location: String)
@@ -20,9 +20,7 @@ nonisolated enum GitMergeError: Error, LocalizedError, Sendable, Equatable {
     case branchCheckedOutElsewhere(branch: String)
     case worktreeDirty(path: String)
 
-    var errorDescription: String? { displayMessage }
-
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .gitNotFound:
             return "`git` not found — are the Command Line Tools installed?"
@@ -398,8 +396,6 @@ nonisolated struct GitMergeRunner: GitMergeRunning {
                 return stderrString(result)
             }
             return nil
-        } catch let error as GitProcessRunnerError {
-            return error.displayMessage
         } catch {
             return error.localizedDescription
         }

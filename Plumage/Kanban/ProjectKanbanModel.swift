@@ -605,12 +605,6 @@ final class ProjectKanbanModel {
         }
     }
 
-    func performArchiveTrashOptimistic(folderName: String, projectURL: URL) async {
-        applyOptimisticArchiveTrash(folderName: folderName, projectURL: projectURL)
-        let task = archiveActionTask
-        await task?.value
-    }
-
     private func rollbackOptimisticArchiveRemoval(
         to prior: [DiscoveredIssue], folderName: String, error: String
     ) {

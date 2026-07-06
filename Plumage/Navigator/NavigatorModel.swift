@@ -98,6 +98,13 @@ final class NavigatorModel {
         pendingTrash = nil
     }
 
+    var pendingTrashDialogBinding: Binding<Bool> {
+        Binding(
+            get: { self.pendingTrash != nil },
+            set: { if !$0 { self.cancelPendingTrash() } }
+        )
+    }
+
     func confirmPendingTrash(projectURL: URL) async {
         guard let urls = pendingTrash else { return }
         pendingTrash = nil

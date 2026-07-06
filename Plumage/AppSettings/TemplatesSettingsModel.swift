@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 
 // Reduced Settings → Templates model. Owns just the per-template enable/

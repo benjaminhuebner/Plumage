@@ -11,7 +11,6 @@ nonisolated final class MockGitStatusRunner: GitStatusRunning, @unchecked Sendab
     private struct State: Sendable {
         var outputs: [URL: [GitFileStatus]] = [:]
         var error: GitCommandError?
-        var calls: [URL] = []
     }
 
     var outputs: [URL: [GitFileStatus]] {
@@ -24,14 +23,9 @@ nonisolated final class MockGitStatusRunner: GitStatusRunning, @unchecked Sendab
         set { lock.withLock { $0.error = newValue } }
     }
 
-    var calls: [URL] {
-        lock.withLock { $0.calls }
-    }
-
     func run(repoURL: URL) async throws -> [GitFileStatus] {
         let result: (error: GitCommandError?, output: [GitFileStatus]) = lock.withLock { state in
-            state.calls.append(repoURL)
-            return (state.error, state.outputs[repoURL] ?? [])
+            (state.error, state.outputs[repoURL] ?? [])
         }
         if let error = result.error { throw error }
         return result.output

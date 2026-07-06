@@ -64,7 +64,7 @@ struct BranchMergeSheet: View {
                 "Cannot fast-forward: `\(targetBranch)` has commits since `\(sourceBranch)` "
                 + "was branched off. Switch to Squash to merge anyway."
         }
-        return error.displayMessage
+        return error.localizedDescription
     }
 
     var body: some View {

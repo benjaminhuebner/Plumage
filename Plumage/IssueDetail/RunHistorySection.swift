@@ -16,7 +16,8 @@ struct RunHistorySection: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
     }
 }
 

@@ -318,13 +318,6 @@ final class ProjectSettingsModel {
         action.permissionMode
     }
 
-    var defaultBranchBinding: Binding<String> {
-        Binding(
-            get: { self.defaultBranch },
-            set: { self.setDefaultBranch($0) }
-        )
-    }
-
     func setDefaultBranch(_ value: String) {
         guard canEdit, value != defaultBranch else { return }
         defaultBranch = value

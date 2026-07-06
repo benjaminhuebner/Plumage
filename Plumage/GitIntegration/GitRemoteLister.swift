@@ -1,20 +1,6 @@
 import Foundation
 
-nonisolated enum GitRemoteListError: LocalizedError, Sendable, Equatable {
-    case gitNotFound
-    case listFailed(stderr: String)
-
-    var errorDescription: String? {
-        switch self {
-        case .gitNotFound:
-            return "`git` not found — are the Command Line Tools installed?"
-        case .listFailed(let stderr):
-            return "git remote failed: \(stderr.prefix(200))"
-        }
-    }
-}
-
-nonisolated struct GitRemoteLister: Sendable {
+nonisolated struct GitRemoteLister: Sendable, GitCommandRunning {
     let runner: any GitProcessRunning
     let resolveBinary: @Sendable () -> URL?
 
@@ -27,18 +13,10 @@ nonisolated struct GitRemoteLister: Sendable {
     }
 
     func remotes(repoURL: URL) async throws -> [String] {
-        guard let binary = resolveBinary() else {
-            throw GitRemoteListError.gitNotFound
-        }
-        let result = try await runner.run(
-            binaryURL: binary,
-            args: ["-C", repoURL.path, "remote"],
-            cwd: nil
-        )
-        guard result.exitCode == 0 else {
-            throw GitRemoteListError.listFailed(
-                stderr: String(decoding: result.stderr, as: UTF8.self))
-        }
+        let result = try await invokeGit(
+            repoURL: repoURL,
+            args: ["remote"],
+            command: "git remote")
         return Self.parse(output: String(decoding: result.stdout, as: UTF8.self))
     }
 

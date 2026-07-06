@@ -104,7 +104,7 @@ final class XcodeRunModel {
         } catch {
             schemes = []
             selectedScheme = nil
-            discoveryState = .failed(message: Self.errorMessage(error))
+            discoveryState = .failed(message: error.localizedDescription)
             return
         }
 
@@ -261,12 +261,5 @@ final class XcodeRunModel {
         case .simulator(let udid, _, _):
             return list.simulatorGroups.flatMap(\.simulators).contains { $0.udid == udid }
         }
-    }
-
-    private static func errorMessage(_ error: Error) -> String {
-        if let error = error as? XcodeProcessRunnerError {
-            return error.displayMessage
-        }
-        return error.localizedDescription
     }
 }

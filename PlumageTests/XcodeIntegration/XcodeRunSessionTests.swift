@@ -128,21 +128,15 @@ struct XcodeRunSessionMacTests {
 final class RecordingAppLauncher: AppLaunching, @unchecked Sendable {
     private let lock = NSLock()
     private var _opened: [URL] = []
-    private var _pidToReturn: Int32 = 99_999
 
     var openedURLs: [URL] {
         lock.withLock { _opened }
     }
 
-    var pidToReturn: Int32 {
-        get { lock.withLock { _pidToReturn } }
-        set { lock.withLock { _pidToReturn = newValue } }
-    }
-
     func openApp(at url: URL) async throws -> Int32? {
         lock.withLock {
             _opened.append(url)
-            return _pidToReturn
+            return 99_999
         }
     }
 }

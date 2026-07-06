@@ -8,7 +8,6 @@ import SwiftUI
 struct WorkflowCommandEditor: NSViewRepresentable {
     @Binding var text: String
     var catalog: IssueTypeCatalog = .builtIn
-    var onPlaceholderInsert: (WorkflowPlaceholder) -> Void = { _ in }
 
     static let minHeight: CGFloat = 90
 

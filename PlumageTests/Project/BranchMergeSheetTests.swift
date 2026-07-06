@@ -59,7 +59,7 @@ struct BranchMergeSheetTests {
     @Test("other errors pass their display message through")
     func otherErrorsPassThrough() {
         let error = GitMergeError.workingTreeDirty(files: ["Plumage/Foo.swift"])
-        #expect(BranchMergeSheet.errorMessage(for: error) == error.displayMessage)
+        #expect(BranchMergeSheet.errorMessage(for: error) == error.localizedDescription)
     }
 
     @Test("no error yields no banner message")

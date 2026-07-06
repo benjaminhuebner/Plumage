@@ -33,7 +33,7 @@ struct DiffTabView: View {
         BodyTabEmptyState(
             symbol: "exclamationmark.triangle",
             title: "Could not load diff",
-            detail: error.displayMessage
+            detail: error.localizedDescription
         )
     }
 

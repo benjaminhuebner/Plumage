@@ -869,7 +869,7 @@ struct GitMergeErrorMessageTests {
     func notFastForwardMentionsButton() {
         let message = GitMergeError.notFastForward(
             targetBranch: "main", issueBranch: "issue/x"
-        ).displayMessage
+        ).localizedDescription
         #expect(message.contains("main"))
         #expect(message.contains("issue/x"))
         #expect(message.contains("Use Rebase & Merge"))
@@ -879,7 +879,7 @@ struct GitMergeErrorMessageTests {
     func rebaseFailedMessage() {
         let message = GitMergeError.rebaseFailed(
             stderr: "CONFLICT (content): Merge conflict in Foo.swift"
-        ).displayMessage
+        ).localizedDescription
         #expect(message.contains("CONFLICT (content): Merge conflict in Foo.swift"))
         #expect(message.contains("aborted"))
         #expect(message.contains("manually"))
@@ -887,14 +887,14 @@ struct GitMergeErrorMessageTests {
 
     @Test("branchCheckedOutElsewhere names the branch")
     func branchCheckedOutElsewhereMessage() {
-        let message = GitMergeError.branchCheckedOutElsewhere(branch: "issue/x").displayMessage
+        let message = GitMergeError.branchCheckedOutElsewhere(branch: "issue/x").localizedDescription
         #expect(message.contains("issue/x"))
         #expect(message.contains("worktree"))
     }
 
     @Test("worktreeDirty names the path and asks to commit or discard")
     func worktreeDirtyMessage() {
-        let message = GitMergeError.worktreeDirty(path: "/tmp/Proj-issue-x").displayMessage
+        let message = GitMergeError.worktreeDirty(path: "/tmp/Proj-issue-x").localizedDescription
         #expect(message.contains("/tmp/Proj-issue-x"))
         #expect(message.contains("uncommitted"))
         #expect(message.contains("Commit or discard"))

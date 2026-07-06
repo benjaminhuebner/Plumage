@@ -26,7 +26,7 @@ struct GitBranchListerTests {
     @Test("successful run returns parsed branches")
     func listBranches() async throws {
         let mock = MockGitProcessRunner()
-        let args = ["for-each-ref", "--format=%(refname:short)", "refs/heads/"]
+        let args = ["-C", "/tmp", "for-each-ref", "--format=%(refname:short)", "refs/heads/"]
         mock.stdoutForArgs = [args: "main\nissue/00042-feature\n"]
         let lister = GitBranchLister(
             runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
@@ -36,16 +36,19 @@ struct GitBranchListerTests {
         #expect(branches == ["main", "issue/00042-feature"])
     }
 
-    @Test("non-zero exit throws listFailed with stderr")
+    @Test("non-zero exit throws nonZeroExit with stderr")
     func nonZeroExitThrows() async {
         let mock = MockGitProcessRunner()
-        let args = ["for-each-ref", "--format=%(refname:short)", "refs/heads/"]
+        let args = ["-C", "/tmp", "for-each-ref", "--format=%(refname:short)", "refs/heads/"]
         mock.exitCodeForArgs = [args: 128]
         mock.stderrForArgs = [args: "fatal: not a git repository"]
         let lister = GitBranchLister(
             runner: mock, resolveBinary: { URL(filePath: "/usr/bin/git") })
 
-        await #expect(throws: GitBranchListError.listFailed(stderr: "fatal: not a git repository")) {
+        await #expect(
+            throws: GitCommandError.nonZeroExit(
+                command: "git for-each-ref", code: 128, stderr: "fatal: not a git repository")
+        ) {
             _ = try await lister.branches(repoURL: URL(filePath: "/tmp"))
         }
     }
@@ -54,7 +57,7 @@ struct GitBranchListerTests {
     func missingBinaryThrows() async {
         let lister = GitBranchLister(runner: MockGitProcessRunner(), resolveBinary: { nil })
 
-        await #expect(throws: GitBranchListError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             _ = try await lister.branches(repoURL: URL(filePath: "/tmp"))
         }
     }

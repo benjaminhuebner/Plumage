@@ -4,7 +4,6 @@ struct AddRemoteSheet: View {
     @Bindable var model: AddRemoteModel
     let onDismiss: () -> Void
     var onAddAccount: (() -> Void)?
-    @State private var submitTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -33,7 +32,13 @@ struct AddRemoteSheet: View {
                     .font(.callout)
             }
 
-            footer
+            SheetSubmitFooter(
+                submitTitle: "Add",
+                isWorking: model.isWorking,
+                canSubmit: model.canSubmit,
+                onSubmit: { await model.submit() },
+                onDismiss: onDismiss
+            )
         }
         .padding(20)
         .frame(width: 460)
@@ -41,7 +46,6 @@ struct AddRemoteSheet: View {
         .onChange(of: model.didFinish) { _, finished in
             if finished { onDismiss() }
         }
-        .onDisappear { submitTask?.cancel() }
     }
 
     private var isNoAccountNewMode: Bool {
@@ -82,31 +86,6 @@ struct AddRemoteSheet: View {
                     Button("Add GitHub account…", action: onAddAccount)
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private var footer: some View {
-        HStack {
-            if model.isWorking {
-                ProgressView().controlSize(.small)
-                Text("Working…").foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Cancel", role: .cancel) {
-                submitTask?.cancel()
-                onDismiss()
-            }
-            .keyboardShortcut(.cancelAction)
-            Button("Add") {
-                guard submitTask == nil else { return }
-                submitTask = Task {
-                    await model.submit()
-                    submitTask = nil
-                }
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(!model.canSubmit)
         }
     }
 }

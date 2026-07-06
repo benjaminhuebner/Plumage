@@ -68,7 +68,10 @@ struct GitTagCreateRunnerTests {
         let args = ["-C", repo.path, "tag", "v1.0.0"]
         mock.exitCodeForArgs[args] = 128
         mock.stderrForArgs[args] = "fatal: tag 'v1.0.0' already exists"
-        await #expect(throws: GitTagCreateError.self) {
+        await #expect(
+            throws: GitCommandError.nonZeroExit(
+                command: "git tag", code: 128, stderr: "fatal: tag 'v1.0.0' already exists")
+        ) {
             try await makeRunner(mock).createTag(name: "v1.0.0", message: nil, repoURL: repo)
         }
     }
@@ -76,7 +79,7 @@ struct GitTagCreateRunnerTests {
     @Test("a missing git binary surfaces gitNotFound")
     func missingBinary() async {
         let runner = GitTagCreateRunner(runner: MockGitProcessRunner(), resolveBinary: { nil })
-        await #expect(throws: GitTagCreateError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             try await runner.createTag(name: "v1.0.0", message: nil, repoURL: repo)
         }
     }
@@ -85,7 +88,7 @@ struct GitTagCreateRunnerTests {
     func spawnFailureMapped() async {
         let mock = MockGitProcessRunner()
         mock.error = .spawnFailed("boom")
-        await #expect(throws: GitTagCreateError.spawnFailed("boom")) {
+        await #expect(throws: GitCommandError.spawnFailed("boom")) {
             try await makeRunner(mock).createTag(name: "v1.0.0", message: nil, repoURL: repo)
         }
     }
@@ -134,7 +137,7 @@ struct GitTagCreateRunnerTests {
         let repo = try await TmpGitRepo.make()
         let runner = GitTagCreateRunner()
         try await runner.createTag(name: "v1.0.0", message: nil, repoURL: repo.tmpDir)
-        await #expect(throws: GitTagCreateError.self) {
+        await #expect(throws: GitCommandError.self) {
             try await runner.createTag(name: "v1.0.0", message: nil, repoURL: repo.tmpDir)
         }
     }

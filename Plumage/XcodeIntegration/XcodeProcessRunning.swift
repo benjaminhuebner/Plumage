@@ -8,13 +8,13 @@ nonisolated struct XcodeSpawnResult: Sendable, Equatable {
     let stderr: Data
 }
 
-nonisolated enum XcodeProcessRunnerError: Error, Sendable, Equatable {
+nonisolated enum XcodeProcessRunnerError: LocalizedError, Sendable, Equatable {
     case toolchainNotFound
     case spawnFailed(String)
     case nonZeroExit(code: Int32, stderr: String)
     case parseError(String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .toolchainNotFound:
             return "xcodebuild not found. Install Xcode to enable run controls."

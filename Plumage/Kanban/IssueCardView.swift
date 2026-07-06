@@ -39,7 +39,10 @@ struct IssueCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
+            // Fixed header height: the row centers pill, action button, and
+            // feather on one midline, and cards without a button keep the
+            // same title position as cards with one.
+            HStack {
                 IssueTypePill(type: issue.type)
                 Spacer()
                 if let availableAction {
@@ -56,6 +59,7 @@ struct IssueCardView: View {
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
+            .frame(height: 24)
 
             Text(issue.title)
                 .font(.title3.weight(.semibold))

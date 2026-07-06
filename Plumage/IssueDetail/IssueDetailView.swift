@@ -47,6 +47,8 @@ struct IssueDetailView: View {
     @Environment(\.issueTypeCatalog) private var issueTypeCatalog
     @Environment(ProjectKanbanModel.self) private var kanban
     @Environment(RunStatusModel.self) private var runStatus
+    @AppStorage(ChatButtonPlacement.storageKey) private var chatButtonPlacement: ChatButtonPlacement =
+        .floating
 
     init(projectURL: URL, folderName: String) {
         self.projectURL = projectURL
@@ -387,6 +389,12 @@ struct IssueDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            // 40 + the last section's own 24pt inset clears the 64pt zone of
+            // the floating chat button, so trailing content in the last row
+            // can always scroll above it.
+            .contentMargins(
+                .bottom, chatButtonPlacement == .floating ? 40 : 0, for: .scrollContent
+            )
             .task(id: model.selectedBodyTab) {
                 // Reload-on-show: PR.md changes externally (e.g.
                 // /plumage-implement just wrote it), and the tab is

@@ -1,4 +1,4 @@
-import Foundation
+import CoreGraphics
 
 // Caps the terminal inspector relative to the window: an absolute-width sash
 // range let the inspector crush the detail column (unreadable status bar) and

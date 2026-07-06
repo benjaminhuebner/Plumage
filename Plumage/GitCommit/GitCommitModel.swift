@@ -144,12 +144,6 @@ final class GitCommitModel {
             }
             loadState = .loaded
             reloadDiff()
-        } catch let error as GitCommandError {
-            if Task.isCancelled { return }
-            loadState = .error(error.displayMessage)
-        } catch let error as GitStatusError {
-            if Task.isCancelled { return }
-            loadState = .error(error.displayMessage)
         } catch {
             if Task.isCancelled { return }
             loadState = .error(error.localizedDescription)
@@ -225,12 +219,6 @@ final class GitCommitModel {
             }
             try await commitRunner.commit(repoURL: repoURL, message: messageForCommit)
             commitState = .done
-        } catch let error as GitCommandError {
-            commitState = .error(error.displayMessage)
-        } catch let error as GitStageError {
-            commitState = .error(error.displayMessage)
-        } catch let error as GitCommitError {
-            commitState = .error(error.displayMessage)
         } catch {
             commitState = .error(error.localizedDescription)
         }

@@ -260,10 +260,7 @@ struct ProjectSettingsView: View {
             }
             WorkflowCommandEditor(
                 text: binding,
-                catalog: issueTypeCatalog,
-                onPlaceholderInsert: { placeholder in
-                    insertPlaceholder(placeholder, into: binding)
-                }
+                catalog: issueTypeCatalog
             )
             .frame(minHeight: WorkflowCommandEditor.minHeight)
             .background(Color(nsColor: .textBackgroundColor))

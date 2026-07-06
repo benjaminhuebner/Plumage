@@ -26,10 +26,10 @@ nonisolated struct GitFileStatus: Sendable, Equatable, Hashable, Identifiable {
     }
 }
 
-nonisolated enum GitStatusError: Error, Sendable, Equatable {
+nonisolated enum GitStatusError: LocalizedError, Sendable, Equatable {
     case malformedOutput(String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .malformedOutput(let detail):
             return "git status output malformed: \(detail)"

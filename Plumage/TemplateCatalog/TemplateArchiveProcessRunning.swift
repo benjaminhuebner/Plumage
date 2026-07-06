@@ -8,10 +8,10 @@ nonisolated struct TemplateArchiveSpawnResult: Sendable, Equatable {
     let stderr: Data
 }
 
-nonisolated enum TemplateArchiveProcessRunnerError: Error, Sendable, Equatable {
+nonisolated enum TemplateArchiveProcessRunnerError: LocalizedError, Sendable, Equatable {
     case spawnFailed(String)
 
-    var displayMessage: String {
+    var errorDescription: String? {
         switch self {
         case .spawnFailed(let description):
             return "Failed to launch archive tool: \(description)"

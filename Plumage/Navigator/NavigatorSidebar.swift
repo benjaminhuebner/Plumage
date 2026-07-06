@@ -50,14 +50,9 @@ struct NavigatorSidebar: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             projectSettingsRow
         }
-        // Derived isPresented binding is the standard confirmationDialog
-        // shape; the model owns the actual pending state.
         .confirmationDialog(
             navigator.pendingTrashTitle,
-            isPresented: Binding(
-                get: { navigator.pendingTrash != nil },
-                set: { if !$0 { navigator.cancelPendingTrash() } }
-            )
+            isPresented: navigator.pendingTrashDialogBinding
         ) {
             Button("Move to Trash", role: .destructive) {
                 Task { await navigator.confirmPendingTrash(projectURL: projectURL) }
@@ -199,7 +194,9 @@ struct NavigatorSidebar: View {
     // remaining height; in a too-small sidebar the VStack splits fairly and
     // the List scrolls internally.
     private var listHeightEstimate: CGFloat {
-        let rowHeight: CGFloat = 28
+        // 32, not 28: the sidebar row pitch grew with a macOS 26.x update;
+        // 28 clipped the last pinned row under the Files header.
+        let rowHeight: CGFloat = 32
         let headerHeight: CGFloat = 34
         var height: CGFloat = headerHeight + rowHeight + 4 * rowHeight + rowHeight
         for column in IssueColumn.allCases where expansionBinding(for: column).wrappedValue {

@@ -9,12 +9,6 @@ enum FinderFileTreeStyle {
 nonisolated enum FileTreeDropPayload: Equatable, Sendable {
     case internalMove([URL])
     case finderCopy([URL])
-
-    var urls: [URL] {
-        switch self {
-        case .internalMove(let urls), .finderCopy(let urls): return urls
-        }
-    }
 }
 
 struct FileTreeRevealRequest: Equatable {

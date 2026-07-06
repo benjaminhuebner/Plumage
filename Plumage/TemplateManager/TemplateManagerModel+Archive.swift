@@ -42,9 +42,6 @@ extension TemplateManagerModel {
     }
 
     static func archiveErrorMessage(_ error: any Error) -> String {
-        if let known = error as? TemplateArchiveProcessRunnerError {
-            return known.displayMessage
-        }
-        return error.localizedDescription
+        error.localizedDescription
     }
 }

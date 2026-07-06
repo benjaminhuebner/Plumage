@@ -14,17 +14,11 @@ nonisolated final class MockGitProcessStreamer: GitProcessStreaming, @unchecked 
 
     private struct State: Sendable {
         var scripts: [[String]: [Script]] = [:]
-        var error: GitProcessRunnerError?
         var calls: [[String]] = []
         var environments: [[String: String]?] = []
     }
 
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
-
-    var error: GitProcessRunnerError? {
-        get { lock.withLock { $0.error } }
-        set { lock.withLock { $0.error = newValue } }
-    }
 
     var calls: [[String]] {
         lock.withLock { $0.calls }
@@ -51,17 +45,15 @@ nonisolated final class MockGitProcessStreamer: GitProcessStreaming, @unchecked 
         cwd: URL?,
         environment: [String: String]?
     ) async throws -> (AsyncStream<GitStreamLine>, () async -> GitStreamOutcome) {
-        let pulled: (script: Script?, error: GitProcessRunnerError?) = lock.withLock { state in
+        let pulled: Script? = lock.withLock { state in
             state.calls.append(args)
             state.environments.append(environment)
-            if let err = state.error { return (nil, err) }
             var queue = state.scripts[args] ?? []
             let head = queue.isEmpty ? nil : queue.removeFirst()
             state.scripts[args] = queue
-            return (head, nil)
+            return head
         }
-        if let err = pulled.error { throw err }
-        let script = pulled.script ?? Script(lines: [], exitCode: 0)
+        let script = pulled ?? Script(lines: [], exitCode: 0)
 
         let (stream, cont) = AsyncStream<GitStreamLine>.makeStream()
         for line in script.lines { cont.yield(line) }

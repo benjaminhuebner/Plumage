@@ -22,7 +22,9 @@ struct InvalidIssueCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
+            // Same fixed header height as IssueCardView so titles align
+            // across valid and invalid cards.
+            HStack {
                 invalidPill
                 Spacer()
                 Image("FeatherGlyph")
@@ -32,6 +34,7 @@ struct InvalidIssueCardView: View {
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
+            .frame(height: 24)
 
             Text(parts.slug)
                 .font(.title3.weight(.semibold))

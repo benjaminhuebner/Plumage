@@ -74,7 +74,10 @@ struct GitRemoteAddRunnerTests {
         let args = ["-C", repo.path, "remote", "add", "origin", "https://github.com/o/r.git"]
         mock.exitCodeForArgs[args] = 3
         mock.stderrForArgs[args] = "error: remote origin already exists."
-        await #expect(throws: GitRemoteAddError.self) {
+        await #expect(
+            throws: GitCommandError.nonZeroExit(
+                command: "git remote add", code: 3, stderr: "error: remote origin already exists.")
+        ) {
             try await makeRunner(mock).addRemote(
                 name: "origin", url: "https://github.com/o/r.git", repoURL: repo)
         }
@@ -83,7 +86,7 @@ struct GitRemoteAddRunnerTests {
     @Test("a missing git binary surfaces gitNotFound")
     func missingBinary() async {
         let runner = GitRemoteAddRunner(runner: MockGitProcessRunner(), resolveBinary: { nil })
-        await #expect(throws: GitRemoteAddError.gitNotFound) {
+        await #expect(throws: GitCommandError.gitNotFound) {
             try await runner.addRemote(name: "origin", url: "https://github.com/o/r.git", repoURL: repo)
         }
     }
@@ -92,7 +95,7 @@ struct GitRemoteAddRunnerTests {
     func spawnFailureMapped() async {
         let mock = MockGitProcessRunner()
         mock.error = .spawnFailed("boom")
-        await #expect(throws: GitRemoteAddError.spawnFailed("boom")) {
+        await #expect(throws: GitCommandError.spawnFailed("boom")) {
             try await makeRunner(mock).addRemote(
                 name: "origin", url: "https://github.com/o/r.git", repoURL: repo)
         }
