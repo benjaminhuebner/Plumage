@@ -201,7 +201,7 @@ struct TemplateManagerArchiveImportTests {
 
         let model = makeModel(root)
         await model.load()
-        let accepted = model.importDropped(urls: [archive])
+        let accepted = model.importDropped(urls: [archive], intoStoreDir: model.activeScope.storageRoot)
         #expect(accepted)
         await model.archiveImportTask?.value
 

@@ -194,7 +194,7 @@ struct TemplateManagerScopeAddTests {
         ctx.model.selection = .sharedComponent("swift-shared")
         ctx.model.refreshContent()
         let filesBefore = ctx.model.catalog.sharedComponent(id: "swift-shared")?.files
-        _ = ctx.model.importDropped(urls: [script])
+        _ = ctx.model.importDropped(urls: [script], intoStoreDir: ctx.model.activeScope.storageRoot)
 
         #expect(ctx.model.overrides.hasOverride(forRelative: "components/swift-shared/hooks/dropped.sh"))
         #expect(!ctx.model.overrides.hasOverride(forRelative: "hooks/dropped.sh"))
@@ -306,7 +306,7 @@ struct TemplateManagerScopeAddTests {
 
         ctx.model.selection = .sharedComponent("swift-shared")
         ctx.model.refreshContent()
-        _ = ctx.model.importDropped(urls: [skill])
+        _ = ctx.model.importDropped(urls: [skill], intoStoreDir: ctx.model.activeScope.storageRoot)
 
         #expect(
             ctx.model.overrides.hasOverride(

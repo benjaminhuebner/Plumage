@@ -37,15 +37,13 @@ struct TemplateManagerImportReentryTests {
         ctx.model.selection = .base
         ctx.model.refreshContent()
 
-        ctx.model.selectedFile = nil
         let first = try writeFile("first.md", in: ctx.source)
-        #expect(ctx.model.importDropped(urls: [first]))
+        #expect(ctx.model.importDropped(urls: [first], intoStoreDir: ctx.model.activeScope.storageRoot))
         #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: "first.md").path))
 
         // The exact symptom of the fixed bug: the second drop did nothing. It must import now.
-        ctx.model.selectedFile = nil
         let second = try writeFile("second.md", in: ctx.source)
-        #expect(ctx.model.importDropped(urls: [second]))
+        #expect(ctx.model.importDropped(urls: [second], intoStoreDir: ctx.model.activeScope.storageRoot))
         #expect(FileManager.default.fileExists(atPath: ctx.override.appending(path: "second.md").path))
 
         let names = Set(TemplateManagerModel.flattenLeaves(ctx.model.contentTree).map(\.name))
@@ -60,12 +58,10 @@ struct TemplateManagerImportReentryTests {
         ctx.model.selection = .template("macOS")
         ctx.model.refreshContent()
 
-        ctx.model.selectedFile = nil
         let first = try writeFile("a.md", in: ctx.source)
-        #expect(ctx.model.importDropped(urls: [first]))
-        ctx.model.selectedFile = nil
+        #expect(ctx.model.importDropped(urls: [first], intoStoreDir: ctx.model.activeScope.storageRoot))
         let second = try writeFile("b.md", in: ctx.source)
-        #expect(ctx.model.importDropped(urls: [second]))
+        #expect(ctx.model.importDropped(urls: [second], intoStoreDir: ctx.model.activeScope.storageRoot))
 
         #expect(
             FileManager.default.fileExists(

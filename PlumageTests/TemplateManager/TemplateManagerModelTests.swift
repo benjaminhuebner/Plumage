@@ -260,8 +260,8 @@ struct TemplateManagerModelTests {
         return (root, { try? fm.removeItem(at: root) })
     }
 
-    @Test("Drop imports any file (incl. unknown types) into the selected folder; skills route to skills/")
-    func dropImportsAnyFileIntoSelectedFolder() throws {
+    @Test("Drop imports any file (incl. unknown types) into the drop-target folder; skills route to skills/")
+    func dropImportsAnyFileIntoTargetFolder() throws {
         let ctx = try makeModel()
         defer { ctx.cleanup() }
         let src = try makeSourceTree()
@@ -269,12 +269,11 @@ struct TemplateManagerModelTests {
         try ctx.model.overrides.writeOverride("# Guide", toRelative: "docs/guide.md")
         ctx.model.selection = .base
         ctx.model.refreshContent()
-        // Drop target = the selected .claude/docs folder.
-        ctx.model.selectedFile = TemplateManagerModel.findNode(
-            in: ctx.model.contentTree, relativePath: ".claude/docs")
+        let target = try #require(
+            TemplateManagerModel.findNode(in: ctx.model.contentTree, relativePath: ".claude/docs"))
         let urls = ["hook.sh", "note.md", "myskill", "bad.txt"].map { src.root.appending(path: $0) }
 
-        let imported = ctx.model.importDropped(urls: urls)
+        let imported = ctx.model.importDropped(urls: urls, into: target)
 
         #expect(imported)
         // Everything lands in the selected folder — including the formerly-rejected .txt.
@@ -328,10 +327,10 @@ struct TemplateManagerModelTests {
         try ctx.model.overrides.writeOverride("existing", toRelative: "docs/note.md")
         ctx.model.selection = .base
         ctx.model.refreshContent()
-        ctx.model.selectedFile = TemplateManagerModel.findNode(
-            in: ctx.model.contentTree, relativePath: ".claude/docs")
+        let target = try #require(
+            TemplateManagerModel.findNode(in: ctx.model.contentTree, relativePath: ".claude/docs"))
 
-        _ = ctx.model.importDropped(urls: [src.root.appending(path: "note.md")])
+        _ = ctx.model.importDropped(urls: [src.root.appending(path: "note.md")], into: target)
 
         #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note.md"))
         #expect(ctx.model.overrides.hasOverride(forRelative: "docs/note-1.md"))

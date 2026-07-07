@@ -576,8 +576,9 @@ final class TemplateManagerModel {
     // Import Finder files/folders by copy, with suffix-on-collision and containment
     // validation. A dropped folder with a top-level `SKILL.md` is treated as a skill
     // (routed to `skills/`) so it scaffolds correctly. Returns whether anything imported.
+    // The target is the drop location — never the selection, invisible while dragging.
     @discardableResult
-    func importDropped(urls: [URL], into target: FileNode? = nil) -> Bool {
+    func importDropped(urls: [URL], into target: FileNode) -> Bool {
         importDropped(urls: urls, intoStoreDir: addTargetStorageDir(for: target))
     }
 

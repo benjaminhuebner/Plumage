@@ -7,6 +7,7 @@ import SwiftUI
 struct TemplateContentColumn: View {
     @Bindable var model: TemplateManagerModel
     @State private var addKind: UserTemplateKind?
+    @State private var treeCoordinatorHandle = FinderFileTreeCoordinatorHandle()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,10 +19,9 @@ struct TemplateContentColumn: View {
                 .modifier(FinderImportDrop(model: model))
         }
         // Finder import runs through a click-transparent AppKit overlay: the outline
-        // below loses cross-process drops after a relayout (see ImportDropCatcher).
-        .overlay {
-            ImportDropCatcher(onImport: { urls, _ in _ = model.importDropped(urls: urls) })
-        }
+        // below loses cross-process drops after a relayout (see ImportDropCatcher),
+        // so the overlay resolves the drop folder and drives the highlight itself.
+        .overlay { importDropCatcher }
         .overlay(alignment: .bottom) {
             if let banner = model.dropBanner {
                 Text(banner)
@@ -84,6 +84,32 @@ struct TemplateContentColumn: View {
         } message: {
             Text("The selected items will be moved to the Trash.")
         }
+    }
+
+    private var importDropCatcher: some View {
+        ImportDropCatcher(
+            onImport: { urls, point in
+                if let folder = importTarget(atWindowPoint: point) {
+                    _ = model.importDropped(urls: urls, into: folder)
+                } else {
+                    _ = model.importDropped(urls: urls, intoStoreDir: model.activeScope.storageRoot)
+                }
+            },
+            onDragChange: { point in
+                treeCoordinatorHandle.coordinator?
+                    .updateImportHighlight(target: importTarget(atWindowPoint: point))
+                return .copy
+            },
+            onDragExit: {
+                treeCoordinatorHandle.coordinator?.updateImportHighlight(target: nil)
+            }
+        )
+    }
+
+    // nil (file at root, or outside the tree) imports at the scope root —
+    // Finder's background-drop semantics.
+    private func importTarget(atWindowPoint point: NSPoint) -> FileNode? {
+        treeCoordinatorHandle.coordinator?.folderTarget(atWindowPoint: point)
     }
 
     @ViewBuilder
@@ -168,14 +194,10 @@ struct TemplateContentColumn: View {
                         urls: urls, intoStoreDir: model.activeScope.storageRoot)
                 }
             },
+            coordinatorHandle: treeCoordinatorHandle,
             onSelect: { node in model.selectedFile = node },
             rowContent: { node in
-                TemplateContentRow(
-                    model: model, node: node,
-                    needsWiring: node.isDirectory
-                        ? model.aggregateNeedsWiring(node) : model.needsWiring(node),
-                    overridden: node.isDirectory
-                        ? model.aggregateOverridden(node) : model.isOverridden(node))
+                TemplateContentRow(model: model, node: node)
             }
         )
     }
@@ -224,8 +246,16 @@ struct TemplateContentColumn: View {
 private struct TemplateContentRow: View {
     let model: TemplateManagerModel
     let node: FileNode
-    let needsWiring: Bool
-    let overridden: Bool
+
+    // Read in `body` (not passed in precomputed) so the hosted row re-renders when the
+    // marker sets change without a tree reload — e.g. wiring a hook clears its ⚠ live.
+    private var needsWiring: Bool {
+        node.isDirectory ? model.aggregateNeedsWiring(node) : model.needsWiring(node)
+    }
+
+    private var overridden: Bool {
+        node.isDirectory ? model.aggregateOverridden(node) : model.isOverridden(node)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -264,7 +294,8 @@ private struct TemplateContentRow: View {
 }
 
 // Internal tree drags also carry a file URL — they must never degrade into
-// a Finder-style copy when they end on an import zone.
+// a Finder-style copy when they end on an import zone. Zones outside the tree
+// import at the scope root, never relative to the (invisible) selection.
 private struct FinderImportDrop: ViewModifier {
     let model: TemplateManagerModel
 
@@ -275,7 +306,7 @@ private struct FinderImportDrop: ViewModifier {
                 return nil
             }
             guard !urls.isEmpty, urls.count == items.count else { return false }
-            return model.importDropped(urls: urls)
+            return model.importDropped(urls: urls, intoStoreDir: model.activeScope.storageRoot)
         }
     }
 }
